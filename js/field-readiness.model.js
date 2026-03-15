@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-03-15c-fix-zero-eta-drynow-gate
+Rev: 2026-03-15d-eta-start-from-latest-readiness-truth
 
 OPTION 1 (per Dane):
 ✅ Model owns ETA and computes it from the SAME truth-seeded run + SAME physics.
@@ -15,14 +15,13 @@ THIS REV:
    - very full / saturated profile dries down slower
    - mid-range profile dries down faster
    - very dry tail still slows down as before
-✅ This better matches:
-   - dry sponge = rain causes a short setback, then recovery can resume quicker
-   - full sponge = same rain lingers longer and slows readiness recovery
 ✅ ETA can start from centralized field_readiness_latest truth
    when deps.getEtaSeedForFieldId(fieldId) is available
-✅ FIX: dryNow / 0h ETA now uses centralized latest readiness as authority
-   so below-threshold tiles no longer collapse to 0h
-✅ FIX: if centralized latest readiness is below threshold, ETA cannot return 0h
+✅ FIX: ETA now PRIORITIZES latest Firestore readiness truth as the starting state
+✅ FIX: when latest readiness is below the operation threshold, ETA will simulate
+   forward from that same below-threshold state instead of collapsing to 0h
+✅ FIX: authoritative readiness is converted back into a matching starting storage
+   so the ETA sim starts from the same truth the tile shows
 
 TUNING NOTES FOR NEXT TIME:
 - WET_HOLD_START:
@@ -568,6 +567,24 @@ function computeReadinessFromStorage(storagePhys, f, deps){
   };
 }
 
+function deriveStoragePhysFromAuthoritativeReadiness(readinessValue, f, deps){
+  const readiness = safeNum(readinessValue, null);
+  if (!Number.isFinite(readiness)) return null;
+
+  const wetness = clamp(100 - readiness, 0, 100);
+  const storageForReadiness = (wetness / 100) * f.Smax;
+
+  const creditIn = signedCreditInchesFromSmax(f.Smax);
+  const storageEff = clamp(storageForReadiness + creditIn, 0, f.Smax);
+
+  // applyCalToStorage() uses a storage delta that depends only on deps + Smax,
+  // so we can invert it by evaluating the same delta at 0.
+  const calAtZero = applyCalToStorage(0, f.Smax, deps);
+  const storageDeltaApplied = safeNum(calAtZero && calAtZero.storageDeltaApplied, 0);
+
+  return clamp(storageEff - storageDeltaApplied, 0, f.Smax);
+}
+
 function buildEtaNowStateFromSeed(run, f, deps, fieldId){
   try{
     const seed = getEtaSeed(deps, fieldId);
@@ -575,16 +592,24 @@ function buildEtaNowStateFromSeed(run, f, deps, fieldId){
 
     const authoritativeReadiness = safeNum(seed.readiness, null);
 
-    let storagePhys = safeNum(seed.storagePhysFinal, null);
+    // PRIORITY ORDER:
+    // 1) derive starting storage from authoritative latest readiness
+    //    so ETA starts from the same truth the tile shows
+    // 2) else trust explicit physical storage from latest doc
+    // 3) else best-effort from effective storage
+    // 4) else fallback to runField physical storage
+    let storagePhys = deriveStoragePhysFromAuthoritativeReadiness(authoritativeReadiness, f, deps);
 
-    // Only trust explicit physical storage directly.
-    // Do NOT reconstruct physical storage aggressively from readiness,
-    // because that can falsely trip the dryNow gate.
+    if (!Number.isFinite(storagePhys)){
+      storagePhys = safeNum(seed.storagePhysFinal, null);
+      if (Number.isFinite(storagePhys)){
+        storagePhys = clamp(storagePhys, 0, f.Smax);
+      }
+    }
+
     if (!Number.isFinite(storagePhys)){
       const storageEffMaybe = safeNum(seed.storageFinal, null);
       if (Number.isFinite(storageEffMaybe)){
-        // Best-effort only when no better physical storage exists:
-        // remove the current calibration delta from stored effective storage.
         const calAtZero = applyCalToStorage(0, f.Smax, deps);
         const storageDeltaApplied = safeNum(calAtZero && calAtZero.storageDeltaApplied, 0);
         storagePhys = clamp(storageEffMaybe - storageDeltaApplied, 0, f.Smax);
@@ -769,8 +794,7 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
 
     const derivedNowR = computeReadinessFromStorage(storagePhys, f, deps).readiness;
 
-    // Centralized latest readiness is the authority for the dryNow gate.
-    // If latest says we're below threshold, ETA must not return 0h.
+    // Firestore latest readiness is the authority for the dryNow gate.
     const dryNowGateR = Number.isFinite(authoritativeNowR)
       ? authoritativeNowR
       : derivedNowR;
@@ -779,15 +803,13 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
       return { ok:true, status:'dryNow', hours:0, text:'' };
     }
 
-    // Start interpolation from the authoritative latest readiness when present.
-    // This keeps the displayed ETA aligned with the tile number.
+    // Start interpolation from the same latest readiness truth the tile uses.
     let prevR = Number.isFinite(authoritativeNowR)
       ? authoritativeNowR
       : derivedNowR;
 
     let prevT = 0;
 
-    // Extra guard: below-threshold latest readiness can never start at/over threshold.
     if (prevR >= thr){
       prevR = Math.max(0, thr - 1);
     }
@@ -850,14 +872,14 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
         const fracCross = denom <= 1e-6 ? 1 : clamp((thr - prevR) / denom, 0, 1);
         let eta = prevT + fracCross * (tHours - prevT);
 
-        // If the field was below threshold at the start, do not emit 0h.
         if (eta <= 0 && prevT === 0 && Number(dryNowGateR) < thr){
           eta = 1;
         }
 
         const hrs = Math.max(0, Math.round(eta));
+        const outHrs = Math.max(1, hrs);
 
-        if (hrs <= H) return { ok:true, status:'within', hours:Math.max(1, hrs), text:`~${Math.max(1, hrs)}h` };
+        if (outHrs <= H) return { ok:true, status:'within', hours:outHrs, text:`~${outHrs}h` };
         return { ok:true, status:'beyond', hours:null, text:`>${Math.round(H)}h` };
       }
 
