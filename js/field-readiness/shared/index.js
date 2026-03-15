@@ -1,19 +1,26 @@
 // /js/field-readiness/shared/index.js  (FULL FILE)
 // FarmVista Readiness Rebuilder (Cloud Run)
-// Rev: 2026-03-15h-readiness-only-parity-rebuild
+// Rev: 2026-03-15i-include-new-fields-and-write-placeholders
 //
 // PURPOSE:
 // ✅ DOES NOT fetch Open-Meteo
 // ✅ DOES NOT write field_weather_cache
 // ✅ ONLY rebuilds field_readiness_latest
-// ✅ Uses existing field_weather_cache as input
+// ✅ Uses existing field_weather_cache as primary input
 // ✅ Uses MRMS overlay when ready
 // ✅ Uses persisted truth from field_readiness_state
 // ✅ Uses same field param paths as frontend
 // ✅ Uses shared readiness core from readiness-core-shared.cjs
+// ✅ FIX: iterates ALL active fields, not only weather-cache docs
+// ✅ FIX: new fields with lat/lng now get written into field_readiness_latest
+// ✅ FIX: if weather cache is missing but persisted truth exists, writes provisional readiness
+// ✅ FIX: if both are missing, writes placeholder row so field is not invisible
 //
 const express = require("express");
-const { runFieldReadinessCore } = require("./readiness-core-shared.cjs");
+const {
+  runFieldReadinessCore,
+  runReadinessFromPersistedStateOnly
+} = require("./readiness-core-shared.cjs");
 
 const app = express();
 app.disable("x-powered-by");
@@ -380,6 +387,25 @@ async function loadPersistedStateMap(){
 }
 
 /* =====================================================================
+   Weather cache
+===================================================================== */
+async function loadWeatherCacheMap(){
+  const db = getFirestore();
+  const out = new Map();
+
+  try{
+    const snap = await db.collection(WEATHER_CACHE_COLLECTION).get();
+    snap.forEach(docSnap => {
+      out.set(String(docSnap.id), docSnap.data() || {});
+    });
+  }catch(e){
+    console.warn("[Readiness] loadWeatherCacheMap failed:", e?.message || e);
+  }
+
+  return out;
+}
+
+/* =====================================================================
    MRMS overlay
 ===================================================================== */
 function toYMDLocal(d){
@@ -531,6 +557,38 @@ function buildModelWeatherRowsForServer(wxDoc, mrmsDoc){
 }
 
 /* =====================================================================
+   Field metadata base
+===================================================================== */
+function buildBaseLatestDoc({
+  fieldId,
+  fieldData,
+  fieldLocation,
+  wxDoc,
+  runKey,
+  timezone
+}){
+  const fd = fieldData || {};
+  const wx = wxDoc || {};
+
+  return {
+    fieldId: String(fieldId),
+    fieldName: safeStr(fd.name || wx.fieldName || null) || null,
+    farmId: fd.farmId || wx.farmId || null,
+    farmName: fd.farmName || wx.farmName || null,
+    county: fd.county || null,
+    state: fd.state || null,
+    location: fieldLocation || wx.location || null,
+    soilWetness: Number.isFinite(Number(fd.soilWetness)) ? Number(fd.soilWetness) : null,
+    drainageIndex: Number.isFinite(Number(fd.drainageIndex)) ? Number(fd.drainageIndex) : null,
+    weatherFetchedAt: wx.fetchedAt || null,
+    weatherSource: wx.source || null,
+    runKey,
+    timezone,
+    computedAt: _admin.firestore.FieldValue.serverTimestamp()
+  };
+}
+
+/* =====================================================================
    Main writer
 ===================================================================== */
 async function writeReadinessLatest(runKey, timezone){
@@ -539,37 +597,30 @@ async function writeReadinessLatest(runKey, timezone){
   const DEFAULT_SOIL = 60;
   const DEFAULT_DRAIN = 45;
 
-  const [fieldsMap, persistedMap, mrmsMap] = await Promise.all([
+  const [fieldsMap, persistedMap, mrmsMap, wxMap] = await Promise.all([
     loadActiveFieldsMap(),
     loadPersistedStateMap(),
-    loadMrmsDocMap()
+    loadMrmsDocMap(),
+    loadWeatherCacheMap()
   ]);
-
-  const wxSnap = await db.collection(WEATHER_CACHE_COLLECTION).get();
 
   let batch = db.batch();
   let writes = 0;
   let ok = 0;
   let fail = 0;
   let skippedNoWeather = 0;
+  let placeholderOnly = 0;
+  let provisionalFromPersisted = 0;
+  let totalFields = 0;
 
-  for (const docSnap of wxSnap.docs){
-    const fieldId = String(docSnap.id);
-    const wx = docSnap.data() || {};
-    const fieldRow = fieldsMap.get(fieldId) || null;
+  for (const [fieldId, fieldRow] of fieldsMap.entries()){
+    totalFields++;
+
     const fd = fieldRow ? (fieldRow.data || {}) : {};
+    const wx = wxMap.get(fieldId) || null;
+    const persistedState = persistedMap.get(fieldId) || null;
 
     try{
-      let weatherRows = buildModelWeatherRowsForServer(
-        wx,
-        mrmsMap.get(fieldId) || null
-      );
-
-      if (!weatherRows.length){
-        skippedNoWeather++;
-        continue;
-      }
-
       const extractedParams = extractFieldParamsLikeFrontend(fd);
 
       const soilWetness = Number.isFinite(Number(extractedParams.soilWetness))
@@ -580,58 +631,114 @@ async function writeReadinessLatest(runKey, timezone){
         ? Number(extractedParams.drainageIndex)
         : DEFAULT_DRAIN;
 
-      const persistedState = persistedMap.get(fieldId) || null;
+      const outRef = db.collection(READINESS_LATEST_COLLECTION).doc(fieldId);
+      const baseDoc = buildBaseLatestDoc({
+        fieldId,
+        fieldData: fd,
+        fieldLocation: fieldRow?.location || null,
+        wxDoc: wx,
+        runKey,
+        timezone
+      });
 
-      const snapshot = runFieldReadinessCore(
-        weatherRows,
-        soilWetness,
-        drainageIndex,
-        persistedState,
-        {
-          extra: EXTRA,
-          tune: FV_TUNE,
-          lossScale: LOSS_SCALE,
-          includeTrace: false
-        }
+      const weatherRows = buildModelWeatherRowsForServer(
+        wx,
+        mrmsMap.get(fieldId) || null
       );
 
-      if (!snapshot || !Number.isFinite(Number(snapshot.readinessR))){
-        fail++;
-        continue;
+      // PRIMARY PATH: full weather-based readiness
+      if (weatherRows.length){
+        const snapshot = runFieldReadinessCore(
+          weatherRows,
+          soilWetness,
+          drainageIndex,
+          persistedState,
+          {
+            extra: EXTRA,
+            tune: FV_TUNE,
+            lossScale: LOSS_SCALE,
+            includeTrace: false
+          }
+        );
+
+        if (!snapshot || !Number.isFinite(Number(snapshot.readinessR))){
+          fail++;
+          continue;
+        }
+
+        batch.set(outRef, {
+          ...baseDoc,
+          readiness: Number(snapshot.readinessR),
+          wetness: Number(snapshot.wetnessR),
+          storageFinal: Number(snapshot.storageFinal),
+          storagePhysFinal: Number(snapshot.storagePhysFinal),
+          readinessCreditIn: Number(snapshot.readinessCreditIn || 0),
+          storageForReadiness: Number(snapshot.storageForReadiness || 0),
+          soilWetness,
+          drainageIndex,
+          seedSource: snapshot.seedSource,
+          status: "ready"
+        }, { merge: true });
+
+        writes++;
+        ok++;
       }
+      // SECONDARY PATH: no weather cache, but persisted truth exists
+      else if (persistedState && Number.isFinite(Number(persistedState.storageFinal))){
+        const snapshot = runReadinessFromPersistedStateOnly(
+          soilWetness,
+          drainageIndex,
+          persistedState,
+          {
+            extra: EXTRA
+          }
+        );
 
-      const outRef = db.collection(READINESS_LATEST_COLLECTION).doc(fieldId);
+        if (!snapshot || !Number.isFinite(Number(snapshot.readinessR))){
+          fail++;
+          continue;
+        }
 
-      batch.set(outRef, {
-        fieldId,
-        fieldName: safeStr(fd.name || wx.fieldName || null) || null,
-        farmId: fd.farmId || wx.farmId || null,
-        farmName: fd.farmName || wx.farmName || null,
-        county: fd.county || null,
-        state: fd.state || null,
-        location: fieldRow?.location || wx.location || null,
+        batch.set(outRef, {
+          ...baseDoc,
+          readiness: Number(snapshot.readinessR),
+          wetness: Number(snapshot.wetnessR),
+          storageFinal: Number(snapshot.storageFinal),
+          storagePhysFinal: Number(snapshot.storagePhysFinal),
+          readinessCreditIn: Number(snapshot.readinessCreditIn || 0),
+          storageForReadiness: Number(snapshot.storageForReadiness || 0),
+          soilWetness,
+          drainageIndex,
+          seedSource: "persisted-state-only",
+          status: "provisional_no_weather_cache",
+          reason: "Missing field_weather_cache; using persisted truth only."
+        }, { merge: true });
 
-        readiness: Number(snapshot.readinessR),
-        wetness: Number(snapshot.wetnessR),
-        storageFinal: Number(snapshot.storageFinal),
-        storagePhysFinal: Number(snapshot.storagePhysFinal),
-        readinessCreditIn: Number(snapshot.readinessCreditIn || 0),
-        storageForReadiness: Number(snapshot.storageForReadiness || 0),
+        writes++;
+        ok++;
+        provisionalFromPersisted++;
+      }
+      // LAST PATH: create placeholder doc so new field is visible in collection
+      else {
+        batch.set(outRef, {
+          ...baseDoc,
+          readiness: null,
+          wetness: null,
+          storageFinal: null,
+          storagePhysFinal: null,
+          readinessCreditIn: null,
+          storageForReadiness: null,
+          soilWetness,
+          drainageIndex,
+          seedSource: null,
+          status: "waiting_for_weather_cache",
+          reason: "Field exists, but no field_weather_cache and no persisted truth are available yet."
+        }, { merge: true });
 
-        soilWetness,
-        drainageIndex,
-
-        seedSource: snapshot.seedSource,
-        weatherFetchedAt: wx.fetchedAt || null,
-        weatherSource: wx.source || null,
-
-        runKey,
-        timezone,
-        computedAt: _admin.firestore.FieldValue.serverTimestamp()
-      }, { merge: true });
-
-      writes++;
-      ok++;
+        writes++;
+        skippedNoWeather++;
+        placeholderOnly++;
+      }
 
       if (writes >= 400){
         await batch.commit();
@@ -652,7 +759,10 @@ async function writeReadinessLatest(runKey, timezone){
     ok,
     fail,
     skippedNoWeather,
-    weatherDocs: wxSnap.size
+    placeholderOnly,
+    provisionalFromPersisted,
+    totalFields,
+    weatherDocs: wxMap.size
   };
 }
 
@@ -678,6 +788,9 @@ app.get("/", async (req, res) => {
           fieldsOk: readiness.ok,
           fieldsFail: readiness.fail,
           skippedNoWeather: readiness.skippedNoWeather,
+          placeholderOnly: readiness.placeholderOnly,
+          provisionalFromPersisted: readiness.provisionalFromPersisted,
+          totalFields: readiness.totalFields,
           weatherDocs: readiness.weatherDocs
         }, { merge: true });
       } else {
