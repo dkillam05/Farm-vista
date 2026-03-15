@@ -103,10 +103,14 @@ export async function renderRain(force = false){
   const cacheKey = `rain:${appState.currentRangeKey}:${getSelectedFarmId() || '__all__'}:${blendRadiusMeters()}`;
   const cached = !force ? getCachedRangeResult(cacheKey) : null;
 
+  // ✅ Do NOT blank the map first if cached data exists
   if (cached && Array.isArray(cached.points) && cached.points.length){
     try{
       applyCachedRain(cached);
       setStatus('Cached');
+      setDebug(
+        `cached rain • range=${getCurrentRangeDisplay()} • fields=${Array.isArray(cached?.renderedFields) ? cached.renderedFields.length : 0} • points=${Array.isArray(cached?.points) ? cached.points.length : 0}`
+      );
     }catch(e){
       console.warn('[WeatherMap] cached rain draw failed:', e);
     }
@@ -182,16 +186,18 @@ export async function renderReadiness(force = false){
   const cacheKey = `readiness:${getSelectedFarmId() || '__all__'}`;
   const cached = !force ? getCachedRangeResult(cacheKey) : null;
 
+  // ✅ Do NOT blank the map first if cached data exists
   if (cached && Array.isArray(cached.renderedFields) && cached.renderedFields.length){
     try{
       applyCachedReadiness(cached);
       setStatus('Cached');
+      setDebug(`cached readiness • fields=${Array.isArray(cached?.renderedFields) ? cached.renderedFields.length : 0}`);
     }catch(e){
       console.warn('[WeatherMap] cached readiness draw failed:', e);
     }
   } else {
     setStatus('Loading…');
-    setDebug('building readiness runs…');
+    setDebug('loading readiness from Firestore…');
   }
 
   try{
@@ -212,7 +218,7 @@ export async function renderReadiness(force = false){
     cacheRangeResult(cacheKey, { summaries, renderedFields });
     drawReadinessMarkers(renderedFields);
     setStatus('Live');
-    setDebug(`readiness • fields=${renderedFields.length} • points=${renderedFields.length}`);
+    setDebug(`readiness • fields=${renderedFields.length} • markers=${renderedFields.length}`);
   }catch(e){
     console.warn('[WeatherMap] readiness render failed:', e);
 
@@ -237,9 +243,10 @@ export async function renderReadiness(force = false){
 }
 
 export async function renderActiveMode(force = false){
-  clearMapOverlays();
-  setFieldsMeta(0);
-  setPointMeta(0);
+  // ✅ IMPORTANT:
+  // Do NOT clear overlays here.
+  // Let cached mode draw immediately so the map never flashes blank.
+  // Only clear inside empty/failure reset paths.
 
   if (appState.currentMapMode === 'readiness'){
     setModeText('Readiness');
