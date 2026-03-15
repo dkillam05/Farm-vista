@@ -1,3 +1,23 @@
+/* =====================================================================
+/Farm-vista/js/rainfallmap/render-flow.js   (FULL FILE)
+Rev: 2026-03-15b-auto-reload-on-date-range-change
+
+PURPOSE
+✔ Controls rendering flow for Rainfall and Readiness map modes
+✔ Handles caching, drawing, map loading indicators, and state updates
+✔ Ensures rainfall blobs update when date range changes
+
+FIX IN THIS REV
+✔ Rainfall blobs now reload automatically when date range changes
+✔ Cache key always reflects the active date range
+✔ Cache bypass occurs when range changes so blobs don't stay on old 72h data
+✔ File clearly labeled for easier maintenance
+
+DANE NOTE
+If the user changes the time frame from the date picker, rainfall
+blobs should immediately refresh without pressing Reload.
+===================================================================== */
+
 import { appState } from './store.js';
 import {
   setStatus,
@@ -86,6 +106,7 @@ function ensureMapReadyForRender(){
 export async function renderRain(force = false){
   const requestId = ++appState.currentRequestId;
 
+  // ✔ Always sync picker state
   try{
     syncCurrentRangeFromPicker(false);
   }catch(e){
@@ -101,9 +122,14 @@ export async function renderRain(force = false){
   }
 
   const cacheKey = `rain:${appState.currentRangeKey}:${getSelectedFarmId() || '__all__'}:${blendRadiusMeters()}`;
-  const cached = !force ? getCachedRangeResult(cacheKey) : null;
 
-  // ✅ Do NOT blank the map first if cached data exists
+  const cached = (!force && appState.lastRangeKey === appState.currentRangeKey)
+    ? getCachedRangeResult(cacheKey)
+    : null;
+
+  // remember last used range
+  appState.lastRangeKey = appState.currentRangeKey;
+
   if (cached && Array.isArray(cached.points) && cached.points.length){
     try{
       applyCachedRain(cached);
@@ -126,6 +152,7 @@ export async function renderRain(force = false){
     const points = Array.isArray(res.points) ? res.points : [];
     const summaries = Array.isArray(res.summaries) ? res.summaries : [];
     const renderedFields = Array.isArray(res.renderedFields) ? res.renderedFields : [];
+
     const values = points
       .map(p => Number(p?.rainInches || 0))
       .filter(v => Number.isFinite(v));
@@ -142,6 +169,7 @@ export async function renderRain(force = false){
     }
 
     cacheRangeResult(cacheKey, { points, summaries, renderedFields, scale });
+
     drawRainBlobs(points, renderedFields, scale);
 
     const hasAnyRain = points.some(p => Number(p?.rainInches || 0) > 0);
@@ -186,7 +214,6 @@ export async function renderReadiness(force = false){
   const cacheKey = `readiness:${getSelectedFarmId() || '__all__'}`;
   const cached = !force ? getCachedRangeResult(cacheKey) : null;
 
-  // ✅ Do NOT blank the map first if cached data exists
   if (cached && Array.isArray(cached.renderedFields) && cached.renderedFields.length){
     try{
       applyCachedReadiness(cached);
@@ -243,11 +270,6 @@ export async function renderReadiness(force = false){
 }
 
 export async function renderActiveMode(force = false){
-  // ✅ IMPORTANT:
-  // Do NOT clear overlays here.
-  // Let cached mode draw immediately so the map never flashes blank.
-  // Only clear inside empty/failure reset paths.
-
   if (appState.currentMapMode === 'readiness'){
     setModeText('Readiness');
     setModeChip('Readiness Map');
