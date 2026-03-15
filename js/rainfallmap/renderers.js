@@ -1,3 +1,24 @@
+/* =====================================================================
+/Farm-vista/js/rainfallmap/renderers.js   (FULL FILE)
+Rev: 2026-03-15b-label-and-reset-tap-targets
+
+PURPOSE
+✔ Draws rainfall blobs and readiness markers on the Google Map
+✔ Updates tap targets for blob/marker hit detection
+✔ Updates legend and debug/meta text after rendering
+
+FIX IN THIS REV
+✔ File clearly labeled at top
+✔ Resets appState.lastTapTargets before each redraw
+✔ Helps prevent stale popup hit targets from older renders
+✔ Keeps current visual blob behavior intact
+
+IMPORTANT NOTE
+If rainfall values still stay stuck on old 72h dates after this,
+the most likely remaining source is builders.js, where the rainfall
+summaries/points are assembled for the selected range.
+===================================================================== */
+
 import { appState } from './store.js';
 import { setDebug, setFieldsMeta, setPointMeta } from './dom.js';
 import { toNum, colorFromGradientStops } from './utils.js';
@@ -31,6 +52,10 @@ export function blendRadiusMeters(){
 export function drawRainBlobs(points, fields, scale){
   ensureMap();
   clearMapOverlays();
+
+  // IMPORTANT:
+  // Start fresh so old tap targets/popups do not survive a redraw.
+  appState.lastTapTargets = [];
 
   const radius = blendRadiusMeters();
   updateRainLegend(scale);
@@ -105,6 +130,11 @@ export function drawRainBlobs(points, fields, scale){
 export function drawReadinessMarkers(fields){
   ensureMap();
   clearMapOverlays();
+
+  // IMPORTANT:
+  // Start fresh so old tap targets do not survive a redraw.
+  appState.lastTapTargets = [];
+
   updateReadinessLegend();
 
   const radius = blendRadiusMeters();
