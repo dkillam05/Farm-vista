@@ -1,43 +1,30 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/global-calibration.js  (FULL FILE)
-Rev: 2026-03-04a-use-formula-single-source-of-truth-keepUI
+Rev: 2026-03-15a-use-field_readiness_latest-for-shown-readiness
 
 KEEP UI (per Dane):
 ✅ Preserve the exact Rev 2026-01-22c modal look/feel (theme patch + layout + wording)
 ✅ Do NOT "redesign" the popup UI
 
-FIX LOGIC (per Dane):
-✅ Apply Adjustment now:
-   1) FORCES the reference field to the chosen target readiness (by setting its truth storage)
-   2) Computes a storage multiplier = (forcedStorageRef / currentStorageRef)
-   3) Applies that same multiplier to every other field’s truth storage (same % move)
-   4) Clamps each field to its Smax
+CENTRALIZED READINESS (THIS REV):
+✅ Uses field_readiness_latest for the readiness number shown in this modal
+✅ Anchor readiness, pills, and wet/dry status now come from field_readiness_latest
+✅ Keeps apply/reset behavior based on persisted truth storage + model reversal
+✅ Keeps existing truth writes to field_readiness_state
+✅ Keeps learning/tuning doc write
+✅ Keeps fr:soft-reload after apply/reset
 
-✅ Works with the current model reversal:
-   model.js uses dry-credit:
-     creditInches = tightness * (REV_POINTS_MAX/100) * Smax
-     storageForReadiness = clamp(storageEff - creditInches, 0..Smax)
-     wet% = (storageForReadiness/Smax)*100
-     readiness = 100 - wet%
+WHY:
+✅ Makes this page match the rest of the app when readiness is centralized
+✅ Reduces mismatch between tile numbers and global calibration popup
 
-So forcing readiness must account for that dry-credit.
+NOTES:
+- "Shown" readiness now comes from field_readiness_latest.
+- Apply still computes storage multiplier using the current modeled storage state
+  so truth-state writes continue to work correctly.
+- If a field does not yet have a field_readiness_latest doc, this file falls back
+  to the model path for display.
 
-RESET (per Dane):
-✅ Adds "Reset (rebuild) • 30 days" button
-   - Rebuilds truth storage for all fields from last ~30 days weather using seedMode:'baseline'
-   - Uses current sliders/params (field behavior), as agreed
-   - Does NOT change the UI layout (button uses same .btn style)
-
-Keeps:
-✅ 72h lockout + guardrails
-✅ Learning doc write (kept, optional)
-✅ fr:soft-reload after apply/reset
-
-CHANGES (THIS REV):
-✅ Uses /Farm-vista/js/field-readiness/formula.js for the STANDARD readiness wiring:
-   - ensureFRModules()
-   - buildFRDeps()
-✅ Reset/Rebuild still overrides EXTRA + seedMode, but starts from buildFRDeps()
 ===================================================================== */
 'use strict';
 
@@ -63,6 +50,12 @@ function esc(s){
 ===================================================================== */
 const FR_STATE_COLLECTION = 'field_readiness_state';
 const STATE_TTL_MS = 30000;
+
+/* =====================================================================
+   CENTRALIZED READINESS COLLECTION
+===================================================================== */
+const FR_LATEST_COLLECTION = 'field_readiness_latest';
+const LATEST_TTL_MS = 30000;
 
 /* =====================================================================
    LEARNING / TUNING DOC (kept)
@@ -95,12 +88,8 @@ const GCAL_SMAX_MID = 4.0;
 const GCAL_REV_POINTS_MAX = 20;
 
 function gcalDryCreditInchesFromSmax(Smax){
-  // ✅ SIGNED credit (matches new model)
   const s = clamp(Number(Smax), GCAL_SMAX_MIN, GCAL_SMAX_MAX);
-
-  // +1 at 3, 0 at 4, -1 at 5
   const signed = clamp((GCAL_SMAX_MID - s) / 1.0, -1, 1);
-
   return signed * (GCAL_REV_POINTS_MAX / 100) * s;
 }
 
@@ -113,8 +102,6 @@ function gcalStorageNeededForTargetReadiness(targetR, Smax){
   const wetPct = clamp(100 - r, 0, 100);
   const storageForReadiness = smax * (wetPct / 100);
 
-  // storageForReadiness = clamp(storageEff - creditIn, 0..Smax)
-  // => storageEff = storageForReadiness + creditIn   (works for signed credit too)
   const storageEff = clamp(storageForReadiness + creditIn, 0, smax);
 
   return { storageEff, creditIn, wetPct, storageForReadiness };
@@ -135,6 +122,10 @@ function safeNum(v){
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
+function safeInt(v, fallback = null){
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.round(n) : fallback;
+}
 function nowISO(){
   try{ return new Date().toISOString(); }catch(_){ return ''; }
 }
@@ -142,6 +133,29 @@ function isoDay(iso){
   if (!iso) return '';
   const s = String(iso);
   return (s.length >= 10) ? s.slice(0,10) : s;
+}
+function toIsoFromAny(v){
+  try{
+    if (!v) return '';
+    if (typeof v === 'string'){
+      const d = new Date(v);
+      return Number.isFinite(d.getTime()) ? d.toISOString() : v;
+    }
+    if (v && typeof v.toDate === 'function'){
+      const d = v.toDate();
+      return Number.isFinite(d.getTime()) ? d.toISOString() : '';
+    }
+    if (v && typeof v === 'object' && typeof v.seconds === 'number'){
+      const ms = (Number(v.seconds) * 1000) + Math.round(Number(v.nanoseconds || 0) / 1e6);
+      const d = new Date(ms);
+      return Number.isFinite(d.getTime()) ? d.toISOString() : '';
+    }
+    if (v && typeof v === 'object' && typeof v.__time__ === 'string'){
+      const d = new Date(v.__time__);
+      return Number.isFinite(d.getTime()) ? d.toISOString() : String(v.__time__ || '');
+    }
+  }catch(_){}
+  return '';
 }
 
 /* =====================================================================
@@ -261,6 +275,151 @@ function getPersistedStateForDeps(state, fieldId){
   }catch(_){
     return null;
   }
+}
+
+/* =====================================================================
+   CENTRALIZED latest readiness load
+===================================================================== */
+function buildLatestReadinessRecord(raw, fallbackId){
+  const d = (raw && typeof raw === 'object') ? raw : {};
+  const fieldId = safeStr(d.fieldId || fallbackId);
+  if (!fieldId) return null;
+
+  return {
+    fieldId,
+    farmId: safeStr(d.farmId),
+    farmName: d.farmName == null ? null : safeStr(d.farmName),
+    fieldName: safeStr(d.fieldName),
+    county: safeStr(d.county),
+    state: safeStr(d.state),
+    readiness: safeInt(d.readiness),
+    wetness: safeInt(d.wetness),
+    soilWetness: safeNum(d.soilWetness),
+    drainageIndex: safeNum(d.drainageIndex),
+    readinessCreditIn: safeNum(d.readinessCreditIn) ?? 0,
+    storageFinal: safeNum(d.storageFinal),
+    storageForReadiness: safeNum(d.storageForReadiness),
+    storagePhysFinal: safeNum(d.storagePhysFinal),
+    wetBiasApplied: safeNum(d.wetBiasApplied),
+    runKey: safeStr(d.runKey),
+    seedSource: safeStr(d.seedSource),
+    weatherSource: safeStr(d.weatherSource),
+    timezone: safeStr(d.timezone),
+    computedAtISO: toIsoFromAny(d.computedAt),
+    weatherFetchedAtISO: toIsoFromAny(d.weatherFetchedAt),
+    location: {
+      lat: safeNum(d && d.location && d.location.lat),
+      lng: safeNum(d && d.location && d.location.lng)
+    },
+    _raw: d
+  };
+}
+
+async function loadLatestReadiness(state, { force=false } = {}){
+  try{
+    if (!state) return;
+
+    const now = Date.now();
+    const last = Number(state._latestReadinessLoadedAt || 0);
+    if (!force && state.latestReadinessByFieldId && (now - last) < LATEST_TTL_MS) return;
+
+    state.latestReadinessByFieldId = state.latestReadinessByFieldId || {};
+    const out = {};
+
+    const api = getAPI(state);
+    if (!api){
+      state.latestReadinessByFieldId = out;
+      state._latestReadinessLoadedAt = now;
+      return;
+    }
+
+    if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
+      const db = window.firebase.firestore();
+      const snap = await db.collection(FR_LATEST_COLLECTION).get();
+
+      snap.forEach(doc=>{
+        const rec = buildLatestReadinessRecord(doc.data() || {}, doc.id);
+        if (!rec || !rec.fieldId) return;
+        out[rec.fieldId] = rec;
+      });
+
+      state.latestReadinessByFieldId = out;
+      state._latestReadinessLoadedAt = now;
+      return;
+    }
+
+    if (api.kind !== 'compat'){
+      const db = api.getFirestore();
+      const col = api.collection(db, FR_LATEST_COLLECTION);
+      const snap = await api.getDocs(col);
+
+      snap.forEach(doc=>{
+        const rec = buildLatestReadinessRecord(doc.data() || {}, doc.id);
+        if (!rec || !rec.fieldId) return;
+        out[rec.fieldId] = rec;
+      });
+
+      state.latestReadinessByFieldId = out;
+      state._latestReadinessLoadedAt = now;
+      return;
+    }
+  }catch(e){
+    console.warn('[FieldReadiness] latest readiness load failed:', e);
+    state.latestReadinessByFieldId = state.latestReadinessByFieldId || {};
+    state._latestReadinessLoadedAt = Date.now();
+  }
+}
+
+function getLatestReadinessForField(state, fieldId){
+  try{
+    const map = (state && state.latestReadinessByFieldId && typeof state.latestReadinessByFieldId === 'object')
+      ? state.latestReadinessByFieldId
+      : {};
+    const fid = safeStr(fieldId);
+    const rec = map[fid];
+    return (rec && typeof rec === 'object') ? rec : null;
+  }catch(_){
+    return null;
+  }
+}
+
+function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
+  const f = fieldObj || {};
+  const rec = latestRec || getLatestReadinessForField(state, f.id);
+  if (!rec) return null;
+
+  const readinessR = safeInt(rec.readiness);
+  if (!Number.isFinite(readinessR)) return null;
+
+  return {
+    ok: true,
+    source: 'field_readiness_latest',
+    sourceLabel: 'field_readiness_latest',
+    fieldId: safeStr(rec.fieldId || f.id),
+    readinessR,
+    readiness: readinessR,
+    wetness: safeInt(rec.wetness),
+    wetnessR: safeInt(rec.wetness),
+    soilWetness: safeNum(rec.soilWetness),
+    drainageIndex: safeNum(rec.drainageIndex),
+    readinessCreditIn: safeNum(rec.readinessCreditIn) ?? 0,
+    storageFinal: safeNum(rec.storageFinal),
+    storageForReadiness: safeNum(rec.storageForReadiness),
+    storagePhysFinal: safeNum(rec.storagePhysFinal),
+    wetBiasApplied: safeNum(rec.wetBiasApplied),
+    runKey: safeStr(rec.runKey),
+    seedSource: safeStr(rec.seedSource),
+    weatherSource: safeStr(rec.weatherSource),
+    timezone: safeStr(rec.timezone),
+    computedAtISO: safeStr(rec.computedAtISO),
+    weatherFetchedAtISO: safeStr(rec.weatherFetchedAtISO),
+    county: safeStr(rec.county || f.county),
+    state: safeStr(rec.state || f.state),
+    factors: null,
+    trace: [],
+    rows: [],
+    _latest: rec
+  };
 }
 
 /* =====================================================================
@@ -552,7 +711,6 @@ function buildShownDeps(state, opKey){
 }
 
 function runFieldWithCal(state, f, _calObj){
-  // CAL is always zero; formula.js already supplies CAL=0.
   if (!f) return null;
   if (!state) return null;
   if (!state._mods || !state._mods.model) return null;
@@ -565,7 +723,19 @@ function runFieldWithCal(state, f, _calObj){
   return run;
 }
 
+// ✅ "Shown" run now prefers centralized field_readiness_latest
 function getRunForFieldShown(state, f){
+  if (!f) return null;
+
+  const latest = getLatestReadinessForField(state, f.id);
+  const synthetic = buildSyntheticRunFromLatest(state, f, latest);
+  if (synthetic) return synthetic;
+
+  return runFieldWithCal(state, f, getCalForShown(state));
+}
+
+// ✅ Separate deep/model run for apply/reset math
+function getRunForFieldModel(state, f){
   return runFieldWithCal(state, f, getCalForShown(state));
 }
 
@@ -744,8 +914,8 @@ function enforceSliderClamp(state){
   const anchor = clamp(Number(state._adjAnchorReadiness ?? 50), 0, 100);
   let v = sliderVal();
 
-  const status = state._adjStatus; // wet|dry
-  const feel = state._adjFeel;     // wet|dry|null
+  const status = state._adjStatus;
+  const feel = state._adjFeel;
 
   if (!feel){
     v = anchor;
@@ -768,7 +938,6 @@ function enforceSliderClamp(state){
 }
 
 function updateGuardText(state){
-  // KEEP the same UI tone (short) — no noisy technicals
   const el = $('adjGuard');
   if (!el) return;
 
@@ -808,13 +977,34 @@ function updateAdjustHeader(state){
 function updatePills(state, run){
   const fid = state.selectedFieldId;
   const p = getFieldParams(state, fid);
+  const latest = getLatestReadinessForField(state, fid);
 
   const thr = currentThreshold(state);
 
-  setText('adjReadiness', run ? run.readinessR : '—');
-  setText('adjWetness', run ? run.wetnessR : '—');
-  setText('adjSoil', `${p.soilWetness}/100`);
-  setText('adjDrain', `${p.drainageIndex}/100`);
+  const shownReadiness =
+    run && Number.isFinite(Number(run.readinessR))
+      ? Math.round(Number(run.readinessR))
+      : '—';
+
+  const shownWetness =
+    run && Number.isFinite(Number(run.wetnessR))
+      ? Math.round(Number(run.wetnessR))
+      : (latest && Number.isFinite(Number(latest.wetness)) ? Math.round(Number(latest.wetness)) : '—');
+
+  const shownSoil =
+    latest && safeNum(latest.soilWetness) != null
+      ? `${Math.round(Number(latest.soilWetness))}/100`
+      : `${p.soilWetness}/100`;
+
+  const shownDrain =
+    latest && safeNum(latest.drainageIndex) != null
+      ? `${Math.round(Number(latest.drainageIndex))}/100`
+      : `${p.drainageIndex}/100`;
+
+  setText('adjReadiness', shownReadiness);
+  setText('adjWetness', shownWetness);
+  setText('adjSoil', shownSoil);
+  setText('adjDrain', shownDrain);
 
   setText('adjModelClass', (state._adjStatus || '—').toUpperCase());
 
@@ -1017,48 +1207,48 @@ async function applyAdjustment(state){
   const fRef = getSelectedField(state);
   if (!fRef) return;
 
-  // ✅ Ensure model/weather modules exist
   await ensureFRModules(state);
-
   await loadPersistedState(state, { force:true });
+  await loadLatestReadiness(state, { force:true });
 
-  const runRef = getRunForFieldShown(state, fRef);
-  if (!runRef || !runRef.factors || !isFinite(Number(runRef.factors.Smax))) return;
+  // ✅ Use latest for shown readiness / anchor logic
+  const runRefShown = getRunForFieldShown(state, fRef);
+
+  // ✅ Use deep model run for storage math / Smax
+  const runRefModel = getRunForFieldModel(state, fRef);
+
+  if (!runRefShown) return;
+  if (!runRefModel || !runRefModel.factors || !isFinite(Number(runRefModel.factors.Smax))) return;
 
   const thr = currentThreshold(state);
-  state._adjStatus = statusFromReadinessAndThreshold(state, runRef, thr);
+  state._adjStatus = statusFromReadinessAndThreshold(state, runRefShown, thr);
 
   const feel = state._adjFeel;
   if (!(feel === 'wet' || feel === 'dry')) return;
 
-  // guardrails unchanged
   if (state._adjStatus === 'wet' && feel !== 'dry') return;
   if (state._adjStatus === 'dry' && feel !== 'wet') return;
 
-  const anchorR = clamp(Math.round(Number(state._adjAnchorReadiness ?? runRef.readinessR ?? 0)), 0, 100);
+  const anchorR = clamp(Math.round(Number(state._adjAnchorReadiness ?? runRefShown.readinessR ?? 0)), 0, 100);
   const targetR = clamp(Math.round(Number(sliderVal())), 0, 100);
 
-  // percentMove for learning/audit
   let factor = 1;
   if (anchorR > 0) factor = targetR / anchorR;
   const percentMove = clamp((factor - 1) * 100, -90, 90);
 
-  // 1) FORCE reference field storage to hit target readiness
-  const SmaxRef = Number(runRef.factors.Smax);
+  const SmaxRef = Number(runRefModel.factors.Smax);
   const forced = gcalStorageNeededForTargetReadiness(targetR, SmaxRef);
   const forcedStorageRef = forced.storageEff;
 
-  // 2) multiplier based on reference’s current storage
-  const curStorageRefRaw = Number(runRef.storageFinal || 0);
-  const curStorageRef = Math.max(0.05, (isFinite(curStorageRefRaw) ? curStorageRefRaw : 0)); // floor = 0.05 in
+  const curStorageRefRaw = Number(runRefModel.storageFinal || 0);
+  const curStorageRef = Math.max(0.05, (isFinite(curStorageRefRaw) ? curStorageRefRaw : 0));
 
   let storageMult = forcedStorageRef / curStorageRef;
   storageMult = clamp(storageMult, 0.05, 5.0);
 
-  // As-of date aligned to weather series end.
   let asOf = '';
   try{
-    const rows = Array.isArray(runRef.rows) ? runRef.rows : [];
+    const rows = Array.isArray(runRefModel.rows) ? runRefModel.rows : [];
     const last = rows.length ? rows[rows.length - 1] : null;
     asOf = isoDay(last && last.dateISO ? last.dateISO : '');
   }catch(_){}
@@ -1069,7 +1259,6 @@ async function applyAdjustment(state){
   const fields = Array.isArray(state.fields) ? state.fields : [];
   if (!fields.length) return;
 
-  // Write all fields
   if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
     const db = window.firebase.firestore();
     const updatedAtISO = nowISO();
@@ -1078,7 +1267,7 @@ async function applyAdjustment(state){
       try{
         if (!f || !f.id) continue;
 
-        const run = getRunForFieldShown(state, f);
+        const run = getRunForFieldModel(state, f);
         if (!run || !run.factors || !isFinite(Number(run.factors.Smax))) continue;
 
         const smax = Number(run.factors.Smax);
@@ -1088,7 +1277,6 @@ async function applyAdjustment(state){
 
         let next = clamp(cur * storageMult, 0, smax);
 
-        // Force the reference field exactly
         if (String(f.id) === String(fRef.id)){
           next = clamp(forcedStorageRef, 0, smax);
         }
@@ -1127,7 +1315,7 @@ async function applyAdjustment(state){
       try{
         if (!f || !f.id) continue;
 
-        const run = getRunForFieldShown(state, f);
+        const run = getRunForFieldModel(state, f);
         if (!run || !run.factors || !isFinite(Number(run.factors.Smax))) continue;
 
         const smax = Number(run.factors.Smax);
@@ -1170,7 +1358,6 @@ async function applyAdjustment(state){
     state._persistLoadedAt = Date.now();
   }
 
-  // learning (kept)
   try{
     await writeLearningFromStorageShift(state, {
       storageMult,
@@ -1191,7 +1378,10 @@ async function applyAdjustment(state){
 
   closeAdjust(state);
 
-  try{ document.dispatchEvent(new CustomEvent('fr:soft-reload')); }catch(_){}
+  try{
+    state._latestReadinessLoadedAt = 0;
+    document.dispatchEvent(new CustomEvent('fr:soft-reload'));
+  }catch(_){}
 }
 
 /* =====================================================================
@@ -1207,7 +1397,6 @@ async function rebuildTruthFromLast30Days(state){
     );
     if (!ok) return;
 
-    // ✅ Ensure modules exist (do NOT require tiles to have loaded)
     await ensureFRModules(state);
 
     if (!state._mods || !state._mods.model || !state._mods.weather){
@@ -1221,7 +1410,6 @@ async function rebuildTruthFromLast30Days(state){
       return;
     }
 
-    // Apply DRY_LOSS_MULT learning to rebuild for consistency
     let dryLossMult = 1.0;
     try{
       const tuned = await loadGlobalTuning(state);
@@ -1233,7 +1421,6 @@ async function rebuildTruthFromLast30Days(state){
     const wxCtx = buildWxCtx(state);
     const opKey = getCurrentOp();
 
-    // ✅ Start from formula deps, then override EXTRA + seedMode for baseline rebuild
     const depsBase = buildFRDeps(state, {
       opKey,
       wxCtx,
@@ -1300,6 +1487,7 @@ async function rebuildTruthFromLast30Days(state){
       }
 
       state._persistLoadedAt = Date.now();
+      state._latestReadinessLoadedAt = 0;
       try{ document.dispatchEvent(new CustomEvent('fr:soft-reload')); }catch(_){}
       window.alert('Reset complete: truth rebuilt from last ~30 days weather.');
       return;
@@ -1350,6 +1538,7 @@ async function rebuildTruthFromLast30Days(state){
       }
 
       state._persistLoadedAt = Date.now();
+      state._latestReadinessLoadedAt = 0;
       try{ document.dispatchEvent(new CustomEvent('fr:soft-reload')); }catch(_){}
       window.alert('Reset complete: truth rebuilt from last ~30 days weather.');
     }
@@ -1375,7 +1564,6 @@ function ensureResetButtonExists(){
     btn.type = 'button';
     btn.textContent = 'Reset (rebuild) • 30 days';
 
-    // Insert before Apply (same row, same styling)
     const parent = applyBtn.parentElement;
     if (parent){
       parent.insertBefore(btn, applyBtn);
@@ -1390,10 +1578,9 @@ async function openAdjust(state){
   ensureGlobalCalThemeCSSOnce();
   if (!canEdit(state)) return;
 
-  // ✅ Ensure model/weather modules exist
   await ensureFRModules(state);
-
   await loadPersistedState(state, { force:true });
+  await loadLatestReadiness(state, { force:true });
 
   if (!state.selectedFieldId && (state.fields||[]).length){
     state.selectedFieldId = state.fields[0].id;
@@ -1429,7 +1616,10 @@ async function openAdjust(state){
 
   try{ if (state._cooldownTimer) clearInterval(state._cooldownTimer); }catch(_){}
   state._cooldownTimer = setInterval(async ()=>{
-    try{ await loadCooldown(state); }catch(_){}
+    try{
+      await loadCooldown(state);
+      await loadLatestReadiness(state, { force:true });
+    }catch(_){}
     renderCooldownCard(state);
 
     const f2 = getSelectedField(state);
@@ -1519,7 +1709,6 @@ function wireOnce(state){
     });
   }
 
-  // Reset button
   document.addEventListener('click', async (e)=>{
     const b = e && e.target && e.target.closest ? e.target.closest('#btnAdjReset30') : null;
     if (!b) return;
@@ -1568,8 +1757,10 @@ export function initGlobalCalibration(state){
 
   (async ()=>{
     try{
-      // ✅ Ensure modules exist for “open adjust” usage even before tiles
       await ensureFRModules(state);
+    }catch(_){}
+    try{
+      await loadLatestReadiness(state, { force:true });
     }catch(_){}
     try{ await loadCooldown(state); }catch(_){}
     renderCooldownCard(state);
