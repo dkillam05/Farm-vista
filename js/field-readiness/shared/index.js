@@ -1,16 +1,16 @@
 // /js/field-readiness/shared/index.js  (FULL FILE)
 // FarmVista Readiness Rebuilder (Cloud Run)
-// Rev: 2026-03-15g-readiness-only-updater
+// Rev: 2026-03-15h-readiness-only-parity-rebuild
 //
-// THIS REV:
+// PURPOSE:
 // ✅ DOES NOT fetch Open-Meteo
 // ✅ DOES NOT write field_weather_cache
 // ✅ ONLY rebuilds field_readiness_latest
-// ✅ Uses shared readiness core from readiness-core-shared.cjs
-// ✅ Uses existing field_weather_cache as input only
+// ✅ Uses existing field_weather_cache as input
 // ✅ Uses MRMS overlay when ready
 // ✅ Uses persisted truth from field_readiness_state
 // ✅ Uses same field param paths as frontend
+// ✅ Uses shared readiness core from readiness-core-shared.cjs
 //
 const express = require("express");
 const { runFieldReadinessCore } = require("./readiness-core-shared.cjs");
@@ -53,11 +53,31 @@ function clamp(n, lo, hi){
   return Math.max(lo, Math.min(hi, n));
 }
 function round(v, d=2){
-  const p = Math.pow(10,d);
+  const p = Math.pow(10, d);
   return Math.round(Number(v) * p) / p;
 }
-function mmToIn(mm){ return (Number(mm || 0) / 25.4); }
+function mmToIn(mm){
+  return Number(mm || 0) / 25.4;
+}
+function safeStr(x){
+  const s = String(x || "");
+  return s ? s : "";
+}
+function safeISO10(x){
+  const s = safeStr(x);
+  return s.length >= 10 ? s.slice(0, 10) : s;
+}
+function safeNum(v){
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+function normalizeStatus(s){
+  return String(s || "").trim().toLowerCase();
+}
 
+/* =====================================================================
+   Firestore
+===================================================================== */
 const READINESS_LATEST_COLLECTION = process.env.FV_READINESS_LATEST_COLLECTION || "field_readiness_latest";
 const READINESS_RUNS_COLLECTION = process.env.FV_READINESS_RUNS_COLLECTION || "field_readiness_runs";
 const PERSISTED_STATE_COLLECTION = process.env.FV_PERSISTED_STATE_COLLECTION || "field_readiness_state";
@@ -84,4 +104,616 @@ const FV_TUNE = {
   RUNOFF_DRAINPOOR_W: Number.isFinite(Number(process.env.FV_RUNOFF_DRAINPOOR_W)) ? Number(process.env.FV_RUNOFF_DRAINPOOR_W) : 0.35,
 
   DRY_BYPASS_END: Number.isFinite(Number(process.env.FV_DRY_BYPASS_END)) ? Number(process.env.FV_DRY_BYPASS_END) : 0.35,
-  DRY_EXP: Number.isFinite(Number(process.env.FV_DRY_EXP)) ? Number(process.env.FV_DR...
+  DRY_EXP: Number.isFinite(Number(process.env.FV_DRY_EXP)) ? Number(process.env.FV_DRY_EXP) : 1.6,
+  DRY_BYPASS_BASE: Number.isFinite(Number(process.env.FV_DRY_BYPASS_BASE)) ? Number(process.env.FV_DRY_BYPASS_BASE) : 0.45,
+  BYPASS_GOODDRAIN_W: Number.isFinite(Number(process.env.FV_BYPASS_GOODDRAIN_W)) ? Number(process.env.FV_BYPASS_GOODDRAIN_W) : 0.15,
+
+  DRY_BYPASS_CAP_SAT: Number.isFinite(Number(process.env.FV_DRY_BYPASS_CAP_SAT)) ? Number(process.env.FV_DRYPASS_CAP_SAT) : 0.15,
+  DRY_BYPASS_CAP_MAX: Number.isFinite(Number(process.env.FV_DRY_BYPASS_CAP_MAX)) ? Number(process.env.FV_DRY_BYPASS_CAP_MAX) : 0.12,
+
+  SAT_DRYBYPASS_FLOOR: Number.isFinite(Number(process.env.FV_SAT_DRYBYPASS_FLOOR)) ? Number(process.env.FV_SAT_DRYBYPASS_FLOOR) : 0.02,
+  SAT_RUNOFF_CAP: Number.isFinite(Number(process.env.FV_SAT_RUNOFF_CAP)) ? Number(process.env.FV_SAT_RUNOFF_CAP) : 0.85,
+  RAIN_EFF_MIN: Number.isFinite(Number(process.env.FV_RAIN_EFF_MIN)) ? Number(process.env.FV_RAIN_EFF_MIN) : 0.05,
+
+  DRY_TAIL_START: Number.isFinite(Number(process.env.FV_DRY_TAIL_START)) ? Number(process.env.FV_DRY_TAIL_START) : 0.12,
+  DRY_TAIL_MIN_MULT: Number.isFinite(Number(process.env.FV_DRY_TAIL_MIN_MULT)) ? Number(process.env.FV_DRY_TAIL_MIN_MULT) : 0.55,
+
+  WET_HOLD_START: Number.isFinite(Number(process.env.FV_WET_HOLD_START)) ? Number(process.env.FV_WET_HOLD_START) : 0.62,
+  WET_HOLD_MAX_REDUCTION: Number.isFinite(Number(process.env.FV_WET_HOLD_MAX_REDUCTION)) ? Number(process.env.FV_WET_HOLD_MAX_REDUCTION) : 0.32,
+  WET_HOLD_EXP: Number.isFinite(Number(process.env.FV_WET_HOLD_EXP)) ? Number(process.env.FV_WET_HOLD_EXP) : 1.70,
+
+  MID_ACCEL_START: Number.isFinite(Number(process.env.FV_MID_ACCEL_START)) ? Number(process.env.FV_MID_ACCEL_START) : 0.50,
+  MID_ACCEL_MAX_BOOST: Number.isFinite(Number(process.env.FV_MID_ACCEL_MAX_BOOST)) ? Number(process.env.FV_MID_ACCEL_MAX_BOOST) : 0.18,
+  MID_ACCEL_EXP: Number.isFinite(Number(process.env.FV_MID_ACCEL_EXP)) ? Number(process.env.FV_MID_ACCEL_EXP) : 1.35
+};
+
+let _admin = null;
+let _db = null;
+
+function getFirestore(){
+  if (_db) return _db;
+
+  try{
+    if (!_admin) _admin = require("firebase-admin");
+  }catch(e){
+    const err = new Error("firebase-admin is not installed. Add it to dependencies in package.json.");
+    err.code = "MISSING_FIREBASE_ADMIN";
+    throw err;
+  }
+
+  if (!_admin.apps || !_admin.apps.length){
+    _admin.initializeApp();
+  }
+
+  _db = _admin.firestore();
+  return _db;
+}
+
+/* =====================================================================
+   Helpers
+===================================================================== */
+function isSchedulerRequest(req){
+  const ua = String(req.headers["user-agent"] || "");
+  if (ua.includes("Google-Cloud-Scheduler")) return true;
+  const run = String(req.query.run || "");
+  return run === "1" || run === "true";
+}
+
+function makeRunKey(timeZone){
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  });
+  const parts = dtf.formatToParts(new Date());
+  const map = {};
+  for (const p of parts) map[p.type] = p.value;
+
+  const y = map.year || "0000";
+  const mo = map.month || "01";
+  const d = map.day || "01";
+  const hh = map.hour || "00";
+  const mm = map.minute || "00";
+  return `${y}-${mo}-${d}_${hh}${mm}`;
+}
+
+async function ensureRunLockOrSkip(runKey, timezone){
+  const db = getFirestore();
+  const runRef = db.collection(READINESS_RUNS_COLLECTION).doc(runKey);
+
+  let shouldRun = false;
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(runRef);
+    if (snap.exists){
+      const d = snap.data() || {};
+      const st = String(d.status || "");
+      if (st === "done" || st === "running"){
+        shouldRun = false;
+        return;
+      }
+    }
+    tx.set(runRef, {
+      status: "running",
+      timezone,
+      startedAt: _admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    shouldRun = true;
+  });
+
+  return { shouldRun, runRef };
+}
+
+/* =====================================================================
+   Field helpers
+===================================================================== */
+function getByPath(obj, path){
+  try{
+    const parts = String(path || "").split(".");
+    let cur = obj;
+    for (const p of parts){
+      if (!cur || typeof cur !== "object") return undefined;
+      cur = cur[p];
+    }
+    return cur;
+  }catch(_){
+    return undefined;
+  }
+}
+
+function toNumMaybe(v){
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v === "string"){
+    const n = Number(v.trim());
+    return Number.isFinite(n) ? n : null;
+  }
+  if (v && typeof v === "object"){
+    if (typeof v.value === "number" && Number.isFinite(v.value)) return v.value;
+    if (typeof v.value === "string"){
+      const n = Number(String(v.value).trim());
+      return Number.isFinite(n) ? n : null;
+    }
+    if (typeof v.n === "number" && Number.isFinite(v.n)) return v.n;
+    if (typeof v.n === "string"){
+      const n = Number(String(v.n).trim());
+      return Number.isFinite(n) ? n : null;
+    }
+  }
+  return null;
+}
+
+function pickFirstNumber(d, paths){
+  for (const p of paths){
+    const raw = getByPath(d, p);
+    const n = toNumMaybe(raw);
+    if (n != null) return n;
+  }
+  return null;
+}
+
+function extractLocation(d){
+  const lat = pickFirstNumber(d, [
+    "location.lat", "location.latitude", "lat", "latitude",
+    "gps.lat", "gps.latitude", "center.lat", "center.latitude",
+    "fieldCenter.lat", "fieldCenter.latitude", "coordinates.lat",
+    "coordinates.latitude", "centroid.lat", "centroid.latitude",
+    "map.lat", "map.latitude"
+  ]);
+
+  const lng = pickFirstNumber(d, [
+    "location.lng", "location.lon", "location.long", "location.longitude",
+    "lng", "lon", "long", "longitude",
+    "gps.lng", "gps.lon", "gps.long", "gps.longitude",
+    "center.lng", "center.lon", "center.long", "center.longitude",
+    "fieldCenter.lng", "fieldCenter.lon", "fieldCenter.long", "fieldCenter.longitude",
+    "coordinates.lng", "coordinates.lon", "coordinates.long", "coordinates.longitude",
+    "centroid.lng", "centroid.lon", "centroid.long", "centroid.longitude",
+    "map.lng", "map.lon", "map.long", "map.longitude"
+  ]);
+
+  if (
+    lat == null || lng == null ||
+    !Number.isFinite(lat) || !Number.isFinite(lng) ||
+    Math.abs(Number(lat)) > 90 || Math.abs(Number(lng)) > 180
+  ){
+    return null;
+  }
+
+  return { lat: Number(lat), lng: Number(lng) };
+}
+
+function extractFieldParamsLikeFrontend(d){
+  const soilWetness = pickFirstNumber(d, [
+    "soilWetness",
+    "fieldReadiness.soilWetness",
+    "readiness.soilWetness",
+    "params.soilWetness",
+    "sliders.soilWetness",
+    "field_readiness.soilWetness"
+  ]);
+
+  const drainageIndex = pickFirstNumber(d, [
+    "drainageIndex",
+    "fieldReadiness.drainageIndex",
+    "readiness.drainageIndex",
+    "params.drainageIndex",
+    "sliders.drainageIndex",
+    "field_readiness.drainageIndex"
+  ]);
+
+  return {
+    soilWetness: soilWetness == null ? null : soilWetness,
+    drainageIndex: drainageIndex == null ? null : drainageIndex
+  };
+}
+
+async function loadActiveFieldsMap(){
+  const db = getFirestore();
+  const out = new Map();
+  let raw = [];
+
+  try{
+    const snap = await db.collection("fields").where("status", "==", "active").get();
+    snap.forEach(doc => raw.push({ id: doc.id, data: doc.data() || {} }));
+  }catch(e){
+    console.warn("[Readiness] fields query(status==active) failed:", e?.message || e);
+  }
+
+  if (!raw.length){
+    try{
+      const snap2 = await db.collection("fields").get();
+      snap2.forEach(doc => raw.push({ id: doc.id, data: doc.data() || {} }));
+    }catch(e){
+      console.warn("[Readiness] fields query(all) failed:", e?.message || e);
+      raw = [];
+    }
+  }
+
+  for (const r of raw){
+    const d = r.data || {};
+    const st = normalizeStatus(d.status);
+    if (st && st !== "active") continue;
+
+    out.set(r.id, {
+      id: r.id,
+      data: d,
+      location: extractLocation(d)
+    });
+  }
+
+  return out;
+}
+
+/* =====================================================================
+   Persisted truth
+===================================================================== */
+async function loadPersistedStateMap(){
+  const db = getFirestore();
+  const out = new Map();
+
+  try{
+    const snap = await db.collection(PERSISTED_STATE_COLLECTION).get();
+    snap.forEach(docSnap => {
+      const d = docSnap.data() || {};
+      const fid = safeStr(d.fieldId || docSnap.id);
+      if (!fid) return;
+
+      const storageFinal = safeNum(d.storageFinal);
+      const asOfDateISO = safeISO10(d.asOfDateISO);
+      if (storageFinal == null || !asOfDateISO) return;
+
+      out.set(fid, {
+        fieldId: fid,
+        storageFinal,
+        asOfDateISO,
+        SmaxAtSave: safeNum(d.SmaxAtSave) ?? safeNum(d.smaxAtSave) ?? 0
+      });
+    });
+  }catch(e){
+    console.warn("[Readiness] loadPersistedStateMap failed:", e?.message || e);
+  }
+
+  return out;
+}
+
+/* =====================================================================
+   MRMS overlay
+===================================================================== */
+function toYMDLocal(d){
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+function startOfDayLocal(d){
+  const out = new Date(d);
+  out.setHours(0, 0, 0, 0);
+  return out;
+}
+function addDaysLocal(d, delta){
+  const out = new Date(d);
+  out.setDate(out.getDate() + delta);
+  return out;
+}
+function getDefaultRainRange72h(){
+  const end = new Date();
+  const start = new Date(end.getTime() - (72 * 60 * 60 * 1000));
+  return { start, end };
+}
+function getMrmsDailySeries(doc){
+  return Array.isArray(doc && doc.mrmsDailySeries30d) ? doc.mrmsDailySeries30d : [];
+}
+function getMrmsDailyMap(doc){
+  const rows = getMrmsDailySeries(doc);
+  const map = new Map();
+  for (const r of rows){
+    const key = String(r && r.dateISO || "").trim();
+    if (!key) continue;
+    map.set(key, r);
+  }
+  return map;
+}
+function mrmsBackfillReadyServer(doc){
+  if (!doc || typeof doc !== "object") return false;
+
+  const map = getMrmsDailyMap(doc);
+  if (!map.size) return false;
+
+  const meta = doc.mrmsHistoryMeta || {};
+  const def = getDefaultRainRange72h();
+
+  const start = startOfDayLocal(def.start);
+  const end = startOfDayLocal(def.end);
+
+  if (meta && meta.fullBackfillComplete === true){
+    let cursor = new Date(start);
+    while (cursor <= end){
+      const key = toYMDLocal(cursor);
+      if (!map.has(key)) return false;
+      cursor = addDaysLocal(cursor, 1);
+    }
+    return true;
+  }
+
+  let cursor = new Date(start);
+  while (cursor <= end){
+    const key = toYMDLocal(cursor);
+    if (!map.has(key)) return false;
+    cursor = addDaysLocal(cursor, 1);
+  }
+
+  return true;
+}
+
+function buildMrmsDailyMapRows(mrmsDoc){
+  const map = new Map();
+  const rows = Array.isArray(mrmsDoc && mrmsDoc.mrmsDailySeries30d) ? mrmsDoc.mrmsDailySeries30d : [];
+  for (const r of rows){
+    const iso = String(r && r.dateISO || "").slice(0, 10);
+    if (!iso) continue;
+    map.set(iso, {
+      dateISO: iso,
+      rainMm: num(r && r.rainMm, 0),
+      rainIn: mmToIn(r && r.rainMm),
+      hoursCount: Math.round(num(r && r.hoursCount, 0))
+    });
+  }
+  return map;
+}
+
+function withRainSource(rows, source){
+  return (Array.isArray(rows) ? rows : []).map(r => ({
+    ...r,
+    rainInAdj: num(r && r.rainInAdj, num(r && r.rainIn, 0)),
+    rainSource: String(source || "open-meteo")
+  }));
+}
+
+function overlayMrmsRainOntoWeatherRows(baseRows, mrmsDoc){
+  const rows = Array.isArray(baseRows) ? baseRows.slice() : [];
+  if (!rows.length) return [];
+
+  const mrmsMap = buildMrmsDailyMapRows(mrmsDoc);
+  if (!mrmsMap.size) return withRainSource(rows, "open-meteo");
+
+  return rows.map(r => {
+    const iso = String(r && r.dateISO || "").slice(0, 10);
+    const m = mrmsMap.get(iso);
+
+    if (!m){
+      return {
+        ...r,
+        rainInAdj: num(r && r.rainInAdj, num(r && r.rainIn, 0)),
+        rainSource: String(r && (r.rainSource || r.precipSource) || "open-meteo")
+      };
+    }
+
+    return {
+      ...r,
+      rainMrmsMm: round(m.rainMm, 3),
+      rainMrmsIn: round(m.rainIn, 3),
+      rainInAdj: round(m.rainIn, 3),
+      rainSource: "mrms",
+      mrmsHoursCount: m.hoursCount
+    };
+  });
+}
+
+async function loadMrmsDocMap(){
+  const db = getFirestore();
+  const out = new Map();
+
+  try{
+    const snap = await db.collection(MRMS_COLLECTION).get();
+    snap.forEach(docSnap => {
+      out.set(String(docSnap.id), docSnap.data() || {});
+    });
+  }catch(e){
+    console.warn("[Readiness] loadMrmsDocMap failed:", e?.message || e);
+  }
+
+  return out;
+}
+
+function buildModelWeatherRowsForServer(wxDoc, mrmsDoc){
+  const baseRows = Array.isArray(wxDoc && wxDoc.dailySeries) ? wxDoc.dailySeries.slice() : [];
+  if (!baseRows.length) return [];
+
+  const mrmsReady = mrmsBackfillReadyServer(mrmsDoc);
+  if (!mrmsReady){
+    return withRainSource(baseRows, "open-meteo");
+  }
+
+  return overlayMrmsRainOntoWeatherRows(baseRows, mrmsDoc);
+}
+
+/* =====================================================================
+   Main writer
+===================================================================== */
+async function writeReadinessLatest(runKey, timezone){
+  const db = getFirestore();
+
+  const DEFAULT_SOIL = 60;
+  const DEFAULT_DRAIN = 45;
+
+  const [fieldsMap, persistedMap, mrmsMap] = await Promise.all([
+    loadActiveFieldsMap(),
+    loadPersistedStateMap(),
+    loadMrmsDocMap()
+  ]);
+
+  const wxSnap = await db.collection(WEATHER_CACHE_COLLECTION).get();
+
+  let batch = db.batch();
+  let writes = 0;
+  let ok = 0;
+  let fail = 0;
+  let skippedNoWeather = 0;
+
+  for (const docSnap of wxSnap.docs){
+    const fieldId = String(docSnap.id);
+    const wx = docSnap.data() || {};
+    const fieldRow = fieldsMap.get(fieldId) || null;
+    const fd = fieldRow ? (fieldRow.data || {}) : {};
+
+    try{
+      let weatherRows = buildModelWeatherRowsForServer(
+        wx,
+        mrmsMap.get(fieldId) || null
+      );
+
+      if (!weatherRows.length){
+        skippedNoWeather++;
+        continue;
+      }
+
+      const extractedParams = extractFieldParamsLikeFrontend(fd);
+
+      const soilWetness = Number.isFinite(Number(extractedParams.soilWetness))
+        ? Number(extractedParams.soilWetness)
+        : DEFAULT_SOIL;
+
+      const drainageIndex = Number.isFinite(Number(extractedParams.drainageIndex))
+        ? Number(extractedParams.drainageIndex)
+        : DEFAULT_DRAIN;
+
+      const persistedState = persistedMap.get(fieldId) || null;
+
+      const snapshot = runFieldReadinessCore(
+        weatherRows,
+        soilWetness,
+        drainageIndex,
+        persistedState,
+        {
+          extra: EXTRA,
+          tune: FV_TUNE,
+          lossScale: LOSS_SCALE,
+          includeTrace: false
+        }
+      );
+
+      if (!snapshot || !Number.isFinite(Number(snapshot.readinessR))){
+        fail++;
+        continue;
+      }
+
+      const outRef = db.collection(READINESS_LATEST_COLLECTION).doc(fieldId);
+
+      batch.set(outRef, {
+        fieldId,
+        fieldName: safeStr(fd.name || wx.fieldName || null) || null,
+        farmId: fd.farmId || wx.farmId || null,
+        farmName: fd.farmName || wx.farmName || null,
+        county: fd.county || null,
+        state: fd.state || null,
+        location: fieldRow?.location || wx.location || null,
+
+        readiness: Number(snapshot.readinessR),
+        wetness: Number(snapshot.wetnessR),
+        storageFinal: Number(snapshot.storageFinal),
+        storagePhysFinal: Number(snapshot.storagePhysFinal),
+        readinessCreditIn: Number(snapshot.readinessCreditIn || 0),
+        storageForReadiness: Number(snapshot.storageForReadiness || 0),
+
+        soilWetness,
+        drainageIndex,
+
+        seedSource: snapshot.seedSource,
+        weatherFetchedAt: wx.fetchedAt || null,
+        weatherSource: wx.source || null,
+
+        runKey,
+        timezone,
+        computedAt: _admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+
+      writes++;
+      ok++;
+
+      if (writes >= 400){
+        await batch.commit();
+        batch = db.batch();
+        writes = 0;
+      }
+    }catch(e){
+      fail++;
+      console.warn("[Readiness] field failed:", fieldId, e?.message || e);
+    }
+  }
+
+  if (writes > 0){
+    await batch.commit();
+  }
+
+  return {
+    ok,
+    fail,
+    skippedNoWeather,
+    weatherDocs: wxSnap.size
+  };
+}
+
+/* =====================================================================
+   Routes
+===================================================================== */
+app.get("/", async (req, res) => {
+  cors(req, res);
+
+  if (isSchedulerRequest(req)){
+    try{
+      const timezone = String(req.query.timezone || "America/Chicago");
+      const runKey = String(req.query.runKey || "").trim() || makeRunKey(timezone);
+
+      const lock = await ensureRunLockOrSkip(runKey, timezone);
+
+      let readiness = null;
+      if (lock.shouldRun){
+        readiness = await writeReadinessLatest(runKey, timezone);
+        await lock.runRef.set({
+          status: "done",
+          finishedAt: _admin.firestore.FieldValue.serverTimestamp(),
+          fieldsOk: readiness.ok,
+          fieldsFail: readiness.fail,
+          skippedNoWeather: readiness.skippedNoWeather,
+          weatherDocs: readiness.weatherDocs
+        }, { merge: true });
+      } else {
+        readiness = { skipped: true, reason: "runKey already processed", runKey };
+      }
+
+      return res.status(200).json({
+        ok: true,
+        mode: "readiness_only_rebuild",
+        ranAt: new Date().toISOString(),
+        runKey,
+        readiness
+      });
+    }catch(e){
+      console.error("[Readiness] run failed:", e);
+      return res.status(500).json({
+        ok: false,
+        error: e?.message || "Readiness rebuild failed",
+        code: e?.code || null,
+        hint: (e?.code === "MISSING_FIREBASE_ADMIN")
+          ? "Add firebase-admin to package.json dependencies and redeploy."
+          : null
+      });
+    }
+  }
+
+  return res.status(200).send(
+    "FarmVista Readiness Rebuilder OK. Use /?run=1 to rebuild field_readiness_latest from existing caches."
+  );
+});
+
+app.get("/healthz", (req, res) => {
+  cors(req, res);
+  res.status(200).send("ok");
+});
+
+app.listen(PORT, () => {
+  console.log(`farmvista-readiness-rebuilder listening on ${PORT}`);
+});
