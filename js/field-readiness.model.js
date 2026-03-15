@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-03-15b-eta-seed-from-centralized-latest
+Rev: 2026-03-15c-fix-zero-eta-drynow-gate
 
 OPTION 1 (per Dane):
 ✅ Model owns ETA and computes it from the SAME truth-seeded run + SAME physics.
@@ -18,10 +18,11 @@ THIS REV:
 ✅ This better matches:
    - dry sponge = rain causes a short setback, then recovery can resume quicker
    - full sponge = same rain lingers longer and slows readiness recovery
-✅ NEW: ETA can now start from centralized field_readiness_latest truth
+✅ ETA can start from centralized field_readiness_latest truth
    when deps.getEtaSeedForFieldId(fieldId) is available
-✅ If centralized latest storage is present, ETA no longer collapses toward 0h
-   just because runField had to reseed from older history/persisted truth
+✅ FIX: dryNow / 0h ETA now uses centralized latest readiness as authority
+   so below-threshold tiles no longer collapse to 0h
+✅ FIX: if centralized latest readiness is below threshold, ETA cannot return 0h
 
 TUNING NOTES FOR NEXT TIME:
 - WET_HOLD_START:
@@ -434,7 +435,7 @@ function getEtaSeed(deps, fieldId){
     const map = deps.etaSeedByFieldId;
     if (map && typeof map === 'object'){
       const s = map[fieldId];
-      return (s && typeof s === 'object') ? s : null;
+      if (s && typeof s === 'object') return s;
     }
 
     return null;
@@ -572,54 +573,43 @@ function buildEtaNowStateFromSeed(run, f, deps, fieldId){
     const seed = getEtaSeed(deps, fieldId);
     if (!seed) return null;
 
+    const authoritativeReadiness = safeNum(seed.readiness, null);
+
     let storagePhys = safeNum(seed.storagePhysFinal, null);
 
+    // Only trust explicit physical storage directly.
+    // Do NOT reconstruct physical storage aggressively from readiness,
+    // because that can falsely trip the dryNow gate.
     if (!Number.isFinite(storagePhys)){
       const storageEffMaybe = safeNum(seed.storageFinal, null);
-      const creditMaybe = safeNum(seed.readinessCreditIn, null);
-      const wetBiasMaybe = safeNum(seed.wetBiasApplied, null);
-
       if (Number.isFinite(storageEffMaybe)){
-        if (Number.isFinite(creditMaybe)){
-          let storageForReadiness = safeNum(seed.storageForReadiness, null);
-          if (!Number.isFinite(storageForReadiness)){
-            storageForReadiness = clamp(storageEffMaybe - creditMaybe, 0, f.Smax);
-          }
-
-          const calRes = applyCalToStorage(0, f.Smax, deps);
-          const storageDeltaApplied = safeNum(calRes && calRes.storageDeltaApplied, 0);
-          storagePhys = clamp(storageEffMaybe - storageDeltaApplied, 0, f.Smax);
-        } else if (Number.isFinite(wetBiasMaybe)) {
-          storagePhys = clamp(storageEffMaybe, 0, f.Smax);
-        } else {
-          storagePhys = clamp(storageEffMaybe, 0, f.Smax);
-        }
+        // Best-effort only when no better physical storage exists:
+        // remove the current calibration delta from stored effective storage.
+        const calAtZero = applyCalToStorage(0, f.Smax, deps);
+        const storageDeltaApplied = safeNum(calAtZero && calAtZero.storageDeltaApplied, 0);
+        storagePhys = clamp(storageEffMaybe - storageDeltaApplied, 0, f.Smax);
       }
     }
 
     if (!Number.isFinite(storagePhys)){
-      const ready = safeNum(seed.readiness, null);
-      if (Number.isFinite(ready)){
-        const wet = clamp(100 - ready, 0, 100);
-        const storageForReadiness = (wet / 100) * f.Smax;
-        const creditIn = signedCreditInchesFromSmax(f.Smax);
-        const storageEff = clamp(storageForReadiness + creditIn, 0, f.Smax);
-
-        const calZero = applyCalToStorage(0, f.Smax, deps);
-        const storageDeltaApplied = safeNum(calZero && calZero.storageDeltaApplied, 0);
-        storagePhys = clamp(storageEff - storageDeltaApplied, 0, f.Smax);
-      }
+      storagePhys = Number.isFinite(Number(run && run.storagePhysFinal))
+        ? clamp(Number(run.storagePhysFinal), 0, f.Smax)
+        : null;
     }
 
-    if (!Number.isFinite(storagePhys)) return null;
-
-    storagePhys = clamp(storagePhys, 0, f.Smax);
-    const now = computeReadinessFromStorage(storagePhys, f, deps);
+    const derived = Number.isFinite(storagePhys)
+      ? computeReadinessFromStorage(storagePhys, f, deps)
+      : null;
 
     return {
-      storagePhys,
-      readiness: Number(now.readiness),
-      wetness: Number(now.wetness),
+      storagePhys: Number.isFinite(storagePhys) ? storagePhys : null,
+      readiness: Number.isFinite(authoritativeReadiness)
+        ? authoritativeReadiness
+        : Number(derived && derived.readiness),
+      wetness: Number.isFinite(Number(seed.wetness))
+        ? Number(seed.wetness)
+        : Number(derived && derived.wetness),
+      derivedReadiness: Number(derived && derived.readiness),
       source: safeStr(seed.source || 'field_readiness_latest'),
       seed
     };
@@ -732,10 +722,6 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
     const run = runField(field, deps);
     if (!run) return { ok:false, status:'noData', hours:null, text:'' };
 
-    if (Number(run.readinessR) >= thr){
-      return { ok:true, status:'dryNow', hours:0, text:'' };
-    }
-
     let fcstDaily = [];
     if (deps && typeof deps.getForecastSeriesForFieldId === 'function'){
       const got = await deps.getForecastSeriesForFieldId(String(field.id));
@@ -777,18 +763,36 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
 
     storagePhys = clamp(storagePhys, 0, f.Smax);
 
-    const nowR = Number.isFinite(Number(etaSeedNow && etaSeedNow.readiness))
+    const authoritativeNowR = Number.isFinite(Number(etaSeedNow && etaSeedNow.readiness))
       ? Number(etaSeedNow.readiness)
-      : computeReadinessFromStorage(storagePhys, f, deps).readiness;
+      : null;
 
-    if (Number(nowR) >= thr){
+    const derivedNowR = computeReadinessFromStorage(storagePhys, f, deps).readiness;
+
+    // Centralized latest readiness is the authority for the dryNow gate.
+    // If latest says we're below threshold, ETA must not return 0h.
+    const dryNowGateR = Number.isFinite(authoritativeNowR)
+      ? authoritativeNowR
+      : derivedNowR;
+
+    if (Number(dryNowGateR) >= thr){
       return { ok:true, status:'dryNow', hours:0, text:'' };
     }
 
-    const steps = Math.ceil(H / stepH);
+    // Start interpolation from the authoritative latest readiness when present.
+    // This keeps the displayed ETA aligned with the tile number.
+    let prevR = Number.isFinite(authoritativeNowR)
+      ? authoritativeNowR
+      : derivedNowR;
 
-    let prevR = Number(nowR);
     let prevT = 0;
+
+    // Extra guard: below-threshold latest readiness can never start at/over threshold.
+    if (prevR >= thr){
+      prevR = Math.max(0, thr - 1);
+    }
+
+    const steps = Math.ceil(H / stepH);
 
     for (let s=1; s<=steps; s++){
       const tHours = Math.min(H, s * stepH);
@@ -844,10 +848,16 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
       if (prevR < thr && rNow >= thr){
         const denom = rNow - prevR;
         const fracCross = denom <= 1e-6 ? 1 : clamp((thr - prevR) / denom, 0, 1);
-        const eta = prevT + fracCross * (tHours - prevT);
+        let eta = prevT + fracCross * (tHours - prevT);
+
+        // If the field was below threshold at the start, do not emit 0h.
+        if (eta <= 0 && prevT === 0 && Number(dryNowGateR) < thr){
+          eta = 1;
+        }
+
         const hrs = Math.max(0, Math.round(eta));
 
-        if (hrs <= H) return { ok:true, status:'within', hours:hrs, text:`~${hrs}h` };
+        if (hrs <= H) return { ok:true, status:'within', hours:Math.max(1, hrs), text:`~${Math.max(1, hrs)}h` };
         return { ok:true, status:'beyond', hours:null, text:`>${Math.round(H)}h` };
       }
 
