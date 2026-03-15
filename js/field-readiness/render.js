@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-15d-prepare-eta-seed-handshake-no-trim
+Rev: 2026-03-15e-force-nonzero-eta-display-from-latest-truth
 
 GOAL (per Dane):
 ✅ Read ALL displayed readiness numbers from Firestore collection:
@@ -15,6 +15,7 @@ GOAL (per Dane):
 ✅ Show ETA as compact hours or >168h
 ✅ Restore dynamic readiness gradient based on operation threshold
 ✅ PREP: pass centralized latest truth context cleanly into ETA path
+✅ FIX: if latest readiness is below threshold, tile ETA may NOT show 0 / ~0h
 ✅ No trimmed sections
 
 NEW CENTRALIZED READINESS SOURCE:
@@ -32,9 +33,8 @@ IMPORTANT BEHAVIOR:
   but displayed readiness truth is anchored to field_readiness_latest.
 - ETA is restored as a secondary post-render enhancement so tile loading
   stays fast.
-- This file now prepares the ETA call so the next formula/model update
-  can consume centralized latest truth without changing tile wiring again.
-
+- This file now hard-guards tile ETA so below-threshold latest readiness
+  cannot visually collapse to zero.
 ===================================================================== */
 'use strict';
 
@@ -1072,6 +1072,35 @@ function compactEtaForMobile(txt, horizonHours){
   return s;
 }
 
+function isZeroEtaLike(txt){
+  const s = String(txt || '').trim().toLowerCase();
+  if (!s) return false;
+  return (
+    s === '0' ||
+    s === '~0h' ||
+    s === '0h' ||
+    s === '~0' ||
+    s === 'dry now' ||
+    s === 'drynow'
+  );
+}
+
+function forceNonZeroEtaText(txt, readinessNow, thr){
+  const s = String(txt || '').trim();
+  const ready = Number(readinessNow);
+  const threshold = Number(thr);
+
+  if (!Number.isFinite(ready) || !Number.isFinite(threshold)) return s;
+  if (ready >= threshold) return s;
+
+  if (!s || isZeroEtaLike(s)) return '~1h';
+
+  const h = parseEtaHoursFromText(s);
+  if (Number.isFinite(h) && h <= 0) return '~1h';
+
+  return s;
+}
+
 function getEtaCacheKey(fieldObj, opKey, thr, latestRec){
   const fid = safeStr(fieldObj && fieldObj.id);
   const latestStamp =
@@ -1079,17 +1108,28 @@ function getEtaCacheKey(fieldObj, opKey, thr, latestRec){
     safeStr(latestRec && latestRec.weatherFetchedAtISO) ||
     safeStr(latestRec && latestRec.runKey) ||
     safeStr(latestRec && latestRec.fieldId);
-  return `${fid}__${safeStr(opKey)}__${Math.round(Number(thr) || 0)}__${latestStamp}`;
+
+  const latestReadiness = safeStr(latestRec && latestRec.readiness);
+  return `${fid}__${safeStr(opKey)}__${Math.round(Number(thr) || 0)}__${latestStamp}__${latestReadiness}`;
 }
 
-function getEtaCacheValue(state, key){
+function getEtaCacheValue(state, key, { readinessNow=null, threshold=null } = {}){
   try{
     const map = safeObj(state && state._etaTileCache) || {};
     const hit = safeObj(map[key]);
     if (!hit) return null;
     const ts = Number(hit.ts || 0);
     if (!ts || (Date.now() - ts) > ETA_CACHE_TTL_MS) return null;
-    return safeStr(hit.text);
+
+    const txt = safeStr(hit.text);
+    const ready = Number(readinessNow);
+    const thr = Number(threshold);
+
+    if (Number.isFinite(ready) && Number.isFinite(thr) && ready < thr && isZeroEtaLike(txt)){
+      return null;
+    }
+
+    return txt;
   }catch(_){
     return null;
   }
@@ -1178,10 +1218,22 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
 
   try{
     const latest = latestRec || getLatestReadinessForField(state, fieldObj && fieldObj.id);
+    const authoritativeReadiness = Number(
+      latest && Number.isFinite(Number(latest.readiness))
+        ? Number(latest.readiness)
+        : readinessNow
+    );
+
     const opKey = getCurrentOp();
     const cacheKey = getEtaCacheKey(fieldObj, opKey, thr, latest);
-    const cached = getEtaCacheValue(state, cacheKey);
-    if (cached) return cached;
+    const cached = getEtaCacheValue(state, cacheKey, {
+      readinessNow: authoritativeReadiness,
+      threshold: thr
+    });
+
+    if (cached){
+      return forceNonZeroEtaText(cached, authoritativeReadiness, thr);
+    }
 
     await ensureFRModules(state);
     await ensureEtaHelperModule(state);
@@ -1192,13 +1244,30 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
 
     const etaDeps = buildEtaDepsForField(state, fieldObj, opKey, latest);
     const res = await model.etaToThreshold(fieldObj, etaDeps || deps, Number(thr), HORIZON_HOURS, 3);
+
     let txt = normalizeEtaResult(res, HORIZON_HOURS);
 
     if (!txt && res && (res.exceedsHorizon === true || res.withinHorizon === false || res.reached === false)){
       txt = `>${HORIZON_HOURS}h`;
     }
 
-    setEtaCacheValue(state, cacheKey, txt);
+    if (
+      authoritativeReadiness < Number(thr) &&
+      (
+        isZeroEtaLike(txt) ||
+        Number(res && res.hours) === 0 ||
+        String(res && res.status || '').toLowerCase() === 'drynow'
+      )
+    ){
+      txt = '~1h';
+    }
+
+    txt = forceNonZeroEtaText(txt, authoritativeReadiness, thr);
+
+    if (txt){
+      setEtaCacheValue(state, cacheKey, txt);
+    }
+
     return txt;
   }catch(_){
     return '';
