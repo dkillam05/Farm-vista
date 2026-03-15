@@ -1,6 +1,6 @@
 /* =====================================================================
 /js/field-readiness/shared/readiness-core-shared.cjs  (FULL FILE)
-Rev: 2026-03-15e-backend-shared-core-rain-order-fix
+Rev: 2026-03-15f-backend-shared-core-add-persisted-only-helper
 
 PURPOSE
 ✅ Shared PURE readiness math core for backend import
@@ -9,6 +9,7 @@ PURPOSE
 ✅ FIX: rain precedence now matches live field-readiness.model.js
 ✅ FIX: avgLossDay still works when includeTrace=false
 ✅ CAL remains zero to match formula.js wiring
+✅ NEW: helper to compute readiness from persisted storage only
 ===================================================================== */
 
 'use strict';
@@ -223,11 +224,6 @@ function mapFactors(soilWetness0_100, drainageIndex0_100, sm010){
 
 /* =====================================================================
    Rain precedence
-   MUST match live field-readiness.model.js:
-   1) rainMrmsIn
-   2) rainInAdj
-   3) rainIn
-   4) precipIn
 ===================================================================== */
 function pickRainForRow(w){
   if (!w || typeof w !== 'object'){
@@ -336,7 +332,6 @@ function applyCalToStorage(storagePhys, Smax){
     };
   }
 
-  // formula.js zeroes CAL everywhere
   const wetBias = 0;
   const readinessShift = 0;
 
@@ -563,6 +558,59 @@ function runFieldReadinessCore(
   };
 }
 
+/* =====================================================================
+   NEW: readiness from persisted storage only
+   Used when field exists but has no weather cache yet.
+===================================================================== */
+function runReadinessFromPersistedStateOnly(
+  soilWetness,
+  drainageIndex,
+  persistedState = null,
+  opts = {}
+){
+  if (!persistedState || !Number.isFinite(Number(persistedState.storageFinal))){
+    return null;
+  }
+
+  const extra = buildExtra(opts.extra);
+  const sm010 = null;
+  const factors = mapFactors(soilWetness, drainageIndex, sm010);
+
+  let storagePhysFinal = clamp(Number(persistedState.storageFinal), 0, factors.Smax);
+
+  // If saved Smax differs, keep same fill fraction
+  const savedSmax = Number(persistedState.SmaxAtSave);
+  if (Number.isFinite(savedSmax) && savedSmax > 0 && Math.abs(savedSmax - factors.Smax) > 0.001){
+    const frac = clamp(storagePhysFinal / savedSmax, 0, 1);
+    storagePhysFinal = clamp(frac * factors.Smax, 0, factors.Smax);
+  }
+
+  const out = computeReadinessFromStorage(storagePhysFinal, factors);
+
+  return {
+    rows: [],
+    trace: [],
+    factors,
+
+    seedSource: 'persisted-state-only',
+    seedStorage: storagePhysFinal,
+    startIdx: 0,
+
+    storagePhysFinal,
+    storageFinal: out.storageEff,
+
+    wetness: out.wetness,
+    readiness: out.readiness,
+    wetnessR: roundInt(out.wetness),
+    readinessR: roundInt(out.readiness),
+
+    readinessCreditIn: out.creditIn,
+    storageForReadiness: out.storageForReadiness,
+    avgLossDay: 0
+  };
+}
+
 module.exports = {
-  runFieldReadinessCore
+  runFieldReadinessCore,
+  runReadinessFromPersistedStateOnly
 };
