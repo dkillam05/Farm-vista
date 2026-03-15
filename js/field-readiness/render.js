@@ -1,55 +1,30 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-13a-restore-visible-batch-eta-refresh-fast
+Rev: 2026-03-15a-use-field_readiness_latest-fast
 
-GOAL (per Dane, Feb 2026):
-✅ Make tiles + details MATCH the Global Calibration readiness number.
-✅ Treat Global Calibration as the authoritative "truth math" view.
-
-CHANGES (THIS REV):
-✅ Use /Farm-vista/js/field-readiness/formula.js as the single wiring source:
-   - ensureFRModules()
-   - buildFRDeps()
-   - runFieldReadiness()
-✅ render.js keeps persisted truth loading (Firestore) + UI logic.
-✅ CAL remains ZERO (via formula.js).
-✅ Forecast rows still provided (ETA helper keeps working).
-✅ Option B trace fallback (rewind 14) preserved.
-✅ Tile "Rain (range)" now uses MRMS daily rainfall
-✅ If MRMS current-day-through-past-30-days is not complete, tile shows:
-   "Processing Data"
-✅ Rain-range sort now uses MRMS when ready
-✅ MRMS details panel remains supported
-✅ fr:tile-refresh / fr:details-refresh now support lightweight rainfall-only UI refresh
+GOAL (per Dane):
+✅ Read ALL displayed readiness numbers from Firestore collection:
+   field_readiness_latest
+✅ Treat that collection as the centralized readiness truth
+✅ Make tile loading / sorting much faster by avoiding heavy per-field
+   model weather computation during list rendering
+✅ Keep MRMS rain range support
+✅ Keep details / trace / weather panels supported as a secondary view
 ✅ No trimmed sections
-✅ FIX: initial tile sorting is stabilized by warming filtered field weather
-   before computed sort order is built when the selected sort depends on
-   readiness/rain values
-✅ FIX: initial tile order now uses the SAME readiness source as tile/details
-   by precomputing filtered runs with runFieldReadiness() before sorting/render
-✅ NEW: inline loading card inside the Fields area while tiles are being
-   computed/sorted so the page does not look blank after initial loading
-✅ NEW: helper text shows visible results count, e.g. "Showing 25 of 128 fields"
-✅ FIX: fields that do not yet have a readiness run still render a tile
-   instead of disappearing, so "All" and helper counts match what is on screen
-✅ FIX: helper count is now based on actual rendered tiles, not only the
-   pre-slice candidate list
-✅ FIX: same-view shortcut now includes a filtered field signature, so
-   newly added fields / changed filtered sets force a full rebuild instead
-   of getting stuck on the first drawn tile list
-✅ FIX: results-per-page now reads directly from the live pageSel dropdown
-   so 25/50/100/250/All always clamps the visible tile count correctly
-✅ FIX: if runFieldReadiness() returns null for a field, render.js now
-   falls back to the model/Open-Meteo path before showing "Field Readiness —"
-✅ FIX: restored missing getTilesViewKey() so page loads again
-✅ FIX: restore startup readiness for NEW fields by warming Open-Meteo
-   weather for filtered fields BEFORE building runs, regardless of sort mode
-✅ FIX: updateTileForField() now warms the selected field before retrying
-   readiness so new fields can pick up an initial score before MRMS exists
-✅ FIX: restored missing updateVisibleTilesBatched() so ETA/helper/readiness
-   refresh runs for ALL visible tiles instead of only the first refreshed one
-✅ SPEED: visible tile updates now pre-load modules/persisted state once,
-   pre-warm visible fields once, and refresh in small parallel batches
+
+NEW CENTRALIZED READINESS SOURCE:
+- Collection: field_readiness_latest
+- Key: fieldId
+- Primary displayed number: readiness
+
+IMPORTANT BEHAVIOR:
+- Tiles, sorting, selected tile refresh, and list rendering now use the
+  cached field_readiness_latest collection first.
+- If a field does not yet have a latest readiness doc, that tile shows
+  "Field Readiness —".
+- Heavy model math is no longer required just to draw/sort tiles.
+- Details panel still attempts deep model/trace rendering when needed,
+  but displayed readiness truth is anchored to field_readiness_latest.
 
 ===================================================================== */
 'use strict';
@@ -66,8 +41,15 @@ import { parseRangeFromInput, rainInRange, mrmsRainInRange } from './rain.js';
 import { fetchAndHydrateFieldParams, loadFieldMrmsDoc } from './data.js';
 import { getAPI } from './firebase.js';
 
-// ✅ SINGLE SOURCE OF TRUTH: readiness wiring lives here
+// Keep these imports for details / deeper fallbacks.
+// Tile rendering path no longer depends on them.
 import { ensureFRModules, buildFRDeps, runFieldReadiness } from './formula.js';
+
+/* =====================================================================
+   Centralized readiness latest collection
+===================================================================== */
+const FR_LATEST_COLLECTION = 'field_readiness_latest';
+const FR_LATEST_TTL_MS = 30000;
 
 /* =====================================================================
    Persisted soil truth state (per-field)
@@ -90,7 +72,180 @@ function safeNum(v){
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
+function safeInt(v, fallback = null){
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.round(n) : fallback;
+}
+function toIsoFromAny(v){
+  try{
+    if (!v) return '';
+    if (typeof v === 'string'){
+      const d = new Date(v);
+      return Number.isFinite(d.getTime()) ? d.toISOString() : v;
+    }
+    if (v && typeof v.toDate === 'function'){
+      const d = v.toDate();
+      return Number.isFinite(d.getTime()) ? d.toISOString() : '';
+    }
+    if (v && typeof v === 'object' && typeof v.seconds === 'number'){
+      const ms = (Number(v.seconds) * 1000) + Math.round(Number(v.nanoseconds || 0) / 1e6);
+      const d = new Date(ms);
+      return Number.isFinite(d.getTime()) ? d.toISOString() : '';
+    }
+    if (v && typeof v === 'object' && typeof v.__time__ === 'string'){
+      const d = new Date(v.__time__);
+      return Number.isFinite(d.getTime()) ? d.toISOString() : String(v.__time__ || '');
+    }
+  }catch(_){}
+  return '';
+}
+function markerLeftCSS(v){
+  return `${clamp(Number(v) || 0, 0, 100)}%`;
+}
+function buildLatestReadinessRecord(raw, fallbackId){
+  const d = safeObj(raw) || {};
+  const fieldId = safeStr(d.fieldId || fallbackId);
+  if (!fieldId) return null;
 
+  const readiness = safeInt(d.readiness);
+  const wetness = safeInt(d.wetness);
+  const soilWetness = safeNum(d.soilWetness);
+  const drainageIndex = safeNum(d.drainageIndex);
+
+  return {
+    fieldId,
+    farmId: safeStr(d.farmId),
+    farmName: d.farmName == null ? null : safeStr(d.farmName),
+    fieldName: safeStr(d.fieldName),
+    county: safeStr(d.county),
+    state: safeStr(d.state),
+    readiness,
+    wetness,
+    soilWetness,
+    drainageIndex,
+    readinessCreditIn: safeNum(d.readinessCreditIn) ?? 0,
+    storageFinal: safeNum(d.storageFinal),
+    storageForReadiness: safeNum(d.storageForReadiness),
+    storagePhysFinal: safeNum(d.storagePhysFinal),
+    wetBiasApplied: safeNum(d.wetBiasApplied),
+    runKey: safeStr(d.runKey),
+    seedSource: safeStr(d.seedSource),
+    weatherSource: safeStr(d.weatherSource),
+    timezone: safeStr(d.timezone),
+    computedAtISO: toIsoFromAny(d.computedAt),
+    weatherFetchedAtISO: toIsoFromAny(d.weatherFetchedAt),
+    location: {
+      lat: safeNum(d && d.location && d.location.lat),
+      lng: safeNum(d && d.location && d.location.lng)
+    },
+    _raw: d
+  };
+}
+async function loadLatestReadiness(state, { force=false } = {}){
+  try{
+    if (!state) return;
+
+    const now = Date.now();
+    const last = Number(state._latestReadinessLoadedAt || 0);
+    if (!force && state.latestReadinessByFieldId && (now - last) < FR_LATEST_TTL_MS) return;
+
+    state.latestReadinessByFieldId = state.latestReadinessByFieldId || {};
+    const out = {};
+
+    const api = getAPI(state);
+    if (!api){
+      state.latestReadinessByFieldId = out;
+      state._latestReadinessLoadedAt = now;
+      return;
+    }
+
+    if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
+      const db = window.firebase.firestore();
+      const snap = await db.collection(FR_LATEST_COLLECTION).get();
+
+      snap.forEach(doc=>{
+        const rec = buildLatestReadinessRecord(doc.data() || {}, doc.id);
+        if (!rec || !rec.fieldId) return;
+        out[rec.fieldId] = rec;
+      });
+
+      state.latestReadinessByFieldId = out;
+      state._latestReadinessLoadedAt = now;
+      return;
+    }
+
+    if (api.kind !== 'compat'){
+      const db = api.getFirestore();
+      const col = api.collection(db, FR_LATEST_COLLECTION);
+      const snap = await api.getDocs(col);
+
+      snap.forEach(doc=>{
+        const rec = buildLatestReadinessRecord(doc.data() || {}, doc.id);
+        if (!rec || !rec.fieldId) return;
+        out[rec.fieldId] = rec;
+      });
+
+      state.latestReadinessByFieldId = out;
+      state._latestReadinessLoadedAt = now;
+      return;
+    }
+  }catch(e){
+    console.warn('[FieldReadiness] latest readiness load failed:', e);
+    state.latestReadinessByFieldId = state.latestReadinessByFieldId || {};
+    state._latestReadinessLoadedAt = Date.now();
+  }
+}
+function getLatestReadinessForField(state, fieldId){
+  try{
+    const map = safeObj(state && state.latestReadinessByFieldId) || {};
+    const fid = safeStr(fieldId);
+    const rec = map[fid];
+    return safeObj(rec);
+  }catch(_){
+    return null;
+  }
+}
+function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
+  const f = fieldObj || {};
+  const rec = latestRec || getLatestReadinessForField(state, f.id);
+  if (!rec) return null;
+
+  const readinessR = safeInt(rec.readiness);
+  if (!Number.isFinite(readinessR)) return null;
+
+  return {
+    ok: true,
+    source: 'field_readiness_latest',
+    sourceLabel: 'field_readiness_latest',
+    fieldId: safeStr(rec.fieldId || f.id),
+    readinessR,
+    readiness: readinessR,
+    wetness: safeInt(rec.wetness),
+    wetnessR: safeInt(rec.wetness),
+    soilWetness: safeNum(rec.soilWetness),
+    drainageIndex: safeNum(rec.drainageIndex),
+    readinessCreditIn: safeNum(rec.readinessCreditIn) ?? 0,
+    storageFinal: safeNum(rec.storageFinal),
+    storageForReadiness: safeNum(rec.storageForReadiness),
+    storagePhysFinal: safeNum(rec.storagePhysFinal),
+    wetBiasApplied: safeNum(rec.wetBiasApplied),
+    runKey: safeStr(rec.runKey),
+    seedSource: safeStr(rec.seedSource),
+    weatherSource: safeStr(rec.weatherSource),
+    timezone: safeStr(rec.timezone),
+    computedAtISO: safeStr(rec.computedAtISO),
+    weatherFetchedAtISO: safeStr(rec.weatherFetchedAtISO),
+    county: safeStr(rec.county || f.county),
+    state: safeStr(rec.state || f.state),
+    trace: [],
+    rows: [],
+    _latest: rec
+  };
+}
+
+/* =====================================================================
+   Persisted state loader (kept for details/model fallback)
+===================================================================== */
 async function loadPersistedState(state, { force=false } = {}){
   try{
     if (!state) return;
@@ -326,7 +481,7 @@ function renderFieldsInlineLoading(message, subtext){
           <div class="fr-fields-spinner" aria-hidden="true"></div>
           <div style="min-width:0;">
             <div class="fr-fields-loading-title">${esc(message || 'Loading field readiness...')}</div>
-            <div class="fr-fields-loading-sub">${esc(subtext || 'Weather information for fields is being pulled together and sorted now.')}</div>
+            <div class="fr-fields-loading-sub">${esc(subtext || 'Centralized readiness values are being loaded now.')}</div>
           </div>
         </div>
         <div class="fr-fields-loading-bars" aria-hidden="true">
@@ -396,7 +551,7 @@ async function scheduleRender(state, mode){
   }, 25);
 }
 
-/* ---------- module loader ---------- */
+/* ---------- optional deep module loader ---------- */
 export async function ensureModelWeatherModules(state){
   await ensureFRModules(state);
 }
@@ -522,7 +677,8 @@ function getTilesViewKey(state){
   const pageSize = String(getEffectivePageSize(state));
   const sort = getSortMode();
   const rangeStr = String(($('jobRangeInput') && $('jobRangeInput').value) ? $('jobRangeInput').value : '');
-  return `${opKey}__${farmId}__${pageSize}__${sort}__${rangeStr}`;
+  const latestStamp = String(Number(state && state._latestReadinessLoadedAt || 0));
+  return `${opKey}__${farmId}__${pageSize}__${sort}__${rangeStr}__${latestStamp}`;
 }
 
 /* ---------- sorting ---------- */
@@ -539,8 +695,8 @@ function sortFields(fields, runsById, mrmsRangeById){
     const nameA = `${a.name||''}`;
     const nameB = `${b.name||''}`;
 
-    const readyA = ra ? ra.readinessR : null;
-    const readyB = rb ? rb.readinessR : null;
+    const readyA = ra ? safeNum(ra.readinessR) : null;
+    const readyB = rb ? safeNum(rb.readinessR) : null;
 
     const mrmsA = mrmsRangeById ? mrmsRangeById.get(a.id) : null;
     const mrmsB = mrmsRangeById ? mrmsRangeById.get(b.id) : null;
@@ -819,16 +975,27 @@ function updateDetailsHeaderPanel(state){
   const f = (state.fields || []).find(x=>x.id === state.selectedFieldId);
   if (!f) return;
 
+  const latest = getLatestReadinessForField(state, f.id);
+
   const panel = ensureDetailsHeaderPanel();
   if (!panel) return;
 
-  const farmName = (state.farmsById && state.farmsById.get) ? (state.farmsById.get(f.farmId) || '') : '';
+  const farmName =
+    (latest && latest.farmName) ||
+    ((state.farmsById && state.farmsById.get) ? (state.farmsById.get(f.farmId) || '') : '');
+
   const title = farmName ? `${farmName} • ${f.name || ''}` : (f.name || '—');
-  const loc = (f.county || f.state) ? `${String(f.county||'—')} / ${String(f.state||'—')}` : '';
+  const locCounty = (latest && latest.county) || f.county || '—';
+  const locState = (latest && latest.state) || f.state || '—';
+  const loc = `${String(locCounty)} / ${String(locState)}`;
+
+  const readinessTxt = (latest && Number.isFinite(Number(latest.readiness)))
+    ? ` • Field Readiness ${Math.round(Number(latest.readiness))}`
+    : '';
 
   panel.innerHTML = `
-    <div class="frdh-title">${esc(title)}</div>
-    ${loc ? `<div class="frdh-sub">${esc(loc)}</div>` : ``}
+    <div class="frdh-title">${esc(title)}${esc(readinessTxt)}</div>
+    <div class="frdh-sub">${esc(loc)}</div>
   `;
 }
 
@@ -867,6 +1034,12 @@ function compactEtaForMobile(txt, horizonHours){
 }
 
 async function getTileEtaText(state, fieldObj, deps, run0, thr){
+  // Fast path:
+  // tile ETA is intentionally skipped when centralized latest readiness is in use,
+  // to keep tile rendering nearly instant.
+  const latest = getLatestReadinessForField(state, fieldObj && fieldObj.id);
+  if (latest) return '';
+
   const HORIZON_HOURS = ETA_HORIZON_HOURS;
 
   if (Number(run0 && run0.readinessR) >= Number(thr)) return '';
@@ -932,7 +1105,7 @@ function upsertEtaHelp(state, tile, ctx){
         etaText: etaTxt,
         horizonHours: Number(ctx.horizonHours || ETA_HORIZON_HOURS),
         nowTs: Date.now(),
-        note: 'Option 1: ETA is computed by model.etaToThreshold() from truth-seeded state + forecast cache.'
+        note: 'ETA helper'
       };
 
       dispatchEtaHelp(state, payload);
@@ -1071,7 +1244,7 @@ function buildDepsForState(state, opKey){
 }
 
 /* =====================================================================
-   Helper: warm field weather so new fields can compute from Open-Meteo
+   Optional deep model helpers (kept for details panel)
 ===================================================================== */
 async function warmWeatherForFieldSet(state, fields){
   try{
@@ -1088,10 +1261,7 @@ async function warmWeatherForFieldSet(state, fields){
   }
 }
 
-/* =====================================================================
-   Helper: run readiness with fallback to model/Open-Meteo path
-===================================================================== */
-async function computeRunForField(state, fieldObj, opKey){
+async function computeDeepModelRunForField(state, fieldObj, opKey){
   try{
     const wxCtx = buildWxCtx(state);
     const run = await runFieldReadiness(state, fieldObj, {
@@ -1117,21 +1287,19 @@ async function computeRunForField(state, fieldObj, opKey){
 }
 
 /* =====================================================================
-   Helper: precompute runs for filtered fields using authoritative path
+   FAST helper: build runs from field_readiness_latest
 ===================================================================== */
 async function buildRunsForFields(state, fields, opKey){
   const map = new Map();
   const list = Array.isArray(fields) ? fields : [];
+  void opKey;
+
+  await loadLatestReadiness(state, { force:false });
 
   for (const f of list){
-    try{
-      const run = await computeRunForField(state, f, opKey);
-      if (run) map.set(f.id, run);
-    }catch(e){
-      try{
-        console.warn('[FieldReadiness] buildRunsForFields failed for field:', f && f.id, e);
-      }catch(_){}
-    }
+    const latest = getLatestReadinessForField(state, f.id);
+    const run = buildSyntheticRunFromLatest(state, f, latest);
+    if (run) map.set(f.id, run);
   }
 
   return map;
@@ -1199,52 +1367,57 @@ async function updateTileForField(state, fieldId){
     const tile = document.querySelector('.tile[data-field-id="' + CSS.escape(fid) + '"]');
     if (!tile) return;
 
-    await ensureFRModules(state);
     ensureSelectionStyleOnce();
     ensureFieldsCountHelperEl();
-    await loadPersistedState(state, { force:true });
-    ensureEtaHelperModule(state);
+    await loadLatestReadiness(state, { force:false });
 
     const f = (state.fields || []).find(x=>x.id === fid);
     if (!f) return;
 
     const opKey = getCurrentOp();
-    const deps = buildDepsForState(state, opKey);
+    const latest = getLatestReadinessForField(state, fid);
+    const run0 = buildSyntheticRunFromLatest(state, f, latest);
 
-    // ✅ Warm this field first so brand-new fields can get an initial
-    // Open-Meteo-based readiness score even before MRMS exists.
-    await warmWeatherForFieldSet(state, [f]);
+    const range = parseRangeFromInput();
+    const mrmsRes = await getMrmsRainResultForField(state, fid, range, { force:false });
+    const rainText = rainTileTextFromMrmsResult(mrmsRes);
 
-    let run0 = await computeRunForField(state, f, opKey);
-
-    // one more best-effort retry after warm
-    if (!run0){
-      await warmWeatherForFieldSet(state, [f]);
-      run0 = await computeRunForField(state, f, opKey);
-    }
+    const rainLine = tile.querySelector('.subline .mono');
+    if (rainLine) rainLine.textContent = rainText;
 
     if (!run0){
-      const range = parseRangeFromInput();
-      const mrmsRes = await getMrmsRainResultForField(state, fid, range, { force:false });
-      const rainLine = tile.querySelector('.subline .mono');
-      if (rainLine) rainLine.textContent = rainTileTextFromMrmsResult(mrmsRes);
-
       const pill = tile.querySelector('.readiness-pill');
       if (pill) pill.textContent = 'Field Readiness —';
 
       const badge = tile.querySelector('.badge');
       if (badge) badge.textContent = 'Loading…';
 
+      const gauge = tile.querySelector('.gauge');
+      if (gauge) gauge.style.background = gradientForThreshold(50);
+
+      const thrEl = tile.querySelector('.thr');
+      if (thrEl) thrEl.style.left = markerLeftCSS(getThresholdForOp(state, opKey));
+
+      const markerEl = tile.querySelector('.marker');
+      if (markerEl){
+        markerEl.style.left = '50%';
+        markerEl.style.opacity = '.45';
+      }
+
+      upsertEtaHelp(state, tile, { etaText:'' });
       return;
     }
 
-    try{ state.lastRuns && state.lastRuns.set(fid, run0); }catch(_){}
+    try{
+      state.lastRuns = state.lastRuns || new Map();
+      state.lastRuns.set(fid, run0);
+    }catch(_){}
 
     const thr = getThresholdForOp(state, opKey);
     const readiness = run0.readinessR;
 
-    const leftPos = state._mods.model.markerLeftCSS(readiness);
-    const thrPos  = state._mods.model.markerLeftCSS(thr);
+    const leftPos = markerLeftCSS(readiness);
+    const thrPos  = markerLeftCSS(thr);
 
     const perceived = perceivedFromThreshold(readiness, thr);
     const pillBg = colorForPerceived(perceived);
@@ -1277,20 +1450,13 @@ async function updateTileForField(state, fieldId){
       badge.textContent = `Field Readiness ${readiness}`;
     }
 
-    const range = parseRangeFromInput();
-    const mrmsRes = await getMrmsRainResultForField(state, fid, range, { force:false });
-    const rainLine = tile.querySelector('.subline .mono');
-    if (rainLine) rainLine.textContent = rainTileTextFromMrmsResult(mrmsRes);
-
-    const etaTxt = await getTileEtaText(state, f, deps, run0, thr);
-
     upsertEtaHelp(state, tile, {
       fieldId: fid,
       fieldName: String(f.name || ''),
       opKey,
       threshold: thr,
       readinessNow: readiness,
-      etaText: etaTxt,
+      etaText: '',
       horizonHours: ETA_HORIZON_HOURS
     });
 
@@ -1302,7 +1468,7 @@ async function updateTileForField(state, fieldId){
 }
 
 /* =====================================================================
-   Batch update visible tiles (restored)
+   Batch update visible tiles
 ===================================================================== */
 async function updateVisibleTilesBatched(state, ids){
   try{
@@ -1311,21 +1477,12 @@ async function updateVisibleTilesBatched(state, ids){
       : [];
     if (!list.length) return;
 
-    await ensureFRModules(state);
     ensureSelectionStyleOnce();
     ensureFieldsCountHelperEl();
-    await loadPersistedState(state, { force:false });
-    ensureEtaHelperModule(state);
+    await loadLatestReadiness(state, { force:false });
 
-    const fieldsById = new Map((state.fields || []).map(f => [String(f.id), f]));
-    const visibleFields = list.map(id => fieldsById.get(id)).filter(Boolean);
-
-    if (visibleFields.length){
-      await warmWeatherForFieldSet(state, visibleFields);
-    }
-
-    const BATCH_SIZE = 6;
-    const YIELD_MS = 8;
+    const BATCH_SIZE = 12;
+    const YIELD_MS = 4;
 
     for (let i = 0; i < list.length; i += BATCH_SIZE){
       const batchIds = list.slice(i, i + BATCH_SIZE);
@@ -1397,11 +1554,9 @@ function wireTileInteractions(state, tileEl, fieldId){
 
 /* ---------- tile render (CORE) ---------- */
 async function _renderTilesInternal(state){
-  await ensureFRModules(state);
   ensureSelectionStyleOnce();
   ensureFieldsCountHelperEl();
-  await loadPersistedState(state, { force:true });
-  ensureEtaHelperModule(state);
+  await loadLatestReadiness(state, { force:false });
 
   const wrap = $('fieldsGrid');
   if (!wrap) return;
@@ -1445,42 +1600,16 @@ async function _renderTilesInternal(state){
   setFieldsCountHelperMessage('Preparing fields…');
   renderFieldsInlineLoading(
     'Loading field readiness...',
-    'Weather information for fields is being pulled together and sorted now.'
+    'Centralized field_readiness_latest values are being loaded and sorted now.'
   );
 
   const opKey = getCurrentOp();
   const filtered = filteredNow;
-  const sortMode = getSortMode();
 
-  // ✅ Always warm filtered fields first.
-  // This restores the old behavior where new fields could still get
-  // an initial readiness score from Open-Meteo even before MRMS existed.
-  await warmWeatherForFieldSet(state, filtered);
-
-  // Keep the extra warm for computed sorts too (harmless if already warm).
-  try{
-    if (
-      sortNeedsComputedData(sortMode) &&
-      state._mods &&
-      state._mods.weather &&
-      typeof state._mods.weather.warmWeatherForFields === 'function' &&
-      filtered.length
-    ){
-      const wxCtx = buildWxCtx(state);
-      await state._mods.weather.warmWeatherForFields(filtered, wxCtx, { force:false, onEach:()=>{} });
-    }
-  }catch(e){
-    console.warn('[FieldReadiness] sort warmWeatherForFields failed:', e);
-  }
-
+  state.lastRuns = state.lastRuns || new Map();
   state.lastRuns.clear();
-  let filteredRuns = await buildRunsForFields(state, filtered, opKey);
 
-  // one retry pass after warm in case new fields needed the weather cache
-  if (filteredRuns.size < filtered.length){
-    await warmWeatherForFieldSet(state, filtered);
-    filteredRuns = await buildRunsForFields(state, filtered, opKey);
-  }
+  const filteredRuns = await buildRunsForFields(state, filtered, opKey);
 
   for (const [fid, run] of filteredRuns.entries()){
     state.lastRuns.set(fid, run);
@@ -1505,7 +1634,7 @@ async function _renderTilesInternal(state){
   const show = sorted.slice(0, cap);
 
   const frag = document.createDocumentFragment();
-  const idsForEta = [];
+  const idsForPostPatch = [];
   let renderedCount = 0;
 
   for (const f of show){
@@ -1519,14 +1648,11 @@ async function _renderTilesInternal(state){
       const waiting = buildWaitingTileHtml(f, String(state.selectedFieldId) === String(f.id));
       tile.className = waiting.className;
       tile.innerHTML = waiting.html;
-      try{
-        console.warn('[FieldReadiness] rendering fallback tile; no readiness run yet for field:', f && f.id, f && f.name);
-      }catch(_){}
     } else {
       const readiness = run0.readinessR;
 
-      const leftPos = state._mods.model.markerLeftCSS(readiness);
-      const thrPos  = state._mods.model.markerLeftCSS(thr);
+      const leftPos = markerLeftCSS(readiness);
+      const thrPos  = markerLeftCSS(thr);
 
       const perceived = perceivedFromThreshold(readiness, thr);
       const pillBg = colorForPerceived(perceived);
@@ -1571,7 +1697,7 @@ async function _renderTilesInternal(state){
 
     wireTileInteractions(state, tile, f.id);
     frag.appendChild(tile);
-    idsForEta.push(String(f.id));
+    idsForPostPatch.push(String(f.id));
     renderedCount++;
   }
 
@@ -1602,7 +1728,7 @@ async function _renderTilesInternal(state){
 
   setTimeout(async ()=>{
     try{
-      await updateVisibleTilesBatched(state, idsForEta);
+      await updateVisibleTilesBatched(state, idsForPostPatch);
     }catch(_){}
   }, 0);
 }
@@ -1624,6 +1750,7 @@ export function selectField(state, id){
 
   (async ()=>{
     try{
+      await loadLatestReadiness(state, { force:false });
       const ok = await fetchAndHydrateFieldParams(state, id);
       if (!ok) return;
       if (String(state.selectedFieldId) !== String(id)) return;
@@ -1643,9 +1770,13 @@ function renderBetaInputs(state){
 
   const fid = state.selectedFieldId;
   const info = fid ? state.wxInfoByFieldId.get(fid) : null;
+  const latest = fid ? getLatestReadinessForField(state, fid) : null;
 
   if (!info){
-    meta.textContent = 'Weather is loading…';
+    const latestMeta = latest
+      ? `Centralized readiness source: field_readiness_latest • Computed: ${latest.computedAtISO || '—'} • Weather fetched: ${latest.weatherFetchedAtISO || '—'}`
+      : 'Weather is loading…';
+    meta.textContent = latestMeta;
     box.innerHTML = '';
     return;
   }
@@ -1653,8 +1784,12 @@ function renderBetaInputs(state){
   const when = info.fetchedAt ? new Date(info.fetchedAt) : null;
   const whenTxt = when ? when.toLocaleString() : '—';
 
+  const latestPrefix = latest
+    ? `Centralized readiness source: field_readiness_latest • Readiness: ${Number(latest.readiness).toFixed(0)} • Computed: ${latest.computedAtISO || '—'} • `
+    : '';
+
   meta.textContent =
-    `Source: ${info.source || '—'} • Updated: ${whenTxt} • Primary + light-influence variables are used now; weights are still being tuned.`;
+    `${latestPrefix}Source: ${info.source || '—'} • Updated: ${whenTxt} • Primary + light-influence variables are used now; weights are still being tuned.`;
 
   const unitsHourly = info.units && info.units.hourly ? info.units.hourly : null;
   const unitsDaily = info.units && info.units.daily ? info.units.daily : null;
@@ -1840,28 +1975,43 @@ function renderMrmsPanelFromDoc(doc){
 
 /* ---------- details render (CORE) ---------- */
 async function _renderDetailsInternal(state){
-  await ensureFRModules(state);
-  ensureEtaHelperModule(state);
   ensureFieldsCountHelperEl();
-  await loadPersistedState(state, { force:true });
+  await loadLatestReadiness(state, { force:false });
 
   const f = state.fields.find(x=>x.id === state.selectedFieldId);
   if (!f) return;
 
   updateDetailsHeaderPanel(state);
 
-  const opKey = getCurrentOp();
-  const deps = buildDepsForState(state, opKey);
-  const run = state._mods.model.runField(f, deps);
-  if (!run) return;
+  const latest = getLatestReadinessForField(state, f.id);
+  const latestRun = buildSyntheticRunFromLatest(state, f, latest);
+  if (latestRun){
+    try{
+      state.lastRuns = state.lastRuns || new Map();
+      state.lastRuns.set(f.id, latestRun);
+    }catch(_){}
+  }
 
-  try{ state.lastRuns && state.lastRuns.set(f.id, run); }catch(_){}
+  // Keep deeper model/trace support for the details screen only.
+  let run = null;
+  try{
+    await ensureFRModules(state);
+    ensureEtaHelperModule(state);
+    await loadPersistedState(state, { force:false });
+    const opKey = getCurrentOp();
+    await warmWeatherForFieldSet(state, [f]);
+    run = await computeDeepModelRunForField(state, f, opKey);
+  }catch(e){
+    console.warn('[FieldReadiness] details deep model load failed:', e);
+  }
 
   renderBetaInputs(state);
 
-  let traceDisplay = Array.isArray(run.trace) ? run.trace : [];
-  if (!traceDisplay.length){
+  let traceDisplay = Array.isArray(run && run.trace) ? run.trace : [];
+  if (!traceDisplay.length && run){
     try{
+      const opKey = getCurrentOp();
+      const deps = buildDepsForState(state, opKey);
       const depsDbg = { ...deps, seedMode:'rewind', rewindDays:14 };
       const dbg = state._mods.model.runField(f, depsDbg);
       const dbgTrace = Array.isArray(dbg && dbg.trace) ? dbg.trace : [];
@@ -1895,7 +2045,7 @@ async function _renderDetailsInternal(state){
   const drb = $('dryRows');
   if (drb){
     drb.innerHTML = '';
-    const rows = Array.isArray(run.rows) ? run.rows : [];
+    const rows = Array.isArray(run && run.rows) ? run.rows : [];
     if (!rows.length){
       drb.innerHTML = `<tr><td colspan="15" class="muted">No rows.</td></tr>`;
     } else {
@@ -1926,7 +2076,7 @@ async function _renderDetailsInternal(state){
   const wxb = $('wxRows');
   if (wxb){
     wxb.innerHTML = '';
-    const rows = Array.isArray(run.rows) ? run.rows : [];
+    const rows = Array.isArray(run && run.rows) ? run.rows : [];
 
     function addWxRow(row){
       const r = row || {};
@@ -2042,7 +2192,9 @@ export async function refreshDetailsOnly(state){
         if (!state) return;
 
         state._persistLoadedAt = 0;
+        state._latestReadinessLoadedAt = 0;
         await loadPersistedState(state, { force:true });
+        await loadLatestReadiness(state, { force:true });
         await refreshAll(state);
       }catch(_){}
     });
