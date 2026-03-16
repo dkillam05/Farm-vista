@@ -652,11 +652,14 @@ const greenStart = clamp(Math.round(t + ((100 - t) * 0.25)), yellowAt + 1, 100);
 function gradientForThreshold(thr){
   const s = buildThresholdGradientStops(thr);
   return `linear-gradient(90deg,
-    hsl(10 70% 38%) 0%,
-    hsl(10 70% 38%) ${s.redEnd}%,
-    hsl(45 75% 38%) ${s.yellowAt}%,
-    hsl(120 55% 34%) ${s.greenStart}%,
-    hsl(120 55% 34%) 100%
+    hsl(8 78% 44%) 0%,
+    hsl(14 80% 46%) ${Math.max(8, s.redEnd * 0.45)}%,
+    hsl(24 82% 48%) ${s.redEnd}%,
+    hsl(42 84% 50%) ${Math.max(s.redEnd + 1, s.yellowAt - 6)}%,
+    hsl(52 86% 52%) ${s.yellowAt}%,
+    hsl(88 70% 42%) ${Math.max(s.yellowAt + 1, s.greenStart - 6)}%,
+    hsl(112 62% 40%) ${s.greenStart}%,
+    hsl(124 58% 36%) 100%
   )`;
 }
 
