@@ -1768,7 +1768,7 @@ async function patchTileRainOnly(state, fieldId){
     if (!tile) return;
 
     const range = parseRangeFromInput();
-    const mrmsRes = await getMrmsRainResultForField(state, fid, range, { force:false });
+    const mrmsRes = await getMrmsRainResultForField(state, fid, range, { force:true });
     const rainLine = tile.querySelector('.subline .mono');
     if (rainLine) rainLine.textContent = rainTileTextFromMrmsResult(mrmsRes);
   }catch(_){}
@@ -1795,7 +1795,7 @@ async function updateTileForField(state, fieldId){
     const run0 = buildSyntheticRunFromLatest(state, f, latest);
 
     const range = parseRangeFromInput();
-    const mrmsRes = await getMrmsRainResultForField(state, fid, range, { force:false });
+    const mrmsRes = await getMrmsRainResultForField(state, fid, range, { force:true });
     const rainText = rainTileTextFromMrmsResult(mrmsRes);
 
     const rainLine = tile.querySelector('.subline .mono');
@@ -2050,7 +2050,7 @@ async function _renderTilesInternal(state){
 
   await Promise.all(
     filtered.map(async (f)=>{
-      const res = await getMrmsRainResultForField(state, f.id, range, { force:false });
+     const res = await getMrmsRainResultForField(state, f.id, range, { force:true }); 
       mrmsRangeById.set(f.id, res);
     })
   );
@@ -2595,7 +2595,7 @@ async function _renderDetailsInternal(state){
   }
 
   try{
-    const mrmsDoc = await loadFieldMrmsDoc(state, String(f.id), { force:false });
+    const mrmsDoc = await loadFieldMrmsDoc(state, String(f.id), { force:true });
     renderMrmsPanelFromDoc(mrmsDoc);
   }catch(e){
     console.warn('[FieldReadiness] MRMS render failed:', e);
@@ -2646,20 +2646,23 @@ export async function refreshDetailsOnly(state){
       }catch(_){}
     });
 
-    document.addEventListener('fr:soft-reload', async ()=>{
-      try{
-        const state = window.__FV_FR;
-        if (!state) return;
+document.addEventListener('fr:soft-reload', async ()=>{
+  try{
+    const state = window.__FV_FR;
+    if (!state) return;
 
-        state._persistLoadedAt = 0;
-        state._latestReadinessLoadedAt = 0;
-        state._etaTileCache = {};
-        state._etaDebugByFieldId = {};
-        await loadPersistedState(state, { force:true });
-        await loadLatestReadiness(state, { force:true });
-        await refreshAll(state);
-      }catch(_){}
-    });
+    state._persistLoadedAt = 0;
+    state._latestReadinessLoadedAt = 0;
+    state._etaTileCache = {};
+    state._etaDebugByFieldId = {};
+    state.mrmsByFieldId = new Map();
+    state.mrmsInfoByFieldId = new Map();
+
+    await loadPersistedState(state, { force:true });
+    await loadLatestReadiness(state, { force:true });
+    await refreshAll(state);
+  }catch(_){}
+});
 
   }catch(_){}
 })();
