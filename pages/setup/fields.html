@@ -18,6 +18,13 @@ CHANGE (2025-12-30):
 ✅ Reload page after saving:
    - New Field Save
    - Edit Save Changes
+
+CHANGE (2026-03-16):
+✅ AUTO-TRIGGER backend weather/readiness rebuild after:
+   - New field save when valid lat/lng exists
+   - Edit save (so location/slider changes get picked up)
+✅ Uses existing Cloud Run batch endpoint already in production
+✅ No manual browser paste needed during normal use
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -1002,13 +1009,84 @@ CHANGE (2025-12-30):
       if(__reloadArmed) return;
       __reloadArmed = true;
 
-      // ensure toast paints at least once
       requestAnimationFrame(()=>{
         setTimeout(()=>{
           try{ window.location.reload(); }
           catch{ window.location.href = window.location.href; }
         }, ms);
       });
+    }
+
+    /* ==========================================================
+       AUTO BACKEND WEATHER/READINESS BUILD
+       Uses current production batch endpoint.
+       ========================================================== */
+    const FIELD_WEATHER_BATCH_URL = "https://farmvista-field-weather-300398089669.us-central1.run.app";
+
+    function hasValidLatLngPair(lat, lng){
+      const latN = Number(lat);
+      const lngN = Number(lng);
+      return (
+        Number.isFinite(latN) &&
+        Number.isFinite(lngN) &&
+        Math.abs(latN) <= 90 &&
+        Math.abs(lngN) <= 180
+      );
+    }
+
+    async function triggerFieldWeatherBatchRebuild({ timeoutMs = 30000 } = {}){
+      const url = new URL(FIELD_WEATHER_BATCH_URL);
+      url.searchParams.set("run", "1");
+      url.searchParams.set("timezone", "America/Chicago");
+      url.searchParams.set("_ts", String(Date.now()));
+
+      const ctrl = new AbortController();
+      const timer = setTimeout(()=> ctrl.abort(), timeoutMs);
+
+      try{
+        const res = await fetch(url.toString(), {
+          method: "GET",
+          mode: "cors",
+          cache: "no-store",
+          credentials: "omit",
+          signal: ctrl.signal
+        });
+
+        let json = null;
+        try{ json = await res.json(); }catch(_){}
+
+        if(!res.ok){
+          throw new Error((json && json.error) ? json.error : `HTTP ${res.status}`);
+        }
+        if(!json || json.ok !== true){
+          throw new Error((json && json.error) ? json.error : "Weather/readiness rebuild did not return ok=true.");
+        }
+
+        return { ok:true, data:json };
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    async function triggerAutoWeatherAfterFieldSave({ requiresLocation=false, lat=null, lng=null } = {}){
+      if(requiresLocation && !hasValidLatLngPair(lat, lng)){
+        return {
+          ok:false,
+          skipped:true,
+          reason:"missing-lat-lng"
+        };
+      }
+
+      try{
+        return await triggerFieldWeatherBatchRebuild({ timeoutMs: 30000 });
+      }catch(err){
+        console.warn("[Fields] automatic weather/readiness rebuild failed:", err);
+        return {
+          ok:false,
+          skipped:false,
+          reason: String(err && err.message || err || "unknown-error")
+        };
+      }
     }
 
     const CENSUS_KEY = "14a8ad456efef642983bd8e830809694965b003f";
@@ -1347,6 +1425,7 @@ CHANGE (2025-12-30):
 
       const latVal = $("fieldLat").value;
       const lngVal = $("fieldLng").value;
+      const hasLocation = hasValidLatLngPair(latVal, lngVal);
 
       const payload = {
         farmId: $("farmSelect").value,
@@ -1368,14 +1447,29 @@ CHANGE (2025-12-30):
         updatedAt: serverTimestamp()
       };
 
-      if(latVal && lngVal){
+      if(hasLocation){
         payload.location = { lat: Number(latVal), lng: Number(lngVal) };
       }
 
       await addDoc(fieldsRef(), payload);
-      showToast("Successfully saved.");
 
-      // ✅ Reload after NEW save
+      if(hasLocation){
+        showToast("Field saved. Building weather and readiness…", 12000);
+        const buildRes = await triggerAutoWeatherAfterFieldSave({
+          requiresLocation:true,
+          lat: latVal,
+          lng: lngVal
+        });
+
+        if(buildRes.ok){
+          showToast("Field saved and weather/readiness updated.", 5000);
+        }else{
+          showToast("Field saved. Auto weather/readiness build did not finish; next backend run will catch it.", 7000);
+        }
+      }else{
+        showToast("Field saved. Add a map location to auto-build weather/readiness.", 6500);
+      }
+
       reloadPageSoon(650);
     }
 
@@ -1447,7 +1541,6 @@ CHANGE (2025-12-30):
         return;
       }
 
-      // when filtered by status already, sort by name naturally
       filtered.sort((a,b)=>{
         const nameA = String(a.name||"");
         const nameB = String(b.name||"");
@@ -1510,7 +1603,7 @@ CHANGE (2025-12-30):
       setToggle($("editHelToggle"), $("editHasHEL"), !!it.hasHEL, $("editHelAcreWrap"), $("editHelAcres"));
 
       $("editCrpAcres").value = it.crpAcres ?? "";
-     setToggle(
+      setToggle(
   $("editCrpToggle"),
   $("editHasCRP"),
   !!it.hasCRP,
@@ -1594,7 +1687,6 @@ setToggle(
       const crpAcres = hasCRP ? toNum($("editCrpAcres").value) : 0;
       const hasPatternTiled = $("editHasPatternTiled").checked;
 
-
       const soilWetness = readRange0100("editSoilWetness");
       const drainageIndex = readRange0100("editDrainageIndex");
 
@@ -1627,10 +1719,19 @@ setToggle(
         updatedAt: serverTimestamp()
       });
 
-      showToast("Changes saved.");
+      showToast("Changes saved. Rebuilding weather/readiness…", 12000);
       closeModal();
 
-      // ✅ Reload after EDIT save
+      const buildRes = await triggerAutoWeatherAfterFieldSave({
+        requiresLocation:false
+      });
+
+      if(buildRes.ok){
+        showToast("Changes saved and weather/readiness updated.", 5000);
+      }else{
+        showToast("Changes saved. Auto weather/readiness build did not finish; next backend run will catch it.", 7000);
+      }
+
       reloadPageSoon(650);
     });
 
@@ -1715,7 +1816,6 @@ setToggle(
       if(!pendingDelete.id) return;
 
       try{
-        // Re-check used lock server-side via fresh read
         const ref = doc(db, 'fields', pendingDelete.id);
         const snap = await getDoc(ref);
         if(!snap.exists()){
@@ -1751,7 +1851,6 @@ setToggle(
         return;
       }
 
-      // UI lock already blocks if used, but keep a safe guard
       const ref = doc(db, 'fields', editId);
       const snap = await getDoc(ref);
       if(!snap.exists()) return;
@@ -2475,8 +2574,7 @@ setToggle(
 
       setToggle($("helToggle"), $("hasHEL"), false, $("helAcreWrap"), $("helAcres"));
       setToggle($("crpToggle"), $("hasCRP"), false, $("crpAcreWrap"), $("crpAcres"));
-       setToggle($("patternTiledToggle"), $("hasPatternTiled"), false, null, null);
-
+      setToggle($("patternTiledToggle"), $("hasPatternTiled"), false, null, null);
 
       ddCounty.btn.textContent = "Select a county…";
       ddCounty.btn.disabled = true;
@@ -2521,13 +2619,11 @@ setToggle(
 
       wireToggle($("helToggle"), $("hasHEL"), $("helAcreWrap"), $("helAcres"));
       wireToggle($("crpToggle"), $("hasCRP"), $("crpAcreWrap"), $("crpAcres"));
-       wireToggle($("patternTiledToggle"), $("hasPatternTiled"), null, null);
-
+      wireToggle($("patternTiledToggle"), $("hasPatternTiled"), null, null);
 
       wireToggle($("editHelToggle"), $("editHasHEL"), $("editHelAcreWrap"), $("editHelAcres"));
       wireToggle($("editCrpToggle"), $("editHasCRP"), $("editCrpAcreWrap"), $("editCrpAcres"));
-       wireToggle($("editPatternTiledToggle"), $("editHasPatternTiled"), null, null);
-
+      wireToggle($("editPatternTiledToggle"), $("editHasPatternTiled"), null, null);
 
       // sliders: wire live values
       wireRangeValue("soilWetness", "soilWetnessVal");
