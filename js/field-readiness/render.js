@@ -1342,7 +1342,22 @@ await loadPersistedState(state, { force:false });
 const fc = state && state._mods ? state._mods.forecast : null;
 if (fc && typeof fc.readWxSeriesFromCache === 'function'){
   try{
-    await fc.readWxSeriesFromCache(String(fieldObj.id), {});
+    const wx = await fc.readWxSeriesFromCache(String(fieldObj.id), {});
+    const fcstRows = Array.isArray(wx?.fcst) ? wx.fcst.map(r => ({
+      ...r,
+      rainInAdj: Number.isFinite(Number(r?.rainInAdj)) ? Number(r.rainInAdj) : Number(r?.rainIn || 0),
+      rainSource: String(r?.rainSource || r?.precipSource || 'open-meteo')
+    })) : [];
+
+    state._frForecastCache = (state._frForecastCache instanceof Map) ? state._frForecastCache : new Map();
+    state._frForecastMetaByFieldId = (state._frForecastMetaByFieldId instanceof Map) ? state._frForecastMetaByFieldId : new Map();
+
+    state._frForecastCache.set(String(fieldObj.id), fcstRows);
+    state._frForecastMetaByFieldId.set(String(fieldObj.id), {
+      count: fcstRows.length,
+      updatedAt: Date.now(),
+      source: 'open-meteo'
+    });
   }catch(_){}
 }
 
@@ -2508,9 +2523,27 @@ async function _renderDetailsInternal(state){
         const fc = state && state._mods ? state._mods.forecast : null;
         if (fc && typeof fc.readWxSeriesFromCache === 'function'){
           const wx = await fc.readWxSeriesFromCache(String(f.id), {});
-          const fcst = (wx && Array.isArray(wx.fcst)) ? wx.fcst : [];
+          const fcst = Array.isArray(wx?.fcst)
+            ? wx.fcst.map(r => ({
+                ...r,
+                rainInAdj: Number.isFinite(Number(r?.rainInAdj)) ? Number(r.rainInAdj) : Number(r?.rainIn || 0),
+                rainSource: String(r?.rainSource || r?.precipSource || 'open-meteo')
+              }))
+            : [];
 
-          if (fcst && fcst.length){
+          try{
+            state._frForecastCache = (state._frForecastCache instanceof Map) ? state._frForecastCache : new Map();
+            state._frForecastMetaByFieldId = (state._frForecastMetaByFieldId instanceof Map) ? state._frForecastMetaByFieldId : new Map();
+
+            state._frForecastCache.set(String(f.id), fcst);
+            state._frForecastMetaByFieldId.set(String(f.id), {
+              count: fcst.length,
+              updatedAt: Date.now(),
+              source: 'open-meteo'
+            });
+          }catch(_){}
+
+          if (fcst.length){
             const div = document.createElement('tr');
             div.innerHTML = `<td colspan="9" class="muted" style="font-weight:900;">Forecast (next 7 days)</td>`;
             wxb.appendChild(div);
