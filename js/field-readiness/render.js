@@ -659,20 +659,20 @@ const greenStart = clamp(Math.round(t + ((100 - t) * 0.40)), yellowAt + 1, 100);
 function gradientForThreshold(thr){
   const t = clamp(Math.round(Number(thr)), 0, 100);
 
-  const redEnd = clamp(Math.round(t * 0.55), 0, 85);
-  const yellowStart = clamp(t - 10, redEnd + 1, 94);
-  const yellowMid = clamp(t, yellowStart + 1, 96);
-  const yellowEnd = clamp(t + 10, yellowMid + 1, 97);
-  const greenStart = clamp(yellowEnd + 1, 0, 98);
+  const redEnd = clamp(Math.round(t * 0.52), 0, 82);
+  const orangeAt = clamp(t - 12, redEnd + 2, 90);
+  const yellowMid = clamp(t, orangeAt + 2, 94);
+  const yellowEnd = clamp(t + 10, yellowMid + 2, 96);
+  const limeAt = clamp(yellowEnd + 6, yellowEnd + 2, 98);
 
   return `linear-gradient(90deg,
     hsl(8 78% 44%) 0%,
-    hsl(18 82% 48%) ${redEnd}%,
-    hsl(42 84% 50%) ${yellowStart}%,
-    hsl(52 86% 52%) ${yellowMid}%,
-    hsl(42 84% 50%) ${yellowEnd}%,
-    hsl(95 68% 42%) ${greenStart}%,
-    hsl(124 58% 36%) 100%
+    hsl(16 82% 47%) ${redEnd}%,
+    hsl(30 84% 49%) ${orangeAt}%,
+    hsl(46 88% 51%) ${yellowMid}%,
+    hsl(54 86% 50%) ${yellowEnd}%,
+    hsl(82 70% 46%) ${limeAt}%,
+    hsl(112 58% 42%) 100%
   )`;
 }
 
