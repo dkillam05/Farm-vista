@@ -446,6 +446,22 @@ async function prewarmForecastForField(state, fieldId){
   }
 }
 
+export async function prewarmForecastForFields(state, fieldIds){
+  const ids = Array.isArray(fieldIds) ? fieldIds : [];
+  if (!state || !ids.length) return;
+
+  await ensureFRModules(state);
+  ensureForecastCaches(state);
+
+  await Promise.all(
+    ids.map(async (id)=>{
+      try{
+        await prewarmForecastForField(state, String(id));
+      }catch(_){}
+    })
+  );
+}
+
 /* =====================================================================
    Build deps (the “truth wiring”)
 ===================================================================== */
