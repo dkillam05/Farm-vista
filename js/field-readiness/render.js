@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-15e-force-nonzero-eta-display-from-latest-truth
+Rev: 2026-03-15f-add-eta-debug-instrumentation-no-trim
 
 GOAL (per Dane):
 ✅ Read ALL displayed readiness numbers from Firestore collection:
@@ -16,6 +16,7 @@ GOAL (per Dane):
 ✅ Restore dynamic readiness gradient based on operation threshold
 ✅ PREP: pass centralized latest truth context cleanly into ETA path
 ✅ FIX: if latest readiness is below threshold, tile ETA may NOT show 0 / ~0h
+✅ NEW: add ETA debug instrumentation so we can see exactly why ETA is blank
 ✅ No trimmed sections
 
 NEW CENTRALIZED READINESS SOURCE:
@@ -35,6 +36,10 @@ IMPORTANT BEHAVIOR:
   stays fast.
 - This file now hard-guards tile ETA so below-threshold latest readiness
   cannot visually collapse to zero.
+- ETA debug is available at:
+    window.__FV_FR_ETA_DEBUG
+    window.__FV_FR_dumpEtaDebug()
+    document.dispatchEvent(new CustomEvent('fr:eta-debug-dump'))
 ===================================================================== */
 'use strict';
 
@@ -74,6 +79,7 @@ const ETA_HELPER_URL = '/Farm-vista/js/field-readiness/eta-helper.js';
 const ETA_HELP_EVENT = 'fr:eta-help';
 const ETA_HORIZON_HOURS = 168;
 const ETA_CACHE_TTL_MS = 10 * 60 * 1000;
+const ETA_DEBUG_MAX_LOG = 500;
 
 function safeObj(x){
   return (x && typeof x === 'object') ? x : null;
@@ -120,6 +126,165 @@ function toIsoFromAny(v){
 function markerLeftCSS(v){
   return `${clamp(Number(v) || 0, 0, 100)}%`;
 }
+
+/* =====================================================================
+   ETA debug helpers
+===================================================================== */
+function ensureEtaDebugStore(state){
+  try{
+    const root = window;
+    if (!root.__FV_FR_ETA_DEBUG){
+      root.__FV_FR_ETA_DEBUG = {
+        createdAtISO: new Date().toISOString(),
+        runs: [],
+        byFieldId: {},
+        lastDumpAtISO: '',
+        notes: [
+          'Use window.__FV_FR_dumpEtaDebug() in console.',
+          'Use window.__FV_FR_ETA_DEBUG.byFieldId[fieldId] to inspect one field.',
+          'Use document.dispatchEvent(new CustomEvent("fr:eta-debug-dump")) to print a summary.'
+        ]
+      };
+    }
+
+    if (!root.__FV_FR_dumpEtaDebug){
+      root.__FV_FR_dumpEtaDebug = function dumpEtaDebug(){
+        try{
+          const store = root.__FV_FR_ETA_DEBUG || {};
+          const byFieldId = safeObj(store.byFieldId) || {};
+          const rows = Object.values(byFieldId).map(v => {
+            const x = safeObj(v) || {};
+            return {
+              fieldId: safeStr(x.fieldId),
+              fieldName: safeStr(x.fieldName),
+              threshold: safeNum(x.threshold),
+              readinessNow: safeNum(x.readinessNow),
+              authoritativeReadiness: safeNum(x.authoritativeReadiness),
+              latestFound: !!x.latestFound,
+              latestComputedAtISO: safeStr(x.latestComputedAtISO),
+              latestWeatherFetchedAtISO: safeStr(x.latestWeatherFetchedAtISO),
+              forecastCount: safeNum(x.forecastCount),
+              modelStatus: safeStr(x.modelStatus),
+              modelHours: safeNum(x.modelHours),
+              modelText: safeStr(x.modelText),
+              finalEtaText: safeStr(x.finalEtaText),
+              reason: safeStr(x.reason),
+              fromCache: !!x.fromCache,
+              cacheKey: safeStr(x.cacheKey),
+              updatedAtISO: safeStr(x.updatedAtISO)
+            };
+          });
+
+          store.lastDumpAtISO = new Date().toISOString();
+          console.group('[FV ETA DEBUG] Summary');
+          console.table(rows);
+          console.log('Full store:', store);
+          console.groupEnd();
+          return store;
+        }catch(err){
+          console.warn('[FV ETA DEBUG] dump failed:', err);
+          return null;
+        }
+      };
+    }
+
+    if (state){
+      state._etaDebugEnabled = true;
+    }
+
+    return root.__FV_FR_ETA_DEBUG;
+  }catch(_){
+    return null;
+  }
+}
+
+function pushEtaDebugLog(state, entry){
+  try{
+    const store = ensureEtaDebugStore(state);
+    if (!store) return;
+
+    const e = {
+      ts: Date.now(),
+      iso: new Date().toISOString(),
+      ...safeObj(entry)
+    };
+
+    store.runs.push(e);
+    if (store.runs.length > ETA_DEBUG_MAX_LOG){
+      store.runs.splice(0, store.runs.length - ETA_DEBUG_MAX_LOG);
+    }
+
+    const fid = safeStr(e.fieldId);
+    if (fid){
+      store.byFieldId[fid] = {
+        ...(safeObj(store.byFieldId[fid]) || {}),
+        ...e,
+        fieldId: fid,
+        updatedAtISO: e.iso
+      };
+    }
+  }catch(_){}
+}
+
+function setEtaDebugSnapshot(state, fieldId, patch){
+  try{
+    const store = ensureEtaDebugStore(state);
+    if (!store) return;
+    const fid = safeStr(fieldId);
+    if (!fid) return;
+
+    const prev = safeObj(store.byFieldId[fid]) || {};
+    store.byFieldId[fid] = {
+      ...prev,
+      ...(safeObj(patch) || {}),
+      fieldId: fid,
+      updatedAtISO: new Date().toISOString()
+    };
+  }catch(_){}
+}
+
+async function getForecastDebugRows(state, fieldId){
+  try{
+    await ensureFRModules(state);
+    const fc = state && state._mods ? state._mods.forecast : null;
+    if (!fc || typeof fc.readWxSeriesFromCache !== 'function'){
+      return { count: 0, rows: [], source: 'forecast-module-unavailable' };
+    }
+
+    const wx = await fc.readWxSeriesFromCache(String(fieldId), {});
+    const rows = (wx && Array.isArray(wx.fcst)) ? wx.fcst.slice() : [];
+    return {
+      count: rows.length,
+      rows,
+      source: 'field_weather_cache'
+    };
+  }catch(e){
+    return {
+      count: 0,
+      rows: [],
+      source: 'forecast-read-error',
+      error: safeStr(e && e.message)
+    };
+  }
+}
+
+function wireEtaDebugDumpOnce(){
+  try{
+    if (window.__FV_FR_ETA_DEBUG_WIRED__) return;
+    window.__FV_FR_ETA_DEBUG_WIRED__ = true;
+
+    ensureEtaDebugStore();
+
+    document.addEventListener('fr:eta-debug-dump', ()=>{
+      try{
+        if (typeof window.__FV_FR_dumpEtaDebug === 'function'){
+          window.__FV_FR_dumpEtaDebug();
+        }
+      }catch(_){}
+    });
+  }catch(_){}
+}
+
 function buildLatestReadinessRecord(raw, fallbackId){
   const d = safeObj(raw) || {};
   const fieldId = safeStr(d.fieldId || fallbackId);
@@ -650,9 +815,9 @@ function buildThresholdGradientStops(thr){
     };
   }
 
-const redEnd = clamp(Math.round(t * 0.50), 0, 96);
-const yellowAt = clamp(t, redEnd + 1, 98);
-const greenStart = clamp(Math.round(t + ((100 - t) * 0.40)), yellowAt + 1, 100);
+  const redEnd = clamp(Math.round(t * 0.50), 0, 96);
+  const yellowAt = clamp(t, redEnd + 1, 98);
+  const greenStart = clamp(Math.round(t + ((100 - t) * 0.40)), yellowAt + 1, 100);
 
   return { redEnd, yellowAt, greenStart };
 }
@@ -1227,10 +1392,46 @@ function buildEtaDepsForField(state, fieldObj, opKey, latestRec){
 
 async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
   const HORIZON_HOURS = ETA_HORIZON_HOURS;
+  const fieldId = safeStr(fieldObj && fieldObj.id);
+  const fieldName = safeStr(fieldObj && fieldObj.name);
   const readinessNow = Number(run0 && run0.readinessR);
 
-  if (!Number.isFinite(readinessNow)) return '';
-  if (readinessNow >= Number(thr)) return '';
+  if (!Number.isFinite(readinessNow)){
+    setEtaDebugSnapshot(state, fieldId, {
+      fieldName,
+      threshold: Number(thr),
+      readinessNow: null,
+      finalEtaText: '',
+      reason: 'no-readiness-now'
+    });
+    pushEtaDebugLog(state, {
+      fieldId,
+      fieldName,
+      phase: 'eta-skip',
+      reason: 'no-readiness-now',
+      threshold: Number(thr)
+    });
+    return '';
+  }
+
+  if (readinessNow >= Number(thr)){
+    setEtaDebugSnapshot(state, fieldId, {
+      fieldName,
+      threshold: Number(thr),
+      readinessNow,
+      finalEtaText: '',
+      reason: 'already-at-threshold'
+    });
+    pushEtaDebugLog(state, {
+      fieldId,
+      fieldName,
+      phase: 'eta-skip',
+      reason: 'already-at-threshold',
+      threshold: Number(thr),
+      readinessNow
+    });
+    return '';
+  }
 
   try{
     const latest = latestRec || getLatestReadinessForField(state, fieldObj && fieldObj.id);
@@ -1242,13 +1443,52 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
 
     const opKey = getCurrentOp();
     const cacheKey = getEtaCacheKey(fieldObj, opKey, thr, latest);
+
+    const baseDebug = {
+      fieldId,
+      fieldName,
+      opKey,
+      threshold: Number(thr),
+      readinessNow,
+      authoritativeReadiness,
+      latestFound: !!latest,
+      latestComputedAtISO: safeStr(latest && latest.computedAtISO),
+      latestWeatherFetchedAtISO: safeStr(latest && latest.weatherFetchedAtISO),
+      latestStoragePhysFinal: safeNum(latest && latest.storagePhysFinal),
+      latestStorageFinal: safeNum(latest && latest.storageFinal),
+      latestStorageForReadiness: safeNum(latest && latest.storageForReadiness),
+      latestWeatherSource: safeStr(latest && latest.weatherSource),
+      latestSeedSource: safeStr(latest && latest.seedSource),
+      cacheKey
+    };
+
+    setEtaDebugSnapshot(state, fieldId, baseDebug);
+
     const cached = getEtaCacheValue(state, cacheKey, {
       readinessNow: authoritativeReadiness,
       threshold: thr
     });
 
     if (cached){
-      return forceNonZeroEtaText(cached, authoritativeReadiness, thr);
+      const cachedText = forceNonZeroEtaText(cached, authoritativeReadiness, thr);
+      setEtaDebugSnapshot(state, fieldId, {
+        ...baseDebug,
+        fromCache: true,
+        cachedRawText: safeStr(cached),
+        finalEtaText: safeStr(cachedText),
+        reason: 'cache-hit'
+      });
+      pushEtaDebugLog(state, {
+        fieldId,
+        fieldName,
+        phase: 'eta-cache-hit',
+        threshold: Number(thr),
+        readinessNow,
+        authoritativeReadiness,
+        cachedRawText: safeStr(cached),
+        finalEtaText: safeStr(cachedText)
+      });
+      return cachedText;
     }
 
     await ensureFRModules(state);
@@ -1256,7 +1496,36 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
     await loadPersistedState(state, { force:false });
 
     const model = state && state._mods ? state._mods.model : null;
-    if (!model || typeof model.etaToThreshold !== 'function') return '';
+    if (!model || typeof model.etaToThreshold !== 'function'){
+      setEtaDebugSnapshot(state, fieldId, {
+        ...baseDebug,
+        finalEtaText: '',
+        reason: 'model-eta-function-missing'
+      });
+      pushEtaDebugLog(state, {
+        fieldId,
+        fieldName,
+        phase: 'eta-fail',
+        reason: 'model-eta-function-missing'
+      });
+      return '';
+    }
+
+    const forecastDbg = await getForecastDebugRows(state, fieldId);
+
+    setEtaDebugSnapshot(state, fieldId, {
+      ...baseDebug,
+      forecastCount: Number(forecastDbg.count || 0),
+      forecastSource: safeStr(forecastDbg.source),
+      forecastFirstDateISO: safeStr(forecastDbg.rows && forecastDbg.rows[0] && forecastDbg.rows[0].dateISO),
+      forecastLastDateISO: safeStr(
+        forecastDbg.rows &&
+        forecastDbg.rows.length &&
+        forecastDbg.rows[forecastDbg.rows.length - 1] &&
+        forecastDbg.rows[forecastDbg.rows.length - 1].dateISO
+      ),
+      forecastReadError: safeStr(forecastDbg.error)
+    });
 
     const etaDeps = buildEtaDepsForField(state, fieldObj, opKey, latest);
     const res = await model.etaToThreshold(fieldObj, etaDeps || deps, Number(thr), HORIZON_HOURS, 3);
@@ -1284,8 +1553,68 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
       setEtaCacheValue(state, cacheKey, txt);
     }
 
+    const resultReason =
+      txt ? 'eta-text-produced'
+      : (
+          forecastDbg.count <= 0 ? 'no-forecast-rows' :
+          safeStr(res && res.status) ? `model-status:${safeStr(res && res.status)}` :
+          'blank-after-model'
+        );
+
+    setEtaDebugSnapshot(state, fieldId, {
+      ...baseDebug,
+      forecastCount: Number(forecastDbg.count || 0),
+      forecastSource: safeStr(forecastDbg.source),
+      forecastFirstDateISO: safeStr(forecastDbg.rows && forecastDbg.rows[0] && forecastDbg.rows[0].dateISO),
+      forecastLastDateISO: safeStr(
+        forecastDbg.rows &&
+        forecastDbg.rows.length &&
+        forecastDbg.rows[forecastDbg.rows.length - 1] &&
+        forecastDbg.rows[forecastDbg.rows.length - 1].dateISO
+      ),
+      modelStatus: safeStr(res && res.status),
+      modelHours: safeNum(res && res.hours),
+      modelText: safeStr(res && res.text),
+      modelOk: !!(res && res.ok),
+      modelWithinHorizon: (res && typeof res.withinHorizon === 'boolean') ? res.withinHorizon : null,
+      modelReached: (res && typeof res.reached === 'boolean') ? res.reached : null,
+      modelExceedsHorizon: (res && typeof res.exceedsHorizon === 'boolean') ? res.exceedsHorizon : null,
+      finalEtaText: safeStr(txt),
+      reason: resultReason
+    });
+
+    pushEtaDebugLog(state, {
+      fieldId,
+      fieldName,
+      phase: 'eta-result',
+      threshold: Number(thr),
+      readinessNow,
+      authoritativeReadiness,
+      forecastCount: Number(forecastDbg.count || 0),
+      modelStatus: safeStr(res && res.status),
+      modelHours: safeNum(res && res.hours),
+      modelText: safeStr(res && res.text),
+      finalEtaText: safeStr(txt),
+      reason: resultReason
+    });
+
     return txt;
-  }catch(_){
+  }catch(err){
+    setEtaDebugSnapshot(state, fieldId, {
+      fieldName,
+      threshold: Number(thr),
+      readinessNow,
+      finalEtaText: '',
+      reason: 'eta-exception',
+      error: safeStr(err && err.message)
+    });
+    pushEtaDebugLog(state, {
+      fieldId,
+      fieldName,
+      phase: 'eta-exception',
+      reason: 'eta-exception',
+      error: safeStr(err && err.message)
+    });
     return '';
   }
 }
@@ -1604,6 +1933,7 @@ async function updateTileForField(state, fieldId){
 
     ensureSelectionStyleOnce();
     ensureFieldsCountHelperEl();
+    ensureEtaDebugStore(state);
     await loadLatestReadiness(state, { force:false });
 
     const f = (state.fields || []).find(x=>x.id === fid);
@@ -1642,6 +1972,21 @@ async function updateTileForField(state, fieldId){
         markerEl.style.left = '50%';
         markerEl.style.opacity = '.45';
       }
+
+      setEtaDebugSnapshot(state, fid, {
+        fieldId: fid,
+        fieldName: safeStr(f && f.name),
+        threshold: Number(thr),
+        readinessNow: null,
+        finalEtaText: '',
+        reason: 'no-latest-run0'
+      });
+      pushEtaDebugLog(state, {
+        fieldId: fid,
+        fieldName: safeStr(f && f.name),
+        phase: 'tile-update',
+        reason: 'no-latest-run0'
+      });
 
       upsertEtaHelp(state, tile, { etaText:'' });
       return;
@@ -1683,9 +2028,33 @@ async function updateTileForField(state, fieldId){
     try{
       const deps = buildDepsForState(state, opKey);
       etaText = await getTileEtaText(state, f, deps, run0, thr, latest);
-    }catch(_){
+    }catch(err){
       etaText = '';
+      setEtaDebugSnapshot(state, fid, {
+        fieldId: fid,
+        fieldName: safeStr(f && f.name),
+        threshold: Number(thr),
+        readinessNow: Number(readiness),
+        finalEtaText: '',
+        reason: 'getTileEtaText-exception',
+        error: safeStr(err && err.message)
+      });
+      pushEtaDebugLog(state, {
+        fieldId: fid,
+        fieldName: safeStr(f && f.name),
+        phase: 'tile-eta-exception',
+        error: safeStr(err && err.message)
+      });
     }
+
+    setEtaDebugSnapshot(state, fid, {
+      fieldId: fid,
+      fieldName: safeStr(f && f.name),
+      threshold: Number(thr),
+      readinessNow: Number(readiness),
+      displayedEtaText: safeStr(etaText),
+      rainRangeText: safeStr(rainText)
+    });
 
     upsertEtaHelp(state, tile, {
       fieldId: fid,
@@ -1716,6 +2085,7 @@ async function updateVisibleTilesBatched(state, ids){
 
     ensureSelectionStyleOnce();
     ensureFieldsCountHelperEl();
+    ensureEtaDebugStore(state);
     await loadLatestReadiness(state, { force:false });
 
     const BATCH_SIZE = 10;
@@ -1732,6 +2102,11 @@ async function updateVisibleTilesBatched(state, ids){
             try{
               console.warn('[FieldReadiness] visible tile refresh failed for field:', fid, e);
             }catch(_){}
+            pushEtaDebugLog(state, {
+              fieldId: String(fid),
+              phase: 'visible-tile-refresh-fail',
+              error: safeStr(e && e.message)
+            });
           }
         })
       );
@@ -1793,6 +2168,7 @@ function wireTileInteractions(state, tileEl, fieldId){
 async function _renderTilesInternal(state){
   ensureSelectionStyleOnce();
   ensureFieldsCountHelperEl();
+  ensureEtaDebugStore(state);
   await loadLatestReadiness(state, { force:false });
 
   const wrap = $('fieldsGrid');
@@ -1885,6 +2261,13 @@ async function _renderTilesInternal(state){
       const waiting = buildWaitingTileHtml(f, String(state.selectedFieldId) === String(f.id), thr);
       tile.className = waiting.className;
       tile.innerHTML = waiting.html;
+      setEtaDebugSnapshot(state, String(f.id), {
+        fieldId: String(f.id),
+        fieldName: safeStr(f && f.name),
+        threshold: Number(thr),
+        finalEtaText: '',
+        reason: 'no-synthetic-run-from-latest-during-tile-build'
+      });
     } else {
       const readiness = run0.readinessR;
 
@@ -1930,6 +2313,16 @@ async function _renderTilesInternal(state){
           <div class="etaSlot"></div>
         </div>
       `;
+
+      setEtaDebugSnapshot(state, String(f.id), {
+        fieldId: String(f.id),
+        fieldName: safeStr(f && f.name),
+        threshold: Number(thr),
+        readinessNow: Number(readiness),
+        latestFound: true,
+        finalEtaText: '',
+        reason: 'tile-built-awaiting-eta'
+      });
     }
 
     wireTileInteractions(state, tile, f.id);
@@ -2213,6 +2606,7 @@ function renderMrmsPanelFromDoc(doc){
 /* ---------- details render (CORE) ---------- */
 async function _renderDetailsInternal(state){
   ensureFieldsCountHelperEl();
+  ensureEtaDebugStore(state);
   await loadLatestReadiness(state, { force:false });
 
   const f = state.fields.find(x=>x.id === state.selectedFieldId);
@@ -2400,6 +2794,8 @@ export async function refreshDetailsOnly(state){
     if (window.__FV_FR_TILE_REFRESH_WIRED__) return;
     window.__FV_FR_TILE_REFRESH_WIRED__ = true;
 
+    wireEtaDebugDumpOnce();
+
     document.addEventListener('fr:tile-refresh', async (e)=>{
       try{
         const state = window.__FV_FR;
@@ -2430,9 +2826,26 @@ export async function refreshDetailsOnly(state){
         state._persistLoadedAt = 0;
         state._latestReadinessLoadedAt = 0;
         state._etaTileCache = {};
+
+        try{
+          const store = ensureEtaDebugStore(state);
+          if (store){
+            store.runs = [];
+            store.byFieldId = {};
+          }
+        }catch(_){}
+
         await loadPersistedState(state, { force:true });
         await loadLatestReadiness(state, { force:true });
         await refreshAll(state);
+      }catch(_){}
+    });
+
+    document.addEventListener('fr:eta-debug-dump', ()=>{
+      try{
+        if (typeof window.__FV_FR_dumpEtaDebug === 'function'){
+          window.__FV_FR_dumpEtaDebug();
+        }
       }catch(_){}
     });
 
