@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/formula.js  (FULL FILE)
-Rev: 2026-03-15c-expose-centralized-latest-seed-for-eta
+Rev: 2026-03-15d-eta-param-fallback-from-latest-truth
 
 PURPOSE:
 ✅ Single source of truth for Field Readiness computation wiring.
@@ -22,6 +22,9 @@ THIS REV:
 ✅ NEW: exposes centralized field_readiness_latest truth to ETA/model path
    so ETA can seed from live latest readiness/storage instead of recomputing
    "now" from historical series only
+✅ FIX: if params cache is empty for a field, model/ETA now fall back to
+   field_readiness_latest soilWetness + drainageIndex before using defaults
+✅ FIX: prevents ETA from simming with blank params and collapsing toward 1h
 
 This module:
 - Ensures model/weather/forecast modules are loaded
@@ -58,6 +61,12 @@ const WEATHER_URL = '/Farm-vista/js/field-readiness.weather.js';
 const MODEL_URL   = '/Farm-vista/js/field-readiness.model.js';
 const MRMS_COLLECTION = 'field_mrms_weather';
 const MRMS_DOC_TTL_MS = 5 * 60 * 1000;
+
+/* =====================================================================
+   Param fallback defaults
+===================================================================== */
+const PARAM_FALLBACK_SOIL_WETNESS = 60;
+const PARAM_FALLBACK_DRAINAGE_INDEX = 45;
 
 export async function ensureFRModules(state){
   if (!state) return;
@@ -102,6 +111,9 @@ function round3(v){
 }
 function mmToIn(mm){
   return num(mm, 0) / 25.4;
+}
+function hasFinite(v){
+  return Number.isFinite(Number(v));
 }
 
 /* =====================================================================
@@ -168,6 +180,45 @@ function buildEtaSeedFromLatestRecord(rec, fieldId){
   }catch(_){
     return null;
   }
+}
+
+/* =====================================================================
+   Param resolution helpers
+===================================================================== */
+function buildResolvedFieldParams(state, fieldId){
+  const fid = safeStr(fieldId);
+
+  let base = {};
+  try{
+    const out = getFieldParams(state, fid);
+    if (out && typeof out === 'object') base = { ...out };
+  }catch(e){
+    console.warn('[FieldReadiness] getFieldParams wrapper failed:', fid, e);
+  }
+
+  const latest = getLatestTruthFromState(state, fid) || null;
+
+  const soilWetness = hasFinite(base.soilWetness)
+    ? Number(base.soilWetness)
+    : (
+        hasFinite(latest && latest.soilWetness)
+          ? Number(latest.soilWetness)
+          : PARAM_FALLBACK_SOIL_WETNESS
+      );
+
+  const drainageIndex = hasFinite(base.drainageIndex)
+    ? Number(base.drainageIndex)
+    : (
+        hasFinite(latest && latest.drainageIndex)
+          ? Number(latest.drainageIndex)
+          : PARAM_FALLBACK_DRAINAGE_INDEX
+      );
+
+  return {
+    ...base,
+    soilWetness,
+    drainageIndex
+  };
 }
 
 /* =====================================================================
@@ -450,15 +501,9 @@ export function buildFRDeps(state, { opKey=null, wxCtx=null, persistedGetter=nul
       );
     },
 
-    // ✅ Safe wrapper so readiness map does not hard-crash if params cache is empty
+    // ✅ Safe wrapper with fallback to field_readiness_latest params
     getFieldParams: (fid)=>{
-      try{
-        const out = getFieldParams(state, fid);
-        return (out && typeof out === 'object') ? out : {};
-      }catch(e){
-        console.warn('[FieldReadiness] getFieldParams wrapper failed:', fid, e);
-        return {};
-      }
+      return buildResolvedFieldParams(state, fid);
     },
 
     LOSS_SCALE: CONST.LOSS_SCALE,
