@@ -2003,14 +2003,17 @@ async function _renderTilesInternal(state){
     })
   );
 
-  const sorted = sortFields(filtered, state.lastRuns, mrmsRangeById);
-  const thr = getThresholdForOp(state, opKey);
+const sorted = sortFields(filtered, state.lastRuns, mrmsRangeById);
+const thr = getThresholdForOp(state, opKey);
 
-  const cap = (effectivePageSize === -1)
-    ? sorted.length
-    : Math.min(sorted.length, effectivePageSize);
-  const show = sorted.slice(0, cap);
-   const fc = state && state._mods ? state._mods.forecast : null;
+const cap = (effectivePageSize === -1)
+  ? sorted.length
+  : Math.min(sorted.length, effectivePageSize);
+const show = sorted.slice(0, cap);
+
+await ensureFRModules(state);
+
+const fc = state && state._mods ? state._mods.forecast : null;
 if (fc && typeof fc.readWxSeriesFromCache === 'function'){
   await Promise.all(
     show.map(async (f)=>{
