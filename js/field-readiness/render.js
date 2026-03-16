@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-16a-fix-auto-1h-eta-and-add-debug
+Rev: 2026-03-16b-ignore-waiting-placeholders-cleanly
 
 GOAL (per Dane):
 ✅ Read ALL displayed readiness numbers from Firestore collection:
@@ -21,6 +21,9 @@ GOAL (per Dane):
 ✅ NEW: add ETA debug logging + per-field debug cache on window.__FV_FR
 ✅ NEW: unresolved ETA now shows "ETA ?" instead of silently collapsing
    into a fake 1h value
+✅ FIX: placeholder backend docs with status waiting_for_weather_cache
+   are ignored by tile synthetic readiness path
+✅ FIX: remove duplicate readinessR declaration bug
 ✅ No trimmed sections
 
 IMPORTANT ETA CHANGE:
@@ -166,6 +169,8 @@ function buildLatestReadinessRecord(raw, fallbackId){
     seedSource: safeStr(d.seedSource),
     weatherSource: safeStr(d.weatherSource),
     timezone: safeStr(d.timezone),
+    status: safeStr(d.status),
+    reason: safeStr(d.reason),
     computedAtISO: toIsoFromAny(d.computedAt),
     weatherFetchedAtISO: toIsoFromAny(d.weatherFetchedAt),
     location: {
@@ -244,13 +249,10 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
   const rec = latestRec || getLatestReadinessForField(state, f.id);
   if (!rec) return null;
 
-  // 🚫 ignore fields still waiting for weather cache
+  // Ignore placeholder rows still waiting for backend weather cache.
   if (String(rec.status || '').toLowerCase() === 'waiting_for_weather_cache'){
     return null;
   }
-
-  const readinessR = safeInt(rec.readiness);
-  if (!Number.isFinite(readinessR)) return null;
 
   const readinessR = safeInt(rec.readiness);
   if (!Number.isFinite(readinessR)) return null;
@@ -275,6 +277,8 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
     seedSource: safeStr(rec.seedSource),
     weatherSource: safeStr(rec.weatherSource),
     timezone: safeStr(rec.timezone),
+    status: safeStr(rec.status),
+    reason: safeStr(rec.reason),
     computedAtISO: safeStr(rec.computedAtISO),
     weatherFetchedAtISO: safeStr(rec.weatherFetchedAtISO),
     county: safeStr(rec.county || f.county),
@@ -1359,30 +1363,30 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
     }
 
     await ensureFRModules(state);
-await ensureEtaHelperModule(state);
-await loadPersistedState(state, { force:false });
+    await ensureEtaHelperModule(state);
+    await loadPersistedState(state, { force:false });
 
-const fc = state && state._mods ? state._mods.forecast : null;
-if (fc && typeof fc.readWxSeriesFromCache === 'function'){
-  try{
-    const wx = await fc.readWxSeriesFromCache(String(fieldObj.id), {});
-    const fcstRows = Array.isArray(wx?.fcst) ? wx.fcst.map(r => ({
-      ...r,
-      rainInAdj: Number.isFinite(Number(r?.rainInAdj)) ? Number(r.rainInAdj) : Number(r?.rainIn || 0),
-      rainSource: String(r?.rainSource || r?.precipSource || 'open-meteo')
-    })) : [];
+    const fc = state && state._mods ? state._mods.forecast : null;
+    if (fc && typeof fc.readWxSeriesFromCache === 'function'){
+      try{
+        const wx = await fc.readWxSeriesFromCache(String(fieldObj.id), {});
+        const fcstRows = Array.isArray(wx?.fcst) ? wx.fcst.map(r => ({
+          ...r,
+          rainInAdj: Number.isFinite(Number(r?.rainInAdj)) ? Number(r.rainInAdj) : Number(r?.rainIn || 0),
+          rainSource: String(r?.rainSource || r?.precipSource || 'open-meteo')
+        })) : [];
 
-    state._frForecastCache = (state._frForecastCache instanceof Map) ? state._frForecastCache : new Map();
-    state._frForecastMetaByFieldId = (state._frForecastMetaByFieldId instanceof Map) ? state._frForecastMetaByFieldId : new Map();
+        state._frForecastCache = (state._frForecastCache instanceof Map) ? state._frForecastCache : new Map();
+        state._frForecastMetaByFieldId = (state._frForecastMetaByFieldId instanceof Map) ? state._frForecastMetaByFieldId : new Map();
 
-    state._frForecastCache.set(String(fieldObj.id), fcstRows);
-    state._frForecastMetaByFieldId.set(String(fieldObj.id), {
-      count: fcstRows.length,
-      updatedAt: Date.now(),
-      source: 'open-meteo'
-    });
-  }catch(_){}
-}
+        state._frForecastCache.set(String(fieldObj.id), fcstRows);
+        state._frForecastMetaByFieldId.set(String(fieldObj.id), {
+          count: fcstRows.length,
+          updatedAt: Date.now(),
+          source: 'open-meteo'
+        });
+      }catch(_){}
+    }
 
     const model = state && state._mods ? state._mods.model : null;
     if (!model || typeof model.etaToThreshold !== 'function'){
@@ -1403,21 +1407,21 @@ if (fc && typeof fc.readWxSeriesFromCache === 'function'){
 
     const res = await model.etaToThreshold(fieldObj, etaDeps || deps, Number(thr), HORIZON_HOURS, 3);
 
-let txt = normalizeEtaResult(res, HORIZON_HOURS);
+    let txt = normalizeEtaResult(res, HORIZON_HOURS);
 
-const status = String(res && res.status || '').toLowerCase();
-if (
-  !txt &&
-  (
-    status === 'beyond' ||
-    status === 'notwithin72' ||
-    res?.exceedsHorizon === true ||
-    res?.withinHorizon === false ||
-    res?.reached === false
-  )
-){
-  txt = `>${HORIZON_HOURS}h`;
-}
+    const status = String(res && res.status || '').toLowerCase();
+    if (
+      !txt &&
+      (
+        status === 'beyond' ||
+        status === 'notwithin72' ||
+        res?.exceedsHorizon === true ||
+        res?.withinHorizon === false ||
+        res?.reached === false
+      )
+    ){
+      txt = `>${HORIZON_HOURS}h`;
+    }
 
     if (shouldForceOneHourEta(res, txt, authoritativeReadiness, thr)){
       txt = '~1h';
@@ -2051,26 +2055,26 @@ async function _renderTilesInternal(state){
     })
   );
 
-const sorted = sortFields(filtered, state.lastRuns, mrmsRangeById);
-const thr = getThresholdForOp(state, opKey);
+  const sorted = sortFields(filtered, state.lastRuns, mrmsRangeById);
+  const thr = getThresholdForOp(state, opKey);
 
-const cap = (effectivePageSize === -1)
-  ? sorted.length
-  : Math.min(sorted.length, effectivePageSize);
-const show = sorted.slice(0, cap);
+  const cap = (effectivePageSize === -1)
+    ? sorted.length
+    : Math.min(sorted.length, effectivePageSize);
+  const show = sorted.slice(0, cap);
 
-await ensureFRModules(state);
+  await ensureFRModules(state);
 
-const fc = state && state._mods ? state._mods.forecast : null;
-if (fc && typeof fc.readWxSeriesFromCache === 'function'){
-  await Promise.all(
-    show.map(async (f)=>{
-      try{
-        await fc.readWxSeriesFromCache(String(f.id), {});
-      }catch(_){}
-    })
-  );
-}
+  const fc = state && state._mods ? state._mods.forecast : null;
+  if (fc && typeof fc.readWxSeriesFromCache === 'function'){
+    await Promise.all(
+      show.map(async (f)=>{
+        try{
+          await fc.readWxSeriesFromCache(String(f.id), {});
+        }catch(_){}
+      })
+    );
+  }
 
   const frag = document.createDocumentFragment();
   const idsForPostPatch = [];
