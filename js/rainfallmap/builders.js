@@ -1,13 +1,18 @@
 /* ======================================================================
-   /Farm-vista/js/rainfallmap/builders.js
-   FULL FILE REBUILD
-   REV: 2026-03-15a-use-field_readiness_latest-first
+/Farm-vista/js/rainfallmap/builders.js   (FULL FILE)
+Rev: 2026-03-15b-labeled-builder-file
 
-   GOAL:
-   - readiness mode uses centralized field_readiness_latest first
-   - map readiness matches render.js / quickview.js / global-calibration.js
-   - keep fallback path available for fields missing latest docs
-   - keep rainfall-map Firebase bridge working
+GOAL
+✔ Readiness mode uses centralized field_readiness_latest first
+✔ Map readiness matches render.js / quickview.js / global-calibration.js
+✔ Keeps fallback path available for fields missing latest docs
+✔ Keeps rainfall-map Firebase bridge working
+
+IMPORTANT NOTE
+Rainfall date-range switching is NOT fully fixed in this file yet because
+the rain builder below does not currently pass the selected date range into
+buildFieldPoints() or buildRainSummary(). The real rainfall-range math is
+very likely inside rain-data.js and must be updated there.
 ====================================================================== */
 
 import {
@@ -302,7 +307,6 @@ export async function buildReadinessRenderableRows(requestId, force=false){
 
   if (requestId !== appState.currentRequestId) return { cancelled:true };
 
-  // ✅ load centralized readiness once
   const latestByFieldId = await loadLatestReadinessMapForState(state);
 
   if (requestId !== appState.currentRequestId) return { cancelled:true };
@@ -337,7 +341,6 @@ export async function buildReadinessRenderableRows(requestId, force=false){
 
     let run = null;
 
-    // ✅ First choice: centralized latest readiness
     const latest = latestByFieldId ? latestByFieldId[fid] : null;
     if (latest && Number.isFinite(Number(latest.readiness))){
       run = {
@@ -360,7 +363,6 @@ export async function buildReadinessRenderableRows(requestId, force=false){
         _latest: latest
       };
     } else {
-      // fallback only if latest doc missing
       run = await computeReadinessRunForMapField(
         state,
         {
