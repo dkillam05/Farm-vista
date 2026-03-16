@@ -1,50 +1,24 @@
-// ======================================================================
-// /Farm-vista/js/fv-date-range-picker.js
-// Reusable date range picker logic for FarmVista.
-//
-// Usage:
-//   1) Include this script (non-module) on any page:
-//        <script src="/Farm-vista/js/fv-date-range-picker.js"></script>
-//
-//   2) Make sure the page has the standard markup IDs:
-//
-//        • jobRangeInput     (readonly text input)
-//        • calendarPopover   (popover container)
-//        • monthSelect       (select for month)
-//        • yearSelect        (select for year)
-//        • rangeSummary      (footer summary span)
-//        • clearRangeBtn     (Clear button)
-//        • applyRangeBtn     (Apply button)
-//        • closeCalBtn       (X / close button)
-//        • calDays           (calendar grid container)
-//
-//   3) Optional per-page config (set BEFORE including this script):
-//
-//        <script>
-//          window.FV_DATE_RANGE_PICKER_CONFIG = {
-//            disallowFuture: true,
-//            maxLookbackDays: 30
-//          };
-//        </script>
-//
-//      Notes:
-//      - maxLookbackDays is inclusive of today.
-//        Example: 30 means today + prior 29 days are selectable.
-//      - If no config is supplied, picker behaves like normal.
-//
-//   It exposes window.FVDateRangePicker with:
-//      • init()
-//      • getRange()
-//      • setRange(start, end, opts)
-//      • clear(opts)
-//      • open()
-//      • close()
-//
-//   It dispatches:
-//      • document event: 'fv:date-range-applied'
-//      • document event: 'fv:date-range-cleared'
-//
-// ======================================================================
+/* ======================================================================
+/Farm-vista/js/fv-date-range-picker.js   (FULL FILE)
+Rev: 2026-03-15b-fix-single-day-apply-and-range-commit
+
+PURPOSE
+✔ Reusable FarmVista date range picker
+✔ Supports min/max window rules
+✔ Emits applied/cleared events for map pages
+✔ Commits a true date range back to callers
+
+FIX IN THIS REV
+✔ If user selects only one date and taps Apply, picker now commits
+  a valid single-day range (start=end) instead of emitting only start
+✔ Prevents rainfall map from falling back to default 72h range
+✔ Keeps selected input display aligned with committed range
+✔ File clearly labeled at top
+
+DANE NOTE
+If only one date is selected, that should still be treated as a real range
+for the rainfall map so blobs and popups refresh to that date window.
+====================================================================== */
 (function (global) {
   'use strict';
 
@@ -500,6 +474,8 @@
 
       if (e && inAllowedWindow(e) && compareDates(e, s) >= 0) {
         rangeEnd = e;
+      } else if (!e) {
+        rangeEnd = new Date(s);
       }
 
       viewYear = rangeStart.getFullYear();
@@ -555,6 +531,10 @@
       e.preventDefault();
       e.stopPropagation();
 
+      if (rangeStart && !rangeEnd) {
+        rangeEnd = new Date(rangeStart);
+      }
+
       if (rangeStart && rangeEnd) {
         jobInput.value = formatDate(rangeStart) + ' – ' + formatDate(rangeEnd);
       } else if (rangeStart) {
@@ -563,6 +543,8 @@
         jobInput.value = '';
       }
 
+      updateSummary();
+      renderCalendar();
       closeCalendar();
 
       if (rangeStart || rangeEnd) emitApplied();
