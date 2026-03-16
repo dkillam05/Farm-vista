@@ -283,36 +283,48 @@ function applyDetailsEditGateState(state){
   // ✅ iOS/Safari: re-apply selects + range after returning to page
   const reapplyPrefs = async ()=>{
     try{
-      const opChanged = applySavedOpToUI(state, { fire:false });
-      const sortChanged = applySavedSortToUI({ fire:false });
-      const rangeChanged = applySavedRangeToUI();
+      const prevOp = document.getElementById('opSel')?.value || '';
+      const prevSort = document.getElementById('sortSel')?.value || '';
+      const prevRange = document.getElementById('jobRangeInput')?.value || '';
+      const prevFarm = document.getElementById('farmSel')?.value || '__all__';
+      const prevPage = document.getElementById('pageSel')?.value || '25';
 
-      // keep farm/page in sync too
+      applySavedOpToUI(state, { fire:false });
+      applySavedSortToUI({ fire:false });
+      applySavedRangeToUI();
+
       await loadPrefsFromLocalToUI(state);
 
-      // range module constraints (safe)
-      enforceCalendarNoFuture();
+      const pageSel = document.getElementById('pageSel');
+      if (pageSel){
+        pageSel.value = (state.pageSize === -1) ? '__all__' : String(state.pageSize || 25);
+      }
 
-      // Re-apply details gate on return (covers BFCache + perms already known)
+      const farmSel = document.getElementById('farmSel');
+      if (farmSel){
+        farmSel.value = String(state.farmFilter || '__all__');
+      }
+
+      enforceCalendarNoFuture();
       applyDetailsEditGateState(state);
 
-      if (opChanged || sortChanged || rangeChanged){
+      const newOp = document.getElementById('opSel')?.value || '';
+      const newSort = document.getElementById('sortSel')?.value || '';
+      const newRange = document.getElementById('jobRangeInput')?.value || '';
+      const newFarm = document.getElementById('farmSel')?.value || '__all__';
+      const newPage = document.getElementById('pageSel')?.value || '25';
+
+      if (
+        prevOp !== newOp ||
+        prevSort !== newSort ||
+        prevRange !== newRange ||
+        prevFarm !== newFarm ||
+        prevPage !== newPage
+      ){
         await refreshAll(state);
       }
     }catch(_){}
   };
-
-  window.addEventListener('pageshow', ()=>{
-    reapplyPrefs();
-    refreshMrmsUiOnly(state).catch?.(()=>{});
-  });
-
-  document.addEventListener('visibilitychange', ()=>{
-    if (!document.hidden){
-      reapplyPrefs();
-      refreshMrmsUiOnly(state).catch?.(()=>{});
-    }
-  });
 
   // Initial paint
   await renderTiles(state);
