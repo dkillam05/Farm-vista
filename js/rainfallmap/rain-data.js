@@ -1,3 +1,19 @@
+/* ======================================================================
+/Farm-vista/js/rainfallmap/rain-data.js   (FULL FILE)
+Rev: 2026-03-15b-labeled-active-range-rain-math
+
+PURPOSE
+✔ Converts MRMS daily-series data into rainfall totals for the map
+✔ Builds rainfall point rows and rainfall popup summaries
+✔ Uses appState current selected range when available
+✔ Falls back to default 72-hour range only when no full selected range exists
+
+IMPORTANT NOTE
+This file already uses appState.currentRangeStartISO/currentRangeEndISO.
+If the map still behaves like 72 hours, the likely problem is upstream in
+the date-range picker, where a full start/end range is not being committed.
+====================================================================== */
+
 import { appState } from './store.js';
 import { lower, toNum } from './utils.js';
 import { getLast72hDateRangeISO } from './date-range.js';
