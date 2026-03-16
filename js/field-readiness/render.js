@@ -615,6 +615,12 @@ function perceivedFromThreshold(readiness, thr){
 }
 function colorForPerceived(p){
   const x = clamp(Number(p), 0, 100);
+
+  // Only true extremes are dark
+  if (x <= 2) return `hsl(5 75% 30%)`;     // dark red (only near 0)
+  if (x >= 98) return `hsl(120 60% 28%)`;  // dark green (only near 100)
+
+  // Everything else uses lighter colors
   let h;
   if (x <= 50){
     const frac = x / 50;
@@ -623,7 +629,8 @@ function colorForPerceived(p){
     const frac = (x - 50) / 50;
     h = 45 + (120 - 45) * frac;
   }
-  return `hsl(${h.toFixed(0)} 70% 38%)`;
+
+  return `hsl(${h.toFixed(0)} 70% 45%)`;
 }
 function buildThresholdGradientStops(thr){
   const t = clamp(Math.round(Number(thr)), 0, 100);
