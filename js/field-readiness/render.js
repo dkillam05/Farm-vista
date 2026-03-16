@@ -1144,10 +1144,20 @@ function shouldForceOneHourEta(res, txt, readinessNow, thr){
   const status = String(res && res.status || '').toLowerCase();
   const hours = Number(res && res.hours);
 
+  if (
+    status === 'noforecast' ||
+    status === 'nodata' ||
+    status === 'error' ||
+    status === 'none' ||
+    status === 'beyond' ||
+    status === 'notwithin72'
+  ){
+    return false;
+  }
+
   return (
     status === 'drynow' ||
-    (Number.isFinite(hours) && hours === 0) ||
-    isZeroEtaLike(txt)
+    ((status === 'ok' || status === 'reached' || status === 'within' || status === 'within72') && Number.isFinite(hours) && hours === 0)
   );
 }
 
@@ -1380,11 +1390,21 @@ if (fc && typeof fc.readWxSeriesFromCache === 'function'){
 
     const res = await model.etaToThreshold(fieldObj, etaDeps || deps, Number(thr), HORIZON_HOURS, 3);
 
-    let txt = normalizeEtaResult(res, HORIZON_HOURS);
+let txt = normalizeEtaResult(res, HORIZON_HOURS);
 
-    if (!txt && res && (res.exceedsHorizon === true || res.withinHorizon === false || res.reached === false)){
-      txt = `>${HORIZON_HOURS}h`;
-    }
+const status = String(res && res.status || '').toLowerCase();
+if (
+  !txt &&
+  (
+    status === 'beyond' ||
+    status === 'notwithin72' ||
+    res?.exceedsHorizon === true ||
+    res?.withinHorizon === false ||
+    res?.reached === false
+  )
+){
+  txt = `>${HORIZON_HOURS}h`;
+}
 
     if (shouldForceOneHourEta(res, txt, authoritativeReadiness, thr)){
       txt = '~1h';
