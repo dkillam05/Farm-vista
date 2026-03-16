@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-15f-eta-debug-and-forecast-cache-warm
+Rev: 2026-03-16a-fix-auto-1h-eta-and-add-debug
 
 GOAL (per Dane):
 ✅ Read ALL displayed readiness numbers from Firestore collection:
@@ -15,28 +15,20 @@ GOAL (per Dane):
 ✅ Show ETA as compact hours or >168h
 ✅ Restore dynamic readiness gradient based on operation threshold
 ✅ PREP: pass centralized latest truth context cleanly into ETA path
-✅ FIX: if latest readiness is below threshold, tile ETA may NOT show 0 / ~0h
-✅ DEBUG: log ETA inputs/results so we can see why fields are blank
-✅ DEBUG: warm forecast cache into state._frForecastCache during tile ETA path
+✅ FIX: stop converting blank ETA failures into fake ~1h
+✅ FIX: only force ~1h when model explicitly returns 0h / dryNow while
+   latest readiness is still below threshold
+✅ NEW: add ETA debug logging + per-field debug cache on window.__FV_FR
+✅ NEW: unresolved ETA now shows "ETA ?" instead of silently collapsing
+   into a fake 1h value
 ✅ No trimmed sections
 
-NEW CENTRALIZED READINESS SOURCE:
-- Collection: field_readiness_latest
-- Key: fieldId
-- Primary displayed number: readiness
-
-IMPORTANT BEHAVIOR:
-- Tiles, sorting, selected tile refresh, and list rendering now use the
-  cached field_readiness_latest collection first.
-- If a field does not yet have a latest readiness doc, that tile shows
-  "Field Readiness —".
-- Heavy model math is no longer required just to draw/sort tiles.
-- Details panel still attempts deep model/trace rendering when needed,
-  but displayed readiness truth is anchored to field_readiness_latest.
-- ETA is restored as a secondary post-render enhancement so tile loading
-  stays fast.
-- This file now hard-guards tile ETA so below-threshold latest readiness
-  cannot visually collapse to zero.
+IMPORTANT ETA CHANGE:
+- Before this rev, blank ETA + below-threshold could visually become ~1h.
+- Now:
+   * real model ETA result -> show real ETA
+   * explicit contradictory 0h / dryNow -> force ~1h
+   * missing forecast / error / blank -> show "ETA ?"
 ===================================================================== */
 'use strict';
 
@@ -76,7 +68,7 @@ const ETA_HELPER_URL = '/Farm-vista/js/field-readiness/eta-helper.js';
 const ETA_HELP_EVENT = 'fr:eta-help';
 const ETA_HORIZON_HOURS = 168;
 const ETA_CACHE_TTL_MS = 10 * 60 * 1000;
-const ETA_DEBUG = true;
+const ETA_DEBUG_ENABLED = true;
 
 function safeObj(x){
   return (x && typeof x === 'object') ? x : null;
@@ -123,6 +115,27 @@ function toIsoFromAny(v){
 function markerLeftCSS(v){
   return `${clamp(Number(v) || 0, 0, 100)}%`;
 }
+
+/* =====================================================================
+   ETA debug helpers
+===================================================================== */
+function setEtaDebug(state, fieldId, payload){
+  try{
+    if (!state || !fieldId) return;
+    if (!state._etaDebugByFieldId) state._etaDebugByFieldId = {};
+    state._etaDebugByFieldId[String(fieldId)] = {
+      atISO: new Date().toISOString(),
+      ...(safeObj(payload) || {})
+    };
+    if (ETA_DEBUG_ENABLED){
+      console.debug('[FieldReadiness][ETA DEBUG]', String(fieldId), state._etaDebugByFieldId[String(fieldId)]);
+    }
+  }catch(_){}
+}
+
+/* =====================================================================
+   field_readiness_latest helpers
+===================================================================== */
 function buildLatestReadinessRecord(raw, fallbackId){
   const d = safeObj(raw) || {};
   const fieldId = safeStr(d.fieldId || fallbackId);
@@ -619,11 +632,9 @@ function perceivedFromThreshold(readiness, thr){
 function colorForPerceived(p){
   const x = clamp(Number(p), 0, 100);
 
-  // Only true extremes are dark
-  if (x <= 2) return `hsl(5 75% 30%)`;     // dark red (only near 0)
-  if (x >= 98) return `hsl(120 60% 28%)`;  // dark green (only near 100)
+  if (x <= 2) return `hsl(5 75% 30%)`;
+  if (x >= 98) return `hsl(120 60% 28%)`;
 
-  // Everything else uses lighter colors
   let h;
   if (x <= 50){
     const frac = x / 50;
@@ -1058,7 +1069,7 @@ function updateDetailsHeaderPanel(state){
 }
 
 /* =====================================================================
-   ETA helper
+   ETA helpers
 ===================================================================== */
 function parseEtaHoursFromText(txt){
   const s = String(txt || '');
@@ -1112,12 +1123,52 @@ function forceNonZeroEtaText(txt, readinessNow, thr){
   if (!Number.isFinite(ready) || !Number.isFinite(threshold)) return s;
   if (ready >= threshold) return s;
 
-  if (!s || isZeroEtaLike(s)) return '~1h';
+  // IMPORTANT FIX:
+  // blank is NOT the same as zero; blank means unresolved/failure/no forecast.
+  if (!s) return '';
+
+  if (isZeroEtaLike(s)) return '~1h';
 
   const h = parseEtaHoursFromText(s);
   if (Number.isFinite(h) && h <= 0) return '~1h';
 
   return s;
+}
+
+function shouldForceOneHourEta(res, txt, readinessNow, thr){
+  const ready = Number(readinessNow);
+  const threshold = Number(thr);
+  if (!Number.isFinite(ready) || !Number.isFinite(threshold)) return false;
+  if (ready >= threshold) return false;
+
+  const status = String(res && res.status || '').toLowerCase();
+  const hours = Number(res && res.hours);
+
+  return (
+    status === 'drynow' ||
+    (Number.isFinite(hours) && hours === 0) ||
+    isZeroEtaLike(txt)
+  );
+}
+
+function buildEtaFailureText(res, readinessNow, thr){
+  const ready = Number(readinessNow);
+  const threshold = Number(thr);
+  if (!Number.isFinite(ready) || !Number.isFinite(threshold)) return '';
+  if (ready >= threshold) return '';
+
+  const status = String(res && res.status || '').toLowerCase();
+
+  if (
+    status === 'noforecast' ||
+    status === 'nodata' ||
+    status === 'error' ||
+    status === 'none'
+  ){
+    return 'ETA ?';
+  }
+
+  return 'ETA ?';
 }
 
 function getEtaCacheKey(fieldObj, opKey, thr, latestRec){
@@ -1185,52 +1236,6 @@ function normalizeEtaResult(res, horizonHours){
   return '';
 }
 
-function normalizeForecastRowsLocal(rows){
-  return (Array.isArray(rows) ? rows : []).map(r => ({
-    ...r,
-    rainInAdj: safeNum(r && r.rainInAdj) ?? safeNum(r && r.rainIn) ?? 0,
-    rainSource: safeStr(r && (r.rainSource || r.precipSource || 'open-meteo')) || 'open-meteo'
-  }));
-}
-
-function etaDebugLog(state, payload){
-  try{
-    if (!ETA_DEBUG) return;
-    const out = safeObj(payload) || {};
-    if (!state._etaDebugByFieldId) state._etaDebugByFieldId = {};
-    const fid = safeStr(out.fieldId || 'unknown');
-    state._etaDebugByFieldId[fid] = out;
-    window.__FV_FR_ETA_DEBUG_LAST__ = out;
-    window.__FV_FR_ETA_DEBUG_ALL__ = state._etaDebugByFieldId;
-    console.log('[ETA DEBUG]', out);
-  }catch(_){}
-}
-
-async function warmForecastCacheForEta(state, fieldId){
-  try{
-    const fid = safeStr(fieldId);
-    if (!fid) return [];
-
-    if (!state._frForecastCache) state._frForecastCache = new Map();
-
-    const existing = state._frForecastCache.get(fid);
-    if (Array.isArray(existing) && existing.length) return existing;
-
-    const forecastMod = state && state._mods ? state._mods.forecast : null;
-    if (!forecastMod || typeof forecastMod.readWxSeriesFromCache !== 'function'){
-      state._frForecastCache.set(fid, []);
-      return [];
-    }
-
-    const wx = await forecastMod.readWxSeriesFromCache(fid, {});
-    const rows = normalizeForecastRowsLocal((wx && Array.isArray(wx.fcst)) ? wx.fcst : []);
-    state._frForecastCache.set(fid, rows);
-    return rows;
-  }catch(_){
-    return [];
-  }
-}
-
 function buildEtaDepsForField(state, fieldObj, opKey, latestRec){
   const deps = buildDepsForState(state, opKey);
   const rec = latestRec || getLatestReadinessForField(state, fieldObj && fieldObj.id) || null;
@@ -1277,9 +1282,27 @@ function buildEtaDepsForField(state, fieldObj, opKey, latestRec){
 async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
   const HORIZON_HOURS = ETA_HORIZON_HOURS;
   const readinessNow = Number(run0 && run0.readinessR);
+  const fid = String(fieldObj && fieldObj.id || '');
 
-  if (!Number.isFinite(readinessNow)) return '';
-  if (readinessNow >= Number(thr)) return '';
+  if (!Number.isFinite(readinessNow)) {
+    setEtaDebug(state, fid, {
+      phase: 'precheck',
+      reason: 'no-readiness-now',
+      readinessNow,
+      threshold: Number(thr)
+    });
+    return '';
+  }
+
+  if (readinessNow >= Number(thr)) {
+    setEtaDebug(state, fid, {
+      phase: 'precheck',
+      reason: 'already-at-threshold',
+      readinessNow,
+      threshold: Number(thr)
+    });
+    return '';
+  }
 
   try{
     const latest = latestRec || getLatestReadinessForField(state, fieldObj && fieldObj.id);
@@ -1297,53 +1320,41 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
     });
 
     if (cached){
-      etaDebugLog(state, {
-        fieldId: safeStr(fieldObj && fieldObj.id),
-        fieldName: safeStr(fieldObj && fieldObj.name),
-        source: 'cache-hit',
-        readinessTile: readinessNow,
-        readinessLatest: authoritativeReadiness,
+      const outCached = forceNonZeroEtaText(cached, authoritativeReadiness, thr) || cached;
+      setEtaDebug(state, fid, {
+        phase: 'cache-hit',
+        readinessNow,
+        authoritativeReadiness,
         threshold: Number(thr),
-        etaText: cached
+        latestComputedAtISO: safeStr(latest && latest.computedAtISO),
+        latestWeatherFetchedAtISO: safeStr(latest && latest.weatherFetchedAtISO),
+        latestStoragePhysFinal: safeNum(latest && latest.storagePhysFinal),
+        latestStorageFinal: safeNum(latest && latest.storageFinal),
+        outText: outCached
       });
-      return forceNonZeroEtaText(cached, authoritativeReadiness, thr);
+      return outCached;
     }
 
     await ensureFRModules(state);
     await ensureEtaHelperModule(state);
     await loadPersistedState(state, { force:false });
 
-    await warmForecastCacheForEta(state, fieldObj && fieldObj.id);
-
     const model = state && state._mods ? state._mods.model : null;
     if (!model || typeof model.etaToThreshold !== 'function'){
-      etaDebugLog(state, {
-        fieldId: safeStr(fieldObj && fieldObj.id),
-        fieldName: safeStr(fieldObj && fieldObj.name),
-        source: 'model-missing',
-        readinessTile: readinessNow,
-        readinessLatest: authoritativeReadiness,
+      setEtaDebug(state, fid, {
+        phase: 'model-missing',
+        readinessNow,
+        authoritativeReadiness,
         threshold: Number(thr)
       });
-      return '';
+      return 'ETA ?';
     }
 
     const etaDeps = buildEtaDepsForField(state, fieldObj, opKey, latest);
-
-    let forecastRows = [];
-    try{
-      forecastRows =
-        (etaDeps && typeof etaDeps.getForecastSeriesForFieldId === 'function')
-          ? (etaDeps.getForecastSeriesForFieldId(fieldObj.id) || [])
-          : [];
-    }catch(_){
-      forecastRows = [];
-    }
-
-    const etaSeed =
-      (etaDeps && typeof etaDeps.getEtaSeedForFieldId === 'function')
-        ? etaDeps.getEtaSeedForFieldId(fieldObj.id)
-        : null;
+    const forecastRows =
+      (etaDeps && typeof etaDeps.getForecastSeriesForFieldId === 'function')
+        ? (etaDeps.getForecastSeriesForFieldId(fid) || [])
+        : [];
 
     const res = await model.etaToThreshold(fieldObj, etaDeps || deps, Number(thr), HORIZON_HOURS, 3);
 
@@ -1353,64 +1364,51 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
       txt = `>${HORIZON_HOURS}h`;
     }
 
-    if (
-      authoritativeReadiness < Number(thr) &&
-      (
-        isZeroEtaLike(txt) ||
-        Number(res && res.hours) === 0 ||
-        String(res && res.status || '').toLowerCase() === 'drynow'
-      )
-    ){
+    if (shouldForceOneHourEta(res, txt, authoritativeReadiness, thr)){
       txt = '~1h';
+    } else {
+      txt = forceNonZeroEtaText(txt, authoritativeReadiness, thr);
     }
 
-    txt = forceNonZeroEtaText(txt, authoritativeReadiness, thr);
+    if (!txt){
+      txt = buildEtaFailureText(res, authoritativeReadiness, thr);
+    }
 
-    etaDebugLog(state, {
-      fieldId: safeStr(fieldObj && fieldObj.id),
-      fieldName: safeStr(fieldObj && fieldObj.name),
-      source: 'model-run',
-      readinessTile: readinessNow,
-      readinessLatest: authoritativeReadiness,
-      threshold: Number(thr),
-      forecastCount: Array.isArray(forecastRows) ? forecastRows.length : 0,
-      forecastFirstDate: Array.isArray(forecastRows) && forecastRows[0] ? safeStr(forecastRows[0].dateISO) : '',
-      forecastLastDate: Array.isArray(forecastRows) && forecastRows.length ? safeStr(forecastRows[forecastRows.length - 1].dateISO) : '',
-      etaSeed: etaSeed ? {
-        readiness: safeNum(etaSeed.readiness),
-        wetness: safeNum(etaSeed.wetness),
-        storagePhysFinal: safeNum(etaSeed.storagePhysFinal),
-        storageFinal: safeNum(etaSeed.storageFinal),
-        storageForReadiness: safeNum(etaSeed.storageForReadiness),
-        source: safeStr(etaSeed.source),
-        computedAtISO: safeStr(etaSeed.computedAtISO),
-        weatherFetchedAtISO: safeStr(etaSeed.weatherFetchedAtISO),
-        runKey: safeStr(etaSeed.runKey)
-      } : null,
-      result: res ? {
-        ok: !!res.ok,
-        status: safeStr(res.status),
-        hours: safeNum(res.hours),
-        text: safeStr(res.text)
-      } : null,
-      etaTextFinal: safeStr(txt)
-    });
+    if (!txt && authoritativeReadiness < Number(thr)){
+      txt = 'ETA ?';
+    }
 
     if (txt){
       setEtaCacheValue(state, cacheKey, txt);
     }
 
+    setEtaDebug(state, fid, {
+      phase: 'model-result',
+      readinessNow,
+      authoritativeReadiness,
+      threshold: Number(thr),
+      latestComputedAtISO: safeStr(latest && latest.computedAtISO),
+      latestWeatherFetchedAtISO: safeStr(latest && latest.weatherFetchedAtISO),
+      latestStoragePhysFinal: safeNum(latest && latest.storagePhysFinal),
+      latestStorageFinal: safeNum(latest && latest.storageFinal),
+      latestStorageForReadiness: safeNum(latest && latest.storageForReadiness),
+      latestRunKey: safeStr(latest && latest.runKey),
+      forecastCount: Array.isArray(forecastRows) ? forecastRows.length : 0,
+      modelStatus: safeStr(res && res.status),
+      modelHours: safeNum(res && res.hours),
+      modelText: safeStr(res && res.text),
+      outText: txt
+    });
+
     return txt;
   }catch(err){
-    etaDebugLog(state, {
-      fieldId: safeStr(fieldObj && fieldObj.id),
-      fieldName: safeStr(fieldObj && fieldObj.name),
-      source: 'exception',
-      readinessTile: readinessNow,
+    setEtaDebug(state, fid, {
+      phase: 'exception',
+      readinessNow,
       threshold: Number(thr),
-      error: safeStr(err && (err.stack || err.message || err))
+      error: safeStr(err && err.message || err)
     });
-    return '';
+    return 'ETA ?';
   }
 }
 
@@ -1767,6 +1765,12 @@ async function updateTileForField(state, fieldId){
         markerEl.style.opacity = '.45';
       }
 
+      setEtaDebug(state, fid, {
+        phase: 'tile-update',
+        reason: 'no-run0',
+        threshold: Number(thr)
+      });
+
       upsertEtaHelp(state, tile, { etaText:'' });
       return;
     }
@@ -1807,8 +1811,14 @@ async function updateTileForField(state, fieldId){
     try{
       const deps = buildDepsForState(state, opKey);
       etaText = await getTileEtaText(state, f, deps, run0, thr, latest);
-    }catch(_){
-      etaText = '';
+    }catch(err){
+      setEtaDebug(state, fid, {
+        phase: 'tile-update-exception',
+        readinessNow: Number(readiness),
+        threshold: Number(thr),
+        error: safeStr(err && err.message || err)
+      });
+      etaText = 'ETA ?';
     }
 
     upsertEtaHelp(state, tile, {
@@ -2555,9 +2565,6 @@ export async function refreshDetailsOnly(state){
         state._latestReadinessLoadedAt = 0;
         state._etaTileCache = {};
         state._etaDebugByFieldId = {};
-        window.__FV_FR_ETA_DEBUG_LAST__ = null;
-        window.__FV_FR_ETA_DEBUG_ALL__ = null;
-
         await loadPersistedState(state, { force:true });
         await loadLatestReadiness(state, { force:true });
         await refreshAll(state);
