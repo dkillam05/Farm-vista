@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/prefs.js  (FULL FILE)
-Rev: 2025-12-27b
+Rev: 2026-03-16a-force-valid-page-size-on-boot
 
 Fix:
 ✅ Adds persistent Sort preference:
@@ -9,6 +9,9 @@ Fix:
    - Operation (local + session)
    - Farm filter
    - Page size
+✅ NEW:
+   - Forces page size to a valid saved option or 25 on fresh/invalid load
+   - Keeps UI select + state.pageSize in sync on boot
 
 ===================================================================== */
 'use strict';
@@ -61,7 +64,6 @@ export function applySavedSortToUI({ fire=false } = {}){
   raw = String(raw || '').trim();
   if (!raw) return false;
 
-  // only apply if option exists
   const ok = Array.from(sel.options || []).some(o => String(o.value) === raw);
   if (!ok) return false;
 
@@ -76,6 +78,23 @@ export function applySavedSortToUI({ fire=false } = {}){
   return false;
 }
 
+function normalizePageSizeRaw(raw, pageSel){
+  const v = String(raw || '').trim();
+
+  const allowed = pageSel
+    ? Array.from(pageSel.options || []).map(o => String(o.value))
+    : ['25', '50', '100', '250', '__all__'];
+
+  if (allowed.includes(v)) return v;
+  return '25';
+}
+
+function rawToPageSize(raw){
+  return (raw === '__all__')
+    ? -1
+    : (isFinite(Number(raw)) ? Math.max(1, Math.round(Number(raw))) : 25);
+}
+
 export async function loadPrefsFromLocalToUI(state){
   // Operation
   applySavedOpToUI(state, { fire:false });
@@ -84,17 +103,35 @@ export async function loadPrefsFromLocalToUI(state){
   applySavedSortToUI({ fire:false });
 
   // Farm
-  try{ state.farmFilter = String(localStorage.getItem(CONST.LS_FARM_FILTER) || '__all__') || '__all__'; }
-  catch(_){ state.farmFilter='__all__'; }
+  try{
+    state.farmFilter = String(localStorage.getItem(CONST.LS_FARM_FILTER) || '__all__') || '__all__';
+  }catch(_){
+    state.farmFilter = '__all__';
+  }
+
   const farmSel = document.getElementById('farmSel');
   if (farmSel) farmSel.value = state.farmFilter;
 
   // Page size
-  let rawPS = '25';
-  try{ rawPS = String(localStorage.getItem(CONST.LS_PAGE_SIZE) || '25'); }catch(_){ rawPS='25'; }
-  state.pageSize = (rawPS === '__all__') ? -1 : (isFinite(Number(rawPS)) ? Math.max(1, Math.round(Number(rawPS))) : 25);
   const pageSel = document.getElementById('pageSel');
-  if (pageSel) pageSel.value = (state.pageSize === -1) ? '__all__' : String(state.pageSize);
+
+  let rawPS = '25';
+  try{
+    rawPS = String(localStorage.getItem(CONST.LS_PAGE_SIZE) || '25');
+  }catch(_){
+    rawPS = '25';
+  }
+
+  rawPS = normalizePageSizeRaw(rawPS, pageSel);
+  state.pageSize = rawToPageSize(rawPS);
+
+  if (pageSel){
+    pageSel.value = rawPS;
+  }
+
+  try{
+    localStorage.setItem(CONST.LS_PAGE_SIZE, rawPS);
+  }catch(_){}
 }
 
 export function saveOpDefault(){
@@ -125,7 +162,7 @@ export function saveFarmFilterDefault(state){
 
 export function savePageSizeDefault(state){
   const sel = document.getElementById('pageSel');
-  const raw = String(sel ? sel.value : '25');
-  state.pageSize = (raw === '__all__') ? -1 : (isFinite(Number(raw)) ? Math.max(1, Math.round(Number(raw))) : 25);
+  const raw = normalizePageSizeRaw(sel ? sel.value : '25', sel || null);
+  state.pageSize = rawToPageSize(raw);
   try{ localStorage.setItem(CONST.LS_PAGE_SIZE, raw); }catch(_){}
 }
