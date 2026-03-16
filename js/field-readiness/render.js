@@ -244,6 +244,14 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
   const rec = latestRec || getLatestReadinessForField(state, f.id);
   if (!rec) return null;
 
+  // 🚫 ignore fields still waiting for weather cache
+  if (String(rec.status || '').toLowerCase() === 'waiting_for_weather_cache'){
+    return null;
+  }
+
+  const readinessR = safeInt(rec.readiness);
+  if (!Number.isFinite(readinessR)) return null;
+
   const readinessR = safeInt(rec.readiness);
   if (!Number.isFinite(readinessR)) return null;
 
