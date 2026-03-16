@@ -2010,6 +2010,16 @@ async function _renderTilesInternal(state){
     ? sorted.length
     : Math.min(sorted.length, effectivePageSize);
   const show = sorted.slice(0, cap);
+   const fc = state && state._mods ? state._mods.forecast : null;
+if (fc && typeof fc.readWxSeriesFromCache === 'function'){
+  await Promise.all(
+    show.map(async (f)=>{
+      try{
+        await fc.readWxSeriesFromCache(String(f.id), {});
+      }catch(_){}
+    })
+  );
+}
 
   const frag = document.createDocumentFragment();
   const idsForPostPatch = [];
