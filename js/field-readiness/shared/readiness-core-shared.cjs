@@ -1,6 +1,6 @@
 /* =====================================================================
 /js/field-readiness/shared/readiness-core-shared.cjs  (FULL FILE)
-Rev: 2026-03-15f-backend-shared-core-add-persisted-only-helper
+Rev: 2026-03-16a-backend-shared-core-add-source-mode-debug
 
 PURPOSE
 ✅ Shared PURE readiness math core for backend import
@@ -10,6 +10,15 @@ PURPOSE
 ✅ FIX: avgLossDay still works when includeTrace=false
 ✅ CAL remains zero to match formula.js wiring
 ✅ NEW: helper to compute readiness from persisted storage only
+✅ NEW: explicit sourceMode markers for backend debugging
+✅ NEW: preserves seed/debug metadata so caller can see which path ran
+
+IMPORTANT
+- This file does NOT decide whether a field should be marked
+  "waiting_for_weather_cache". That decision happens in the backend caller.
+- This file only computes readiness once the caller gives it:
+    1) weather rows, or
+    2) persisted state only
 ===================================================================== */
 
 'use strict';
@@ -43,6 +52,10 @@ function snap01(x){
   if (v <= 0.01) return 0;
   if (v >= 0.99) return 1;
   return v;
+}
+
+function safeStr(v){
+  return String(v || '');
 }
 
 /* =====================================================================
@@ -202,7 +215,7 @@ function calcDryParts(row, extra){
   };
 }
 
-function mapFactors(soilWetness0_100, drainageIndex0_100, sm010){
+function mapFactors(soilWetness0_100, drainageIndex0_100, sm010, extra){
   const soilHoldRaw = safePct01(soilWetness0_100);
   const drainPoorRaw = safePct01(drainageIndex0_100);
 
@@ -217,9 +230,10 @@ function mapFactors(soilWetness0_100, drainageIndex0_100, sm010){
   const dryMult   = 1.20 - 0.35 * soilHold - 0.40 * drainPoor;
 
   const SmaxBase = 3.00 + 1.00 * soilHold + 1.00 * drainPoor;
-  const Smax = clamp(SmaxBase, 3.00, 5.00);
+  const SmaxUncapped = SmaxBase * (1 + num(extra && extra.STORAGE_CAP_SM010_W, 0) * smN);
+  const Smax = clamp(SmaxUncapped, 3.00, 5.00);
 
-  return { soilHold, drainPoor, smN, infilMult, dryMult, Smax, SmaxBase };
+  return { soilHold, drainPoor, smN, infilMult, dryMult, Smax, SmaxBase, SmaxUncapped };
 }
 
 /* =====================================================================
@@ -382,7 +396,7 @@ function baselineSeedFromWindow(rowsWindow, factors){
   const rainNudge = rainNudgeFrac * (0.10 * factors.Smax);
 
   const storage0 = clamp((0.30 * factors.Smax) + rainNudge, 0, factors.Smax);
-  return { storage0 };
+  return { storage0, rain7, rainNudge };
 }
 
 function pickSeed(rows, factors, persistedState){
@@ -407,7 +421,9 @@ function pickSeed(rows, factors, persistedState){
   return {
     seedStorage: b0.storage0,
     startIdx: 0,
-    source: 'baseline'
+    source: 'baseline',
+    baselineRain7: b0.rain7,
+    baselineRainNudge: b0.rainNudge
   };
 }
 
@@ -460,7 +476,7 @@ function runFieldReadinessCore(
   if (!normalizedRows.length) return null;
 
   const last = normalizedRows[normalizedRows.length - 1] || {};
-  const factors = mapFactors(soilWetness, drainageIndex, last.sm010);
+  const factors = mapFactors(soilWetness, drainageIndex, last.sm010, extra);
 
   const seedPick = pickSeed(normalizedRows, factors, persistedState);
   let storage = clamp(seedPick.seedStorage, 0, factors.Smax);
@@ -536,6 +552,8 @@ function runFieldReadinessCore(
     : 0.08;
 
   return {
+    sourceMode: 'weather-rows',
+
     rows: normalizedRows,
     trace: wantTrace ? trace : [],
     factors,
@@ -543,6 +561,8 @@ function runFieldReadinessCore(
     seedSource: seedPick.source,
     seedStorage: seedPick.seedStorage,
     startIdx: seedPick.startIdx,
+    baselineRain7: num(seedPick.baselineRain7, 0),
+    baselineRainNudge: num(seedPick.baselineRainNudge, 0),
 
     storagePhysFinal,
     storageFinal: out.storageEff,
@@ -554,7 +574,19 @@ function runFieldReadinessCore(
 
     readinessCreditIn: out.creditIn,
     storageForReadiness: out.storageForReadiness,
-    avgLossDay
+    avgLossDay,
+
+    debug: {
+      sourceMode: 'weather-rows',
+      rowCount: normalizedRows.length,
+      startIdx: seedPick.startIdx,
+      seedSource: safeStr(seedPick.source),
+      lastDateISO: safeStr(last.dateISO),
+      lastRainSource: safeStr(last.rainSource),
+      Smax: num(factors.Smax, 0),
+      soilHold: num(factors.soilHold, 0),
+      drainPoor: num(factors.drainPoor, 0)
+    }
   };
 }
 
@@ -574,11 +606,10 @@ function runReadinessFromPersistedStateOnly(
 
   const extra = buildExtra(opts.extra);
   const sm010 = null;
-  const factors = mapFactors(soilWetness, drainageIndex, sm010);
+  const factors = mapFactors(soilWetness, drainageIndex, sm010, extra);
 
   let storagePhysFinal = clamp(Number(persistedState.storageFinal), 0, factors.Smax);
 
-  // If saved Smax differs, keep same fill fraction
   const savedSmax = Number(persistedState.SmaxAtSave);
   if (Number.isFinite(savedSmax) && savedSmax > 0 && Math.abs(savedSmax - factors.Smax) > 0.001){
     const frac = clamp(storagePhysFinal / savedSmax, 0, 1);
@@ -588,6 +619,8 @@ function runReadinessFromPersistedStateOnly(
   const out = computeReadinessFromStorage(storagePhysFinal, factors);
 
   return {
+    sourceMode: 'persisted-state-only',
+
     rows: [],
     trace: [],
     factors,
@@ -595,6 +628,8 @@ function runReadinessFromPersistedStateOnly(
     seedSource: 'persisted-state-only',
     seedStorage: storagePhysFinal,
     startIdx: 0,
+    baselineRain7: 0,
+    baselineRainNudge: 0,
 
     storagePhysFinal,
     storageFinal: out.storageEff,
@@ -606,7 +641,18 @@ function runReadinessFromPersistedStateOnly(
 
     readinessCreditIn: out.creditIn,
     storageForReadiness: out.storageForReadiness,
-    avgLossDay: 0
+    avgLossDay: 0,
+
+    debug: {
+      sourceMode: 'persisted-state-only',
+      seedSource: 'persisted-state-only',
+      rowCount: 0,
+      startIdx: 0,
+      Smax: num(factors.Smax, 0),
+      soilHold: num(factors.soilHold, 0),
+      drainPoor: num(factors.drainPoor, 0),
+      savedSmax: Number.isFinite(savedSmax) ? savedSmax : null
+    }
   };
 }
 
