@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-16b-ignore-waiting-placeholders-cleanly
+Rev: 2026-03-16c-page-size-boot-sync-and-awaited-render
 
 GOAL (per Dane):
 ✅ Read ALL displayed readiness numbers from Firestore collection:
@@ -24,6 +24,9 @@ GOAL (per Dane):
 ✅ FIX: placeholder backend docs with status waiting_for_weather_cache
    are ignored by tile synthetic readiness path
 ✅ FIX: remove duplicate readinessR declaration bug
+✅ FIX: render queue now truly awaits actual tile render
+✅ FIX: page size is normalized on boot render so first load respects
+   saved / fresh default page size instead of behaving like All
 ✅ No trimmed sections
 
 IMPORTANT ETA CHANGE:
@@ -551,10 +554,31 @@ function ensureRenderGate(state){
       inFlight: false,
       wantAll: false,
       wantDetails: false,
-      timer: null
+      timer: null,
+      pendingPromise: null,
+      pendingResolve: null
     };
   }
   return state._renderGate;
+}
+
+function ensureGatePendingPromise(g){
+  if (!g) return Promise.resolve();
+  if (!g.pendingPromise){
+    g.pendingPromise = new Promise((resolve)=>{
+      g.pendingResolve = resolve;
+    });
+  }
+  return g.pendingPromise;
+}
+
+function resolveGatePendingPromise(g){
+  try{
+    const resolve = g && g.pendingResolve;
+    g.pendingResolve = null;
+    g.pendingPromise = null;
+    if (typeof resolve === 'function') resolve();
+  }catch(_){}
 }
 
 async function scheduleRender(state, mode){
@@ -563,9 +587,12 @@ async function scheduleRender(state, mode){
 
   if (mode === 'all') g.wantAll = true;
   if (mode === 'details') g.wantDetails = true;
-  if (g.inFlight) return;
 
-  if (g.timer) clearTimeout(g.timer);
+  const waitForThisCycle = ensureGatePendingPromise(g);
+
+  if (g.inFlight) return waitForThisCycle;
+  if (g.timer) return waitForThisCycle;
+
   g.timer = setTimeout(async ()=>{
     g.timer = null;
     if (g.inFlight) return;
@@ -590,11 +617,15 @@ async function scheduleRender(state, mode){
     }catch(_){
     }finally{
       g.inFlight = false;
+      resolveGatePendingPromise(g);
+
       if (g.wantAll || g.wantDetails){
         scheduleRender(state, g.wantAll ? 'all' : 'details');
       }
     }
   }, 25);
+
+  return waitForThisCycle;
 }
 
 /* ---------- optional deep module loader ---------- */
@@ -738,17 +769,52 @@ function sortNeedsComputedData(mode){
     mode === 'rain_least'
   );
 }
+void sortNeedsComputedData;
 
 /* ---------- page size helpers ---------- */
-function getEffectivePageSize(state){
+function normalizePageSizeRaw(raw, pageSel){
+  const allowed = pageSel
+    ? Array.from(pageSel.options || []).map(o => String(o.value))
+    : ['25', '50', '100', '250', '__all__'];
+
+  const v = String(raw || '').trim();
+  if (allowed.includes(v)) return v;
+  return '25';
+}
+
+function rawPageSizeToNumber(raw){
+  return (raw === '__all__')
+    ? -1
+    : (Number.isFinite(Number(raw)) ? Math.max(1, Math.round(Number(raw))) : 25);
+}
+
+function syncEffectivePageSize(state){
   try{
     const sel = document.getElementById('pageSel');
-    const raw = String(sel ? sel.value : (state && state.pageSize === -1 ? '__all__' : String((state && state.pageSize) || 25))).trim();
-    if (raw === '__all__') return -1;
-    const n = Number(raw);
-    if (Number.isFinite(n) && n > 0) return Math.max(1, Math.round(n));
-  }catch(_){}
-  return (state && Number(state.pageSize) === -1) ? -1 : Math.max(1, Math.round(Number((state && state.pageSize) || 25)));
+    const stateRaw = (state && Number(state.pageSize) === -1)
+      ? '__all__'
+      : String((state && state.pageSize) || '25');
+
+    const currentRaw = String(sel ? sel.value : stateRaw).trim();
+    const normalizedRaw = normalizePageSizeRaw(currentRaw || stateRaw, sel || null);
+    const normalizedNum = rawPageSizeToNumber(normalizedRaw);
+
+    if (sel && sel.value !== normalizedRaw){
+      sel.value = normalizedRaw;
+    }
+
+    if (state){
+      state.pageSize = normalizedNum;
+    }
+
+    return normalizedNum;
+  }catch(_){
+    return (state && Number(state.pageSize) === -1) ? -1 : Math.max(1, Math.round(Number((state && state.pageSize) || 25)));
+  }
+}
+
+function getEffectivePageSize(state){
+  return syncEffectivePageSize(state);
 }
 
 /* ---------- view key ---------- */
@@ -1991,9 +2057,9 @@ async function _renderTilesInternal(state){
   const wrap = $('fieldsGrid');
   if (!wrap) return;
 
+  const effectivePageSize = getEffectivePageSize(state);
   const filteredNow = getFilteredFields(state);
   const filteredSigNow = getFilteredFieldSignature(filteredNow);
-  const effectivePageSize = getEffectivePageSize(state);
 
   try{ state.pageSize = effectivePageSize; }catch(_){}
 
@@ -2050,7 +2116,7 @@ async function _renderTilesInternal(state){
 
   await Promise.all(
     filtered.map(async (f)=>{
-     const res = await getMrmsRainResultForField(state, f.id, range, { force:true }); 
+      const res = await getMrmsRainResultForField(state, f.id, range, { force:true });
       mrmsRangeById.set(f.id, res);
     })
   );
@@ -2646,23 +2712,23 @@ export async function refreshDetailsOnly(state){
       }catch(_){}
     });
 
-document.addEventListener('fr:soft-reload', async ()=>{
-  try{
-    const state = window.__FV_FR;
-    if (!state) return;
+    document.addEventListener('fr:soft-reload', async ()=>{
+      try{
+        const state = window.__FV_FR;
+        if (!state) return;
 
-    state._persistLoadedAt = 0;
-    state._latestReadinessLoadedAt = 0;
-    state._etaTileCache = {};
-    state._etaDebugByFieldId = {};
-    state.mrmsByFieldId = new Map();
-    state.mrmsInfoByFieldId = new Map();
+        state._persistLoadedAt = 0;
+        state._latestReadinessLoadedAt = 0;
+        state._etaTileCache = {};
+        state._etaDebugByFieldId = {};
+        state.mrmsByFieldId = new Map();
+        state.mrmsInfoByFieldId = new Map();
 
-    await loadPersistedState(state, { force:true });
-    await loadLatestReadiness(state, { force:true });
-    await refreshAll(state);
-  }catch(_){}
-});
+        await loadPersistedState(state, { force:true });
+        await loadLatestReadiness(state, { force:true });
+        await refreshAll(state);
+      }catch(_){}
+    });
 
   }catch(_){}
 })();
