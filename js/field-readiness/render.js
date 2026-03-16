@@ -1336,8 +1336,15 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
     }
 
     await ensureFRModules(state);
-    await ensureEtaHelperModule(state);
-    await loadPersistedState(state, { force:false });
+await ensureEtaHelperModule(state);
+await loadPersistedState(state, { force:false });
+
+const fc = state && state._mods ? state._mods.forecast : null;
+if (fc && typeof fc.readWxSeriesFromCache === 'function'){
+  try{
+    await fc.readWxSeriesFromCache(String(fieldObj.id), {});
+  }catch(_){}
+}
 
     const model = state && state._mods ? state._mods.model : null;
     if (!model || typeof model.etaToThreshold !== 'function'){
