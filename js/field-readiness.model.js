@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-03-15e-force-eta-nonzero-below-threshold
+Rev: 2026-03-15f-fix-eta-starting-state-priority
 
 OPTION 1 (per Dane):
 ✅ Model owns ETA and computes it from the SAME truth-seeded run + SAME physics.
@@ -17,13 +17,15 @@ THIS REV:
    - very dry tail still slows down as before
 ✅ ETA can start from centralized field_readiness_latest truth
    when deps.getEtaSeedForFieldId(fieldId) is available
-✅ FIX: ETA now PRIORITIZES latest Firestore readiness truth as the starting state
-✅ FIX: when latest readiness is below the operation threshold, ETA will simulate
-   forward from that same below-threshold state instead of collapsing to 0h
-✅ FIX: authoritative readiness is converted back into a matching starting storage
-   so the ETA sim starts from the same truth the tile shows
+✅ FIX: ETA starting-state priority is now corrected:
+   1) storagePhysFinal from field_readiness_latest
+   2) storageFinal from field_readiness_latest
+   3) derive from latest readiness ONLY as last fallback
+✅ FIX: avoids fake 0h / 1h ETA caused by rebuilding storage from readiness
+   before using true latest stored moisture/storage values
 ✅ HARD GUARD: if authoritative latest readiness is below threshold, ETA may NOT
    return 0h / dryNow
+✅ Keeps ETA starting display/readiness aligned to Firestore latest truth
 
 TUNING NOTES FOR NEXT TIME:
 - WET_HOLD_START:
@@ -594,19 +596,14 @@ function buildEtaNowStateFromSeed(run, f, deps, fieldId){
 
     const authoritativeReadiness = safeNum(seed.readiness, null);
 
-    // PRIORITY ORDER:
-    // 1) derive starting storage from authoritative latest readiness
-    //    so ETA starts from the same truth the tile shows
-    // 2) else trust explicit physical storage from latest doc
-    // 3) else best-effort from effective storage
-    // 4) else fallback to runField physical storage
-    let storagePhys = deriveStoragePhysFromAuthoritativeReadiness(authoritativeReadiness, f, deps);
-
-    if (!Number.isFinite(storagePhys)){
-      storagePhys = safeNum(seed.storagePhysFinal, null);
-      if (Number.isFinite(storagePhys)){
-        storagePhys = clamp(storagePhys, 0, f.Smax);
-      }
+    // FIXED PRIORITY:
+    // 1) true latest physical storage
+    // 2) latest effective storage
+    // 3) derive from readiness only as last fallback
+    // 4) fallback to runField physical storage
+    let storagePhys = safeNum(seed.storagePhysFinal, null);
+    if (Number.isFinite(storagePhys)){
+      storagePhys = clamp(storagePhys, 0, f.Smax);
     }
 
     if (!Number.isFinite(storagePhys)){
@@ -616,6 +613,10 @@ function buildEtaNowStateFromSeed(run, f, deps, fieldId){
         const storageDeltaApplied = safeNum(calAtZero && calAtZero.storageDeltaApplied, 0);
         storagePhys = clamp(storageEffMaybe - storageDeltaApplied, 0, f.Smax);
       }
+    }
+
+    if (!Number.isFinite(storagePhys)){
+      storagePhys = deriveStoragePhysFromAuthoritativeReadiness(authoritativeReadiness, f, deps);
     }
 
     if (!Number.isFinite(storagePhys)){
