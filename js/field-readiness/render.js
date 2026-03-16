@@ -1228,6 +1228,11 @@ function setEtaCacheValue(state, key, text){
 function normalizeEtaResult(res, horizonHours){
   try{
     const r = safeObj(res) || {};
+    const status = String(r.status || '').toLowerCase();
+
+    if (status === 'beyond' || status === 'notwithin72'){
+      return `>${horizonHours}h`;
+    }
 
     if (Number.isFinite(Number(r.hours))){
       const hrs = Math.round(Number(r.hours));
