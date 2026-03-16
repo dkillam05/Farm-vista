@@ -643,9 +643,9 @@ function buildThresholdGradientStops(thr){
     };
   }
 
-  const redEnd = clamp(Math.round(t * 0.72), 0, 96);
-  const yellowAt = clamp(t, redEnd + 1, 98);
-  const greenStart = clamp(Math.round(t + ((100 - t) * 0.14)), yellowAt + 1, 100);
+const redEnd = clamp(Math.round(t * 0.60), 0, 96);
+const yellowAt = clamp(t, redEnd + 1, 98);
+const greenStart = clamp(Math.round(t + ((100 - t) * 0.25)), yellowAt + 1, 100);
 
   return { redEnd, yellowAt, greenStart };
 }
