@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/rainfallmap/ui.js   (FULL FILE)
-Rev: 2026-03-15b-force-rain-reload-on-date-change
+Rev: 2026-03-16a-fix-startup-mode-sync
 
 PURPOSE
 ✔ Wires hamburger menu UI
@@ -9,10 +9,10 @@ PURPOSE
 ✔ Reacts to date-range picker events
 
 FIX IN THIS REV
-✔ Date-range Apply now forces rainfall reload
-✔ Date-range Clear now forces rainfall reload
-✔ Radius changes also force rainfall redraw
-✔ File clearly labeled at top
+✔ Fix startup mismatch where menu could say Readiness while map showed Rainfall
+✔ Centralizes map-mode changes through one setter
+✔ Re-applies UI before AND after rendering so dropdown/chip always match map
+✔ Defaults invalid/empty mode to rainfall on startup
 
 DANE NOTE
 When the user changes the rainfall time frame, blob dots and tap popups
@@ -27,7 +27,12 @@ import { updateReadinessLegend, updateRainLegend, buildRainScale } from './legen
 import { saveCurrentMapModeToLocal } from './view-mode.js';
 import { syncCurrentRangeFromPicker, applyDefault72HourRangeToPicker } from './date-range.js';
 
+function normalizeMapMode(mode){
+  return String(mode || '').toLowerCase() === 'readiness' ? 'readiness' : 'rainfall';
+}
+
 export function applyMapModeUi(){
+  appState.currentMapMode = normalizeMapMode(appState.currentMapMode);
   const isReadiness = appState.currentMapMode === 'readiness';
 
   const sel = $('mapModeSel');
@@ -51,6 +56,20 @@ export function applyMapModeUi(){
   setModeChip(isReadiness ? 'Readiness Map' : 'Rainfall Map');
 }
 
+async function setMapMode(nextMode, forceRender=false){
+  appState.currentMapMode = normalizeMapMode(nextMode);
+  saveCurrentMapModeToLocal();
+
+  // Sync menu/dropdown/labels first
+  applyMapModeUi();
+
+  // Render the actual selected mode
+  await renderActiveMode(!!forceRender);
+
+  // Sync again after render in case startup/render flow touched state
+  applyMapModeUi();
+}
+
 export function wireUi(){
   if (appState.hasWiredUi) return;
   appState.hasWiredUi = true;
@@ -70,6 +89,11 @@ export function wireUi(){
   const radiusSel = $('radiusSel');
   const btnRefreshRain = $('btnRefreshRain');
   const btnRefreshReadiness = $('btnRefreshReadiness');
+
+  // Startup normalize: if state is empty/invalid, assume rainfall
+  // so menu text does not falsely show readiness on first load.
+  appState.currentMapMode = normalizeMapMode(appState.currentMapMode);
+  applyMapModeUi();
 
   const keepMenuOpen = (e)=>{
     if (!e) return;
@@ -128,29 +152,21 @@ export function wireUi(){
   }
 
   if (btnRefreshRain){
-    btnRefreshRain.addEventListener('click', ()=>{
-      appState.currentMapMode = 'rainfall';
-      saveCurrentMapModeToLocal();
-      applyMapModeUi();
-      renderActiveMode(true);
+    btnRefreshRain.addEventListener('click', async ()=>{
+      await setMapMode('rainfall', true);
     });
   }
 
   if (btnRefreshReadiness){
-    btnRefreshReadiness.addEventListener('click', ()=>{
-      appState.currentMapMode = 'readiness';
-      saveCurrentMapModeToLocal();
-      applyMapModeUi();
-      renderActiveMode(true);
+    btnRefreshReadiness.addEventListener('click', async ()=>{
+      await setMapMode('readiness', true);
     });
   }
 
   if (mapModeSel){
     mapModeSel.addEventListener('change', async (e)=>{
-      appState.currentMapMode = String(e && e.target && e.target.value || 'rainfall');
-      saveCurrentMapModeToLocal();
-      applyMapModeUi();
-      await renderActiveMode(false);
+      const nextMode = e && e.target && e.target.value;
+      await setMapMode(nextMode, false);
     });
   }
 
@@ -162,7 +178,7 @@ export function wireUi(){
 
   if (radiusSel){
     radiusSel.addEventListener('change', ()=>{
-      if (appState.currentMapMode === 'rainfall'){
+      if (normalizeMapMode(appState.currentMapMode) === 'rainfall'){
         renderRain(true);
       }
     });
@@ -171,7 +187,7 @@ export function wireUi(){
   document.addEventListener('fv:date-range-applied', ()=>{
     syncCurrentRangeFromPicker(true);
 
-    if (appState.currentMapMode === 'rainfall'){
+    if (normalizeMapMode(appState.currentMapMode) === 'rainfall'){
       renderRain(true);
     }
   });
@@ -180,8 +196,21 @@ export function wireUi(){
     applyDefault72HourRangeToPicker({ silent:true });
     syncCurrentRangeFromPicker(true);
 
-    if (appState.currentMapMode === 'rainfall'){
+    if (normalizeMapMode(appState.currentMapMode) === 'rainfall'){
       renderRain(true);
     }
+  });
+
+  // Extra late syncs to catch startup order issues.
+  queueMicrotask(()=>{
+    applyMapModeUi();
+  });
+
+  requestAnimationFrame(()=>{
+    applyMapModeUi();
+  });
+
+  window.addEventListener('pageshow', ()=>{
+    applyMapModeUi();
   });
 }
