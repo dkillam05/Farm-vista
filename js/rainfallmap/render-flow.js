@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/rainfallmap/render-flow.js   (FULL FILE)
-Rev: 2026-03-15b-auto-reload-on-date-range-change
+Rev: 2026-03-17a-force-map-mode-select-sync
 
 PURPOSE
 ✔ Controls rendering flow for Rainfall and Readiness map modes
@@ -8,10 +8,11 @@ PURPOSE
 ✔ Ensures rainfall blobs update when date range changes
 
 FIX IN THIS REV
-✔ Rainfall blobs now reload automatically when date range changes
-✔ Cache key always reflects the active date range
-✔ Cache bypass occurs when range changes so blobs don't stay on old 72h data
-✔ File clearly labeled for easier maintenance
+✔ Force-syncs the actual map mode dropdown to the live active mode
+✔ Prevents startup/render flow from leaving the select stuck on Rainfall
+✔ Rainfall blobs still reload automatically when date range changes
+✔ Cache key still reflects the active date range
+✔ Cache bypass still occurs when range changes so blobs don't stay on old data
 
 DANE NOTE
 If the user changes the time frame from the date picker, rainfall
@@ -57,6 +58,28 @@ import {
 
 function safeErrMsg(e, fallback){
   return String((e && (e.message || e.code)) || e || fallback || 'error');
+}
+
+function normalizeMapMode(mode){
+  return String(mode || '').toLowerCase() === 'readiness' ? 'readiness' : 'rainfall';
+}
+
+function syncMapModeSelect(){
+  try{
+    appState.currentMapMode = normalizeMapMode(appState.currentMapMode);
+
+    const sel = document.getElementById('mapModeSel');
+    if (sel){
+      sel.value = appState.currentMapMode;
+    }
+
+    const rainModeSection = document.getElementById('rainModeSection');
+    const readinessModeSection = document.getElementById('readinessModeSection');
+    const isReadiness = appState.currentMapMode === 'readiness';
+
+    if (rainModeSection) rainModeSection.hidden = isReadiness;
+    if (readinessModeSection) readinessModeSection.hidden = !isReadiness;
+  }catch(_){}
 }
 
 function applyCachedRain(cached){
@@ -106,7 +129,6 @@ function ensureMapReadyForRender(){
 export async function renderRain(force = false){
   const requestId = ++appState.currentRequestId;
 
-  // ✔ Always sync picker state
   try{
     syncCurrentRangeFromPicker(false);
   }catch(e){
@@ -127,7 +149,6 @@ export async function renderRain(force = false){
     ? getCachedRangeResult(cacheKey)
     : null;
 
-  // remember last used range
   appState.lastRangeKey = appState.currentRangeKey;
 
   if (cached && Array.isArray(cached.points) && cached.points.length){
@@ -270,14 +291,20 @@ export async function renderReadiness(force = false){
 }
 
 export async function renderActiveMode(force = false){
+  appState.currentMapMode = normalizeMapMode(appState.currentMapMode);
+
+  syncMapModeSelect();
+
   if (appState.currentMapMode === 'readiness'){
     setModeText('Readiness');
     setModeChip('Readiness Map');
+    updateReadinessLegend();
     showMapLoading('Loading readiness…');
 
     try{
       await renderReadiness(force);
     }finally{
+      syncMapModeSelect();
       hideMapLoading();
     }
 
@@ -286,11 +313,15 @@ export async function renderActiveMode(force = false){
 
   setModeText('Rainfall');
   setModeChip('Rainfall Map');
+  if (appState.lastScaleMeta){
+    updateRainLegend(appState.lastScaleMeta);
+  }
   showMapLoading('Loading rainfall…');
 
   try{
     await renderRain(force);
   }finally{
+    syncMapModeSelect();
     hideMapLoading();
   }
 }
