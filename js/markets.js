@@ -1,12 +1,19 @@
 /* =====================================================================
 /Farm-vista/js/markets.js  (FULL FILE)
-Rev: 2026-03-04a
+Rev: 2026-03-17a-true-expiration-date
 
 FIX (per Dane):
-✅ Desktop was still showing expired contracts (e.g., Soybeans Jan 2026) because
-   filterList() did NOT remove expired symbols. Desktop renders full list.
-✅ Now filterList() removes expired contracts for BOTH desktop + mobile + quote warming.
-   - Prevents tiles with "—" for invalid/expired contracts on desktop.
+✅ Stop using fake same-month day-21 expiration rule
+✅ Use true contract expiration date from backend when available:
+   - expirationUtc
+   - expiryUtc
+   - expiresAt
+   - lastTradeDate
+   - expirationDate
+   - expiryDate
+✅ Expired contracts now fall off based on REAL payload date
+✅ Front picks / mobile tiles / desktop full list / quote warming all match
+✅ Safe fallback remains if backend date is missing
 
 Keeps:
 ✅ Prior settle fallback
@@ -27,7 +34,7 @@ Keeps:
   const REFRESH_OTHER_QUOTES_MS = 5 * 60_000;
 
   const MAX_CONCURRENCY = 6;
-  const HIDE_BAD_CONTRACTS = true; // ✅ requested
+  const HIDE_BAD_CONTRACTS = true;
 
   function base(){
     const v = (window.FV_MARKETS_BASE_URL || "").trim();
@@ -239,7 +246,7 @@ Keeps:
   }
 
   // ---------------------------
-  // Contract parsing + “expired” heuristic
+  // Contract parsing + expiration
   // ---------------------------
   const MONTH_CODE = { F:1, G:2, H:3, J:4, K:5, M:6, N:7, Q:8, U:9, V:10, X:11, Z:12 };
 
@@ -255,6 +262,58 @@ Keeps:
       const year = (yy <= 50) ? (2000 + yy) : (1900 + yy);
       return { year, month };
     }catch{ return null; }
+  }
+
+  function getContractExpiryMs(contract){
+    try{
+      if (!contract || typeof contract !== "object") return null;
+
+      const raw =
+        contract.expirationUtc ||
+        contract.expiryUtc ||
+        contract.expiresAt ||
+        contract.lastTradeDate ||
+        contract.expirationDate ||
+        contract.expiryDate ||
+        "";
+
+      if (!raw) return null;
+
+      const ms = Date.parse(raw);
+      return isFinite(ms) ? ms : null;
+    }catch{
+      return null;
+    }
+  }
+
+  function isExpiredContract(contract){
+    try{
+      if (!contract) return false;
+
+      const expMs = getContractExpiryMs(contract);
+      if (expMs != null){
+        return Date.now() > expMs;
+      }
+
+      // Fallback if backend date is missing
+      const ym = parseSymbolYM(contract.symbol);
+      if (!ym) return false;
+
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = now.getMonth() + 1;
+      const d = now.getDate();
+
+      if (ym.year < y) return true;
+      if (ym.year > y) return false;
+
+      if (ym.month < m) return true;
+      if (ym.month > m) return false;
+
+      return d >= 21;
+    }catch{
+      return false;
+    }
   }
 
   // ✅ chronological sort (year, month). Unknown YM goes to end, stable.
@@ -273,25 +332,6 @@ Keeps:
       return a.i - b.i;
     });
     return withIdx.map(x=> x.c);
-  }
-
-  function isExpiredContract(symbol){
-    const ym = parseSymbolYM(symbol);
-    if (!ym) return false;
-
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = now.getMonth() + 1;
-    const d = now.getDate();
-
-    if (ym.year < y) return true;
-    if (ym.year > y) return false;
-
-    if (ym.month < m) return true;
-    if (ym.month > m) return false;
-
-    // same month: treat late month as expired (practical)
-    return d >= 21;
   }
 
   function findByMonthYear(list, monthNum, year){
@@ -348,8 +388,7 @@ Keeps:
   // Symbol state + quote cache
   // ---------------------------
   const symbolState = new Map(); // symbol -> state
-  // quoteCache: symbol -> { price, chg, pct, updatedAtMs, isSettle? }
-  const quoteCache = new Map();
+  const quoteCache = new Map();  // symbol -> { price, chg, pct, updatedAtMs, isSettle? }
   const inflight = new Map();
 
   function setState(sym, st){
@@ -361,8 +400,6 @@ Keeps:
     return symbolState.get(sym) || "unknown";
   };
 
-  // ✅ IMPORTANT: "nodata" should NOT hide contracts (pre-open happens).
-  // Only truly dead symbols should be hidden when HIDE_BAD_CONTRACTS is enabled.
   Markets.isSymbolUsable = function(sym){
     const st = Markets.getSymbolState(sym);
     return st !== "dead";
@@ -372,14 +409,13 @@ Keeps:
     return quoteCache.get(sym) || null;
   };
 
-  // ✅ front pick operates on a CHRONO-sorted list
   function pickFront(list){
     if (!Array.isArray(list) || !list.length) return null;
 
     for (const c of list){
       const sym = c?.symbol;
       if (!sym) continue;
-      if (isExpiredContract(sym)) continue;
+      if (isExpiredContract(c)) continue;
       if (HIDE_BAD_CONTRACTS && !Markets.isSymbolUsable(sym)) continue;
       return c;
     }
@@ -394,14 +430,9 @@ Keeps:
     return list[0] || null;
   }
 
-  // ✅ filter + chrono sort
-  // FIX: also remove expired contracts so desktop full list never includes invalid contracts
   function filterList(list){
     const baseList = (list || []).filter(c => c?.symbol);
-
-    // ✅ remove expired always (this fixes Jan 2026 showing on desktop)
-    const notExpired = baseList.filter(c => !isExpiredContract(c.symbol));
-
+    const notExpired = baseList.filter(c => !isExpiredContract(c));
     const usable = HIDE_BAD_CONTRACTS ? notExpired.filter(c => Markets.isSymbolUsable(c.symbol)) : notExpired;
     return sortContractsChrono(usable);
   }
@@ -413,7 +444,7 @@ Keeps:
       const sym = c?.symbol;
       if (!sym) continue;
       if (sym === fSym) continue;
-      if (isExpiredContract(sym)) continue;
+      if (isExpiredContract(c)) continue;
       if (HIDE_BAD_CONTRACTS && !Markets.isSymbolUsable(sym)) continue;
       return c;
     }
@@ -427,7 +458,6 @@ Keeps:
 
     const front = pickFront(filtered) || filtered[0];
 
-    // reorder: front first, then the rest in chrono
     const reordered = [front, ...filtered.filter(x => x?.symbol && x.symbol !== front.symbol)];
 
     const now = new Date();
@@ -730,7 +760,6 @@ Keeps:
     const out = [];
     if (!payload) return out;
 
-    // ✅ filter expired first so we never warm invalid contracts
     pickMobileTwoTiles(filterList(payload.corn || []), "corn").forEach(c => c?.symbol && out.push(c.symbol));
     pickMobileTwoTiles(filterList(payload.soy || []), "soy").forEach(c => c?.symbol && out.push(c.symbol));
     return out;
@@ -740,7 +769,6 @@ Keeps:
     const out = [];
     if (!payload) return out;
 
-    // ✅ filter expired first so we never warm invalid contracts
     filterList(payload.corn || []).forEach(c => c?.symbol && out.push(c.symbol));
     filterList(payload.soy || []).forEach(c => c?.symbol && out.push(c.symbol));
     return out;
