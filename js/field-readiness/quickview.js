@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-03-15b-live-preview-and-save-centralized-latest
+Rev: 2026-03-16c-fix-storage-display-use-true-cap
 
 GOAL (per Dane, Feb 2026):
 ✅ Make Quick View readiness MATCH centralized app readiness
@@ -10,6 +10,7 @@ GOAL (per Dane, Feb 2026):
 ✅ Save updated live readiness to field_readiness_latest/{fieldId}
 ✅ Keep Range rain display aligned with MRMS tile logic
 ✅ Support lightweight MRMS UI refresh while Quick View is open
+✅ FIX: Storage display now uses true storage cap on right side again
 
 CHANGES (THIS REV):
 ✅ Opening Quick View still prefers centralized field_readiness_latest
@@ -23,6 +24,8 @@ CHANGES (THIS REV):
 ✅ Refresh events still fire so tiles/details update immediately
 ✅ ETA still uses model.etaToThreshold()
 ✅ Range rain still uses MRMS daily rainfall range display
+✅ FIX: Storage display uses storageMax / storageCapacity / storageMaxFinal /
+        factors.Smax before falling back to readiness-adjusted values
 
 NOTES:
 - While sliders are moving, Quick View shows LIVE PREVIEW from the model.
@@ -200,6 +203,9 @@ function buildLatestReadinessRecord(raw, fallbackId){
     storageFinal: safeNum(d.storageFinal),
     storageForReadiness: safeNum(d.storageForReadiness),
     storagePhysFinal: safeNum(d.storagePhysFinal),
+    storageMax: safeNum(d.storageMax),
+    storageCapacity: safeNum(d.storageCapacity),
+    storageMaxFinal: safeNum(d.storageMaxFinal),
     wetBiasApplied: safeNum(d.wetBiasApplied),
     runKey: safeStr(d.runKey),
     seedSource: safeStr(d.seedSource),
@@ -289,6 +295,15 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
   const readinessR = safeInt(rec.readiness);
   if (!Number.isFinite(readinessR)) return null;
 
+  const storageCap =
+    safeNum(rec.storageMax) ??
+    safeNum(rec.storageCapacity) ??
+    safeNum(rec.storageMaxFinal) ??
+    safeNum(rec.storagePhysFinal) ??
+    safeNum(rec.storageForReadiness) ??
+    safeNum(rec.storageFinal) ??
+    0;
+
   return {
     ok: true,
     source: 'field_readiness_latest',
@@ -304,6 +319,9 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
     storageFinal: safeNum(rec.storageFinal),
     storageForReadiness: safeNum(rec.storageForReadiness),
     storagePhysFinal: safeNum(rec.storagePhysFinal),
+    storageMax: safeNum(rec.storageMax) ?? storageCap,
+    storageCapacity: safeNum(rec.storageCapacity) ?? storageCap,
+    storageMaxFinal: safeNum(rec.storageMaxFinal) ?? storageCap,
     wetBiasApplied: safeNum(rec.wetBiasApplied),
     runKey: safeStr(rec.runKey),
     seedSource: safeStr(rec.seedSource),
@@ -314,7 +332,7 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
     county: safeStr(rec.county || f.county),
     state: safeStr(rec.state || f.state),
     factors: {
-      Smax: safeNum(rec.storageForReadiness) ?? safeNum(rec.storagePhysFinal) ?? safeNum(rec.storageFinal) ?? 0
+      Smax: storageCap
     },
     trace: [],
     rows: [],
@@ -385,11 +403,34 @@ function buildLatestPayloadFromRun(state, field, run){
     storageFinal: safeNum(r.storageFinal),
     storageForReadiness:
       safeNum(r.storageForReadiness) ??
-      safeNum(r && r.factors && r.factors.Smax) ??
       safeNum(latestExisting && latestExisting.storageForReadiness),
     storagePhysFinal:
       safeNum(r.storagePhysFinal) ??
       safeNum(latestExisting && latestExisting.storagePhysFinal),
+    storageMax:
+      safeNum(r.storageMax) ??
+      safeNum(r.storageCapacity) ??
+      safeNum(r.storageMaxFinal) ??
+      safeNum(r && r.factors && r.factors.Smax) ??
+      safeNum(latestExisting && latestExisting.storageMax) ??
+      safeNum(latestExisting && latestExisting.storageCapacity) ??
+      safeNum(latestExisting && latestExisting.storageMaxFinal),
+    storageCapacity:
+      safeNum(r.storageCapacity) ??
+      safeNum(r.storageMax) ??
+      safeNum(r.storageMaxFinal) ??
+      safeNum(r && r.factors && r.factors.Smax) ??
+      safeNum(latestExisting && latestExisting.storageCapacity) ??
+      safeNum(latestExisting && latestExisting.storageMax) ??
+      safeNum(latestExisting && latestExisting.storageMaxFinal),
+    storageMaxFinal:
+      safeNum(r.storageMaxFinal) ??
+      safeNum(r.storageMax) ??
+      safeNum(r.storageCapacity) ??
+      safeNum(r && r.factors && r.factors.Smax) ??
+      safeNum(latestExisting && latestExisting.storageMaxFinal) ??
+      safeNum(latestExisting && latestExisting.storageMax) ??
+      safeNum(latestExisting && latestExisting.storageCapacity),
     wetBiasApplied:
       safeNum(r.wetBiasApplied) ??
       safeNum(latestExisting && latestExisting.wetBiasApplied),
@@ -1159,12 +1200,16 @@ async function fillQuickView(state, { live=false } = {}){
   let storageText = '—';
   if (displayRun){
     const sf = safeNum(displayRun.storageFinal);
-    const sfr =
-      safeNum(displayRun.storageForReadiness) ??
-      safeNum(displayRun && displayRun.factors && displayRun.factors.Smax);
+    const smax =
+      safeNum(displayRun.storageMax) ??
+      safeNum(displayRun.storageCapacity) ??
+      safeNum(displayRun.storageMaxFinal) ??
+      safeNum(displayRun && displayRun.factors && displayRun.factors.Smax) ??
+      safeNum(displayRun.storagePhysFinal) ??
+      safeNum(displayRun.storageForReadiness);
 
-    if (sf != null && sfr != null){
-      storageText = `${sf.toFixed(2)} / ${sfr.toFixed(2)}`;
+    if (sf != null && smax != null){
+      storageText = `${sf.toFixed(2)} / ${smax.toFixed(2)}`;
     } else if (sf != null){
       storageText = `${sf.toFixed(2)}`;
     }
