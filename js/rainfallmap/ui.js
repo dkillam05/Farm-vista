@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/rainfallmap/ui.js   (FULL FILE)
-Rev: 2026-03-17a-fix-startup-mode-sync-from-local
+Rev: 2026-03-17b-force-native-select-sync
 
 PURPOSE
 ✔ Wires hamburger menu UI
@@ -9,15 +9,11 @@ PURPOSE
 ✔ Reacts to date-range picker events
 
 FIX IN THIS REV
-✔ Restores saved last-used map mode from localStorage on startup
+✔ Force-syncs native map-mode select using value + selectedIndex + option.selected
+✔ Re-syncs again when hamburger opens
 ✔ Keeps dropdown/menu text synced to actual map mode
-✔ Prevents startup mismatch where map shows Readiness but menu says Rainfall
-✔ Centralizes map-mode changes through one setter
-✔ Re-applies UI before AND after rendering so dropdown/chip always match map
-
-DANE NOTE
-When the user changes the rainfall time frame, blob dots and tap popups
-must reflect the new selected dates immediately without requiring manual reload.
+✔ Keeps last-used mode restore support
+✔ Prevents iPhone/Safari stale select display issues
 ===================================================================== */
 
 import { appState } from './store.js';
@@ -38,12 +34,37 @@ function normalizeMapMode(mode){
   return String(mode || '').toLowerCase() === 'readiness' ? 'readiness' : 'rainfall';
 }
 
+function forceSyncMapModeSelect(){
+  const sel = $('mapModeSel');
+  if (!sel) return;
+
+  const desired = normalizeMapMode(appState.currentMapMode);
+  const options = Array.from(sel.options || []);
+  const idx = Math.max(
+    0,
+    options.findIndex(opt => String(opt.value || '').toLowerCase() === desired)
+  );
+
+  options.forEach((opt, i)=>{
+    const isSelected = i === idx;
+    opt.selected = isSelected;
+    if (isSelected) opt.setAttribute('selected', 'selected');
+    else opt.removeAttribute('selected');
+  });
+
+  sel.selectedIndex = idx;
+  sel.value = options[idx] ? options[idx].value : desired;
+
+  // extra nudge for iPhone/Safari native select paint
+  sel.setAttribute('data-current-mode', desired);
+  void sel.offsetHeight;
+}
+
 export function applyMapModeUi(){
   appState.currentMapMode = normalizeMapMode(appState.currentMapMode);
   const isReadiness = appState.currentMapMode === 'readiness';
 
-  const sel = $('mapModeSel');
-  if (sel) sel.value = isReadiness ? 'readiness' : 'rainfall';
+  forceSyncMapModeSelect();
 
   const rainModeSection = $('rainModeSection');
   const readinessModeSection = $('readinessModeSection');
@@ -67,13 +88,8 @@ async function setMapMode(nextMode, forceRender = false){
   appState.currentMapMode = normalizeMapMode(nextMode);
   saveCurrentMapModeToLocal();
 
-  // Sync menu/dropdown/labels first
   applyMapModeUi();
-
-  // Render the actual selected mode
   await renderActiveMode(!!forceRender);
-
-  // Sync again after render in case startup/render flow touched state
   applyMapModeUi();
 }
 
@@ -97,7 +113,6 @@ export function wireUi(){
   const btnRefreshRain = $('btnRefreshRain');
   const btnRefreshReadiness = $('btnRefreshReadiness');
 
-  // Startup: restore last saved mode first, then normalize, then sync UI
   appState.currentMapMode = normalizeMapMode(
     restoreCurrentMapModeFromLocal() || appState.currentMapMode
   );
@@ -138,6 +153,12 @@ export function wireUi(){
       e.preventDefault();
       e.stopPropagation();
       menuPanel.classList.toggle('open');
+
+      // force sync again when panel opens
+      if (menuPanel.classList.contains('open')){
+        applyMapModeUi();
+        requestAnimationFrame(()=> applyMapModeUi());
+      }
     });
 
     document.addEventListener('pointerdown', (e)=>{
