@@ -1,6 +1,6 @@
 // /js/field-readiness/shared/index.js  (FULL FILE)
 // FarmVista Readiness Rebuilder (Cloud Run)
-// Rev: 2026-03-17a-save-storage-max-to-latest
+// Rev: 2026-03-17b-auto-write-storage-max-for-new-fields
 //
 // PURPOSE:
 // ✅ DOES NOT fetch Open-Meteo
@@ -19,6 +19,7 @@
 //    - storageMax
 //    - storageCapacity
 //    - storageMaxFinal
+// ✅ NEW: placeholder/new fields ALSO get storageMax immediately from slider math
 //
 const express = require("express");
 const {
@@ -561,6 +562,26 @@ function buildModelWeatherRowsForServer(wxDoc, mrmsDoc){
 }
 
 /* =====================================================================
+   Placeholder storage-cap helper
+===================================================================== */
+function buildStorageCapOnlySnapshot(soilWetness, drainageIndex){
+  const snapshot = runReadinessFromPersistedStateOnly(
+    soilWetness,
+    drainageIndex,
+    { storageFinal: 0, asOfDateISO: "2000-01-01", SmaxAtSave: null },
+    { extra: EXTRA }
+  );
+
+  if (!snapshot) return null;
+
+  return {
+    storageMax: safeNum(snapshot.storageMax),
+    storageCapacity: safeNum(snapshot.storageCapacity),
+    storageMaxFinal: safeNum(snapshot.storageMaxFinal)
+  };
+}
+
+/* =====================================================================
    Field metadata base
 ===================================================================== */
 function buildBaseLatestDoc({
@@ -734,6 +755,8 @@ async function writeReadinessLatest(runKey, timezone){
       }
       // LAST PATH: create placeholder doc so new field is visible in collection
       else {
+        const capOnly = buildStorageCapOnlySnapshot(soilWetness, drainageIndex);
+
         batch.set(outRef, {
           ...baseDoc,
           readiness: null,
@@ -743,9 +766,9 @@ async function writeReadinessLatest(runKey, timezone){
           readinessCreditIn: null,
           storageForReadiness: null,
 
-          storageMax: null,
-          storageCapacity: null,
-          storageMaxFinal: null,
+          storageMax: safeNum(capOnly && capOnly.storageMax),
+          storageCapacity: safeNum(capOnly && capOnly.storageCapacity),
+          storageMaxFinal: safeNum(capOnly && capOnly.storageMaxFinal),
 
           soilWetness,
           drainageIndex,
