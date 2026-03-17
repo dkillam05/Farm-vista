@@ -1,6 +1,6 @@
 /* =====================================================================
 /js/field-readiness/shared/readiness-core-shared.cjs  (FULL FILE)
-Rev: 2026-03-16a-backend-shared-core-add-source-mode-debug
+Rev: 2026-03-16b-add-explicit-storage-cap-output
 
 PURPOSE
 ✅ Shared PURE readiness math core for backend import
@@ -12,6 +12,10 @@ PURPOSE
 ✅ NEW: helper to compute readiness from persisted storage only
 ✅ NEW: explicit sourceMode markers for backend debugging
 ✅ NEW: preserves seed/debug metadata so caller can see which path ran
+✅ NEW: exposes explicit storage cap fields for UI display:
+   - storageMax
+   - storageCapacity
+   - storageMaxFinal
 
 IMPORTANT
 - This file does NOT decide whether a field should be marked
@@ -381,6 +385,9 @@ function computeReadinessFromStorage(storagePhys, factors){
     creditIn,
     storageEff,
     storageForReadiness,
+    storageMax: factors.Smax,
+    storageCapacity: factors.Smax,
+    storageMaxFinal: factors.Smax,
     calRes
   };
 }
@@ -566,6 +573,9 @@ function runFieldReadinessCore(
 
     storagePhysFinal,
     storageFinal: out.storageEff,
+    storageMax: out.storageMax,
+    storageCapacity: out.storageCapacity,
+    storageMaxFinal: out.storageMaxFinal,
 
     wetness: out.wetness,
     readiness: out.readiness,
@@ -585,7 +595,8 @@ function runFieldReadinessCore(
       lastRainSource: safeStr(last.rainSource),
       Smax: num(factors.Smax, 0),
       soilHold: num(factors.soilHold, 0),
-      drainPoor: num(factors.drainPoor, 0)
+      drainPoor: num(factors.drainPoor, 0),
+      storageMax: num(out.storageMax, 0)
     }
   };
 }
@@ -633,6 +644,9 @@ function runReadinessFromPersistedStateOnly(
 
     storagePhysFinal,
     storageFinal: out.storageEff,
+    storageMax: out.storageMax,
+    storageCapacity: out.storageCapacity,
+    storageMaxFinal: out.storageMaxFinal,
 
     wetness: out.wetness,
     readiness: out.readiness,
@@ -651,7 +665,8 @@ function runReadinessFromPersistedStateOnly(
       Smax: num(factors.Smax, 0),
       soilHold: num(factors.soilHold, 0),
       drainPoor: num(factors.drainPoor, 0),
-      savedSmax: Number.isFinite(savedSmax) ? savedSmax : null
+      savedSmax: Number.isFinite(savedSmax) ? savedSmax : null,
+      storageMax: num(out.storageMax, 0)
     }
   };
 }
