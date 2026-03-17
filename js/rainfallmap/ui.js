@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/rainfallmap/ui.js   (FULL FILE)
-Rev: 2026-03-16a-fix-startup-mode-sync
+Rev: 2026-03-17a-fix-startup-mode-sync-from-local
 
 PURPOSE
 ✔ Wires hamburger menu UI
@@ -9,10 +9,11 @@ PURPOSE
 ✔ Reacts to date-range picker events
 
 FIX IN THIS REV
-✔ Fix startup mismatch where menu could say Readiness while map showed Rainfall
+✔ Restores saved last-used map mode from localStorage on startup
+✔ Keeps dropdown/menu text synced to actual map mode
+✔ Prevents startup mismatch where map shows Readiness but menu says Rainfall
 ✔ Centralizes map-mode changes through one setter
 ✔ Re-applies UI before AND after rendering so dropdown/chip always match map
-✔ Defaults invalid/empty mode to rainfall on startup
 
 DANE NOTE
 When the user changes the rainfall time frame, blob dots and tap popups
@@ -24,8 +25,14 @@ import { $, setModeText, setModeChip } from './dom.js';
 import { renderActiveMode, renderRain } from './render-flow.js';
 import { updateMapStyle } from './map-core.js';
 import { updateReadinessLegend, updateRainLegend, buildRainScale } from './legend.js';
-import { saveCurrentMapModeToLocal } from './view-mode.js';
-import { syncCurrentRangeFromPicker, applyDefault72HourRangeToPicker } from './date-range.js';
+import {
+  saveCurrentMapModeToLocal,
+  restoreCurrentMapModeFromLocal
+} from './view-mode.js';
+import {
+  syncCurrentRangeFromPicker,
+  applyDefault72HourRangeToPicker
+} from './date-range.js';
 
 function normalizeMapMode(mode){
   return String(mode || '').toLowerCase() === 'readiness' ? 'readiness' : 'rainfall';
@@ -56,7 +63,7 @@ export function applyMapModeUi(){
   setModeChip(isReadiness ? 'Readiness Map' : 'Rainfall Map');
 }
 
-async function setMapMode(nextMode, forceRender=false){
+async function setMapMode(nextMode, forceRender = false){
   appState.currentMapMode = normalizeMapMode(nextMode);
   saveCurrentMapModeToLocal();
 
@@ -90,9 +97,10 @@ export function wireUi(){
   const btnRefreshRain = $('btnRefreshRain');
   const btnRefreshReadiness = $('btnRefreshReadiness');
 
-  // Startup normalize: if state is empty/invalid, assume rainfall
-  // so menu text does not falsely show readiness on first load.
-  appState.currentMapMode = normalizeMapMode(appState.currentMapMode);
+  // Startup: restore last saved mode first, then normalize, then sync UI
+  appState.currentMapMode = normalizeMapMode(
+    restoreCurrentMapModeFromLocal() || appState.currentMapMode
+  );
   applyMapModeUi();
 
   const keepMenuOpen = (e)=>{
@@ -201,7 +209,6 @@ export function wireUi(){
     }
   });
 
-  // Extra late syncs to catch startup order issues.
   queueMicrotask(()=>{
     applyMapModeUi();
   });
@@ -211,6 +218,9 @@ export function wireUi(){
   });
 
   window.addEventListener('pageshow', ()=>{
+    appState.currentMapMode = normalizeMapMode(
+      restoreCurrentMapModeFromLocal() || appState.currentMapMode
+    );
     applyMapModeUi();
   });
 }
