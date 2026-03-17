@@ -1,6 +1,6 @@
 // /js/field-readiness/shared/index.js  (FULL FILE)
 // FarmVista Readiness Rebuilder (Cloud Run)
-// Rev: 2026-03-15i-include-new-fields-and-write-placeholders
+// Rev: 2026-03-17a-save-storage-max-to-latest
 //
 // PURPOSE:
 // ✅ DOES NOT fetch Open-Meteo
@@ -15,6 +15,10 @@
 // ✅ FIX: new fields with lat/lng now get written into field_readiness_latest
 // ✅ FIX: if weather cache is missing but persisted truth exists, writes provisional readiness
 // ✅ FIX: if both are missing, writes placeholder row so field is not invisible
+// ✅ NEW: saves tank size fields into field_readiness_latest:
+//    - storageMax
+//    - storageCapacity
+//    - storageMaxFinal
 //
 const express = require("express");
 const {
@@ -674,6 +678,11 @@ async function writeReadinessLatest(runKey, timezone){
           storagePhysFinal: Number(snapshot.storagePhysFinal),
           readinessCreditIn: Number(snapshot.readinessCreditIn || 0),
           storageForReadiness: Number(snapshot.storageForReadiness || 0),
+
+          storageMax: Number(snapshot.storageMax || 0),
+          storageCapacity: Number(snapshot.storageCapacity || 0),
+          storageMaxFinal: Number(snapshot.storageMaxFinal || 0),
+
           soilWetness,
           drainageIndex,
           seedSource: snapshot.seedSource,
@@ -707,6 +716,11 @@ async function writeReadinessLatest(runKey, timezone){
           storagePhysFinal: Number(snapshot.storagePhysFinal),
           readinessCreditIn: Number(snapshot.readinessCreditIn || 0),
           storageForReadiness: Number(snapshot.storageForReadiness || 0),
+
+          storageMax: Number(snapshot.storageMax || 0),
+          storageCapacity: Number(snapshot.storageCapacity || 0),
+          storageMaxFinal: Number(snapshot.storageMaxFinal || 0),
+
           soilWetness,
           drainageIndex,
           seedSource: "persisted-state-only",
@@ -728,6 +742,11 @@ async function writeReadinessLatest(runKey, timezone){
           storagePhysFinal: null,
           readinessCreditIn: null,
           storageForReadiness: null,
+
+          storageMax: null,
+          storageCapacity: null,
+          storageMaxFinal: null,
+
           soilWetness,
           drainageIndex,
           seedSource: null,
