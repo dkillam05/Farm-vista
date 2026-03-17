@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/index.js  (FULL FILE)
-Rev: 2026-03-10b-mrms-ui-refresh-no-trim
+Rev: 2026-03-16a-force-page-select-ui-sync-no-trim
 
 Changes (per Dane):
 ✅ Edit permission controls interactivity:
@@ -13,6 +13,12 @@ NEW:
    - refreshes tile rainfall / MRMS details / quick view rainfall display
    - runs every 10 minutes while page is open
    - also refreshes on pageshow and when tab becomes visible
+
+✅ FIX:
+   - Force Results per page dropdown UI to match restored state/pageSize
+   - Re-apply pageSel sync on boot + return-to-page paths
+   - Helps prevent BFCache/browser form restore from visually snapping pageSel
+     back to 25 while state/render still behaves like All
 
 Keeps:
 ✅ Persist + restore (iOS/Safari BFCache safe): Operation, Farm, Sort, Rain range
@@ -54,6 +60,41 @@ function applySavedRangeToUI(){
   }catch(_){
     return false;
   }
+}
+
+function forceSyncPageSizeUi(state){
+  try{
+    const sel = document.getElementById('pageSel');
+    if (!sel) return false;
+
+    const raw = (Number(state && state.pageSize) === -1)
+      ? '__all__'
+      : String((state && state.pageSize) || 25);
+
+    if (sel.value === raw) return false;
+
+    sel.value = raw;
+
+    if (sel.value !== raw){
+      const opts = Array.from(sel.options || []);
+      for (const opt of opts){
+        opt.selected = (String(opt.value) === raw);
+      }
+    }
+
+    return true;
+  }catch(_){
+    return false;
+  }
+}
+
+function scheduleForceSyncPageSizeUi(state){
+  try{
+    forceSyncPageSizeUi(state);
+    setTimeout(()=>{ try{ forceSyncPageSizeUi(state); }catch(_){ } }, 0);
+    setTimeout(()=>{ try{ forceSyncPageSizeUi(state); }catch(_){ } }, 150);
+    setTimeout(()=>{ try{ forceSyncPageSizeUi(state); }catch(_){ } }, 400);
+  }catch(_){}
 }
 
 /* =====================================================================
@@ -223,6 +264,7 @@ function applyDetailsEditGateState(state){
 
   // Apply prefs once on boot
   await loadPrefsFromLocalToUI(state);
+  scheduleForceSyncPageSizeUi(state);
 
   // Apply saved range string (if any)
   applySavedRangeToUI();
@@ -238,6 +280,7 @@ function applyDetailsEditGateState(state){
 
   // Farm options can change after farms/fields load
   buildFarmFilterOptions(state);
+  scheduleForceSyncPageSizeUi(state);
 
   if (!state.selectedFieldId && state.fields.length){
     state.selectedFieldId = state.fields[0].id;
@@ -248,7 +291,13 @@ function applyDetailsEditGateState(state){
   initMap(state);
   initOpThresholds(state);
 
-  document.addEventListener('fr:soft-reload', async ()=>{ try{ await refreshAll(state); }catch(_){ } });
+  document.addEventListener('fr:soft-reload', async ()=>{
+    try{
+      scheduleForceSyncPageSizeUi(state);
+      await refreshAll(state);
+      scheduleForceSyncPageSizeUi(state);
+    }catch(_){}
+  });
 
   document.addEventListener('fv:user-ready', async ()=>{
     try{
@@ -275,57 +324,55 @@ function applyDetailsEditGateState(state){
 
       const nowEdit = !!(state.perm && state.perm.loaded && state.perm.edit);
       if (!prevLoaded || (prevEdit !== nowEdit)){
+        scheduleForceSyncPageSizeUi(state);
         await refreshAll(state);
+        scheduleForceSyncPageSizeUi(state);
       }
     }catch(_){}
   });
 
   // ✅ iOS/Safari: re-apply selects + range after returning to page
   const reapplyPrefs = async ()=>{
-  try{
-    const prevOp = document.getElementById('opSel')?.value || '';
-    const prevSort = document.getElementById('sortSel')?.value || '';
-    const prevRange = document.getElementById('jobRangeInput')?.value || '';
-    const prevFarm = document.getElementById('farmSel')?.value || '__all__';
-    const prevPage = document.getElementById('pageSel')?.value || '25';
+    try{
+      const prevOp = document.getElementById('opSel')?.value || '';
+      const prevSort = document.getElementById('sortSel')?.value || '';
+      const prevRange = document.getElementById('jobRangeInput')?.value || '';
+      const prevFarm = document.getElementById('farmSel')?.value || '__all__';
+      const prevPage = document.getElementById('pageSel')?.value || '25';
 
-    applySavedOpToUI(state, { fire:false });
-    applySavedSortToUI({ fire:false });
-    applySavedRangeToUI();
+      applySavedOpToUI(state, { fire:false });
+      applySavedSortToUI({ fire:false });
+      applySavedRangeToUI();
 
-    await loadPrefsFromLocalToUI(state);
+      await loadPrefsFromLocalToUI(state);
+      scheduleForceSyncPageSizeUi(state);
 
-    // ✅ FORCE UI to match saved state
-    const pageSel = document.getElementById('pageSel');
-    if (pageSel){
-      pageSel.value = (state.pageSize === -1) ? '__all__' : String(state.pageSize || 25);
-    }
+      const farmSel = document.getElementById('farmSel');
+      if (farmSel){
+        farmSel.value = String(state.farmFilter || '__all__');
+      }
 
-    const farmSel = document.getElementById('farmSel');
-    if (farmSel){
-      farmSel.value = String(state.farmFilter || '__all__');
-    }
+      enforceCalendarNoFuture();
+      applyDetailsEditGateState(state);
 
-    enforceCalendarNoFuture();
-    applyDetailsEditGateState(state);
+      const newOp = document.getElementById('opSel')?.value || '';
+      const newSort = document.getElementById('sortSel')?.value || '';
+      const newRange = document.getElementById('jobRangeInput')?.value || '';
+      const newFarm = document.getElementById('farmSel')?.value || '__all__';
+      const newPage = document.getElementById('pageSel')?.value || '25';
 
-    const newOp = document.getElementById('opSel')?.value || '';
-    const newSort = document.getElementById('sortSel')?.value || '';
-    const newRange = document.getElementById('jobRangeInput')?.value || '';
-    const newFarm = document.getElementById('farmSel')?.value || '__all__';
-    const newPage = document.getElementById('pageSel')?.value || '25';
-
-    if (
-      prevOp !== newOp ||
-      prevSort !== newSort ||
-      prevRange !== newRange ||
-      prevFarm !== newFarm ||
-      prevPage !== newPage
-    ){
-      await refreshAll(state);
-    }
-  }catch(_){}
-};
+      if (
+        prevOp !== newOp ||
+        prevSort !== newSort ||
+        prevRange !== newRange ||
+        prevFarm !== newFarm ||
+        prevPage !== newPage
+      ){
+        await refreshAll(state);
+        scheduleForceSyncPageSizeUi(state);
+      }
+    }catch(_){}
+  };
 
   window.addEventListener('pageshow', ()=>{
     reapplyPrefs();
@@ -341,10 +388,17 @@ function applyDetailsEditGateState(state){
 
   // Initial paint
   await renderTiles(state);
+  scheduleForceSyncPageSizeUi(state);
+
   await renderDetails(state);
+  scheduleForceSyncPageSizeUi(state);
 
   // ✅ refresh without destroying tiles
-  setTimeout(()=>{ refreshAll(state).catch(()=>{}); }, 0);
+  setTimeout(()=>{
+    refreshAll(state).then?.(()=>{
+      scheduleForceSyncPageSizeUi(state);
+    }).catch?.(()=>{});
+  }, 0);
 
   // global calibration wiring (will show Fields always; only wires when edit allowed)
   wireFieldsHiddenTap(state);
