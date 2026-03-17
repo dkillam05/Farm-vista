@@ -2075,22 +2075,31 @@ async function _renderTilesInternal(state){
   if (sameView){
     const filteredExisting = filteredNow;
     const tiles = Array.from(wrap.querySelectorAll('.tile[data-field-id]'));
-    const cap = (effectivePageSize === -1)
-      ? tiles.length
-      : Math.min(tiles.length, effectivePageSize);
-    const ids = tiles.slice(0, cap).map(t=>String(t.getAttribute('data-field-id')||'')).filter(Boolean);
 
-    updateFieldsCountHelper(Math.min(tiles.length, cap), filteredExisting.length);
+    const desiredCount = (effectivePageSize === -1)
+      ? filteredExisting.length
+      : Math.min(filteredExisting.length, effectivePageSize);
 
-    initFallbackSwipeOnTiles(state, wrap, {
-      onDetails: async (fieldId)=>{
-        if (!canEdit(state)) return;
-        await openQuickView(state, fieldId);
-      }
-    });
+    // ✅ If DOM tile count does not match what this view should show,
+    // force a full rebuild instead of reusing stale tiles.
+    if (tiles.length === desiredCount){
+      const ids = tiles
+        .slice(0, desiredCount)
+        .map(t => String(t.getAttribute('data-field-id') || ''))
+        .filter(Boolean);
 
-    await updateVisibleTilesBatched(state, ids);
-    return;
+      updateFieldsCountHelper(desiredCount, filteredExisting.length);
+
+      initFallbackSwipeOnTiles(state, wrap, {
+        onDetails: async (fieldId)=>{
+          if (!canEdit(state)) return;
+          await openQuickView(state, fieldId);
+        }
+      });
+
+      await updateVisibleTilesBatched(state, ids);
+      return;
+    }
   }
 
   setFieldsCountHelperMessage('Preparing fields…');
