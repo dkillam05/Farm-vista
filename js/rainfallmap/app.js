@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/rainfallmap/app.js   (FULL FILE)
-Rev: 2026-03-17a-fix-startup-mode-order
+Rev: 2026-03-17b-rerender-on-return
 
 PURPOSE
 ✔ Starts the Weather / Readiness map
@@ -10,10 +10,10 @@ PURPOSE
 ✔ Triggers first render
 
 FIX IN THIS REV
-✔ Restores saved map mode BEFORE wireUi() runs
-✔ Prevents startup UI from first painting Rainfall when saved mode is Readiness
-✔ Keeps current date-range startup behavior intact
-✔ Hard-syncs map mode UI again after first render
+✔ If the page returns after startup already finished, re-render instead of exiting
+✔ Keeps saved mode/date-range restore behavior
+✔ Prevents return-to-page state where dropdown/scale are right but blobs do not draw
+✔ Forces active mode redraw on return/visibility re-entry
 ===================================================================== */
 
 import { appState } from './store.js';
@@ -36,7 +36,33 @@ function normalizeMapMode(mode){
 }
 
 export async function startWeatherMap(){
-  if (appState.startRequested && appState.startFinished) return;
+  // If startup already completed, this is a return-to-page / re-entry case.
+  // Re-sync UI + state and force a redraw instead of exiting.
+  if (appState.startRequested && appState.startFinished){
+    try{
+      detectLayoutMode();
+      ensureMap();
+
+      restoreCurrentRangeFromLocal();
+      applyDefault72HourRangeToPicker({ silent:true });
+      syncCurrentRangeFromPicker(false);
+
+      appState.currentMapMode = normalizeMapMode(
+        restoreCurrentMapModeFromLocal()
+      );
+
+      applyMapModeUi();
+      await renderActiveMode(true);
+      applyMapModeUi();
+    }catch(e){
+      console.warn('[WeatherMap] return render failed:', e);
+      setStatus('Reload failed');
+      setDebug(String(e && e.message ? e.message : e || 'return render error'));
+    }
+    return;
+  }
+
+  // If startup is currently running, do nothing.
   if (appState.startRequested && !appState.startFinished) return;
 
   appState.startRequested = true;
@@ -47,9 +73,6 @@ export async function startWeatherMap(){
     await waitForGoogleMaps();
     ensureMap();
 
-    // IMPORTANT:
-    // Restore saved mode BEFORE UI wiring so dropdown/chip/sections
-    // are initialized from the real last-used mode.
     appState.currentMapMode = normalizeMapMode(
       restoreCurrentMapModeFromLocal()
     );
