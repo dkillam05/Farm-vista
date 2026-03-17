@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/rainfallmap/app.js   (FULL FILE)
-Rev: 2026-03-15a-startup-sequence-labeled
+Rev: 2026-03-17a-fix-startup-mode-order
 
 PURPOSE
 ✔ Starts the Weather / Readiness map
@@ -9,11 +9,11 @@ PURPOSE
 ✔ Restores saved date range and map mode
 ✔ Triggers first render
 
-NOTES
-✔ Keeps current startup flow intact
-✔ Restores saved date range first
-✔ Applies default 72-hour range only when nothing is already selected
-✔ Syncs active range into appState before first render
+FIX IN THIS REV
+✔ Restores saved map mode BEFORE wireUi() runs
+✔ Prevents startup UI from first painting Rainfall when saved mode is Readiness
+✔ Keeps current date-range startup behavior intact
+✔ Hard-syncs map mode UI again after first render
 ===================================================================== */
 
 import { appState } from './store.js';
@@ -31,6 +31,10 @@ import { restoreCurrentMapModeFromLocal } from './view-mode.js';
 import { renderActiveMode } from './render-flow.js';
 import './tap.js';
 
+function normalizeMapMode(mode){
+  return String(mode || '').toLowerCase() === 'readiness' ? 'readiness' : 'rainfall';
+}
+
 export async function startWeatherMap(){
   if (appState.startRequested && appState.startFinished) return;
   if (appState.startRequested && !appState.startFinished) return;
@@ -42,16 +46,24 @@ export async function startWeatherMap(){
     await initFirebase();
     await waitForGoogleMaps();
     ensureMap();
+
+    // IMPORTANT:
+    // Restore saved mode BEFORE UI wiring so dropdown/chip/sections
+    // are initialized from the real last-used mode.
+    appState.currentMapMode = normalizeMapMode(
+      restoreCurrentMapModeFromLocal()
+    );
+
     wireUi();
 
     restoreCurrentRangeFromLocal();
     applyDefault72HourRangeToPicker({ silent:true });
     syncCurrentRangeFromPicker(false);
 
-    appState.currentMapMode = restoreCurrentMapModeFromLocal();
+    applyMapModeUi();
+    await renderActiveMode(false);
     applyMapModeUi();
 
-    await renderActiveMode(false);
     appState.startFinished = true;
   }catch(e){
     appState.startRequested = false;
