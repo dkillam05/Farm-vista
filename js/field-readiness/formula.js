@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/formula.js  (FULL FILE)
-Rev: 2026-03-15d-eta-param-fallback-from-latest-truth
+Rev: 2026-03-18a-fix-param-precedence-use-latest-before-defaults
 
 PURPOSE:
 ✅ Single source of truth for Field Readiness computation wiring.
@@ -25,6 +25,12 @@ THIS REV:
 ✅ FIX: if params cache is empty for a field, model/ETA now fall back to
    field_readiness_latest soilWetness + drainageIndex before using defaults
 ✅ FIX: prevents ETA from simming with blank params and collapsing toward 1h
+✅ NEW FIX: do NOT let getFieldParams() auto-create 60/45 defaults before
+   latest Firestore truth is checked. Math now prefers:
+      1) live in-memory override
+      2) field_readiness_latest
+      3) field doc values
+      4) hard defaults
 
 This module:
 - Ensures model/weather/forecast modules are loaded
@@ -185,37 +191,90 @@ function buildEtaSeedFromLatestRecord(rec, fieldId){
 /* =====================================================================
    Param resolution helpers
 ===================================================================== */
+function getRawParamsFromStateMap(state, fieldId){
+  try{
+    const fid = safeStr(fieldId);
+    if (!fid) return null;
+
+    const map = state && state.perFieldParams;
+    if (!(map instanceof Map)) return null;
+
+    const existing = map.get(fid);
+    return safeObj(existing);
+  }catch(_){
+    return null;
+  }
+}
+
+function getParamsFromFieldDoc(state, fieldId){
+  try{
+    const fid = safeStr(fieldId);
+    if (!fid) return null;
+
+    const fields = Array.isArray(state && state.fields) ? state.fields : [];
+    const field = fields.find(x => String(x && x.id || '') === fid);
+    if (!field) return null;
+
+    const out = {};
+    if (hasFinite(field.soilWetness)) out.soilWetness = Number(field.soilWetness);
+    if (hasFinite(field.drainageIndex)) out.drainageIndex = Number(field.drainageIndex);
+
+    return Object.keys(out).length ? out : null;
+  }catch(_){
+    return null;
+  }
+}
+
 function buildResolvedFieldParams(state, fieldId){
   const fid = safeStr(fieldId);
 
-  let base = {};
-  try{
-    const out = getFieldParams(state, fid);
-    if (out && typeof out === 'object') base = { ...out };
-  }catch(e){
-    console.warn('[FieldReadiness] getFieldParams wrapper failed:', fid, e);
-  }
-
+  // IMPORTANT:
+  // Do NOT call getFieldParams() first here, because params.js auto-creates
+  // 60/45 defaults and stores them in memory, which blocks latest Firestore
+  // truth from ever winning.
+  const mem = getRawParamsFromStateMap(state, fid) || null;
   const latest = getLatestTruthFromState(state, fid) || null;
+  const fieldDoc = getParamsFromFieldDoc(state, fid) || null;
 
-  const soilWetness = hasFinite(base.soilWetness)
-    ? Number(base.soilWetness)
+  const soilWetness = hasFinite(mem && mem.soilWetness)
+    ? Number(mem.soilWetness)
     : (
         hasFinite(latest && latest.soilWetness)
           ? Number(latest.soilWetness)
-          : PARAM_FALLBACK_SOIL_WETNESS
+          : (
+              hasFinite(fieldDoc && fieldDoc.soilWetness)
+                ? Number(fieldDoc.soilWetness)
+                : PARAM_FALLBACK_SOIL_WETNESS
+            )
       );
 
-  const drainageIndex = hasFinite(base.drainageIndex)
-    ? Number(base.drainageIndex)
+  const drainageIndex = hasFinite(mem && mem.drainageIndex)
+    ? Number(mem.drainageIndex)
     : (
         hasFinite(latest && latest.drainageIndex)
           ? Number(latest.drainageIndex)
-          : PARAM_FALLBACK_DRAINAGE_INDEX
+          : (
+              hasFinite(fieldDoc && fieldDoc.drainageIndex)
+                ? Number(fieldDoc.drainageIndex)
+                : PARAM_FALLBACK_DRAINAGE_INDEX
+            )
       );
 
+  // Keep params map synchronized after we resolve the true values so any later
+  // getFieldParams() calls elsewhere get the corrected numbers.
+  try{
+    if (!(state.perFieldParams instanceof Map)){
+      state.perFieldParams = new Map();
+    }
+    state.perFieldParams.set(fid, {
+      ...(mem || {}),
+      soilWetness,
+      drainageIndex
+    });
+  }catch(_){}
+
   return {
-    ...base,
+    ...(mem || {}),
     soilWetness,
     drainageIndex
   };
@@ -517,7 +576,8 @@ export function buildFRDeps(state, { opKey=null, wxCtx=null, persistedGetter=nul
       );
     },
 
-    // ✅ Safe wrapper with fallback to field_readiness_latest params
+    // ✅ Safe wrapper with corrected precedence:
+    // live memory -> latest Firestore truth -> field doc -> defaults
     getFieldParams: (fid)=>{
       return buildResolvedFieldParams(state, fid);
     },
