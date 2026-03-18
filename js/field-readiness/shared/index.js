@@ -1,6 +1,6 @@
 // /js/field-readiness/shared/index.js  (FULL FILE)
 // FarmVista Readiness Rebuilder (Cloud Run)
-// Rev: 2026-03-17b-auto-write-storage-max-for-new-fields
+// Rev: 2026-03-18a-refresh-field-values-and-clear-stale-reason
 //
 // PURPOSE:
 // ✅ DOES NOT fetch Open-Meteo
@@ -20,6 +20,8 @@
 //    - storageCapacity
 //    - storageMaxFinal
 // ✅ NEW: placeholder/new fields ALSO get storageMax immediately from slider math
+// ✅ FIX: when a field is updated, rebuild uses current fields/{fieldId} slider values
+// ✅ FIX: clears stale placeholder "reason" when field becomes ready/provisional
 //
 const express = require("express");
 const {
@@ -58,11 +60,6 @@ app.options("*", (req, res) => {
 function num(v, d = null){
   const n = Number(v);
   return Number.isFinite(n) ? n : d;
-}
-function clamp(n, lo, hi){
-  n = Number(n);
-  if (!Number.isFinite(n)) return lo;
-  return Math.max(lo, Math.min(hi, n));
 }
 function round(v, d=2){
   const p = Math.pow(10, d);
@@ -707,7 +704,8 @@ async function writeReadinessLatest(runKey, timezone){
           soilWetness,
           drainageIndex,
           seedSource: snapshot.seedSource,
-          status: "ready"
+          status: "ready",
+          reason: _admin.firestore.FieldValue.delete()
         }, { merge: true });
 
         writes++;
