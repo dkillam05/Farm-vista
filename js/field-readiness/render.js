@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-16c-page-size-boot-sync-and-awaited-render
+Rev: 2026-03-18a-add-field-name-search-filter
 
 GOAL (per Dane):
 ✅ Read ALL displayed readiness numbers from Firestore collection:
@@ -27,6 +27,8 @@ GOAL (per Dane):
 ✅ FIX: render queue now truly awaits actual tile render
 ✅ FIX: page size is normalized on boot render so first load respects
    saved / fresh default page size instead of behaving like All
+✅ NEW: field-name search filter tied to #fieldSearch input
+✅ NEW: search filters rendered field tiles by field name only
 ✅ No trimmed sections
 
 IMPORTANT ETA CHANGE:
@@ -76,6 +78,12 @@ const ETA_HORIZON_HOURS = 168;
 const ETA_CACHE_TTL_MS = 10 * 60 * 1000;
 const ETA_DEBUG_ENABLED = true;
 
+/* =====================================================================
+   Search config
+===================================================================== */
+const FIELD_SEARCH_INPUT_ID = 'fieldSearch';
+const FIELD_SEARCH_DEBOUNCE_MS = 120;
+
 function safeObj(x){
   return (x && typeof x === 'object') ? x : null;
 }
@@ -120,6 +128,82 @@ function toIsoFromAny(v){
 }
 function markerLeftCSS(v){
   return `${clamp(Number(v) || 0, 0, 100)}%`;
+}
+
+/* =====================================================================
+   Search helpers
+===================================================================== */
+function normalizeFieldSearchText(v){
+  return String(v || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getFieldSearchEl(){
+  try{
+    return document.getElementById(FIELD_SEARCH_INPUT_ID);
+  }catch(_){
+    return null;
+  }
+}
+
+function getFieldSearchQuery(state){
+  try{
+    const el = getFieldSearchEl();
+    const raw = el ? String(el.value || '') : String(state && state.fieldSearchQuery || '');
+    const q = normalizeFieldSearchText(raw);
+    if (state) state.fieldSearchQuery = q;
+    return q;
+  }catch(_){
+    return '';
+  }
+}
+
+function fieldMatchesSearch(fieldObj, query){
+  try{
+    const q = normalizeFieldSearchText(query);
+    if (!q) return true;
+    const name = normalizeFieldSearchText(fieldObj && fieldObj.name);
+    return name.includes(q);
+  }catch(_){
+    return true;
+  }
+}
+
+function updateEmptyMessageForCurrentFilters(state, filteredCount){
+  try{
+    const empty = $('emptyMsg');
+    if (!empty) return;
+
+    const farmId = String(state && state.farmFilter ? state.farmFilter : '__all__');
+    const hasFarmFilter = farmId !== '__all__';
+    const q = getFieldSearchQuery(state);
+    const hasSearch = !!q;
+    const count = Math.max(0, Number(filteredCount || 0));
+
+    if (count > 0){
+      empty.textContent = 'No active fields with GPS (lat/lng) found.';
+      return;
+    }
+
+    if (hasSearch && hasFarmFilter){
+      empty.textContent = 'No fields matched your current farm filter and search.';
+      return;
+    }
+
+    if (hasSearch){
+      empty.textContent = 'No fields matched your search.';
+      return;
+    }
+
+    if (hasFarmFilter){
+      empty.textContent = 'No fields matched the selected farm.';
+      return;
+    }
+
+    empty.textContent = 'No active fields with GPS (lat/lng) found.';
+  }catch(_){}
 }
 
 /* =====================================================================
@@ -499,9 +583,15 @@ function updateFieldsCountHelper(showingCount, totalCount){
 
     const showN = Math.max(0, Number(showingCount || 0));
     const totalN = Math.max(0, Number(totalCount || 0));
+    const q = getFieldSearchQuery(window.__FV_FR || null);
 
     if (!totalN){
-      el.textContent = 'Showing 0 fields';
+      el.textContent = q ? 'Showing 0 matching fields' : 'Showing 0 fields';
+      return;
+    }
+
+    if (q){
+      el.textContent = `Showing ${showN} of ${totalN} matching field${totalN === 1 ? '' : 's'}`;
       return;
     }
 
@@ -825,7 +915,8 @@ function getTilesViewKey(state){
   const sort = getSortMode();
   const rangeStr = String(($('jobRangeInput') && $('jobRangeInput').value) ? $('jobRangeInput').value : '');
   const latestStamp = String(Number(state && state._latestReadinessLoadedAt || 0));
-  return `${opKey}__${farmId}__${pageSize}__${sort}__${rangeStr}__${latestStamp}`;
+  const searchQ = getFieldSearchQuery(state);
+  return `${opKey}__${farmId}__${pageSize}__${sort}__${rangeStr}__${latestStamp}__${searchQ}`;
 }
 
 /* ---------- sorting ---------- */
@@ -889,11 +980,22 @@ function sortFields(fields, runsById, mrmsRangeById){
   return arr;
 }
 
-/* ---------- farm filter ---------- */
+/* ---------- farm filter + search filter ---------- */
 function getFilteredFields(state){
   const farmId = String(state.farmFilter || '__all__');
-  if (farmId === '__all__') return state.fields.slice();
-  return state.fields.filter(f => String(f.farmId || '') === farmId);
+  const searchQ = getFieldSearchQuery(state);
+
+  let out = state.fields.slice();
+
+  if (farmId !== '__all__'){
+    out = out.filter(f => String(f.farmId || '') === farmId);
+  }
+
+  if (searchQ){
+    out = out.filter(f => fieldMatchesSearch(f, searchQ));
+  }
+
+  return out;
 }
 
 function getFilteredFieldSignature(fields){
@@ -2089,6 +2191,7 @@ async function _renderTilesInternal(state){
         .filter(Boolean);
 
       updateFieldsCountHelper(desiredCount, filteredExisting.length);
+      updateEmptyMessageForCurrentFilters(state, filteredExisting.length);
 
       initFallbackSwipeOnTiles(state, wrap, {
         onDetails: async (fieldId)=>{
@@ -2102,10 +2205,13 @@ async function _renderTilesInternal(state){
     }
   }
 
-  setFieldsCountHelperMessage('Preparing fields…');
+  const searchQ = getFieldSearchQuery(state);
+  setFieldsCountHelperMessage(searchQ ? 'Searching fields…' : 'Preparing fields…');
   renderFieldsInlineLoading(
-    'Loading field readiness...',
-    'Centralized field_readiness_latest values are being loaded and sorted now.'
+    searchQ ? 'Searching field readiness...' : 'Loading field readiness...',
+    searchQ
+      ? 'Matching field names are being filtered, loaded, and sorted now.'
+      : 'Centralized field_readiness_latest values are being loaded and sorted now.'
   );
 
   const opKey = getCurrentOp();
@@ -2222,6 +2328,7 @@ async function _renderTilesInternal(state){
   wrap.replaceChildren(frag);
 
   updateFieldsCountHelper(renderedCount, filtered.length);
+  updateEmptyMessageForCurrentFilters(state, filtered.length);
 
   const empty = $('emptyMsg');
   if (empty) empty.style.display = renderedCount ? 'none' : 'block';
@@ -2739,5 +2846,68 @@ export async function refreshDetailsOnly(state){
       }catch(_){}
     });
 
+  }catch(_){}
+})();
+
+/* =====================================================================
+   GLOBAL SEARCH WIRING
+===================================================================== */
+(function wireFieldSearchOnce(){
+  try{
+    if (window.__FV_FR_SEARCH_WIRED__) return;
+    window.__FV_FR_SEARCH_WIRED__ = true;
+
+    let timer = null;
+
+    function trigger(){
+      try{
+        const state = window.__FV_FR;
+        if (!state) return;
+
+        const q = getFieldSearchQuery(state);
+        state.fieldSearchQuery = q;
+
+        refreshAll(state);
+      }catch(_){}
+    }
+
+    function schedule(){
+      try{
+        if (timer) clearTimeout(timer);
+      }catch(_){}
+      timer = setTimeout(()=>{
+        timer = null;
+        trigger();
+      }, FIELD_SEARCH_DEBOUNCE_MS);
+    }
+
+    document.addEventListener('input', (e)=>{
+      try{
+        const t = e && e.target;
+        if (!t || t.id !== FIELD_SEARCH_INPUT_ID) return;
+        schedule();
+      }catch(_){}
+    }, true);
+
+    document.addEventListener('search', (e)=>{
+      try{
+        const t = e && e.target;
+        if (!t || t.id !== FIELD_SEARCH_INPUT_ID) return;
+        schedule();
+      }catch(_){}
+    }, true);
+
+    document.addEventListener('keydown', (e)=>{
+      try{
+        const t = e && e.target;
+        if (!t || t.id !== FIELD_SEARCH_INPUT_ID) return;
+        if (e.key !== 'Escape') return;
+
+        if (String(t.value || '')){
+          t.value = '';
+          schedule();
+        }
+      }catch(_){}
+    }, true);
   }catch(_){}
 })();
