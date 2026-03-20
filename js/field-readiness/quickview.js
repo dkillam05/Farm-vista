@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-03-16c-fix-storage-display-use-true-cap
+Rev: 2026-03-20a-fix-mrms-model-path-and-centralized-writeback
 
 GOAL (per Dane, Feb 2026):
 ✅ Make Quick View readiness MATCH centralized app readiness
@@ -12,20 +12,15 @@ GOAL (per Dane, Feb 2026):
 ✅ Support lightweight MRMS UI refresh while Quick View is open
 ✅ FIX: Storage display now uses true storage cap on right side again
 
-CHANGES (THIS REV):
-✅ Opening Quick View still prefers centralized field_readiness_latest
-✅ Moving sliders now updates readiness/wetness/storage LIVE from model
-✅ Quick View subtitle shows when user is in live preview mode
-✅ Save & Close writes:
-   - fields/{fieldId}.soilWetness
-   - fields/{fieldId}.drainageIndex
-✅ Save & Close ALSO recomputes and writes the new centralized readiness doc:
-   - field_readiness_latest/{fieldId}
-✅ Refresh events still fire so tiles/details update immediately
-✅ ETA still uses model.etaToThreshold()
-✅ Range rain still uses MRMS daily rainfall range display
-✅ FIX: Storage display uses storageMax / storageCapacity / storageMaxFinal /
-        factors.Smax before falling back to readiness-adjusted values
+THIS REV:
+✅ CRITICAL FIX: Quick View model recompute now uses runFieldReadiness(...)
+   instead of calling model.runField(...) directly
+✅ This forces the proper formula.js model-weather prewarm path
+✅ Quick View live preview now follows the same MRMS/Open-Meteo selection logic
+   used by formula.js
+✅ Save & Close now also writes centralized readiness from runFieldReadiness(...)
+   so field_readiness_latest is no longer rewritten from the wrong model path
+✅ Keeps existing UI / modal / map / save behavior intact
 
 NOTES:
 - While sliders are moving, Quick View shows LIVE PREVIEW from the model.
@@ -46,7 +41,7 @@ import { parseRangeFromInput, mrmsRainInRange } from './rain.js';
 import { loadFieldMrmsDoc } from './data.js';
 
 // ✅ SINGLE SOURCE OF TRUTH: readiness wiring lives here
-import { ensureFRModules, buildFRDeps } from './formula.js';
+import { ensureFRModules, buildFRDeps, runFieldReadiness } from './formula.js';
 
 function $(id){ return document.getElementById(id); }
 
@@ -1118,8 +1113,14 @@ async function fillQuickView(state, { live=false } = {}){
     persistedGetter: (id)=> getPersistedStateForDeps(state, id)
   });
 
-  // Always compute model run for live preview + ETA/meta.
-  const runTruth = state._mods.model.runField(f, depsTruth);
+  // ✅ CRITICAL FIX:
+  // Always use formula.js entry point so model weather is properly prewarmed
+  // and MRMS-vs-Open-Meteo selection stays consistent with the app.
+  const runTruth = await runFieldReadiness(state, f, {
+    opKey,
+    wxCtx,
+    persistedGetter: (id)=> getPersistedStateForDeps(state, id)
+  });
 
   // Centralized doc remains default when modal first opens.
   const latestRec = getLatestReadinessForField(state, fid);
@@ -1307,18 +1308,21 @@ async function saveAndClose(state){
     }
 
     // Recompute centralized readiness using the NEW saved slider values.
+    // ✅ CRITICAL FIX:
+    // Use runFieldReadiness(...) so formula.js prewarm/model-weather selection
+    // is applied before writing field_readiness_latest.
     await ensureFRModules(state);
     await loadPersistedState(state, { force:true });
 
     const opKey = getCurrentOp();
     const wxCtx = buildWxCtx(state);
-    const depsTruth = buildFRDeps(state, {
+
+    const runTruth = await runFieldReadiness(state, f, {
       opKey,
       wxCtx,
       persistedGetter: (id)=> getPersistedStateForDeps(state, id)
     });
 
-    const runTruth = state._mods.model.runField(f, depsTruth);
     await persistLatestReadinessForField(state, f, runTruth);
 
     state._qvDidAdjust = false;
