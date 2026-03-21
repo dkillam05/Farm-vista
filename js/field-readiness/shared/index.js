@@ -1,6 +1,6 @@
 // /js/field-readiness/shared/index.js  (FULL FILE)
 // FarmVista Readiness Rebuilder (Cloud Run)
-// Rev: 2026-03-18a-refresh-field-values-and-clear-stale-reason
+// Rev: 2026-03-21a-write-debug-fields-into-latest-doc
 //
 // PURPOSE:
 // ✅ DOES NOT fetch Open-Meteo
@@ -22,6 +22,8 @@
 // ✅ NEW: placeholder/new fields ALSO get storageMax immediately from slider math
 // ✅ FIX: when a field is updated, rebuild uses current fields/{fieldId} slider values
 // ✅ FIX: clears stale placeholder "reason" when field becomes ready/provisional
+// ✅ NEW: writes backend debug fields into field_readiness_latest so night mismatches
+//    can be inspected directly in Firestore and later surfaced in UI
 //
 const express = require("express");
 const {
@@ -82,6 +84,43 @@ function safeNum(v){
 }
 function normalizeStatus(s){
   return String(s || "").trim().toLowerCase();
+}
+function sanitizeForFirestore(value){
+  if (value === undefined) return null;
+  if (value === null) return null;
+
+  const t = typeof value;
+
+  if (t === "string" || t === "boolean") return value;
+  if (t === "number") return Number.isFinite(value) ? value : null;
+
+  if (Array.isArray(value)){
+    return value.map(v => sanitizeForFirestore(v));
+  }
+
+  if (t === "object"){
+    const out = {};
+    for (const [k, v] of Object.entries(value)){
+      if (v === undefined) continue;
+      out[k] = sanitizeForFirestore(v);
+    }
+    return out;
+  }
+
+  return null;
+}
+function buildDebugPayload(snapshot, branchLabel){
+  const s = snapshot && typeof snapshot === "object" ? snapshot : {};
+  return sanitizeForFirestore({
+    branch: safeStr(branchLabel),
+    sourceMode: safeStr(s.sourceMode),
+    seedSource: safeStr(s.seedSource),
+    seedStorage: safeNum(s.seedStorage),
+    startIdx: Number.isFinite(Number(s.startIdx)) ? Number(s.startIdx) : null,
+    baselineRain7: safeNum(s.baselineRain7),
+    baselineRainNudge: safeNum(s.baselineRainNudge),
+    debug: s.debug && typeof s.debug === "object" ? s.debug : null
+  });
 }
 
 /* =====================================================================
@@ -704,6 +743,10 @@ async function writeReadinessLatest(runKey, timezone){
           soilWetness,
           drainageIndex,
           seedSource: snapshot.seedSource,
+          seedStorage: safeNum(snapshot.seedStorage),
+          startIdx: Number.isFinite(Number(snapshot.startIdx)) ? Number(snapshot.startIdx) : null,
+          sourceMode: safeStr(snapshot.sourceMode),
+          debug: buildDebugPayload(snapshot, "ready"),
           status: "ready",
           reason: _admin.firestore.FieldValue.delete()
         }, { merge: true });
@@ -743,6 +786,10 @@ async function writeReadinessLatest(runKey, timezone){
           soilWetness,
           drainageIndex,
           seedSource: "persisted-state-only",
+          seedStorage: safeNum(snapshot.seedStorage),
+          startIdx: Number.isFinite(Number(snapshot.startIdx)) ? Number(snapshot.startIdx) : null,
+          sourceMode: safeStr(snapshot.sourceMode),
+          debug: buildDebugPayload(snapshot, "provisional_no_weather_cache"),
           status: "provisional_no_weather_cache",
           reason: "Missing field_weather_cache; using persisted truth only."
         }, { merge: true });
@@ -771,6 +818,19 @@ async function writeReadinessLatest(runKey, timezone){
           soilWetness,
           drainageIndex,
           seedSource: null,
+          seedStorage: null,
+          startIdx: null,
+          sourceMode: null,
+          debug: {
+            branch: "waiting_for_weather_cache",
+            sourceMode: null,
+            seedSource: null,
+            seedStorage: null,
+            startIdx: null,
+            baselineRain7: null,
+            baselineRainNudge: null,
+            debug: null
+          },
           status: "waiting_for_weather_cache",
           reason: "Field exists, but no field_weather_cache and no persisted truth are available yet."
         }, { merge: true });
