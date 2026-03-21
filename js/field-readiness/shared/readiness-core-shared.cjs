@@ -1,6 +1,6 @@
 /* =====================================================================
 /js/field-readiness/shared/readiness-core-shared.cjs  (FULL FILE)
-Rev: 2026-03-20a-align-shared-core-with-frontend-model
+Rev: 2026-03-21a-support-incremental-seeded-replay
 
 PURPOSE
 ✅ Shared PURE readiness math core for backend import
@@ -17,6 +17,10 @@ PURPOSE
    - storageMax
    - storageCapacity
    - storageMaxFinal
+✅ NEW: supports incremental seeded replay better:
+   - if caller trims rows to persisted asOf forward, we can still seed cleanly
+   - if persisted date is older than available rows, start from persisted tank at row 0
+   - avoids unnecessary full 30-day style rebuild dependency in backend path
 
 IMPORTANT
 - This file does NOT decide whether a field should be marked
@@ -68,6 +72,11 @@ function snap01(x){
 
 function safeStr(v){
   return String(v || '');
+}
+
+function safeISO10(v){
+  const s = String(v || '');
+  return s.length >= 10 ? s.slice(0, 10) : s;
 }
 
 /* =====================================================================
@@ -418,19 +427,29 @@ function baselineSeedFromWindow(rowsWindow, factors){
 }
 
 function pickSeed(rows, factors, persistedState){
-  if (
-    persistedState &&
-    Number.isFinite(Number(persistedState.storageFinal)) &&
-    persistedState.asOfDateISO
-  ){
-    const asOf = String(persistedState.asOfDateISO).slice(0, 10);
-    const idx = rows.findIndex(r => String(r.dateISO || '').slice(0, 10) === asOf);
+  const persistedStorage = num(persistedState && persistedState.storageFinal, null);
+  const asOf = safeISO10(persistedState && persistedState.asOfDateISO);
+  const firstDate = safeISO10(rows && rows[0] && rows[0].dateISO);
+
+  if (persistedStorage != null && asOf){
+    const idx = rows.findIndex(r => safeISO10(r && r.dateISO) === asOf);
 
     if (idx >= 0){
       return {
-        seedStorage: clamp(Number(persistedState.storageFinal), 0, factors.Smax),
+        seedStorage: clamp(persistedStorage, 0, factors.Smax),
         startIdx: idx + 1,
         source: 'persisted'
+      };
+    }
+
+    // Incremental support:
+    // if caller already trimmed the rows so they begin AFTER the persisted asOf day,
+    // start from persisted storage at row 0 and replay only the newer days.
+    if (firstDate && firstDate > asOf){
+      return {
+        seedStorage: clamp(persistedStorage, 0, factors.Smax),
+        startIdx: 0,
+        source: 'persisted_forward'
       };
     }
   }
@@ -604,6 +623,8 @@ function runFieldReadinessCore(
       seedSource: safeStr(seedPick.source),
       lastDateISO: safeStr(last.dateISO),
       lastRainSource: safeStr(last.rainSource),
+      firstDateISO: safeISO10(normalizedRows[0] && normalizedRows[0].dateISO),
+      persistedAsOfDateISO: safeISO10(persistedState && persistedState.asOfDateISO),
       Smax: num(factors.Smax, 0),
       soilHold: num(factors.soilHold, 0),
       drainPoor: num(factors.drainPoor, 0),
@@ -613,8 +634,7 @@ function runFieldReadinessCore(
 }
 
 /* =====================================================================
-   NEW: readiness from persisted storage only
-   Used when field exists but has no weather cache yet.
+   readiness from persisted storage only
 ===================================================================== */
 function runReadinessFromPersistedStateOnly(
   soilWetness,
@@ -677,6 +697,7 @@ function runReadinessFromPersistedStateOnly(
       soilHold: num(factors.soilHold, 0),
       drainPoor: num(factors.drainPoor, 0),
       savedSmax: Number.isFinite(savedSmax) ? savedSmax : null,
+      persistedAsOfDateISO: safeISO10(persistedState && persistedState.asOfDateISO),
       storageMax: num(out.storageMax, 0)
     }
   };
