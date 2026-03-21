@@ -1,6 +1,6 @@
 // /js/field-readiness/shared/index.js  (FULL FILE)
 // FarmVista Readiness Rebuilder (Cloud Run)
-// Rev: 2026-03-21a-write-debug-fields-into-latest-doc
+// Rev: 2026-03-21b-incremental-rebuild-window
 //
 // PURPOSE:
 // ✅ DOES NOT fetch Open-Meteo
@@ -22,8 +22,11 @@
 // ✅ NEW: placeholder/new fields ALSO get storageMax immediately from slider math
 // ✅ FIX: when a field is updated, rebuild uses current fields/{fieldId} slider values
 // ✅ FIX: clears stale placeholder "reason" when field becomes ready/provisional
-// ✅ NEW: writes backend debug fields into field_readiness_latest so night mismatches
+// ✅ NEW: writes backend debug fields into field_readiness_latest so mismatches
 //    can be inspected directly in Firestore and later surfaced in UI
+// ✅ NEW: trims weather replay window for incremental rebuilds
+//    - if persisted truth exists, only replay from persisted asOfDate forward
+//    - avoids unnecessary full 30-day rebuild behavior on every schedule run
 //
 const express = require("express");
 const {
@@ -598,6 +601,31 @@ function buildModelWeatherRowsForServer(wxDoc, mrmsDoc){
 }
 
 /* =====================================================================
+   Incremental rebuild window helpers
+===================================================================== */
+function trimWeatherRowsForIncrementalRebuild(rows, persistedState){
+  const list = Array.isArray(rows) ? rows.slice() : [];
+  if (!list.length) return [];
+
+  const asOf = safeISO10(persistedState && persistedState.asOfDateISO);
+  if (!asOf){
+    return list;
+  }
+
+  const idx = list.findIndex(r => safeISO10(r && r.dateISO) === asOf);
+
+  // If asOf date is missing from the weather rows, keep the original list.
+  // Shared core will fall back to its normal behavior.
+  if (idx < 0){
+    return list;
+  }
+
+  // Keep the persisted anchor day in the list so the shared core can still
+  // find it and start at idx + 1, but drop older days entirely.
+  return list.slice(idx);
+}
+
+/* =====================================================================
    Placeholder storage-cap helper
 ===================================================================== */
 function buildStorageCapOnlySnapshot(soilWetness, drainageIndex){
@@ -702,10 +730,12 @@ async function writeReadinessLatest(runKey, timezone){
         timezone
       });
 
-      const weatherRows = buildModelWeatherRowsForServer(
+      const fullWeatherRows = buildModelWeatherRowsForServer(
         wx,
         mrmsMap.get(fieldId) || null
       );
+
+      const weatherRows = trimWeatherRowsForIncrementalRebuild(fullWeatherRows, persistedState);
 
       // PRIMARY PATH: full weather-based readiness
       if (weatherRows.length){
