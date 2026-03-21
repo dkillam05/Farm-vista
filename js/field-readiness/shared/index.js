@@ -1,6 +1,6 @@
 // /js/field-readiness/shared/index.js  (FULL FILE)
 // FarmVista Readiness Rebuilder (Cloud Run)
-// Rev: 2026-03-21b-incremental-rebuild-window
+// Rev: 2026-03-21c-write-persisted-state-on-success
 //
 // PURPOSE:
 // ✅ DOES NOT fetch Open-Meteo
@@ -27,6 +27,9 @@
 // ✅ NEW: trims weather replay window for incremental rebuilds
 //    - if persisted truth exists, only replay from persisted asOfDate forward
 //    - avoids unnecessary full 30-day rebuild behavior on every schedule run
+// ✅ CRITICAL FIX: successful rebuilds now also advance field_readiness_state
+//    so future runs seed from the latest final storage instead of drifting from
+//    an old anchor
 //
 const express = require("express");
 const {
@@ -159,7 +162,7 @@ const FV_TUNE = {
   DRY_BYPASS_BASE: Number.isFinite(Number(process.env.FV_DRY_BYPASS_BASE)) ? Number(process.env.FV_DRY_BYPASS_BASE) : 0.45,
   BYPASS_GOODDRAIN_W: Number.isFinite(Number(process.env.FV_BYPASS_GOODDRAIN_W)) ? Number(process.env.FV_BYPASS_GOODDRAIN_W) : 0.15,
 
-  DRY_BYPASS_CAP_SAT: Number.isFinite(Number(process.env.FV_DRY_BYPASS_CAP_SAT)) ? Number(process.env.FV_DRY_BYPASS_CAP_SAT) : 0.15,
+  DRY_BYPASS_CAP_SAT: Number.isFinite(Number(process.env.FV_DRYPASS_CAP_SAT)) ? Number(process.env.FV_DRYPASS_CAP_SAT) : 0.15,
   DRY_BYPASS_CAP_MAX: Number.isFinite(Number(process.env.FV_DRY_BYPASS_CAP_MAX)) ? Number(process.env.FV_DRY_BYPASS_CAP_MAX) : 0.12,
 
   SAT_DRYBYPASS_FLOOR: Number.isFinite(Number(process.env.FV_SAT_DRYBYPASS_FLOOR)) ? Number(process.env.FV_SAT_DRYBYPASS_FLOOR) : 0.02,
@@ -614,15 +617,24 @@ function trimWeatherRowsForIncrementalRebuild(rows, persistedState){
 
   const idx = list.findIndex(r => safeISO10(r && r.dateISO) === asOf);
 
-  // If asOf date is missing from the weather rows, keep the original list.
-  // Shared core will fall back to its normal behavior.
   if (idx < 0){
     return list;
   }
 
-  // Keep the persisted anchor day in the list so the shared core can still
-  // find it and start at idx + 1, but drop older days entirely.
   return list.slice(idx);
+}
+
+function getSnapshotAsOfDateISO(weatherRows, snapshot, persistedState){
+  const rows = Array.isArray(weatherRows) ? weatherRows : [];
+  const lastRowISO = safeISO10(rows.length ? rows[rows.length - 1]?.dateISO : "");
+  if (lastRowISO) return lastRowISO;
+
+  const snapshotISO =
+    safeISO10(snapshot && snapshot.debug && snapshot.debug.lastDateISO) ||
+    safeISO10(snapshot && snapshot.lastDateISO);
+  if (snapshotISO) return snapshotISO;
+
+  return safeISO10(persistedState && persistedState.asOfDateISO);
 }
 
 /* =====================================================================
@@ -721,6 +733,8 @@ async function writeReadinessLatest(runKey, timezone){
         : DEFAULT_DRAIN;
 
       const outRef = db.collection(READINESS_LATEST_COLLECTION).doc(fieldId);
+      const persistedRef = db.collection(PERSISTED_STATE_COLLECTION).doc(fieldId);
+
       const baseDoc = buildBaseLatestDoc({
         fieldId,
         fieldData: fd,
@@ -737,7 +751,7 @@ async function writeReadinessLatest(runKey, timezone){
 
       const weatherRows = trimWeatherRowsForIncrementalRebuild(fullWeatherRows, persistedState);
 
-      // PRIMARY PATH: full weather-based readiness
+      // PRIMARY PATH: weather-based readiness
       if (weatherRows.length){
         const snapshot = runFieldReadinessCore(
           weatherRows,
@@ -756,6 +770,13 @@ async function writeReadinessLatest(runKey, timezone){
           fail++;
           continue;
         }
+
+        const nextAsOfDateISO = getSnapshotAsOfDateISO(weatherRows, snapshot, persistedState);
+        const nextSmaxAtSave =
+          safeNum(snapshot && snapshot.storageMax) ??
+          safeNum(snapshot && snapshot.storageCapacity) ??
+          safeNum(snapshot && snapshot.storageMaxFinal) ??
+          safeNum(snapshot && snapshot.factors && snapshot.factors.Smax);
 
         batch.set(outRef, {
           ...baseDoc,
@@ -780,6 +801,20 @@ async function writeReadinessLatest(runKey, timezone){
           status: "ready",
           reason: _admin.firestore.FieldValue.delete()
         }, { merge: true });
+
+        // CRITICAL FIX:
+        // Advance persisted truth seed so the next rebuild starts from this
+        // field's latest ending storage instead of replaying from an old anchor.
+        if (safeNum(snapshot.storagePhysFinal) != null && nextAsOfDateISO){
+          batch.set(persistedRef, {
+            fieldId: String(fieldId),
+            storageFinal: Number(snapshot.storagePhysFinal),
+            asOfDateISO: String(nextAsOfDateISO),
+            SmaxAtSave: safeNum(nextSmaxAtSave),
+            updatedAt: _admin.firestore.FieldValue.serverTimestamp(),
+            updatedBy: "readiness-rebuilder"
+          }, { merge: true });
+        }
 
         writes++;
         ok++;
