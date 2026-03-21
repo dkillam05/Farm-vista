@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/readiness-core-shared.js  (FULL FILE)
-Rev: 2026-03-15b-parity-core-rain-precedence-and-avg-loss-fix
+Rev: 2026-03-21a-add-incremental-storage-replay-parity
 
 PURPOSE
 ✅ Shared PURE readiness math core for BOTH:
@@ -38,6 +38,11 @@ FIXES IN THIS REV
    - MRMS-only fallback only if caller did not already provide rainInAdj
 ✅ FIX: avgLossDay now computes correctly even when includeTrace=false
 ✅ FIX: backend-style row normalization parity tightened
+✅ NEW: if persisted storage exists but the exact asOfDate row is not present,
+   seed from persisted storage anyway and replay the available rows instead of
+   falling back to baseline rebuild
+✅ NEW: returns seed metadata for UI/debug parity
+
 ===================================================================== */
 
 'use strict';
@@ -71,6 +76,15 @@ function snap01(x){
   if (v <= 0.01) return 0;
   if (v >= 0.99) return 1;
   return v;
+}
+
+function safeStr(v){
+  return String(v || '');
+}
+
+function safeISO10(v){
+  const s = safeStr(v);
+  return s.length >= 10 ? s.slice(0, 10) : s;
 }
 
 /* =====================================================================
@@ -362,7 +376,6 @@ function applyCalToStorage(storagePhys, Smax){
     };
   }
 
-  // Intentional parity with current formula.js: CAL forced to zero everywhere
   const wetBias = 0;
   const readinessShift = 0;
 
@@ -413,32 +426,44 @@ function baselineSeedFromWindow(rowsWindow, factors){
   const rainNudge = rainNudgeFrac * (0.10 * factors.Smax);
 
   const storage0 = clamp((0.30 * factors.Smax) + rainNudge, 0, factors.Smax);
-  return { storage0 };
+  return { storage0, rain7, rainNudge };
 }
 
 function pickSeed(rows, factors, persistedState){
   if (
     persistedState &&
-    Number.isFinite(Number(persistedState.storageFinal)) &&
-    persistedState.asOfDateISO
+    Number.isFinite(Number(persistedState.storageFinal))
   ){
-    const asOf = String(persistedState.asOfDateISO).slice(0, 10);
-    const idx = rows.findIndex(r => String(r.dateISO || '').slice(0, 10) === asOf);
+    const seedStorage = clamp(Number(persistedState.storageFinal), 0, factors.Smax);
+    const asOf = safeISO10(persistedState.asOfDateISO);
 
-    if (idx >= 0){
-      return {
-        seedStorage: clamp(Number(persistedState.storageFinal), 0, factors.Smax),
-        startIdx: idx + 1,
-        source: 'persisted'
-      };
+    if (asOf){
+      const idx = rows.findIndex(r => safeISO10(r && r.dateISO) === asOf);
+      if (idx >= 0){
+        return {
+          seedStorage,
+          startIdx: idx + 1,
+          source: 'persisted_exact_match',
+          persistedAsOfDateISO: asOf
+        };
+      }
     }
+
+    return {
+      seedStorage,
+      startIdx: 0,
+      source: 'persisted_replay_available_rows',
+      persistedAsOfDateISO: asOf || ''
+    };
   }
 
   const b0 = baselineSeedFromWindow(rows, factors);
   return {
     seedStorage: b0.storage0,
     startIdx: 0,
-    source: 'baseline'
+    source: 'baseline',
+    baselineRain7: b0.rain7,
+    baselineRainNudge: b0.rainNudge
   };
 }
 
@@ -589,6 +614,9 @@ export function runFieldReadinessCore(
     seedSource: seedPick.source,
     seedStorage: seedPick.seedStorage,
     startIdx: seedPick.startIdx,
+    baselineRain7: num(seedPick.baselineRain7, 0),
+    baselineRainNudge: num(seedPick.baselineRainNudge, 0),
+    persistedAsOfDateISO: safeStr(seedPick.persistedAsOfDateISO || ''),
 
     storagePhysFinal,
     storageFinal: out.storageEff,
