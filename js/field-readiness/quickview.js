@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-03-20a-fix-mrms-model-path-and-centralized-writeback
+Rev: 2026-03-21a-show-centralized-debug-meta-in-quickview
 
 GOAL (per Dane, Feb 2026):
 ✅ Make Quick View readiness MATCH centralized app readiness
@@ -12,21 +12,29 @@ GOAL (per Dane, Feb 2026):
 ✅ Support lightweight MRMS UI refresh while Quick View is open
 ✅ FIX: Storage display now uses true storage cap on right side again
 
-THIS REV:
-✅ CRITICAL FIX: Quick View model recompute now uses runFieldReadiness(...)
-   instead of calling model.runField(...) directly
-✅ This forces the proper formula.js model-weather prewarm path
-✅ Quick View live preview now follows the same MRMS/Open-Meteo selection logic
-   used by formula.js
-✅ Save & Close now also writes centralized readiness from runFieldReadiness(...)
-   so field_readiness_latest is no longer rewritten from the wrong model path
-✅ Keeps existing UI / modal / map / save behavior intact
+KEEPS:
+✅ Quick View model recompute uses runFieldReadiness(...)
+✅ Proper formula.js model-weather prewarm path
+✅ Proper MRMS/Open-Meteo selection logic from formula.js
+✅ Save & Close writes centralized readiness from runFieldReadiness(...)
+
+NEW IN THIS REV:
+✅ Reads backend debug fields from field_readiness_latest:
+   - sourceMode
+   - seedSource
+   - seedStorage
+   - startIdx
+   - debug.*
+✅ Shows compact mobile-friendly debug line in Quick View weather meta
+✅ Helps diagnose night-time centralized mismatch without opening Firestore
 
 NOTES:
 - While sliders are moving, Quick View shows LIVE PREVIEW from the model.
 - Before any slider movement, Quick View still shows centralized readiness.
 - After Save & Close, centralized readiness is rewritten so the rest of the app
   sees the updated number from Firestore.
+- Debug line is read-only and only mirrors what backend wrote into
+  field_readiness_latest.
 
 ===================================================================== */
 'use strict';
@@ -204,6 +212,9 @@ function buildLatestReadinessRecord(raw, fallbackId){
     wetBiasApplied: safeNum(d.wetBiasApplied),
     runKey: safeStr(d.runKey),
     seedSource: safeStr(d.seedSource),
+    seedStorage: safeNum(d.seedStorage),
+    startIdx: safeNum(d.startIdx),
+    sourceMode: safeStr(d.sourceMode),
     weatherSource: safeStr(d.weatherSource),
     timezone: safeStr(d.timezone),
     computedAtISO: toIsoFromAny(d.computedAt),
@@ -212,6 +223,7 @@ function buildLatestReadinessRecord(raw, fallbackId){
       lat: safeNum(d && d.location && d.location.lat),
       lng: safeNum(d && d.location && d.location.lng)
     },
+    debug: safeObj(d.debug) || null,
     _raw: d
   };
 }
@@ -320,6 +332,9 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
     wetBiasApplied: safeNum(rec.wetBiasApplied),
     runKey: safeStr(rec.runKey),
     seedSource: safeStr(rec.seedSource),
+    seedStorage: safeNum(rec.seedStorage),
+    startIdx: safeNum(rec.startIdx),
+    sourceMode: safeStr(rec.sourceMode),
     weatherSource: safeStr(rec.weatherSource),
     timezone: safeStr(rec.timezone),
     computedAtISO: safeStr(rec.computedAtISO),
@@ -709,6 +724,54 @@ function getModelRainSourceLabel(run){
     return 'Open-Meteo';
   }catch(_){
     return 'Open-Meteo';
+  }
+}
+
+function getDebugLineFromLatest(latestRec){
+  try{
+    const rec = latestRec || null;
+    if (!rec) return '';
+
+    const dbgTop = safeObj(rec.debug) || null;
+    const dbgInner = safeObj(dbgTop && dbgTop.debug) || null;
+
+    const parts = [];
+
+    const sourceMode =
+      safeStr(rec.sourceMode) ||
+      safeStr(dbgTop && dbgTop.sourceMode) ||
+      safeStr(dbgInner && dbgInner.sourceMode);
+
+    const seedSource =
+      safeStr(rec.seedSource) ||
+      safeStr(dbgTop && dbgTop.seedSource) ||
+      safeStr(dbgInner && dbgInner.seedSource);
+
+    const seedStorage =
+      safeNum(rec.seedStorage) ??
+      safeNum(dbgTop && dbgTop.seedStorage) ??
+      safeNum(dbgInner && dbgInner.seedStorage);
+
+    const startIdx =
+      safeNum(rec.startIdx) ??
+      safeNum(dbgTop && dbgTop.startIdx) ??
+      safeNum(dbgInner && dbgInner.startIdx);
+
+    const rowCount = safeNum(dbgInner && dbgInner.rowCount);
+    const lastDateISO = safeStr(dbgInner && dbgInner.lastDateISO);
+    const lastRainSource = safeStr(dbgInner && dbgInner.lastRainSource);
+
+    if (sourceMode) parts.push(`mode ${sourceMode}`);
+    if (seedSource) parts.push(`seed ${seedSource}`);
+    if (seedStorage != null) parts.push(`seedTank ${Number(seedStorage).toFixed(2)}`);
+    if (startIdx != null) parts.push(`start ${Math.round(Number(startIdx))}`);
+    if (rowCount != null) parts.push(`rows ${Math.round(Number(rowCount))}`);
+    if (lastDateISO) parts.push(`last ${lastDateISO}`);
+    if (lastRainSource) parts.push(`rain ${lastRainSource}`);
+
+    return parts.join(' • ');
+  }catch(_){
+    return '';
   }
 }
 
@@ -1227,13 +1290,15 @@ async function fillQuickView(state, { live=false } = {}){
     const centralR = (latestRun && isFinite(Number(latestRun.readinessR))) ? Number(latestRun.readinessR) : null;
     const shownR = (displayRun && isFinite(Number(displayRun.readinessR))) ? Number(displayRun.readinessR) : null;
     const rainSource = getModelRainSourceLabel(runTruth);
+    const debugLine = getDebugLineFromLatest(latestRec);
 
     wxMeta.innerHTML =
       `Weather updated: <span class="mono">${esc(whenTxt)}</span>` +
       ` • Model rain: <span class="mono">${esc(rainSource)}</span>` +
       (shownR != null ? ` • Shown: <span class="mono">${shownR}</span>` : ``) +
       (centralR != null ? ` • Centralized: <span class="mono">${centralR}</span>` : ``) +
-      (truthR != null ? ` • Model: <span class="mono">${truthR}</span>` : ``);
+      (truthR != null ? ` • Model: <span class="mono">${truthR}</span>` : ``) +
+      (debugLine ? `<br><span class="mono" style="opacity:.92;">Debug: ${esc(debugLine)}</span>` : ``);
   }
 
   const pe = $('frQvParamExplain');
