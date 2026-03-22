@@ -1,6 +1,6 @@
 // /js/field-readiness/shared/index.js  (FULL FILE)
 // FarmVista Readiness Rebuilder (Cloud Run)
-// Rev: 2026-03-18a-refresh-field-values-and-clear-stale-reason
+// Rev: 2026-03-22a-persist-history-and-trace
 //
 // PURPOSE:
 // ✅ DOES NOT fetch Open-Meteo
@@ -22,6 +22,10 @@
 // ✅ NEW: placeholder/new fields ALSO get storageMax immediately from slider math
 // ✅ FIX: when a field is updated, rebuild uses current fields/{fieldId} slider values
 // ✅ FIX: clears stale placeholder "reason" when field becomes ready/provisional
+// ✅ NEW: persists 30-day display history into field_readiness_latest
+// ✅ NEW: writes modelRows + tankTrace + wx daily/forecast + MRMS daily to latest doc
+// ✅ FIX: full weather path now asks core for trace/rows so details can match quick view
+// ✅ FIX: when persisted state is already same-day, history build falls back to full-series mode
 //
 const express = require("express");
 const {
@@ -558,6 +562,68 @@ function buildModelWeatherRowsForServer(wxDoc, mrmsDoc){
   return overlayMrmsRainOntoWeatherRows(baseRows, mrmsDoc);
 }
 
+function choosePersistedStateForHistoryRun(persistedState, weatherRows){
+  if (!persistedState || typeof persistedState !== "object") return null;
+  const rows = Array.isArray(weatherRows) ? weatherRows : [];
+  if (!rows.length) return persistedState;
+
+  const lastISO = safeISO10(rows[rows.length - 1] && rows[rows.length - 1].dateISO);
+  const persistedISO = safeISO10(persistedState.asOfDateISO);
+
+  if (!persistedISO) return null;
+  if (!lastISO) return persistedState;
+
+  // If persisted truth is already for the last available weather day, the shared
+  // core can intentionally skip the forward pass and return an empty trace.
+  // For the saved display doc we prefer a full-series rebuild so details have
+  // 30-day weather + tank history that exactly matches the saved summary.
+  if (persistedISO >= lastISO){
+    return null;
+  }
+
+  return persistedState;
+}
+
+function toPlainModelRows(rows){
+  return (Array.isArray(rows) ? rows : []).map(r => ({
+    dateISO: safeISO10(r && r.dateISO),
+    rainInAdj: round(num(r && r.rainInAdj, num(r && r.rainIn, 0)), 3),
+    rainMrmsIn: round(num(r && r.rainMrmsIn, 0), 3),
+    rainMrmsMm: round(num(r && r.rainMrmsMm, 0), 3),
+    rainSource: safeStr(r && (r.rainSource || r.precipSource) || "open-meteo") || "open-meteo",
+    tempF: safeNum(r && r.tempF),
+    windMph: safeNum(r && r.windMph),
+    rh: safeNum(r && r.rh),
+    solarWm2: safeNum(r && r.solarWm2),
+    et0In: round(num(r && r.et0In, 0), 3),
+    sm010: safeNum(r && r.sm010),
+    st010F: safeNum(r && r.st010F),
+    vpdKpa: safeNum(r && r.vpdKpa),
+    cloudPct: safeNum(r && r.cloudPct),
+    dryPwr: safeNum(r && r.dryPwr),
+    tempN: safeNum(r && r.tempN),
+    windN: safeNum(r && r.windN),
+    rhN: safeNum(r && r.rhN),
+    solarN: safeNum(r && r.solarN),
+    vpdN: safeNum(r && r.vpdN),
+    cloudN: safeNum(r && r.cloudN)
+  }));
+}
+
+function toPlainTankTrace(trace){
+  return (Array.isArray(trace) ? trace : []).map(t => ({
+    dateISO: safeISO10(t && t.dateISO),
+    rainIn: round(num(t && t.rainIn, 0), 3),
+    infilMult: round(num(t && t.infilMult, 0), 3),
+    addIn: round(num(t && t.addIn, 0), 3),
+    dryPwr: round(num(t && t.dryPwr, 0), 3),
+    lossIn: round(num(t && t.lossIn, 0), 3),
+    storageStart: round(num(t && t.storageStart, 0), 4),
+    storageEnd: round(num(t && t.storageEnd, 0), 4),
+    storageCap: round(num(t && t.storageCap, 0), 4)
+  }));
+}
+
 /* =====================================================================
    Placeholder storage-cap helper
 ===================================================================== */
@@ -663,23 +729,22 @@ async function writeReadinessLatest(runKey, timezone){
         timezone
       });
 
-      const weatherRows = buildModelWeatherRowsForServer(
-        wx,
-        mrmsMap.get(fieldId) || null
-      );
+      const mrmsDoc = mrmsMap.get(fieldId) || null;
+      const weatherRows = buildModelWeatherRowsForServer(wx, mrmsDoc);
 
-      // PRIMARY PATH: full weather-based readiness
+      // PRIMARY PATH: full weather-based readiness + persisted display history
       if (weatherRows.length){
+        const historyPersistedState = choosePersistedStateForHistoryRun(persistedState, weatherRows);
         const snapshot = runFieldReadinessCore(
           weatherRows,
           soilWetness,
           drainageIndex,
-          persistedState,
+          historyPersistedState,
           {
             extra: EXTRA,
             tune: FV_TUNE,
             lossScale: LOSS_SCALE,
-            includeTrace: false
+            includeTrace: true
           }
         );
 
@@ -688,8 +753,15 @@ async function writeReadinessLatest(runKey, timezone){
           continue;
         }
 
+        const modelRows = toPlainModelRows(Array.isArray(snapshot.rows) && snapshot.rows.length ? snapshot.rows : weatherRows);
+        const tankTrace = toPlainTankTrace(snapshot.trace);
+        const dailySeries30d = Array.isArray(wx && wx.dailySeries) ? wx.dailySeries.slice() : [];
+        const dailySeriesFcst = Array.isArray(wx && wx.dailySeriesFcst) ? wx.dailySeriesFcst.slice() : [];
+        const mrmsDailySeries30d = Array.isArray(mrmsDoc && mrmsDoc.mrmsDailySeries30d) ? mrmsDoc.mrmsDailySeries30d.slice() : [];
+
         batch.set(outRef, {
           ...baseDoc,
+          asOfDateISO: safeISO10(snapshot.asOfDateISO) || safeISO10((modelRows[modelRows.length - 1] || {}).dateISO) || null,
           readiness: Number(snapshot.readinessR),
           wetness: Number(snapshot.wetnessR),
           storageFinal: Number(snapshot.storageFinal),
@@ -703,7 +775,25 @@ async function writeReadinessLatest(runKey, timezone){
 
           soilWetness,
           drainageIndex,
-          seedSource: snapshot.seedSource,
+          seedSource: snapshot.seedSource || null,
+          seedStorage: safeNum(snapshot.seedStorage),
+          sourceMode: snapshot.sourceMode || null,
+          startIdx: safeNum(snapshot.startIdx),
+
+          modelRows,
+          tankTrace,
+          dailySeries30d,
+          dailySeriesFcst,
+          dailySeriesMeta: {
+            histDays: dailySeries30d.length,
+            fcstDays: dailySeriesFcst.length,
+            todayISO: safeISO10((dailySeries30d[dailySeries30d.length - 1] || {}).dateISO) || null
+          },
+          mrmsDailySeries30d,
+          mrmsHistoryMeta: mrmsDoc && mrmsDoc.mrmsHistoryMeta ? mrmsDoc.mrmsHistoryMeta : null,
+          mrmsLastUpdatedAt: mrmsDoc && mrmsDoc.mrmsLastUpdatedAt ? mrmsDoc.mrmsLastUpdatedAt : null,
+
+          debug: snapshot.debug || null,
           status: "ready",
           reason: _admin.firestore.FieldValue.delete()
         }, { merge: true });
