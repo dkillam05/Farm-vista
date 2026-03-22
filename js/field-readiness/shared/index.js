@@ -1,6 +1,6 @@
 // /js/field-readiness/shared/index.js  (FULL FILE)
 // FarmVista Readiness Rebuilder (Cloud Run)
-// Rev: 2026-03-22a-persist-history-and-trace
+// Rev: 2026-03-22e-full-file-stable-history-hourly-seed
 //
 // PURPOSE:
 // ✅ DOES NOT fetch Open-Meteo
@@ -24,8 +24,9 @@
 // ✅ FIX: clears stale placeholder "reason" when field becomes ready/provisional
 // ✅ NEW: persists 30-day display history into field_readiness_latest
 // ✅ NEW: writes modelRows + tankTrace + wx daily/forecast + MRMS daily to latest doc
-// ✅ FIX: full weather path now asks core for trace/rows so details can match quick view
-// ✅ FIX: when persisted state is already same-day, history build falls back to full-series mode
+// ✅ NEW: writes MRMS hourly last 24 + latest hourly summary to latest doc
+// ✅ FIX: seed history rebuild from persisted state so tank trace is not all zeroes
+// ✅ FIX: chunk processing + smaller batch commits to avoid heap/memory crashes
 //
 const express = require("express");
 const {
@@ -573,10 +574,6 @@ function choosePersistedStateForHistoryRun(persistedState, weatherRows){
   if (!persistedISO) return null;
   if (!lastISO) return persistedState;
 
-  // If persisted truth is already for the last available weather day, the shared
-  // core can intentionally skip the forward pass and return an empty trace.
-  // For the saved display doc we prefer a full-series rebuild so details have
-  // 30-day weather + tank history that exactly matches the saved summary.
   if (persistedISO >= lastISO){
     return null;
   }
@@ -701,7 +698,6 @@ async function writeReadinessLatest(runKey, timezone){
   let provisionalFromPersisted = 0;
   let totalFields = 0;
 
-  // ✅ NEW: chunk processing
   const fieldEntries = Array.from(fieldsMap.entries());
   const CHUNK_SIZE = 10;
 
@@ -739,8 +735,18 @@ async function writeReadinessLatest(runKey, timezone){
         const mrmsDoc = mrmsMap.get(fieldId) || null;
         const weatherRows = buildModelWeatherRowsForServer(wx, mrmsDoc);
 
+        // PRIMARY PATH: full weather-based readiness + persisted display history
         if (weatherRows.length){
-          const historyPersistedState = choosePersistedStateForHistoryRun(persistedState, weatherRows);
+          // IMPORTANT:
+          // Use persistedState directly when available so the history trace seeds from
+          // real saved storage instead of collapsing to baseline/zero on same-day runs.
+          const historyPersistedState = (
+            persistedState &&
+            Number.isFinite(Number(persistedState.storageFinal)) &&
+            safeISO10(persistedState.asOfDateISO)
+          )
+            ? persistedState
+            : null;
 
           const snapshot = runFieldReadinessCore(
             weatherRows,
@@ -778,6 +784,14 @@ async function writeReadinessLatest(runKey, timezone){
             ? mrmsDoc.mrmsDailySeries30d.slice(-30)
             : [];
 
+          const mrmsHourlyLast24 = Array.isArray(mrmsDoc && mrmsDoc.mrmsHourlyLast24)
+            ? mrmsDoc.mrmsHourlyLast24.slice(-24)
+            : [];
+
+          const mrmsHourlyLatest = mrmsDoc && mrmsDoc.mrmsHourlyLatest
+            ? mrmsDoc.mrmsHourlyLatest
+            : null;
+
           batch.set(outRef, {
             ...baseDoc,
             asOfDateISO: safeISO10(snapshot.asOfDateISO) || safeISO10((modelRows[modelRows.length - 1] || {}).dateISO) || null,
@@ -808,7 +822,10 @@ async function writeReadinessLatest(runKey, timezone){
               fcstDays: dailySeriesFcst.length,
               todayISO: safeISO10((dailySeries30d[dailySeries30d.length - 1] || {}).dateISO) || null
             },
+
             mrmsDailySeries30d,
+            mrmsHourlyLast24,
+            mrmsHourlyLatest,
             mrmsHistoryMeta: mrmsDoc && mrmsDoc.mrmsHistoryMeta ? mrmsDoc.mrmsHistoryMeta : null,
             mrmsLastUpdatedAt: mrmsDoc && mrmsDoc.mrmsLastUpdatedAt ? mrmsDoc.mrmsLastUpdatedAt : null,
 
@@ -820,6 +837,7 @@ async function writeReadinessLatest(runKey, timezone){
           writes++;
           ok++;
         }
+        // SECONDARY PATH: no weather cache, but persisted truth exists
         else if (persistedState && Number.isFinite(Number(persistedState.storageFinal))){
           const snapshot = runReadinessFromPersistedStateOnly(
             soilWetness,
@@ -839,32 +857,64 @@ async function writeReadinessLatest(runKey, timezone){
             wetness: Number(snapshot.wetnessR),
             storageFinal: Number(snapshot.storageFinal),
             storagePhysFinal: Number(snapshot.storagePhysFinal),
+            readinessCreditIn: Number(snapshot.readinessCreditIn || 0),
+            storageForReadiness: Number(snapshot.storageForReadiness || 0),
 
             storageMax: Number(snapshot.storageMax || 0),
             storageCapacity: Number(snapshot.storageCapacity || 0),
             storageMaxFinal: Number(snapshot.storageMaxFinal || 0),
 
-            status: "provisional_no_weather_cache"
+            soilWetness,
+            drainageIndex,
+            seedSource: "persisted-state-only",
+            status: "provisional_no_weather_cache",
+            reason: "Missing field_weather_cache; using persisted truth only."
           }, { merge: true });
 
           writes++;
           ok++;
+          provisionalFromPersisted++;
+        }
+        // LAST PATH: create placeholder doc so new field is visible in collection
+        else {
+          const capOnly = buildStorageCapOnlySnapshot(soilWetness, drainageIndex);
+
+          batch.set(outRef, {
+            ...baseDoc,
+            readiness: null,
+            wetness: null,
+            storageFinal: null,
+            storagePhysFinal: null,
+            readinessCreditIn: null,
+            storageForReadiness: null,
+
+            storageMax: safeNum(capOnly && capOnly.storageMax),
+            storageCapacity: safeNum(capOnly && capOnly.storageCapacity),
+            storageMaxFinal: safeNum(capOnly && capOnly.storageMaxFinal),
+
+            soilWetness,
+            drainageIndex,
+            seedSource: null,
+            status: "waiting_for_weather_cache",
+            reason: "Field exists, but no field_weather_cache and no persisted truth are available yet."
+          }, { merge: true });
+
+          writes++;
+          skippedNoWeather++;
+          placeholderOnly++;
         }
 
-        // ✅ FIX: smaller batch
         if (writes >= 50){
           await batch.commit();
           batch = db.batch();
           writes = 0;
         }
-
       }catch(e){
         fail++;
         console.warn("[Readiness] field failed:", fieldId, e?.message || e);
       }
     }
 
-    // ✅ FIX: let memory recover
     await new Promise(r => setTimeout(r, 50));
   }
 
