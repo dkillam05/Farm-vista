@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/formula.js  (FULL FILE)
-Rev: 2026-03-22b-full-history-model-weather-no-incremental-trim
+Rev: 2026-03-18a-fix-param-precedence-use-latest-before-defaults
 
 PURPOSE:
 ✅ Single source of truth for Field Readiness computation wiring.
@@ -32,17 +32,6 @@ THIS REV:
       3) field doc values
       4) hard defaults
 
-CRITICAL FIX IN THIS REV:
-✅ REMOVES display-path incremental weather trim
-✅ Model weather rows now always use the FULL available history window
-✅ Persisted truth still seeds storage/state, but no longer chops rows down to
-   persisted asOfDateISO for UI/readiness display paths
-✅ This prevents:
-   - start 1
-   - rows 1
-   - last today only
-   - empty/near-empty tank traces
-
 This module:
 - Ensures model/weather/forecast modules are loaded
 - Builds deps consistently:
@@ -66,6 +55,7 @@ NOTES:
 
 // Keep these aligned with render.js imports
 import { EXTRA, CONST, buildWxCtx } from './state.js';
+import { getFieldParams } from './params.js';
 import { getCurrentOp, getThresholdForOp } from './thresholds.js';
 import { getAPI } from './firebase.js';
 import { mrmsBackfillReady } from './rain.js';
@@ -116,10 +106,6 @@ function safeObj(x){
 function safeStr(x){
   const s = String(x || '');
   return s ? s : '';
-}
-function safeISO10(x){
-  const s = safeStr(x);
-  return s.length >= 10 ? s.slice(0, 10) : s;
 }
 function num(v, d=0){
   const n = Number(v);
@@ -242,6 +228,10 @@ function getParamsFromFieldDoc(state, fieldId){
 function buildResolvedFieldParams(state, fieldId){
   const fid = safeStr(fieldId);
 
+  // IMPORTANT:
+  // Do NOT call getFieldParams() first here, because params.js auto-creates
+  // 60/45 defaults and stores them in memory, which blocks latest Firestore
+  // truth from ever winning.
   const mem = getRawParamsFromStateMap(state, fid) || null;
   const latest = getLatestTruthFromState(state, fid) || null;
   const fieldDoc = getParamsFromFieldDoc(state, fid) || null;
@@ -270,6 +260,8 @@ function buildResolvedFieldParams(state, fieldId){
             )
       );
 
+  // Keep params map synchronized after we resolve the true values so any later
+  // getFieldParams() calls elsewhere get the corrected numbers.
   try{
     if (!(state.perFieldParams instanceof Map)){
       state.perFieldParams = new Map();
@@ -432,19 +424,8 @@ function overlayMrmsRainOntoWeatherRows(baseRows, mrmsDoc){
   });
 }
 
-/* =====================================================================
-   FULL HISTORY ONLY
-===================================================================== */
-function maybeTrimRowsToPersistedWindow(baseRows, persistedState){
-  void persistedState;
-  return Array.isArray(baseRows) ? baseRows.slice() : [];
-}
-
 async function buildModelWeatherSeriesForFieldId(state, fieldId, wxCtx){
-  const persistedState = getPersistedTruthFromState(state, fieldId);
-  const baseRowsRaw = getBaseWeatherRows(state, fieldId, wxCtx);
-  const baseRows = maybeTrimRowsToPersistedWindow(baseRowsRaw, persistedState);
-
+  const baseRows = getBaseWeatherRows(state, fieldId, wxCtx);
   if (!baseRows.length){
     return { rows: [], mode: 'none', mrmsReady: false };
   }
@@ -564,8 +545,10 @@ export function buildFRDeps(state, { opKey=null, wxCtx=null, persistedGetter=nul
   state._frModelWxCache = (state._frModelWxCache instanceof Map) ? state._frModelWxCache : new Map();
 
   return {
+    // legacy/base weather getter still exposed
     getWeatherSeriesForFieldId: (fieldId)=> state._mods.weather.getWeatherSeriesForFieldId(fieldId, okWxCtx),
 
+    // new preferred getter for the model
     getModelWeatherSeriesForFieldId: (fieldId)=>{
       const fid = String(fieldId);
       const cacheKey = `modelwx:${fid}`;
@@ -573,23 +556,28 @@ export function buildFRDeps(state, { opKey=null, wxCtx=null, persistedGetter=nul
       const hit = state._frModelWxCache.get(cacheKey);
       if (hit && Array.isArray(hit.rows)) return hit.rows;
 
-      const rawRows = state._mods.weather.getWeatherSeriesForFieldId(fid, okWxCtx);
-      const rows = withRainSource(rawRows, 'open-meteo');
-
+      const rows = withRainSource(
+        state._mods.weather.getWeatherSeriesForFieldId(fid, okWxCtx),
+        'open-meteo'
+      );
       state._frModelWxCache.set(cacheKey, { rows, mode:'open-meteo', mrmsReady:false });
       return rows;
     },
 
+    // optional richer merged getter
     getMergedWeatherSeriesForFieldId: (fieldId)=>{
       const fid = String(fieldId);
       const cacheKey = `modelwx:${fid}`;
       const hit = state._frModelWxCache.get(cacheKey);
       if (hit && Array.isArray(hit.rows)) return hit.rows;
-
-      const rawRows = state._mods.weather.getWeatherSeriesForFieldId(fid, okWxCtx);
-      return withRainSource(rawRows, 'open-meteo');
+      return withRainSource(
+        state._mods.weather.getWeatherSeriesForFieldId(fid, okWxCtx),
+        'open-meteo'
+      );
     },
 
+    // ✅ Safe wrapper with corrected precedence:
+    // live memory -> latest Firestore truth -> field doc -> defaults
     getFieldParams: (fid)=>{
       return buildResolvedFieldParams(state, fid);
     },
@@ -600,6 +588,7 @@ export function buildFRDeps(state, { opKey=null, wxCtx=null, persistedGetter=nul
     CAL: getCalZero(),
     getPersistedState,
 
+    // ETA/helper expects a synchronous getter.
     getForecastSeriesForFieldId: (id)=>{
       try{
         const fid = String(id);
@@ -611,6 +600,7 @@ export function buildFRDeps(state, { opKey=null, wxCtx=null, persistedGetter=nul
       }
     },
 
+    // NEW: expose centralized latest collection directly
     getCentralizedLatestForFieldId: (id)=>{
       try{
         return getLatestTruthFromState(state, String(id));
@@ -619,6 +609,7 @@ export function buildFRDeps(state, { opKey=null, wxCtx=null, persistedGetter=nul
       }
     },
 
+    // NEW: expose a normalized ETA seed object from field_readiness_latest
     getEtaSeedForFieldId: (id)=>{
       try{
         const fid = String(id);
@@ -670,7 +661,6 @@ async function prewarmModelWeatherForField(state, fieldObj, wxCtx){
     state._frModelWxMetaByFieldId.set(fid, {
       mode: String(built.mode || 'open-meteo'),
       mrmsReady: !!built.mrmsReady,
-      rowCount: Array.isArray(built.rows) ? built.rows.length : 0,
       updatedAt: Date.now()
     });
   }catch(e){
