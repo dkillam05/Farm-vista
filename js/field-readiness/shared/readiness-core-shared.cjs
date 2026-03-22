@@ -1,6 +1,6 @@
 /* =====================================================================
 /js/field-readiness/shared/readiness-core-shared.cjs  (FULL FILE)
-Rev: 2026-03-21b-align-loss-history-and-expose-full-trace
+Rev: 2026-03-20a-align-shared-core-with-frontend-model
 
 PURPOSE
 ✅ Shared PURE readiness math core for backend import
@@ -17,12 +17,6 @@ PURPOSE
    - storageMax
    - storageCapacity
    - storageMaxFinal
-✅ NEW: supports incremental seeded replay better:
-   - if caller trims rows to persisted asOf forward, we can still seed cleanly
-   - if persisted date is older than available rows, start from persisted tank at row 0
-   - avoids unnecessary full 30-day style rebuild dependency in backend path
-✅ CRITICAL FIX: backend lossHistory ordering now matches frontend exactly
-✅ NEW: trace rows now include full tank/add/loss context for UI/debug surfacing
 
 IMPORTANT
 - This file does NOT decide whether a field should be marked
@@ -74,11 +68,6 @@ function snap01(x){
 
 function safeStr(v){
   return String(v || '');
-}
-
-function safeISO10(v){
-  const s = String(v || '');
-  return s.length >= 10 ? s.slice(0, 10) : s;
 }
 
 /* =====================================================================
@@ -429,26 +418,19 @@ function baselineSeedFromWindow(rowsWindow, factors){
 }
 
 function pickSeed(rows, factors, persistedState){
-  const persistedStorage = num(persistedState && persistedState.storageFinal, null);
-  const asOf = safeISO10(persistedState && persistedState.asOfDateISO);
-  const firstDate = safeISO10(rows && rows[0] && rows[0].dateISO);
-
-  if (persistedStorage != null && asOf){
-    const idx = rows.findIndex(r => safeISO10(r && r.dateISO) === asOf);
+  if (
+    persistedState &&
+    Number.isFinite(Number(persistedState.storageFinal)) &&
+    persistedState.asOfDateISO
+  ){
+    const asOf = String(persistedState.asOfDateISO).slice(0, 10);
+    const idx = rows.findIndex(r => String(r.dateISO || '').slice(0, 10) === asOf);
 
     if (idx >= 0){
       return {
-        seedStorage: clamp(persistedStorage, 0, factors.Smax),
+        seedStorage: clamp(Number(persistedState.storageFinal), 0, factors.Smax),
         startIdx: idx + 1,
         source: 'persisted'
-      };
-    }
-
-    if (firstDate && firstDate > asOf){
-      return {
-        seedStorage: clamp(persistedStorage, 0, factors.Smax),
-        startIdx: 0,
-        source: 'persisted_forward'
       };
     }
   }
@@ -539,24 +521,18 @@ function runFieldReadinessCore(
     let loss = lossBase * stateDryMult;
     loss = Math.max(0, loss * extra.DRY_LOSS_MULT);
 
-    // CRITICAL ALIGNMENT:
-    // Frontend pushes lossHistory BEFORE the very-dry tail multiplier.
-    // Keep backend identical so avgLossDay / ETA helper behavior matches.
-    lossHistory.push(loss);
-
-    let dryTailMultApplied = 1;
     if (factors.Smax > 0 && Number.isFinite(before)){
       const sat = clamp(before / factors.Smax, 0, 1);
       if (sat < tune.DRY_TAIL_START){
         const frac = clamp(sat / Math.max(1e-6, tune.DRY_TAIL_START), 0, 1);
         const mult = tune.DRY_TAIL_MIN_MULT + (1 - tune.DRY_TAIL_MIN_MULT) * frac;
-        dryTailMultApplied = mult;
         loss = loss * mult;
       }
     }
 
     const after = clamp(before + add - loss, 0, factors.Smax);
     storage = after;
+    lossHistory.push(loss);
 
     if (wantTrace){
       const infilMultEff = (rain > 0)
@@ -576,11 +552,8 @@ function runFieldReadinessCore(
         add,
         lossBase,
         stateDryMult,
-        dryTailMultApplied,
         loss,
-        dryPwr: d.dryPwr,
-        et0N: d.et0N,
-        smN_day: d.smN_day
+        dryPwr: d.dryPwr
       });
     }
   }
@@ -631,8 +604,6 @@ function runFieldReadinessCore(
       seedSource: safeStr(seedPick.source),
       lastDateISO: safeStr(last.dateISO),
       lastRainSource: safeStr(last.rainSource),
-      firstDateISO: safeISO10(normalizedRows[0] && normalizedRows[0].dateISO),
-      persistedAsOfDateISO: safeISO10(persistedState && persistedState.asOfDateISO),
       Smax: num(factors.Smax, 0),
       soilHold: num(factors.soilHold, 0),
       drainPoor: num(factors.drainPoor, 0),
@@ -642,7 +613,8 @@ function runFieldReadinessCore(
 }
 
 /* =====================================================================
-   readiness from persisted storage only
+   NEW: readiness from persisted storage only
+   Used when field exists but has no weather cache yet.
 ===================================================================== */
 function runReadinessFromPersistedStateOnly(
   soilWetness,
@@ -705,7 +677,6 @@ function runReadinessFromPersistedStateOnly(
       soilHold: num(factors.soilHold, 0),
       drainPoor: num(factors.drainPoor, 0),
       savedSmax: Number.isFinite(savedSmax) ? savedSmax : null,
-      persistedAsOfDateISO: safeISO10(persistedState && persistedState.asOfDateISO),
       storageMax: num(out.storageMax, 0)
     }
   };
