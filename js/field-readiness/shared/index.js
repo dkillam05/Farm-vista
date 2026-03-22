@@ -701,196 +701,171 @@ async function writeReadinessLatest(runKey, timezone){
   let provisionalFromPersisted = 0;
   let totalFields = 0;
 
-  for (const [fieldId, fieldRow] of fieldsMap.entries()){
-    totalFields++;
+  // ✅ NEW: chunk processing
+  const fieldEntries = Array.from(fieldsMap.entries());
+  const CHUNK_SIZE = 10;
 
-    const fd = fieldRow ? (fieldRow.data || {}) : {};
-    const wx = wxMap.get(fieldId) || null;
-    const persistedState = persistedMap.get(fieldId) || null;
+  for (let i = 0; i < fieldEntries.length; i += CHUNK_SIZE){
+    const chunk = fieldEntries.slice(i, i + CHUNK_SIZE);
 
-    try{
-      const extractedParams = extractFieldParamsLikeFrontend(fd);
+    for (const [fieldId, fieldRow] of chunk){
+      totalFields++;
 
-      const soilWetness = Number.isFinite(Number(extractedParams.soilWetness))
-        ? Number(extractedParams.soilWetness)
-        : DEFAULT_SOIL;
+      const fd = fieldRow ? (fieldRow.data || {}) : {};
+      const wx = wxMap.get(fieldId) || null;
+      const persistedState = persistedMap.get(fieldId) || null;
 
-      const drainageIndex = Number.isFinite(Number(extractedParams.drainageIndex))
-        ? Number(extractedParams.drainageIndex)
-        : DEFAULT_DRAIN;
+      try{
+        const extractedParams = extractFieldParamsLikeFrontend(fd);
 
-      const outRef = db.collection(READINESS_LATEST_COLLECTION).doc(fieldId);
-      const baseDoc = buildBaseLatestDoc({
-        fieldId,
-        fieldData: fd,
-        fieldLocation: fieldRow?.location || null,
-        wxDoc: wx,
-        runKey,
-        timezone
-      });
+        const soilWetness = Number.isFinite(Number(extractedParams.soilWetness))
+          ? Number(extractedParams.soilWetness)
+          : DEFAULT_SOIL;
 
-      const mrmsDoc = mrmsMap.get(fieldId) || null;
-      const weatherRows = buildModelWeatherRowsForServer(wx, mrmsDoc);
+        const drainageIndex = Number.isFinite(Number(extractedParams.drainageIndex))
+          ? Number(extractedParams.drainageIndex)
+          : DEFAULT_DRAIN;
 
-      // PRIMARY PATH: full weather-based readiness + persisted display history
-      if (weatherRows.length){
-        const historyPersistedState = choosePersistedStateForHistoryRun(persistedState, weatherRows);
-        const snapshot = runFieldReadinessCore(
-          weatherRows,
-          soilWetness,
-          drainageIndex,
-          historyPersistedState,
-          {
-            extra: EXTRA,
-            tune: FV_TUNE,
-            lossScale: LOSS_SCALE,
-            includeTrace: true
+        const outRef = db.collection(READINESS_LATEST_COLLECTION).doc(fieldId);
+        const baseDoc = buildBaseLatestDoc({
+          fieldId,
+          fieldData: fd,
+          fieldLocation: fieldRow?.location || null,
+          wxDoc: wx,
+          runKey,
+          timezone
+        });
+
+        const mrmsDoc = mrmsMap.get(fieldId) || null;
+        const weatherRows = buildModelWeatherRowsForServer(wx, mrmsDoc);
+
+        if (weatherRows.length){
+          const historyPersistedState = choosePersistedStateForHistoryRun(persistedState, weatherRows);
+
+          const snapshot = runFieldReadinessCore(
+            weatherRows,
+            soilWetness,
+            drainageIndex,
+            historyPersistedState,
+            {
+              extra: EXTRA,
+              tune: FV_TUNE,
+              lossScale: LOSS_SCALE,
+              includeTrace: true
+            }
+          );
+
+          if (!snapshot || !Number.isFinite(Number(snapshot.readinessR))){
+            fail++;
+            continue;
           }
-        );
 
-        if (!snapshot || !Number.isFinite(Number(snapshot.readinessR))){
-          fail++;
-          continue;
+          const modelRows = toPlainModelRows(
+            Array.isArray(snapshot.rows) && snapshot.rows.length ? snapshot.rows : weatherRows
+          ).slice(-30);
+
+          const tankTrace = toPlainTankTrace(snapshot.trace).slice(-30);
+
+          const dailySeries30d = Array.isArray(wx && wx.dailySeries)
+            ? wx.dailySeries.slice(-30)
+            : [];
+
+          const dailySeriesFcst = Array.isArray(wx && wx.dailySeriesFcst)
+            ? wx.dailySeriesFcst.slice(0, 7)
+            : [];
+
+          const mrmsDailySeries30d = Array.isArray(mrmsDoc && mrmsDoc.mrmsDailySeries30d)
+            ? mrmsDoc.mrmsDailySeries30d.slice(-30)
+            : [];
+
+          batch.set(outRef, {
+            ...baseDoc,
+            asOfDateISO: safeISO10(snapshot.asOfDateISO) || safeISO10((modelRows[modelRows.length - 1] || {}).dateISO) || null,
+            readiness: Number(snapshot.readinessR),
+            wetness: Number(snapshot.wetnessR),
+            storageFinal: Number(snapshot.storageFinal),
+            storagePhysFinal: Number(snapshot.storagePhysFinal),
+            readinessCreditIn: Number(snapshot.readinessCreditIn || 0),
+            storageForReadiness: Number(snapshot.storageForReadiness || 0),
+
+            storageMax: Number(snapshot.storageMax || 0),
+            storageCapacity: Number(snapshot.storageCapacity || 0),
+            storageMaxFinal: Number(snapshot.storageMaxFinal || 0),
+
+            soilWetness,
+            drainageIndex,
+            seedSource: snapshot.seedSource || null,
+            seedStorage: safeNum(snapshot.seedStorage),
+            sourceMode: snapshot.sourceMode || null,
+            startIdx: safeNum(snapshot.startIdx),
+
+            modelRows,
+            tankTrace,
+            dailySeries30d,
+            dailySeriesFcst,
+            dailySeriesMeta: {
+              histDays: dailySeries30d.length,
+              fcstDays: dailySeriesFcst.length,
+              todayISO: safeISO10((dailySeries30d[dailySeries30d.length - 1] || {}).dateISO) || null
+            },
+            mrmsDailySeries30d,
+            mrmsHistoryMeta: mrmsDoc && mrmsDoc.mrmsHistoryMeta ? mrmsDoc.mrmsHistoryMeta : null,
+            mrmsLastUpdatedAt: mrmsDoc && mrmsDoc.mrmsLastUpdatedAt ? mrmsDoc.mrmsLastUpdatedAt : null,
+
+            debug: snapshot.debug || null,
+            status: "ready",
+            reason: _admin.firestore.FieldValue.delete()
+          }, { merge: true });
+
+          writes++;
+          ok++;
+        }
+        else if (persistedState && Number.isFinite(Number(persistedState.storageFinal))){
+          const snapshot = runReadinessFromPersistedStateOnly(
+            soilWetness,
+            drainageIndex,
+            persistedState,
+            { extra: EXTRA }
+          );
+
+          if (!snapshot || !Number.isFinite(Number(snapshot.readinessR))){
+            fail++;
+            continue;
+          }
+
+          batch.set(outRef, {
+            ...baseDoc,
+            readiness: Number(snapshot.readinessR),
+            wetness: Number(snapshot.wetnessR),
+            storageFinal: Number(snapshot.storageFinal),
+            storagePhysFinal: Number(snapshot.storagePhysFinal),
+
+            storageMax: Number(snapshot.storageMax || 0),
+            storageCapacity: Number(snapshot.storageCapacity || 0),
+            storageMaxFinal: Number(snapshot.storageMaxFinal || 0),
+
+            status: "provisional_no_weather_cache"
+          }, { merge: true });
+
+          writes++;
+          ok++;
         }
 
-const modelRows = toPlainModelRows(
-  Array.isArray(snapshot.rows) && snapshot.rows.length ? snapshot.rows : weatherRows
-).slice(-30);
-
-const tankTrace = toPlainTankTrace(snapshot.trace).slice(-30);
-
-const dailySeries30d = Array.isArray(wx && wx.dailySeries)
-  ? wx.dailySeries.slice(-30)
-  : [];
-
-const dailySeriesFcst = Array.isArray(wx && wx.dailySeriesFcst)
-  ? wx.dailySeriesFcst.slice(0, 7)
-  : [];
-
-const mrmsDailySeries30d = Array.isArray(mrmsDoc && mrmsDoc.mrmsDailySeries30d)
-  ? mrmsDoc.mrmsDailySeries30d.slice(-30)
-  : [];
-
-        batch.set(outRef, {
-          ...baseDoc,
-          asOfDateISO: safeISO10(snapshot.asOfDateISO) || safeISO10((modelRows[modelRows.length - 1] || {}).dateISO) || null,
-          readiness: Number(snapshot.readinessR),
-          wetness: Number(snapshot.wetnessR),
-          storageFinal: Number(snapshot.storageFinal),
-          storagePhysFinal: Number(snapshot.storagePhysFinal),
-          readinessCreditIn: Number(snapshot.readinessCreditIn || 0),
-          storageForReadiness: Number(snapshot.storageForReadiness || 0),
-
-          storageMax: Number(snapshot.storageMax || 0),
-          storageCapacity: Number(snapshot.storageCapacity || 0),
-          storageMaxFinal: Number(snapshot.storageMaxFinal || 0),
-
-          soilWetness,
-          drainageIndex,
-          seedSource: snapshot.seedSource || null,
-          seedStorage: safeNum(snapshot.seedStorage),
-          sourceMode: snapshot.sourceMode || null,
-          startIdx: safeNum(snapshot.startIdx),
-
-          modelRows,
-          tankTrace,
-          dailySeries30d,
-          dailySeriesFcst,
-          dailySeriesMeta: {
-            histDays: dailySeries30d.length,
-            fcstDays: dailySeriesFcst.length,
-            todayISO: safeISO10((dailySeries30d[dailySeries30d.length - 1] || {}).dateISO) || null
-          },
-          mrmsDailySeries30d,
-          mrmsHistoryMeta: mrmsDoc && mrmsDoc.mrmsHistoryMeta ? mrmsDoc.mrmsHistoryMeta : null,
-          mrmsLastUpdatedAt: mrmsDoc && mrmsDoc.mrmsLastUpdatedAt ? mrmsDoc.mrmsLastUpdatedAt : null,
-
-          debug: snapshot.debug || null,
-          status: "ready",
-          reason: _admin.firestore.FieldValue.delete()
-        }, { merge: true });
-
-        writes++;
-        ok++;
-      }
-      // SECONDARY PATH: no weather cache, but persisted truth exists
-      else if (persistedState && Number.isFinite(Number(persistedState.storageFinal))){
-        const snapshot = runReadinessFromPersistedStateOnly(
-          soilWetness,
-          drainageIndex,
-          persistedState,
-          {
-            extra: EXTRA
-          }
-        );
-
-        if (!snapshot || !Number.isFinite(Number(snapshot.readinessR))){
-          fail++;
-          continue;
+        // ✅ FIX: smaller batch
+        if (writes >= 50){
+          await batch.commit();
+          batch = db.batch();
+          writes = 0;
         }
 
-        batch.set(outRef, {
-          ...baseDoc,
-          readiness: Number(snapshot.readinessR),
-          wetness: Number(snapshot.wetnessR),
-          storageFinal: Number(snapshot.storageFinal),
-          storagePhysFinal: Number(snapshot.storagePhysFinal),
-          readinessCreditIn: Number(snapshot.readinessCreditIn || 0),
-          storageForReadiness: Number(snapshot.storageForReadiness || 0),
-
-          storageMax: Number(snapshot.storageMax || 0),
-          storageCapacity: Number(snapshot.storageCapacity || 0),
-          storageMaxFinal: Number(snapshot.storageMaxFinal || 0),
-
-          soilWetness,
-          drainageIndex,
-          seedSource: "persisted-state-only",
-          status: "provisional_no_weather_cache",
-          reason: "Missing field_weather_cache; using persisted truth only."
-        }, { merge: true });
-
-        writes++;
-        ok++;
-        provisionalFromPersisted++;
+      }catch(e){
+        fail++;
+        console.warn("[Readiness] field failed:", fieldId, e?.message || e);
       }
-      // LAST PATH: create placeholder doc so new field is visible in collection
-      else {
-        const capOnly = buildStorageCapOnlySnapshot(soilWetness, drainageIndex);
-
-        batch.set(outRef, {
-          ...baseDoc,
-          readiness: null,
-          wetness: null,
-          storageFinal: null,
-          storagePhysFinal: null,
-          readinessCreditIn: null,
-          storageForReadiness: null,
-
-          storageMax: safeNum(capOnly && capOnly.storageMax),
-          storageCapacity: safeNum(capOnly && capOnly.storageCapacity),
-          storageMaxFinal: safeNum(capOnly && capOnly.storageMaxFinal),
-
-          soilWetness,
-          drainageIndex,
-          seedSource: null,
-          status: "waiting_for_weather_cache",
-          reason: "Field exists, but no field_weather_cache and no persisted truth are available yet."
-        }, { merge: true });
-
-        writes++;
-        skippedNoWeather++;
-        placeholderOnly++;
-      }
-
-      if (writes >= 400){
-        await batch.commit();
-        batch = db.batch();
-        writes = 0;
-      }
-    }catch(e){
-      fail++;
-      console.warn("[Readiness] field failed:", fieldId, e?.message || e);
     }
+
+    // ✅ FIX: let memory recover
+    await new Promise(r => setTimeout(r, 50));
   }
 
   if (writes > 0){
