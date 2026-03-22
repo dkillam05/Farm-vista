@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-03-21a-support-incremental-storage-replay
+Rev: 2026-03-15f-fix-eta-starting-state-priority
 
 OPTION 1 (per Dane):
 ✅ Model owns ETA and computes it from the SAME truth-seeded run + SAME physics.
@@ -26,14 +26,6 @@ THIS REV:
 ✅ HARD GUARD: if authoritative latest readiness is below threshold, ETA may NOT
    return 0h / dryNow
 ✅ Keeps ETA starting display/readiness aligned to Firestore latest truth
-
-NEW IN THIS REV:
-✅ Supports incremental replay cleanly when formula.js trims model history
-   down to persisted asOfDateISO forward
-✅ If persisted storage exists but the exact asOf row is no longer in the
-   available weather window, model now seeds from persisted storage and replays
-   the available rows instead of falling back to a baseline rebuild
-✅ Adds seed metadata so UI/debug can see which path was used
 
 TUNING NOTES FOR NEXT TIME:
 - WET_HOLD_START:
@@ -92,10 +84,6 @@ function safeStr(x){
   const s = String(x || '');
   return s ? s : '';
 }
-function safeISO10(x){
-  const s = safeStr(x);
-  return s.length >= 10 ? s.slice(0,10) : s;
-}
 function safeNum(v, fallback = null){
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
@@ -152,6 +140,7 @@ const FV_TUNE = {
   WET_HOLD_EXP: 1.70,
 
   // NEW: once storage comes down enough, drying can accelerate
+  // This band sits ABOVE the very-dry tail so the two do not fight much.
   MID_ACCEL_START: 0.50,
   MID_ACCEL_MAX_BOOST: 0.18,
   MID_ACCEL_EXP: 1.35
@@ -393,7 +382,7 @@ function effectiveRainInches(rainIn, storageBefore, Smax, factors, tune){
 }
 
 /* =====================================================================
-   Storage-state drydown multiplier
+   NEW: storage-state drydown multiplier
 ===================================================================== */
 function storageDrydownMult(storageBefore, Smax, tune){
   if (!isFinite(storageBefore) || !isFinite(Smax) || Smax <= 0) return 1;
@@ -477,7 +466,7 @@ function baselineSeedFromWindow(rowsWindow, f){
   const rainNudge = rainNudgeFrac * (0.1 * f.Smax);
 
   const storage0 = clamp((0.30 * f.Smax) + rainNudge, 0, f.Smax);
-  return { storage0, rain7, rainNudge };
+  return { storage0 };
 }
 
 function pickSeed(rows, f, deps, fieldId){
@@ -487,54 +476,22 @@ function pickSeed(rows, f, deps, fieldId){
     const N = getRewindDays(deps);
     const startIdx = Math.max(0, rows.length - N);
     const b = baselineSeedFromWindow(rows.slice(startIdx), f);
-    return {
-      seedStorage: b.storage0,
-      startIdx,
-      seedSource: 'rewind',
-      baselineRain7: b.rain7,
-      baselineRainNudge: b.rainNudge
-    };
+    return { seedStorage: b.storage0, startIdx };
   }
 
   if (mode === 'persisted'){
     const persisted = getPersistedState(deps, fieldId);
-    if (persisted && isFinite(Number(persisted.storageFinal))){
-      const seedStorage = clamp(Number(persisted.storageFinal), 0, f.Smax);
-      const asOf = safeISO10(persisted.asOfDateISO);
-
-      if (asOf){
-        const idx = rows.findIndex(r => safeISO10(r && r.dateISO) === asOf);
-        if (idx >= 0){
-          return {
-            seedStorage,
-            startIdx: idx + 1,
-            seedSource: 'persisted_exact_match',
-            persistedAsOfDateISO: asOf
-          };
-        }
+    if (persisted && isFinite(Number(persisted.storageFinal)) && persisted.asOfDateISO){
+      const asOf = String(persisted.asOfDateISO).slice(0,10);
+      const idx = rows.findIndex(r => String(r.dateISO||'').slice(0,10) === asOf);
+      if (idx >= 0){
+        return { seedStorage: clamp(Number(persisted.storageFinal), 0, f.Smax), startIdx: idx + 1 };
       }
-
-      // Incremental replay support:
-      // formula.js may already trim rows to the persisted window, or the exact
-      // asOf row may not be present anymore. In either case we still want the
-      // model to continue from persisted storage and replay available rows.
-      return {
-        seedStorage,
-        startIdx: 0,
-        seedSource: 'persisted_replay_available_rows',
-        persistedAsOfDateISO: asOf || ''
-      };
     }
   }
 
   const b0 = baselineSeedFromWindow(rows, f);
-  return {
-    seedStorage: b0.storage0,
-    startIdx: 0,
-    seedSource: 'baseline',
-    baselineRain7: b0.rain7,
-    baselineRainNudge: b0.rainNudge
-  };
+  return { seedStorage: b0.storage0, startIdx: 0 };
 }
 
 /* =====================================================================
@@ -624,6 +581,8 @@ function deriveStoragePhysFromAuthoritativeReadiness(readinessValue, f, deps){
   const creditIn = signedCreditInchesFromSmax(f.Smax);
   const storageEff = clamp(storageForReadiness + creditIn, 0, f.Smax);
 
+  // applyCalToStorage() uses a storage delta that depends only on deps + Smax,
+  // so we can invert it by evaluating the same delta at 0.
   const calAtZero = applyCalToStorage(0, f.Smax, deps);
   const storageDeltaApplied = safeNum(calAtZero && calAtZero.storageDeltaApplied, 0);
 
@@ -637,6 +596,11 @@ function buildEtaNowStateFromSeed(run, f, deps, fieldId){
 
     const authoritativeReadiness = safeNum(seed.readiness, null);
 
+    // FIXED PRIORITY:
+    // 1) true latest physical storage
+    // 2) latest effective storage
+    // 3) derive from readiness only as last fallback
+    // 4) fallback to runField physical storage
     let storagePhys = safeNum(seed.storagePhysFinal, null);
     if (Number.isFinite(storagePhys)){
       storagePhys = clamp(storagePhys, 0, f.Smax);
@@ -770,6 +734,11 @@ function splitHistFcstFromWx(wxSeries){
   return { hist, fcst };
 }
 
+/**
+ * Model-owned ETA (Option 1).
+ * Requires caller to provide forecast via deps.getForecastSeriesForFieldId(fieldId)
+ * OR deps.getWxSeriesWithForecastForFieldId(fieldId).
+ */
 export async function etaToThreshold(field, deps, threshold, horizonHours=168, stepHours=3){
   try{
     if (!field || !deps) return { ok:false, status:'noData', hours:null, text:'' };
@@ -829,15 +798,20 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
     const derivedNowR = computeReadinessFromStorage(storagePhys, f, deps).readiness;
 
     const hasAuthoritativeNow = Number.isFinite(authoritativeNowR);
+
+    // Firestore latest readiness is the authority for the dryNow gate.
+    // If Firestore latest says below threshold, ETA may NOT be 0h.
     const dryNowGateR = hasAuthoritativeNow ? authoritativeNowR : derivedNowR;
 
     if (dryNowGateR >= thr && !(hasAuthoritativeNow && authoritativeNowR < thr)){
       return { ok:true, status:'dryNow', hours:0, text:'' };
     }
 
+    // Start interpolation from the same latest readiness truth the tile uses.
     let prevR = hasAuthoritativeNow ? authoritativeNowR : derivedNowR;
     let prevT = 0;
 
+    // Hard guard against bad seed mismatch.
     if (hasAuthoritativeNow && authoritativeNowR < thr){
       prevR = Math.min(prevR, thr - 1);
     } else if (prevR >= thr){
@@ -902,6 +876,7 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
         const fracCross = denom <= 1e-6 ? 1 : clamp((thr - prevR) / denom, 0, 1);
         let eta = prevT + fracCross * (tHours - prevT);
 
+        // If latest truth started below threshold, never return 0h.
         if (eta <= 0 && Number(dryNowGateR) < thr){
           eta = 1;
         }
@@ -964,7 +939,6 @@ export function runField(field, deps){
   let storage = clamp(seedPick.seedStorage, 0, f.Smax);
 
   const trace = [];
-  const lossHistory = [];
 
   for (let i = seedPick.startIdx; i < rows.length; i++){
     const d = rows[i];
@@ -986,7 +960,6 @@ export function runField(field, deps){
 
     let loss = lossBase * stateDryMult;
     loss = Math.max(0, loss * rate.dryLossMult);
-    lossHistory.push(loss);
 
     if (f.Smax > 0 && isFinite(before)){
       const sat = clamp(before / f.Smax, 0, 1);
@@ -1039,21 +1012,14 @@ export function runField(field, deps){
   const wetnessR = roundInt(wetness);
   const readinessR = roundInt(readiness);
 
-  const last7 = lossHistory.slice(-7);
-  const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x, 0) / last7.length) : 0.08;
+  const last7 = trace.slice(-7);
+  const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
 
   return {
     field,
     factors: f,
     rows,
     trace,
-
-    seedSource: safeStr(seedPick.seedSource || ''),
-    seedStorage: Number.isFinite(Number(seedPick.seedStorage)) ? Number(seedPick.seedStorage) : null,
-    startIdx: Number.isFinite(Number(seedPick.startIdx)) ? Number(seedPick.startIdx) : 0,
-    baselineRain7: safeNum(seedPick.baselineRain7, 0),
-    baselineRainNudge: safeNum(seedPick.baselineRainNudge, 0),
-    persistedAsOfDateISO: safeStr(seedPick.persistedAsOfDateISO || ''),
 
     storagePhysFinal,
     storageFinal: storageEff,
