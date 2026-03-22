@@ -1,13 +1,12 @@
 /* =====================================================================
 /js/field-readiness/shared/readiness-core-shared.cjs  (FULL FILE)
-Rev: 2026-03-20a-align-shared-core-with-frontend-model
+Rev: 2026-03-16b-add-explicit-storage-cap-output
 
 PURPOSE
 ✅ Shared PURE readiness math core for backend import
 ✅ CommonJS module for Cloud Run / Node
-✅ Aligns backend rebuild math with live frontend field-readiness.model.js
-✅ FIX: removes backend-only STORAGE_CAP_SM010_W tank-cap scaling mismatch
-✅ FIX: rain precedence matches live field-readiness.model.js
+✅ Matches current shared-core parity logic
+✅ FIX: rain precedence now matches live field-readiness.model.js
 ✅ FIX: avgLossDay still works when includeTrace=false
 ✅ CAL remains zero to match formula.js wiring
 ✅ NEW: helper to compute readiness from persisted storage only
@@ -24,13 +23,6 @@ IMPORTANT
 - This file only computes readiness once the caller gives it:
     1) weather rows, or
     2) persisted state only
-
-CRITICAL ALIGNMENT CHANGE
-- Frontend field-readiness.model.js does NOT scale Smax/tank size by sm010.
-- Prior backend shared core DID scale Smax by sm010, causing scheduled rebuilds
-  to write different storage/readiness than the Details panel.
-- This rev removes that backend-only behavior so nightly/scheduled rebuilds
-  match the frontend model path more closely.
 ===================================================================== */
 
 'use strict';
@@ -241,12 +233,9 @@ function mapFactors(soilWetness0_100, drainageIndex0_100, sm010, extra){
   const infilMult = 0.60 + 0.30 * soilHold + 0.35 * drainPoor;
   const dryMult   = 1.20 - 0.35 * soilHold - 0.40 * drainPoor;
 
-  // IMPORTANT:
-  // Frontend field-readiness.model.js does NOT apply STORAGE_CAP_SM010_W
-  // to alter tank size. Keep backend aligned with frontend.
   const SmaxBase = 3.00 + 1.00 * soilHold + 1.00 * drainPoor;
-  const SmaxUncapped = SmaxBase;
-  const Smax = clamp(SmaxBase, 3.00, 5.00);
+  const SmaxUncapped = SmaxBase * (1 + num(extra && extra.STORAGE_CAP_SM010_W, 0) * smN);
+  const Smax = clamp(SmaxUncapped, 3.00, 5.00);
 
   return { soilHold, drainPoor, smN, infilMult, dryMult, Smax, SmaxBase, SmaxUncapped };
 }
