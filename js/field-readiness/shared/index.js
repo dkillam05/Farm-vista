@@ -1,6 +1,6 @@
 // /js/field-readiness/shared/index.js  (FULL FILE)
 // FarmVista Readiness Rebuilder (Cloud Run)
-// Rev: 2026-03-21d-write-state-and-full-trace-debug
+// Rev: 2026-03-22a-centralized-full-history-no-state-advance
 //
 // PURPOSE:
 // ✅ DOES NOT fetch Open-Meteo
@@ -8,7 +8,7 @@
 // ✅ ONLY rebuilds field_readiness_latest
 // ✅ Uses existing field_weather_cache as primary input
 // ✅ Uses MRMS overlay when ready
-// ✅ Uses persisted truth from field_readiness_state
+// ✅ Uses persisted truth from field_readiness_state ONLY as an optional seed
 // ✅ Uses same field param paths as frontend
 // ✅ Uses shared readiness core from readiness-core-shared.cjs
 // ✅ FIX: iterates ALL active fields, not only weather-cache docs
@@ -24,10 +24,20 @@
 // ✅ FIX: clears stale placeholder "reason" when field becomes ready/provisional
 // ✅ NEW: writes backend debug fields into field_readiness_latest so mismatches
 //    can be inspected directly in Firestore and later surfaced in UI
-// ✅ NEW: trims weather replay window for incremental rebuilds
-// ✅ CRITICAL FIX: successful rebuilds now also advance field_readiness_state
 // ✅ NEW: writes full normalized model rows + tank trace rows into field_readiness_latest
-// ✅ FIX: FV_DRY_BYPASS_CAP_SAT env var name corrected
+//
+// CRITICAL FIXES IN THIS REV:
+// ✅ DO NOT advance field_readiness_state during normal centralized rebuilds
+//    (that was collapsing history to today and producing 1-row snapshots)
+// ✅ DO NOT trim weather replay to persisted asOfDateISO for centralized display docs
+// ✅ If persisted asOfDateISO is already the last available weather row date,
+//    skip persisted seeding for the centralized snapshot build so full history
+//    remains visible and believable
+//
+// IMPORTANT:
+// - field_readiness_latest is now treated as the centralized DISPLAY truth.
+// - field_readiness_state is read for seeding/provisional fallback only.
+// - Normal rebuilds no longer overwrite/advance field_readiness_state.
 //
 const express = require("express");
 const {
@@ -213,7 +223,6 @@ const FV_TUNE = {
   DRY_BYPASS_BASE: Number.isFinite(Number(process.env.FV_DRY_BYPASS_BASE)) ? Number(process.env.FV_DRY_BYPASS_BASE) : 0.45,
   BYPASS_GOODDRAIN_W: Number.isFinite(Number(process.env.FV_BYPASS_GOODDRAIN_W)) ? Number(process.env.FV_BYPASS_GOODDRAIN_W) : 0.15,
 
-  // FIXED ENV NAME:
   DRY_BYPASS_CAP_SAT: Number.isFinite(Number(process.env.FV_DRY_BYPASS_CAP_SAT)) ? Number(process.env.FV_DRY_BYPASS_CAP_SAT) : 0.15,
   DRY_BYPASS_CAP_MAX: Number.isFinite(Number(process.env.FV_DRY_BYPASS_CAP_MAX)) ? Number(process.env.FV_DRY_BYPASS_CAP_MAX) : 0.12,
 
@@ -656,24 +665,31 @@ function buildModelWeatherRowsForServer(wxDoc, mrmsDoc){
 }
 
 /* =====================================================================
-   Incremental rebuild window helpers
+   Snapshot seeding helpers
 ===================================================================== */
-function trimWeatherRowsForIncrementalRebuild(rows, persistedState){
-  const list = Array.isArray(rows) ? rows.slice() : [];
-  if (!list.length) return [];
+function getLastWeatherRowISO(weatherRows){
+  const rows = Array.isArray(weatherRows) ? weatherRows : [];
+  if (!rows.length) return "";
+  return safeISO10(rows[rows.length - 1] && rows[rows.length - 1].dateISO);
+}
 
-  const asOf = safeISO10(persistedState && persistedState.asOfDateISO);
-  if (!asOf){
-    return list;
+function shouldUsePersistedSeedForCentralizedSnapshot(weatherRows, persistedState){
+  const rows = Array.isArray(weatherRows) ? weatherRows : [];
+  if (!rows.length || !persistedState) return false;
+
+  const asOf = safeISO10(persistedState.asOfDateISO);
+  if (!asOf) return false;
+
+  const lastISO = getLastWeatherRowISO(rows);
+  if (!lastISO) return false;
+
+  // If persisted truth is already anchored to the last available row,
+  // using it as a replay seed collapses the visible history/tank trace.
+  if (asOf >= lastISO){
+    return false;
   }
 
-  const idx = list.findIndex(r => safeISO10(r && r.dateISO) === asOf);
-
-  if (idx < 0){
-    return list;
-  }
-
-  return list.slice(idx);
+  return true;
 }
 
 function getSnapshotAsOfDateISO(weatherRows, snapshot, persistedState){
@@ -785,7 +801,6 @@ async function writeReadinessLatest(runKey, timezone){
         : DEFAULT_DRAIN;
 
       const outRef = db.collection(READINESS_LATEST_COLLECTION).doc(fieldId);
-      const persistedRef = db.collection(PERSISTED_STATE_COLLECTION).doc(fieldId);
 
       const baseDoc = buildBaseLatestDoc({
         fieldId,
@@ -801,14 +816,13 @@ async function writeReadinessLatest(runKey, timezone){
         mrmsMap.get(fieldId) || null
       );
 
-      const weatherRows = trimWeatherRowsForIncrementalRebuild(fullWeatherRows, persistedState);
-
-      if (weatherRows.length){
+      if (fullWeatherRows.length){
+        const usePersistedSeed = shouldUsePersistedSeedForCentralizedSnapshot(fullWeatherRows, persistedState);
         const snapshot = runFieldReadinessCore(
-          weatherRows,
+          fullWeatherRows,
           soilWetness,
           drainageIndex,
-          persistedState,
+          usePersistedSeed ? persistedState : null,
           {
             extra: EXTRA,
             tune: FV_TUNE,
@@ -822,12 +836,7 @@ async function writeReadinessLatest(runKey, timezone){
           continue;
         }
 
-        const nextAsOfDateISO = getSnapshotAsOfDateISO(weatherRows, snapshot, persistedState);
-        const nextSmaxAtSave =
-          safeNum(snapshot && snapshot.storageMax) ??
-          safeNum(snapshot && snapshot.storageCapacity) ??
-          safeNum(snapshot && snapshot.storageMaxFinal) ??
-          safeNum(snapshot && snapshot.factors && snapshot.factors.Smax);
+        const nextAsOfDateISO = getSnapshotAsOfDateISO(fullWeatherRows, snapshot, persistedState);
 
         batch.set(outRef, {
           ...baseDoc,
@@ -850,24 +859,13 @@ async function writeReadinessLatest(runKey, timezone){
           sourceMode: safeStr(snapshot.sourceMode),
           asOfDateISO: nextAsOfDateISO || null,
 
-          debug: buildDebugPayload(snapshot, "ready"),
+          debug: buildDebugPayload(snapshot, usePersistedSeed ? "ready_seeded" : "ready_full_history"),
           modelRows: buildModelRowsPayload(snapshot.rows),
           tankTrace: buildTankTracePayload(snapshot.trace),
 
           status: "ready",
           reason: _admin.firestore.FieldValue.delete()
         }, { merge: true });
-
-        if (safeNum(snapshot.storagePhysFinal) != null && nextAsOfDateISO){
-          batch.set(persistedRef, {
-            fieldId: String(fieldId),
-            storageFinal: Number(snapshot.storagePhysFinal),
-            asOfDateISO: String(nextAsOfDateISO),
-            SmaxAtSave: safeNum(nextSmaxAtSave),
-            updatedAt: _admin.firestore.FieldValue.serverTimestamp(),
-            updatedBy: "readiness-rebuilder"
-          }, { merge: true });
-        }
 
         writes++;
         ok++;
