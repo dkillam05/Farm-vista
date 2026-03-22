@@ -753,11 +753,23 @@ async function writeReadinessLatest(runKey, timezone){
           continue;
         }
 
-        const modelRows = toPlainModelRows(Array.isArray(snapshot.rows) && snapshot.rows.length ? snapshot.rows : weatherRows);
-        const tankTrace = toPlainTankTrace(snapshot.trace);
-        const dailySeries30d = Array.isArray(wx && wx.dailySeries) ? wx.dailySeries.slice() : [];
-        const dailySeriesFcst = Array.isArray(wx && wx.dailySeriesFcst) ? wx.dailySeriesFcst.slice() : [];
-        const mrmsDailySeries30d = Array.isArray(mrmsDoc && mrmsDoc.mrmsDailySeries30d) ? mrmsDoc.mrmsDailySeries30d.slice() : [];
+const modelRows = toPlainModelRows(
+  Array.isArray(snapshot.rows) && snapshot.rows.length ? snapshot.rows : weatherRows
+).slice(-30);
+
+const tankTrace = toPlainTankTrace(snapshot.trace).slice(-30);
+
+const dailySeries30d = Array.isArray(wx && wx.dailySeries)
+  ? wx.dailySeries.slice(-30)
+  : [];
+
+const dailySeriesFcst = Array.isArray(wx && wx.dailySeriesFcst)
+  ? wx.dailySeriesFcst.slice(0, 7)
+  : [];
+
+const mrmsDailySeries30d = Array.isArray(mrmsDoc && mrmsDoc.mrmsDailySeries30d)
+  ? mrmsDoc.mrmsDailySeries30d.slice(-30)
+  : [];
 
         batch.set(outRef, {
           ...baseDoc,
