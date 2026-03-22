@@ -1,6 +1,6 @@
 /* =====================================================================
 /js/field-readiness/shared/readiness-core-shared.cjs  (FULL FILE)
-Rev: 2026-03-21a-support-incremental-seeded-replay
+Rev: 2026-03-21b-align-loss-history-and-expose-full-trace
 
 PURPOSE
 ✅ Shared PURE readiness math core for backend import
@@ -21,6 +21,8 @@ PURPOSE
    - if caller trims rows to persisted asOf forward, we can still seed cleanly
    - if persisted date is older than available rows, start from persisted tank at row 0
    - avoids unnecessary full 30-day style rebuild dependency in backend path
+✅ CRITICAL FIX: backend lossHistory ordering now matches frontend exactly
+✅ NEW: trace rows now include full tank/add/loss context for UI/debug surfacing
 
 IMPORTANT
 - This file does NOT decide whether a field should be marked
@@ -442,9 +444,6 @@ function pickSeed(rows, factors, persistedState){
       };
     }
 
-    // Incremental support:
-    // if caller already trimmed the rows so they begin AFTER the persisted asOf day,
-    // start from persisted storage at row 0 and replay only the newer days.
     if (firstDate && firstDate > asOf){
       return {
         seedStorage: clamp(persistedStorage, 0, factors.Smax),
@@ -540,18 +539,24 @@ function runFieldReadinessCore(
     let loss = lossBase * stateDryMult;
     loss = Math.max(0, loss * extra.DRY_LOSS_MULT);
 
+    // CRITICAL ALIGNMENT:
+    // Frontend pushes lossHistory BEFORE the very-dry tail multiplier.
+    // Keep backend identical so avgLossDay / ETA helper behavior matches.
+    lossHistory.push(loss);
+
+    let dryTailMultApplied = 1;
     if (factors.Smax > 0 && Number.isFinite(before)){
       const sat = clamp(before / factors.Smax, 0, 1);
       if (sat < tune.DRY_TAIL_START){
         const frac = clamp(sat / Math.max(1e-6, tune.DRY_TAIL_START), 0, 1);
         const mult = tune.DRY_TAIL_MIN_MULT + (1 - tune.DRY_TAIL_MIN_MULT) * frac;
+        dryTailMultApplied = mult;
         loss = loss * mult;
       }
     }
 
     const after = clamp(before + add - loss, 0, factors.Smax);
     storage = after;
-    lossHistory.push(loss);
 
     if (wantTrace){
       const infilMultEff = (rain > 0)
@@ -571,8 +576,11 @@ function runFieldReadinessCore(
         add,
         lossBase,
         stateDryMult,
+        dryTailMultApplied,
         loss,
-        dryPwr: d.dryPwr
+        dryPwr: d.dryPwr,
+        et0N: d.et0N,
+        smN_day: d.smN_day
       });
     }
   }
