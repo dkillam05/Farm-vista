@@ -1,6 +1,6 @@
 // /js/field-readiness/shared/index.js  (FULL FILE)
 // FarmVista Readiness Rebuilder (Cloud Run)
-// Rev: 2026-03-21c-write-persisted-state-on-success
+// Rev: 2026-03-21d-write-state-and-full-trace-debug
 //
 // PURPOSE:
 // ✅ DOES NOT fetch Open-Meteo
@@ -25,11 +25,9 @@
 // ✅ NEW: writes backend debug fields into field_readiness_latest so mismatches
 //    can be inspected directly in Firestore and later surfaced in UI
 // ✅ NEW: trims weather replay window for incremental rebuilds
-//    - if persisted truth exists, only replay from persisted asOfDate forward
-//    - avoids unnecessary full 30-day rebuild behavior on every schedule run
 // ✅ CRITICAL FIX: successful rebuilds now also advance field_readiness_state
-//    so future runs seed from the latest final storage instead of drifting from
-//    an old anchor
+// ✅ NEW: writes full normalized model rows + tank trace rows into field_readiness_latest
+// ✅ FIX: FV_DRY_BYPASS_CAP_SAT env var name corrected
 //
 const express = require("express");
 const {
@@ -128,6 +126,59 @@ function buildDebugPayload(snapshot, branchLabel){
     debug: s.debug && typeof s.debug === "object" ? s.debug : null
   });
 }
+function buildModelRowsPayload(rows){
+  const list = Array.isArray(rows) ? rows : [];
+  return sanitizeForFirestore(
+    list.map(r => ({
+      dateISO: safeISO10(r && r.dateISO),
+      rainInAdj: safeNum(r && r.rainInAdj),
+      rainSource: safeStr(r && r.rainSource),
+      rainMrmsIn: safeNum(r && r.rainMrmsIn),
+      rainMrmsMm: safeNum(r && r.rainMrmsMm),
+      tempF: safeNum(r && r.tempF),
+      windMph: safeNum(r && r.windMph),
+      rh: safeNum(r && r.rh),
+      solarWm2: safeNum(r && r.solarWm2),
+      vpdKpa: safeNum(r && r.vpdKpa),
+      cloudPct: safeNum(r && r.cloudPct),
+      sm010: safeNum(r && r.sm010),
+      et0In: safeNum(r && r.et0In),
+      tempN: safeNum(r && r.tempN),
+      windN: safeNum(r && r.windN),
+      rhN: safeNum(r && r.rhN),
+      solarN: safeNum(r && r.solarN),
+      vpdN: safeNum(r && r.vpdN),
+      cloudN: safeNum(r && r.cloudN),
+      dryPwr: safeNum(r && r.dryPwr),
+      et0N: safeNum(r && r.et0N),
+      smN_day: safeNum(r && r.smN_day)
+    }))
+  );
+}
+function buildTankTracePayload(trace){
+  const list = Array.isArray(trace) ? trace : [];
+  return sanitizeForFirestore(
+    list.map(t => ({
+      dateISO: safeISO10(t && t.dateISO),
+      before: safeNum(t && t.before),
+      after: safeNum(t && t.after),
+      rain: safeNum(t && t.rain),
+      rainSource: safeStr(t && t.rainSource),
+      rainEff: safeNum(t && t.rainEff),
+      infilMult: safeNum(t && t.infilMult),
+      addRain: safeNum(t && t.addRain),
+      addSm: safeNum(t && t.addSm),
+      add: safeNum(t && t.add),
+      lossBase: safeNum(t && t.lossBase),
+      stateDryMult: safeNum(t && t.stateDryMult),
+      dryTailMultApplied: safeNum(t && t.dryTailMultApplied),
+      loss: safeNum(t && t.loss),
+      dryPwr: safeNum(t && t.dryPwr),
+      et0N: safeNum(t && t.et0N),
+      smN_day: safeNum(t && t.smN_day)
+    }))
+  );
+}
 
 /* =====================================================================
    Firestore
@@ -162,7 +213,8 @@ const FV_TUNE = {
   DRY_BYPASS_BASE: Number.isFinite(Number(process.env.FV_DRY_BYPASS_BASE)) ? Number(process.env.FV_DRY_BYPASS_BASE) : 0.45,
   BYPASS_GOODDRAIN_W: Number.isFinite(Number(process.env.FV_BYPASS_GOODDRAIN_W)) ? Number(process.env.FV_BYPASS_GOODDRAIN_W) : 0.15,
 
-  DRY_BYPASS_CAP_SAT: Number.isFinite(Number(process.env.FV_DRYPASS_CAP_SAT)) ? Number(process.env.FV_DRYPASS_CAP_SAT) : 0.15,
+  // FIXED ENV NAME:
+  DRY_BYPASS_CAP_SAT: Number.isFinite(Number(process.env.FV_DRY_BYPASS_CAP_SAT)) ? Number(process.env.FV_DRY_BYPASS_CAP_SAT) : 0.15,
   DRY_BYPASS_CAP_MAX: Number.isFinite(Number(process.env.FV_DRY_BYPASS_CAP_MAX)) ? Number(process.env.FV_DRY_BYPASS_CAP_MAX) : 0.12,
 
   SAT_DRYBYPASS_FLOOR: Number.isFinite(Number(process.env.FV_SAT_DRYBYPASS_FLOOR)) ? Number(process.env.FV_SAT_DRYBYPASS_FLOOR) : 0.02,
@@ -751,7 +803,6 @@ async function writeReadinessLatest(runKey, timezone){
 
       const weatherRows = trimWeatherRowsForIncrementalRebuild(fullWeatherRows, persistedState);
 
-      // PRIMARY PATH: weather-based readiness
       if (weatherRows.length){
         const snapshot = runFieldReadinessCore(
           weatherRows,
@@ -762,7 +813,7 @@ async function writeReadinessLatest(runKey, timezone){
             extra: EXTRA,
             tune: FV_TUNE,
             lossScale: LOSS_SCALE,
-            includeTrace: false
+            includeTrace: true
           }
         );
 
@@ -797,14 +848,16 @@ async function writeReadinessLatest(runKey, timezone){
           seedStorage: safeNum(snapshot.seedStorage),
           startIdx: Number.isFinite(Number(snapshot.startIdx)) ? Number(snapshot.startIdx) : null,
           sourceMode: safeStr(snapshot.sourceMode),
+          asOfDateISO: nextAsOfDateISO || null,
+
           debug: buildDebugPayload(snapshot, "ready"),
+          modelRows: buildModelRowsPayload(snapshot.rows),
+          tankTrace: buildTankTracePayload(snapshot.trace),
+
           status: "ready",
           reason: _admin.firestore.FieldValue.delete()
         }, { merge: true });
 
-        // CRITICAL FIX:
-        // Advance persisted truth seed so the next rebuild starts from this
-        // field's latest ending storage instead of replaying from an old anchor.
         if (safeNum(snapshot.storagePhysFinal) != null && nextAsOfDateISO){
           batch.set(persistedRef, {
             fieldId: String(fieldId),
@@ -819,7 +872,6 @@ async function writeReadinessLatest(runKey, timezone){
         writes++;
         ok++;
       }
-      // SECONDARY PATH: no weather cache, but persisted truth exists
       else if (persistedState && Number.isFinite(Number(persistedState.storageFinal))){
         const snapshot = runReadinessFromPersistedStateOnly(
           soilWetness,
@@ -854,7 +906,12 @@ async function writeReadinessLatest(runKey, timezone){
           seedStorage: safeNum(snapshot.seedStorage),
           startIdx: Number.isFinite(Number(snapshot.startIdx)) ? Number(snapshot.startIdx) : null,
           sourceMode: safeStr(snapshot.sourceMode),
+          asOfDateISO: safeISO10(persistedState && persistedState.asOfDateISO) || null,
+
           debug: buildDebugPayload(snapshot, "provisional_no_weather_cache"),
+          modelRows: [],
+          tankTrace: [],
+
           status: "provisional_no_weather_cache",
           reason: "Missing field_weather_cache; using persisted truth only."
         }, { merge: true });
@@ -863,7 +920,6 @@ async function writeReadinessLatest(runKey, timezone){
         ok++;
         provisionalFromPersisted++;
       }
-      // LAST PATH: create placeholder doc so new field is visible in collection
       else {
         const capOnly = buildStorageCapOnlySnapshot(soilWetness, drainageIndex);
 
@@ -886,6 +942,8 @@ async function writeReadinessLatest(runKey, timezone){
           seedStorage: null,
           startIdx: null,
           sourceMode: null,
+          asOfDateISO: null,
+
           debug: {
             branch: "waiting_for_weather_cache",
             sourceMode: null,
@@ -896,6 +954,9 @@ async function writeReadinessLatest(runKey, timezone){
             baselineRainNudge: null,
             debug: null
           },
+          modelRows: [],
+          tankTrace: [],
+
           status: "waiting_for_weather_cache",
           reason: "Field exists, but no field_weather_cache and no persisted truth are available yet."
         }, { merge: true });
