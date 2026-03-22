@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-03-22a-centralized-history-writeback-and-truth-preview
+Rev: 2026-03-20a-fix-mrms-model-path-and-centralized-writeback
 
 GOAL (per Dane, Feb 2026):
 ✅ Make Quick View readiness MATCH centralized app readiness
@@ -12,37 +12,22 @@ GOAL (per Dane, Feb 2026):
 ✅ Support lightweight MRMS UI refresh while Quick View is open
 ✅ FIX: Storage display now uses true storage cap on right side again
 
-KEEPS:
-✅ Quick View model recompute uses runFieldReadiness(...)
-✅ Proper formula.js model-weather prewarm path
-✅ Proper MRMS/Open-Meteo selection logic from formula.js
-✅ Save & Close writes centralized readiness from runFieldReadiness(...)
-
-CRITICAL FIXES IN THIS REV:
-✅ Reads centralized modelRows + tankTrace from field_readiness_latest
-✅ Synthetic Quick View truth run no longer throws away centralized history
-✅ Save & Close now writes:
-   - modelRows
-   - tankTrace
-   - debug
-   into field_readiness_latest
-✅ Centralized doc preserved as the same truth path tiles/details use
-
-NEW IN THIS REV:
-✅ Reads backend debug fields from field_readiness_latest:
-   - sourceMode
-   - seedSource
-   - seedStorage
-   - startIdx
-   - debug.*
-✅ Shows compact mobile-friendly debug line in Quick View weather meta
-✅ Helps diagnose centralized mismatch without opening Firestore
+THIS REV:
+✅ CRITICAL FIX: Quick View model recompute now uses runFieldReadiness(...)
+   instead of calling model.runField(...) directly
+✅ This forces the proper formula.js model-weather prewarm path
+✅ Quick View live preview now follows the same MRMS/Open-Meteo selection logic
+   used by formula.js
+✅ Save & Close now also writes centralized readiness from runFieldReadiness(...)
+   so field_readiness_latest is no longer rewritten from the wrong model path
+✅ Keeps existing UI / modal / map / save behavior intact
 
 NOTES:
 - While sliders are moving, Quick View shows LIVE PREVIEW from the model.
 - Before any slider movement, Quick View still shows centralized readiness.
 - After Save & Close, centralized readiness is rewritten so the rest of the app
-  sees the updated number from Firestore, including centralized history arrays.
+  sees the updated number from Firestore.
+
 ===================================================================== */
 'use strict';
 
@@ -111,180 +96,6 @@ function toIsoFromAny(v){
     }
   }catch(_){}
   return '';
-}
-function sanitizeForWrite(value){
-  if (value === undefined) return null;
-  if (value === null) return null;
-
-  const t = typeof value;
-  if (t === 'string' || t === 'boolean') return value;
-  if (t === 'number') return Number.isFinite(value) ? value : null;
-
-  if (Array.isArray(value)){
-    return value.map(v => sanitizeForWrite(v));
-  }
-
-  if (t === 'object'){
-    const out = {};
-    for (const [k, v] of Object.entries(value)){
-      if (v === undefined) continue;
-      out[k] = sanitizeForWrite(v);
-    }
-    return out;
-  }
-
-  return null;
-}
-function normalizeLatestModelRows(rawRows){
-  const rows = Array.isArray(rawRows) ? rawRows : [];
-  return rows.map((r)=>({
-    ...r,
-    dateISO: safeISO10(r && r.dateISO),
-    rainInAdj: safeNum(r && r.rainInAdj) ?? safeNum(r && r.rainIn) ?? 0,
-    rainIn: safeNum(r && r.rainIn) ?? safeNum(r && r.rainInAdj) ?? 0,
-    rainMrmsIn: safeNum(r && r.rainMrmsIn),
-    rainMrmsMm: safeNum(r && r.rainMrmsMm),
-    rainSource: safeStr(r && r.rainSource),
-    tempF: safeNum(r && r.tempF),
-    temp: safeNum(r && r.tempF) ?? safeNum(r && r.temp),
-    windMph: safeNum(r && r.windMph),
-    wind: safeNum(r && r.windMph) ?? safeNum(r && r.wind),
-    rh: safeNum(r && r.rh),
-    solarWm2: safeNum(r && r.solarWm2),
-    solar: safeNum(r && r.solarWm2) ?? safeNum(r && r.solar),
-    et0In: safeNum(r && r.et0In) ?? safeNum(r && r.et0),
-    et0: safeNum(r && r.et0In) ?? safeNum(r && r.et0),
-    sm010: safeNum(r && r.sm010),
-    st010F: safeNum(r && r.st010F),
-    tempN: safeNum(r && r.tempN),
-    windN: safeNum(r && r.windN),
-    rhN: safeNum(r && r.rhN),
-    solarN: safeNum(r && r.solarN),
-    vpdKpa: safeNum(r && r.vpdKpa) ?? safeNum(r && r.vpd),
-    vpd: safeNum(r && r.vpdKpa) ?? safeNum(r && r.vpd),
-    vpdN: safeNum(r && r.vpdN),
-    cloudPct: safeNum(r && r.cloudPct) ?? safeNum(r && r.cloud),
-    cloud: safeNum(r && r.cloudPct) ?? safeNum(r && r.cloud),
-    cloudN: safeNum(r && r.cloudN),
-    raw: safeNum(r && r.raw),
-    dryPwr: safeNum(r && r.dryPwr),
-    smN_day: safeNum(r && r.smN_day)
-  }));
-}
-function normalizeLatestTankTrace(rawTrace){
-  const rows = Array.isArray(rawTrace) ? rawTrace : [];
-  return rows.map((t)=>({
-    ...t,
-    dateISO: safeISO10(t && t.dateISO),
-    before: safeNum(t && t.before) ?? 0,
-    after: safeNum(t && t.after) ?? 0,
-    rain: safeNum(t && t.rain) ?? 0,
-    rainSource: safeStr(t && t.rainSource),
-    rainEff: safeNum(t && t.rainEff) ?? 0,
-    infilMult: safeNum(t && t.infilMult) ?? 0,
-    addRain: safeNum(t && t.addRain) ?? 0,
-    addSm: safeNum(t && t.addSm) ?? 0,
-    add: safeNum(t && t.add) ?? 0,
-    lossBase: safeNum(t && t.lossBase) ?? 0,
-    stateDryMult: safeNum(t && t.stateDryMult) ?? 0,
-    dryTailMultApplied: safeNum(t && t.dryTailMultApplied) ?? 0,
-    loss: safeNum(t && t.loss) ?? 0,
-    dryPwr: safeNum(t && t.dryPwr) ?? 0,
-    et0N: safeNum(t && t.et0N),
-    smN_day: safeNum(t && t.smN_day)
-  }));
-}
-function buildModelRowsPayload(rows){
-  const list = Array.isArray(rows) ? rows : [];
-  return sanitizeForWrite(
-    list.map(r => ({
-      dateISO: safeISO10(r && r.dateISO),
-      dryPwr: safeNum(r && r.dryPwr),
-      et0In: safeNum(r && r.et0In) ?? safeNum(r && r.et0),
-      et0N: safeNum(r && r.et0N),
-      rainInAdj: safeNum(r && r.rainInAdj) ?? safeNum(r && r.rainIn) ?? 0,
-      rainMrmsIn: safeNum(r && r.rainMrmsIn),
-      rainMrmsMm: safeNum(r && r.rainMrmsMm),
-      rainSource: safeStr(r && r.rainSource),
-      rh: safeNum(r && r.rh),
-      rhN: safeNum(r && r.rhN),
-      sm010: safeNum(r && r.sm010),
-      smN_day: safeNum(r && r.smN_day),
-      solarWm2: safeNum(r && r.solarWm2) ?? safeNum(r && r.solar),
-      solarN: safeNum(r && r.solarN),
-      tempF: safeNum(r && r.tempF) ?? safeNum(r && r.temp),
-      tempN: safeNum(r && r.tempN),
-      vpdKpa: safeNum(r && r.vpdKpa) ?? safeNum(r && r.vpd),
-      vpdN: safeNum(r && r.vpdN),
-      cloudPct: safeNum(r && r.cloudPct) ?? safeNum(r && r.cloud),
-      cloudN: safeNum(r && r.cloudN),
-      windMph: safeNum(r && r.windMph) ?? safeNum(r && r.wind),
-      windN: safeNum(r && r.windN),
-      raw: safeNum(r && r.raw)
-    }))
-  );
-}
-function buildTankTracePayload(trace){
-  const list = Array.isArray(trace) ? trace : [];
-  return sanitizeForWrite(
-    list.map(t => ({
-      dateISO: safeISO10(t && t.dateISO),
-      before: safeNum(t && t.before),
-      after: safeNum(t && t.after),
-      rain: safeNum(t && t.rain),
-      rainSource: safeStr(t && t.rainSource),
-      rainEff: safeNum(t && t.rainEff),
-      infilMult: safeNum(t && t.infilMult),
-      addRain: safeNum(t && t.addRain),
-      addSm: safeNum(t && t.addSm),
-      add: safeNum(t && t.add),
-      lossBase: safeNum(t && t.lossBase),
-      stateDryMult: safeNum(t && t.stateDryMult),
-      dryTailMultApplied: safeNum(t && t.dryTailMultApplied),
-      loss: safeNum(t && t.loss),
-      dryPwr: safeNum(t && t.dryPwr),
-      et0N: safeNum(t && t.et0N),
-      smN_day: safeNum(t && t.smN_day)
-    }))
-  );
-}
-function buildDebugPayload(run, existingLatest){
-  const r = safeObj(run) || {};
-  const latest = safeObj(existingLatest) || null;
-  const dbgTop = safeObj(r.debug) || null;
-  const latestDbg = safeObj(latest && latest.debug) || null;
-
-  return sanitizeForWrite({
-    branch:
-      safeStr(dbgTop && dbgTop.branch) ||
-      'quickview-save',
-    sourceMode:
-      safeStr(r.sourceMode) ||
-      safeStr(dbgTop && dbgTop.sourceMode) ||
-      safeStr(latest && latest.sourceMode),
-    seedSource:
-      safeStr(r.seedSource) ||
-      safeStr(dbgTop && dbgTop.seedSource) ||
-      'quickview-save',
-    seedStorage:
-      safeNum(r.seedStorage) ??
-      safeNum(dbgTop && dbgTop.seedStorage) ??
-      safeNum(latest && latest.seedStorage),
-    startIdx:
-      safeNum(r.startIdx) ??
-      safeNum(dbgTop && dbgTop.startIdx) ??
-      safeNum(latest && latest.startIdx),
-    baselineRain7:
-      safeNum(dbgTop && dbgTop.baselineRain7) ??
-      safeNum(latestDbg && latestDbg.baselineRain7),
-    baselineRainNudge:
-      safeNum(dbgTop && dbgTop.baselineRainNudge) ??
-      safeNum(latestDbg && latestDbg.baselineRainNudge),
-    debug:
-      dbgTop && safeObj(dbgTop.debug)
-        ? dbgTop.debug
-        : (latestDbg && safeObj(latestDbg.debug) ? latestDbg.debug : null)
-  });
 }
 
 async function loadPersistedState(state, { force=false } = {}){
@@ -393,23 +204,14 @@ function buildLatestReadinessRecord(raw, fallbackId){
     wetBiasApplied: safeNum(d.wetBiasApplied),
     runKey: safeStr(d.runKey),
     seedSource: safeStr(d.seedSource),
-    seedStorage: safeNum(d.seedStorage),
-    startIdx: safeNum(d.startIdx),
-    sourceMode: safeStr(d.sourceMode),
     weatherSource: safeStr(d.weatherSource),
     timezone: safeStr(d.timezone),
-    status: safeStr(d.status),
-    reason: safeStr(d.reason),
-    asOfDateISO: safeISO10(d.asOfDateISO),
     computedAtISO: toIsoFromAny(d.computedAt),
     weatherFetchedAtISO: toIsoFromAny(d.weatherFetchedAt),
     location: {
       lat: safeNum(d && d.location && d.location.lat),
       lng: safeNum(d && d.location && d.location.lng)
     },
-    debug: safeObj(d.debug) || null,
-    modelRows: normalizeLatestModelRows(d.modelRows),
-    tankTrace: normalizeLatestTankTrace(d.tankTrace),
     _raw: d
   };
 }
@@ -485,10 +287,6 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
   const rec = latestRec || getLatestReadinessForField(state, f.id);
   if (!rec) return null;
 
-  if (String(rec.status || '').toLowerCase() === 'waiting_for_weather_cache'){
-    return null;
-  }
-
   const readinessR = safeInt(rec.readiness);
   if (!Number.isFinite(readinessR)) return null;
 
@@ -522,24 +320,17 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
     wetBiasApplied: safeNum(rec.wetBiasApplied),
     runKey: safeStr(rec.runKey),
     seedSource: safeStr(rec.seedSource),
-    seedStorage: safeNum(rec.seedStorage),
-    startIdx: safeNum(rec.startIdx),
-    sourceMode: safeStr(rec.sourceMode),
     weatherSource: safeStr(rec.weatherSource),
     timezone: safeStr(rec.timezone),
     computedAtISO: safeStr(rec.computedAtISO),
     weatherFetchedAtISO: safeStr(rec.weatherFetchedAtISO),
     county: safeStr(rec.county || f.county),
     state: safeStr(rec.state || f.state),
-    status: safeStr(rec.status),
-    reason: safeStr(rec.reason),
-    asOfDateISO: safeStr(rec.asOfDateISO),
     factors: {
       Smax: storageCap
     },
-    trace: Array.isArray(rec.tankTrace) ? rec.tankTrace : [],
-    rows: Array.isArray(rec.modelRows) ? rec.modelRows : [],
-    debug: safeObj(rec.debug) || null,
+    trace: [],
+    rows: [],
     _latest: rec
   };
 }
@@ -640,10 +431,7 @@ function buildLatestPayloadFromRun(state, field, run){
       safeNum(latestExisting && latestExisting.wetBiasApplied),
 
     runKey: safeStr(r.runKey) || 'quickview-save',
-    seedSource: safeStr(r.seedSource) || 'quickview-save',
-    seedStorage: safeNum(r.seedStorage) ?? safeNum(latestExisting && latestExisting.seedStorage),
-    startIdx: safeNum(r.startIdx) ?? safeNum(latestExisting && latestExisting.startIdx),
-    sourceMode: safeStr(r.sourceMode) || safeStr(latestExisting && latestExisting.sourceMode),
+    seedSource: 'quickview-save',
     weatherSource: getModelWeatherSourceValue(r),
     timezone:
       safeStr(r.timezone) ||
@@ -653,11 +441,7 @@ function buildLatestPayloadFromRun(state, field, run){
     weatherFetchedAt: (info && info.fetchedAt) ? new Date(info.fetchedAt) : new Date(nowIso),
     computedAt: new Date(nowIso),
 
-    location,
-
-    modelRows: buildModelRowsPayload(r.rows),
-    tankTrace: buildTankTracePayload(r.trace),
-    debug: buildDebugPayload(r, latestExisting)
+    location
   };
 }
 
@@ -925,54 +709,6 @@ function getModelRainSourceLabel(run){
     return 'Open-Meteo';
   }catch(_){
     return 'Open-Meteo';
-  }
-}
-
-function getDebugLineFromLatest(latestRec){
-  try{
-    const rec = latestRec || null;
-    if (!rec) return '';
-
-    const dbgTop = safeObj(rec.debug) || null;
-    const dbgInner = safeObj(dbgTop && dbgTop.debug) || null;
-
-    const parts = [];
-
-    const sourceMode =
-      safeStr(rec.sourceMode) ||
-      safeStr(dbgTop && dbgTop.sourceMode) ||
-      safeStr(dbgInner && dbgInner.sourceMode);
-
-    const seedSource =
-      safeStr(rec.seedSource) ||
-      safeStr(dbgTop && dbgTop.seedSource) ||
-      safeStr(dbgInner && dbgInner.seedSource);
-
-    const seedStorage =
-      safeNum(rec.seedStorage) ??
-      safeNum(dbgTop && dbgTop.seedStorage) ??
-      safeNum(dbgInner && dbgInner.seedStorage);
-
-    const startIdx =
-      safeNum(rec.startIdx) ??
-      safeNum(dbgTop && dbgTop.startIdx) ??
-      safeNum(dbgInner && dbgInner.startIdx);
-
-    const rowCount = safeNum(dbgInner && dbgInner.rowCount);
-    const lastDateISO = safeStr(dbgInner && dbgInner.lastDateISO);
-    const lastRainSource = safeStr(dbgInner && dbgInner.lastRainSource);
-
-    if (sourceMode) parts.push(`mode ${sourceMode}`);
-    if (seedSource) parts.push(`seed ${seedSource}`);
-    if (seedStorage != null) parts.push(`seedTank ${Number(seedStorage).toFixed(2)}`);
-    if (startIdx != null) parts.push(`start ${Math.round(Number(startIdx))}`);
-    if (rowCount != null) parts.push(`rows ${Math.round(Number(rowCount))}`);
-    if (lastDateISO) parts.push(`last ${lastDateISO}`);
-    if (lastRainSource) parts.push(`rain ${lastRainSource}`);
-
-    return parts.join(' • ');
-  }catch(_){
-    return '';
   }
 }
 
@@ -1377,12 +1113,16 @@ async function fillQuickView(state, { live=false } = {}){
     persistedGetter: (id)=> getPersistedStateForDeps(state, id)
   });
 
+  // ✅ CRITICAL FIX:
+  // Always use formula.js entry point so model weather is properly prewarmed
+  // and MRMS-vs-Open-Meteo selection stays consistent with the app.
   const runTruth = await runFieldReadiness(state, f, {
     opKey,
     wxCtx,
     persistedGetter: (id)=> getPersistedStateForDeps(state, id)
   });
 
+  // Centralized doc remains default when modal first opens.
   const latestRec = getLatestReadinessForField(state, fid);
   const latestRun = buildSyntheticRunFromLatest(state, f, latestRec);
 
@@ -1487,15 +1227,13 @@ async function fillQuickView(state, { live=false } = {}){
     const centralR = (latestRun && isFinite(Number(latestRun.readinessR))) ? Number(latestRun.readinessR) : null;
     const shownR = (displayRun && isFinite(Number(displayRun.readinessR))) ? Number(displayRun.readinessR) : null;
     const rainSource = getModelRainSourceLabel(runTruth);
-    const debugLine = getDebugLineFromLatest(latestRec);
 
     wxMeta.innerHTML =
       `Weather updated: <span class="mono">${esc(whenTxt)}</span>` +
       ` • Model rain: <span class="mono">${esc(rainSource)}</span>` +
       (shownR != null ? ` • Shown: <span class="mono">${shownR}</span>` : ``) +
       (centralR != null ? ` • Centralized: <span class="mono">${centralR}</span>` : ``) +
-      (truthR != null ? ` • Model: <span class="mono">${truthR}</span>` : ``) +
-      (debugLine ? `<br><span class="mono" style="opacity:.92;">Debug: ${esc(debugLine)}</span>` : ``);
+      (truthR != null ? ` • Model: <span class="mono">${truthR}</span>` : ``);
   }
 
   const pe = $('frQvParamExplain');
@@ -1569,6 +1307,10 @@ async function saveAndClose(state){
       }, { merge:true });
     }
 
+    // Recompute centralized readiness using the NEW saved slider values.
+    // ✅ CRITICAL FIX:
+    // Use runFieldReadiness(...) so formula.js prewarm/model-weather selection
+    // is applied before writing field_readiness_latest.
     await ensureFRModules(state);
     await loadPersistedState(state, { force:true });
 
