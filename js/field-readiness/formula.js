@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/formula.js  (FULL FILE)
-Rev: 2026-03-21a-support-incremental-model-seeding
+Rev: 2026-03-22b-full-history-model-weather-no-incremental-trim
 
 PURPOSE:
 ✅ Single source of truth for Field Readiness computation wiring.
@@ -31,11 +31,17 @@ THIS REV:
       2) field_readiness_latest
       3) field doc values
       4) hard defaults
-✅ NEW: model weather prewarm now supports incremental replay:
-      if persisted truth date exists inside current history window, only rows
-      from that asOf date forward are handed to the model
-✅ NEW: if persisted truth date is older than available weather rows, model
-      still seeds from persisted storage and replays available rows cleanly
+
+CRITICAL FIX IN THIS REV:
+✅ REMOVES display-path incremental weather trim
+✅ Model weather rows now always use the FULL available history window
+✅ Persisted truth still seeds storage/state, but no longer chops rows down to
+   persisted asOfDateISO for UI/readiness display paths
+✅ This prevents:
+   - start 1
+   - rows 1
+   - last today only
+   - empty/near-empty tank traces
 
 This module:
 - Ensures model/weather/forecast modules are loaded
@@ -426,19 +432,12 @@ function overlayMrmsRainOntoWeatherRows(baseRows, mrmsDoc){
   });
 }
 
+/* =====================================================================
+   FULL HISTORY ONLY
+===================================================================== */
 function maybeTrimRowsToPersistedWindow(baseRows, persistedState){
-  const rows = Array.isArray(baseRows) ? baseRows.slice() : [];
-  if (!rows.length) return rows;
-
-  const asOf = safeISO10(persistedState && persistedState.asOfDateISO);
-  if (!asOf) return rows;
-
-  const idx = rows.findIndex(r => safeISO10(r && r.dateISO) === asOf);
-  if (idx >= 0){
-    return rows.slice(idx);
-  }
-
-  return rows;
+  void persistedState;
+  return Array.isArray(baseRows) ? baseRows.slice() : [];
 }
 
 async function buildModelWeatherSeriesForFieldId(state, fieldId, wxCtx){
@@ -574,10 +573,8 @@ export function buildFRDeps(state, { opKey=null, wxCtx=null, persistedGetter=nul
       const hit = state._frModelWxCache.get(cacheKey);
       if (hit && Array.isArray(hit.rows)) return hit.rows;
 
-      const persisted = getPersistedState(fid);
       const rawRows = state._mods.weather.getWeatherSeriesForFieldId(fid, okWxCtx);
-      const trimmedRows = maybeTrimRowsToPersistedWindow(rawRows, persisted);
-      const rows = withRainSource(trimmedRows, 'open-meteo');
+      const rows = withRainSource(rawRows, 'open-meteo');
 
       state._frModelWxCache.set(cacheKey, { rows, mode:'open-meteo', mrmsReady:false });
       return rows;
@@ -589,10 +586,8 @@ export function buildFRDeps(state, { opKey=null, wxCtx=null, persistedGetter=nul
       const hit = state._frModelWxCache.get(cacheKey);
       if (hit && Array.isArray(hit.rows)) return hit.rows;
 
-      const persisted = getPersistedState(fid);
       const rawRows = state._mods.weather.getWeatherSeriesForFieldId(fid, okWxCtx);
-      const trimmedRows = maybeTrimRowsToPersistedWindow(rawRows, persisted);
-      return withRainSource(trimmedRows, 'open-meteo');
+      return withRainSource(rawRows, 'open-meteo');
     },
 
     getFieldParams: (fid)=>{
