@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-18a-add-field-name-search-filter
+Rev: 2026-03-21b-fix-details-stale-selection-and-eta-debug
 
 GOAL (per Dane):
 ✅ Read ALL displayed readiness numbers from Firestore collection:
@@ -16,11 +16,6 @@ GOAL (per Dane):
 ✅ Restore dynamic readiness gradient based on operation threshold
 ✅ PREP: pass centralized latest truth context cleanly into ETA path
 ✅ FIX: stop converting blank ETA failures into fake ~1h
-✅ FIX: only force ~1h when model explicitly returns 0h / dryNow while
-   latest readiness is still below threshold
-✅ NEW: add ETA debug logging + per-field debug cache on window.__FV_FR
-✅ NEW: unresolved ETA now shows "ETA ?" instead of silently collapsing
-   into a fake 1h value
 ✅ FIX: placeholder backend docs with status waiting_for_weather_cache
    are ignored by tile synthetic readiness path
 ✅ FIX: remove duplicate readinessR declaration bug
@@ -29,13 +24,17 @@ GOAL (per Dane):
    saved / fresh default page size instead of behaving like All
 ✅ NEW: field-name search filter tied to #fieldSearch input
 ✅ NEW: search filters rendered field tiles by field name only
+✅ NEW: details render now guards against stale async selection drift
+✅ NEW: contradictory ETA 0h/dryNow no longer becomes fake ~1h
+✅ NEW: contradictory ETA now shows ETA DEBUG so mismatch is visible
 ✅ No trimmed sections
 
 IMPORTANT ETA CHANGE:
-- Before this rev, blank ETA + below-threshold could visually become ~1h.
+- Before this rev, contradictory 0h / dryNow while latest truth was still
+  below threshold could become ~1h.
 - Now:
    * real model ETA result -> show real ETA
-   * explicit contradictory 0h / dryNow -> force ~1h
+   * contradictory 0h / dryNow -> show "ETA DEBUG"
    * missing forecast / error / blank -> show "ETA ?"
 ===================================================================== */
 'use strict';
@@ -1295,27 +1294,7 @@ function isZeroEtaLike(txt){
   );
 }
 
-function forceNonZeroEtaText(txt, readinessNow, thr){
-  const s = String(txt || '').trim();
-  const ready = Number(readinessNow);
-  const threshold = Number(thr);
-
-  if (!Number.isFinite(ready) || !Number.isFinite(threshold)) return s;
-  if (ready >= threshold) return s;
-
-  // IMPORTANT FIX:
-  // blank is NOT the same as zero; blank means unresolved/failure/no forecast.
-  if (!s) return '';
-
-  if (isZeroEtaLike(s)) return '~1h';
-
-  const h = parseEtaHoursFromText(s);
-  if (Number.isFinite(h) && h <= 0) return '~1h';
-
-  return s;
-}
-
-function shouldForceOneHourEta(res, txt, readinessNow, thr){
+function shouldShowEtaDebug(res, txt, readinessNow, thr){
   const ready = Number(readinessNow);
   const threshold = Number(thr);
   if (!Number.isFinite(ready) || !Number.isFinite(threshold)) return false;
@@ -1335,10 +1314,11 @@ function shouldForceOneHourEta(res, txt, readinessNow, thr){
     return false;
   }
 
-  return (
-    status === 'drynow' ||
-    ((status === 'ok' || status === 'reached' || status === 'within' || status === 'within72') && Number.isFinite(hours) && hours === 0)
-  );
+  if (status === 'drynow') return true;
+  if ((status === 'ok' || status === 'reached' || status === 'within' || status === 'within72') && Number.isFinite(hours) && hours === 0) return true;
+  if (isZeroEtaLike(txt)) return true;
+
+  return false;
 }
 
 function buildEtaFailureText(res, readinessNow, thr){
@@ -1385,7 +1365,7 @@ function getEtaCacheValue(state, key, { readinessNow=null, threshold=null } = {}
     const ready = Number(readinessNow);
     const thr = Number(threshold);
 
-    if (Number.isFinite(ready) && Number.isFinite(thr) && ready < thr && isZeroEtaLike(txt)){
+    if (Number.isFinite(ready) && Number.isFinite(thr) && ready < thr && (isZeroEtaLike(txt) || txt === 'ETA DEBUG')){
       return null;
     }
 
@@ -1515,7 +1495,6 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
     });
 
     if (cached){
-      const outCached = forceNonZeroEtaText(cached, authoritativeReadiness, thr) || cached;
       setEtaDebug(state, fid, {
         phase: 'cache-hit',
         readinessNow,
@@ -1525,9 +1504,9 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
         latestWeatherFetchedAtISO: safeStr(latest && latest.weatherFetchedAtISO),
         latestStoragePhysFinal: safeNum(latest && latest.storagePhysFinal),
         latestStorageFinal: safeNum(latest && latest.storageFinal),
-        outText: outCached
+        outText: cached
       });
-      return outCached;
+      return cached;
     }
 
     await ensureFRModules(state);
@@ -1591,10 +1570,8 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
       txt = `>${HORIZON_HOURS}h`;
     }
 
-    if (shouldForceOneHourEta(res, txt, authoritativeReadiness, thr)){
-      txt = '~1h';
-    } else {
-      txt = forceNonZeroEtaText(txt, authoritativeReadiness, thr);
+    if (shouldShowEtaDebug(res, txt, authoritativeReadiness, thr)){
+      txt = 'ETA DEBUG';
     }
 
     if (!txt){
@@ -2182,8 +2159,6 @@ async function _renderTilesInternal(state){
       ? filteredExisting.length
       : Math.min(filteredExisting.length, effectivePageSize);
 
-    // ✅ If DOM tile count does not match what this view should show,
-    // force a full rebuild instead of reusing stale tiles.
     if (tiles.length === desiredCount){
       const ids = tiles
         .slice(0, desiredCount)
@@ -2603,8 +2578,19 @@ async function _renderDetailsInternal(state){
   ensureFieldsCountHelperEl();
   await loadLatestReadiness(state, { force:false });
 
-  const f = state.fields.find(x=>x.id === state.selectedFieldId);
+  const selectedFieldIdAtStart = String(state && state.selectedFieldId || '');
+  const f = state.fields.find(x=>x.id === selectedFieldIdAtStart);
   if (!f) return;
+
+  const renderToken = `${selectedFieldIdAtStart}__${Date.now()}`;
+  state._detailsRenderToken = renderToken;
+
+  function stillCurrent(){
+    return (
+      String(state && state._detailsRenderToken || '') === renderToken &&
+      String(state && state.selectedFieldId || '') === selectedFieldIdAtStart
+    );
+  }
 
   updateDetailsHeaderPanel(state);
 
@@ -2624,10 +2610,14 @@ async function _renderDetailsInternal(state){
     await loadPersistedState(state, { force:false });
     const opKey = getCurrentOp();
     await warmWeatherForFieldSet(state, [f]);
+    if (!stillCurrent()) return;
     run = await computeDeepModelRunForField(state, f, opKey);
+    if (!stillCurrent()) return;
   }catch(e){
     console.warn('[FieldReadiness] details deep model load failed:', e);
   }
+
+  if (!stillCurrent()) return;
 
   renderBetaInputs(state);
 
@@ -2642,6 +2632,8 @@ async function _renderDetailsInternal(state){
       if (dbgTrace.length) traceDisplay = dbgTrace;
     }catch(_){}
   }
+
+  if (!stillCurrent()) return;
 
   const trb = $('traceRows');
   if (trb){
@@ -2742,6 +2734,8 @@ async function _renderDetailsInternal(state){
         const fc = state && state._mods ? state._mods.forecast : null;
         if (fc && typeof fc.readWxSeriesFromCache === 'function'){
           const wx = await fc.readWxSeriesFromCache(String(f.id), {});
+          if (!stillCurrent()) return;
+
           const fcst = Array.isArray(wx?.fcst)
             ? wx.fcst.map(r => ({
                 ...r,
@@ -2778,9 +2772,11 @@ async function _renderDetailsInternal(state){
 
   try{
     const mrmsDoc = await loadFieldMrmsDoc(state, String(f.id), { force:true });
+    if (!stillCurrent()) return;
     renderMrmsPanelFromDoc(mrmsDoc);
   }catch(e){
     console.warn('[FieldReadiness] MRMS render failed:', e);
+    if (!stillCurrent()) return;
     renderMrmsPanelEmpty('MRMS data could not be loaded.');
   }
 }
