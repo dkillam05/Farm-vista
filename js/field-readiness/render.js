@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-22a-use-centralized-history-first-and-fix-details-alignment
+Rev: 2026-03-18a-add-field-name-search-filter
 
 GOAL (per Dane):
 ✅ Read ALL displayed readiness numbers from Firestore collection:
@@ -9,13 +9,18 @@ GOAL (per Dane):
 ✅ Make tile loading / sorting much faster by avoiding heavy per-field
    model weather computation during list rendering
 ✅ Keep MRMS rain range support
-✅ Keep details / trace / weather panels supported
+✅ Keep details / trace / weather panels supported as a secondary view
 ✅ Restore ETA helper on tiles using forecast path
 ✅ Cap ETA horizon to 1 week / 168 hours
 ✅ Show ETA as compact hours or >168h
 ✅ Restore dynamic readiness gradient based on operation threshold
 ✅ PREP: pass centralized latest truth context cleanly into ETA path
 ✅ FIX: stop converting blank ETA failures into fake ~1h
+✅ FIX: only force ~1h when model explicitly returns 0h / dryNow while
+   latest readiness is still below threshold
+✅ NEW: add ETA debug logging + per-field debug cache on window.__FV_FR
+✅ NEW: unresolved ETA now shows "ETA ?" instead of silently collapsing
+   into a fake 1h value
 ✅ FIX: placeholder backend docs with status waiting_for_weather_cache
    are ignored by tile synthetic readiness path
 ✅ FIX: remove duplicate readinessR declaration bug
@@ -24,18 +29,14 @@ GOAL (per Dane):
    saved / fresh default page size instead of behaving like All
 ✅ NEW: field-name search filter tied to #fieldSearch input
 ✅ NEW: search filters rendered field tiles by field name only
-✅ NEW: details render now guards against stale async selection drift
-✅ NEW: contradictory ETA 0h/dryNow no longer becomes fake ~1h
-✅ NEW: contradictory ETA now shows ETA DEBUG so mismatch is visible
+✅ No trimmed sections
 
-CRITICAL FIXES IN THIS REV:
-✅ Details panel now uses centralized field_readiness_latest history FIRST:
-   - modelRows
-   - tankTrace
-✅ buildSyntheticRunFromLatest no longer throws away centralized rows/trace
-✅ If centralized history exists, details no longer recompute a different path
-✅ Deep model fallback only runs when centralized history is missing
-✅ Weather + trace + top readiness can now stay aligned and believable
+IMPORTANT ETA CHANGE:
+- Before this rev, blank ETA + below-threshold could visually become ~1h.
+- Now:
+   * real model ETA result -> show real ETA
+   * explicit contradictory 0h / dryNow -> force ~1h
+   * missing forecast / error / blank -> show "ETA ?"
 ===================================================================== */
 'use strict';
 
@@ -223,70 +224,6 @@ function setEtaDebug(state, fieldId, payload){
 }
 
 /* =====================================================================
-   Centralized history normalizers
-===================================================================== */
-function normalizeLatestModelRows(rawRows){
-  const rows = Array.isArray(rawRows) ? rawRows : [];
-  return rows.map((r)=>({
-    ...r,
-    dateISO: safeISO10(r && r.dateISO),
-    rainInAdj: safeNum(r && r.rainInAdj) ?? safeNum(r && r.rainIn) ?? 0,
-    rainIn: safeNum(r && r.rainIn) ?? safeNum(r && r.rainInAdj) ?? 0,
-    rainMrmsIn: safeNum(r && r.rainMrmsIn),
-    rainMrmsMm: safeNum(r && r.rainMrmsMm),
-    rainSource: safeStr(r && r.rainSource),
-    tempF: safeNum(r && r.tempF),
-    temp: safeNum(r && r.tempF) ?? safeNum(r && r.temp),
-    windMph: safeNum(r && r.windMph),
-    wind: safeNum(r && r.windMph) ?? safeNum(r && r.wind),
-    rh: safeNum(r && r.rh),
-    solarWm2: safeNum(r && r.solarWm2),
-    solar: safeNum(r && r.solarWm2) ?? safeNum(r && r.solar),
-    et0In: safeNum(r && r.et0In) ?? safeNum(r && r.et0),
-    et0: safeNum(r && r.et0In) ?? safeNum(r && r.et0),
-    sm010: safeNum(r && r.sm010),
-    st010F: safeNum(r && r.st010F),
-    tempN: safeNum(r && r.tempN),
-    windN: safeNum(r && r.windN),
-    rhN: safeNum(r && r.rhN),
-    solarN: safeNum(r && r.solarN),
-    vpdKpa: safeNum(r && r.vpdKpa) ?? safeNum(r && r.vpd),
-    vpd: safeNum(r && r.vpdKpa) ?? safeNum(r && r.vpd),
-    vpdN: safeNum(r && r.vpdN),
-    cloudPct: safeNum(r && r.cloudPct) ?? safeNum(r && r.cloud),
-    cloud: safeNum(r && r.cloudPct) ?? safeNum(r && r.cloud),
-    cloudN: safeNum(r && r.cloudN),
-    raw: safeNum(r && r.raw),
-    dryPwr: safeNum(r && r.dryPwr),
-    smN_day: safeNum(r && r.smN_day)
-  }));
-}
-
-function normalizeLatestTankTrace(rawTrace){
-  const rows = Array.isArray(rawTrace) ? rawTrace : [];
-  return rows.map((t)=>({
-    ...t,
-    dateISO: safeISO10(t && t.dateISO),
-    before: safeNum(t && t.before) ?? 0,
-    after: safeNum(t && t.after) ?? 0,
-    rain: safeNum(t && t.rain) ?? 0,
-    rainSource: safeStr(t && t.rainSource),
-    rainEff: safeNum(t && t.rainEff) ?? 0,
-    infilMult: safeNum(t && t.infilMult) ?? 0,
-    addRain: safeNum(t && t.addRain) ?? 0,
-    addSm: safeNum(t && t.addSm) ?? 0,
-    add: safeNum(t && t.add) ?? 0,
-    lossBase: safeNum(t && t.lossBase) ?? 0,
-    stateDryMult: safeNum(t && t.stateDryMult) ?? 0,
-    dryTailMultApplied: safeNum(t && t.dryTailMultApplied) ?? 0,
-    loss: safeNum(t && t.loss) ?? 0,
-    dryPwr: safeNum(t && t.dryPwr) ?? 0,
-    et0N: safeNum(t && t.et0N),
-    smN_day: safeNum(t && t.smN_day)
-  }));
-}
-
-/* =====================================================================
    field_readiness_latest helpers
 ===================================================================== */
 function buildLatestReadinessRecord(raw, fallbackId){
@@ -314,29 +251,19 @@ function buildLatestReadinessRecord(raw, fallbackId){
     storageFinal: safeNum(d.storageFinal),
     storageForReadiness: safeNum(d.storageForReadiness),
     storagePhysFinal: safeNum(d.storagePhysFinal),
-    storageMax: safeNum(d.storageMax),
-    storageCapacity: safeNum(d.storageCapacity),
-    storageMaxFinal: safeNum(d.storageMaxFinal),
     wetBiasApplied: safeNum(d.wetBiasApplied),
     runKey: safeStr(d.runKey),
     seedSource: safeStr(d.seedSource),
-    seedStorage: safeNum(d.seedStorage),
-    startIdx: safeNum(d.startIdx),
-    sourceMode: safeStr(d.sourceMode),
     weatherSource: safeStr(d.weatherSource),
     timezone: safeStr(d.timezone),
     status: safeStr(d.status),
     reason: safeStr(d.reason),
-    asOfDateISO: safeISO10(d.asOfDateISO),
     computedAtISO: toIsoFromAny(d.computedAt),
     weatherFetchedAtISO: toIsoFromAny(d.weatherFetchedAt),
     location: {
       lat: safeNum(d && d.location && d.location.lat),
       lng: safeNum(d && d.location && d.location.lng)
     },
-    debug: safeObj(d.debug) || null,
-    modelRows: normalizeLatestModelRows(d.modelRows),
-    tankTrace: normalizeLatestTankTrace(d.tankTrace),
     _raw: d
   };
 }
@@ -417,18 +344,6 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
   const readinessR = safeInt(rec.readiness);
   if (!Number.isFinite(readinessR)) return null;
 
-  const storageCap =
-    safeNum(rec.storageMax) ??
-    safeNum(rec.storageCapacity) ??
-    safeNum(rec.storageMaxFinal) ??
-    safeNum(rec.storagePhysFinal) ??
-    safeNum(rec.storageForReadiness) ??
-    safeNum(rec.storageFinal) ??
-    0;
-
-  const rows = Array.isArray(rec.modelRows) ? rec.modelRows : [];
-  const trace = Array.isArray(rec.tankTrace) ? rec.tankTrace : [];
-
   return {
     ok: true,
     source: 'field_readiness_latest',
@@ -444,42 +359,21 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
     storageFinal: safeNum(rec.storageFinal),
     storageForReadiness: safeNum(rec.storageForReadiness),
     storagePhysFinal: safeNum(rec.storagePhysFinal),
-    storageMax: safeNum(rec.storageMax) ?? storageCap,
-    storageCapacity: safeNum(rec.storageCapacity) ?? storageCap,
-    storageMaxFinal: safeNum(rec.storageMaxFinal) ?? storageCap,
     wetBiasApplied: safeNum(rec.wetBiasApplied),
     runKey: safeStr(rec.runKey),
     seedSource: safeStr(rec.seedSource),
-    seedStorage: safeNum(rec.seedStorage),
-    startIdx: safeNum(rec.startIdx),
-    sourceMode: safeStr(rec.sourceMode),
     weatherSource: safeStr(rec.weatherSource),
     timezone: safeStr(rec.timezone),
     status: safeStr(rec.status),
     reason: safeStr(rec.reason),
-    asOfDateISO: safeStr(rec.asOfDateISO),
     computedAtISO: safeStr(rec.computedAtISO),
     weatherFetchedAtISO: safeStr(rec.weatherFetchedAtISO),
     county: safeStr(rec.county || f.county),
     state: safeStr(rec.state || f.state),
-    factors: {
-      Smax: storageCap
-    },
-    trace,
-    rows,
-    debug: safeObj(rec.debug) || null,
+    trace: [],
+    rows: [],
     _latest: rec
   };
-}
-
-function latestRunHasUsableHistory(run){
-  try{
-    const rows = Array.isArray(run && run.rows) ? run.rows : [];
-    const trace = Array.isArray(run && run.trace) ? run.trace : [];
-    return rows.length > 1 || trace.length > 1;
-  }catch(_){
-    return false;
-  }
 }
 
 /* =====================================================================
@@ -1401,7 +1295,27 @@ function isZeroEtaLike(txt){
   );
 }
 
-function shouldShowEtaDebug(res, txt, readinessNow, thr){
+function forceNonZeroEtaText(txt, readinessNow, thr){
+  const s = String(txt || '').trim();
+  const ready = Number(readinessNow);
+  const threshold = Number(thr);
+
+  if (!Number.isFinite(ready) || !Number.isFinite(threshold)) return s;
+  if (ready >= threshold) return s;
+
+  // IMPORTANT FIX:
+  // blank is NOT the same as zero; blank means unresolved/failure/no forecast.
+  if (!s) return '';
+
+  if (isZeroEtaLike(s)) return '~1h';
+
+  const h = parseEtaHoursFromText(s);
+  if (Number.isFinite(h) && h <= 0) return '~1h';
+
+  return s;
+}
+
+function shouldForceOneHourEta(res, txt, readinessNow, thr){
   const ready = Number(readinessNow);
   const threshold = Number(thr);
   if (!Number.isFinite(ready) || !Number.isFinite(threshold)) return false;
@@ -1421,11 +1335,10 @@ function shouldShowEtaDebug(res, txt, readinessNow, thr){
     return false;
   }
 
-  if (status === 'drynow') return true;
-  if ((status === 'ok' || status === 'reached' || status === 'within' || status === 'within72') && Number.isFinite(hours) && hours === 0) return true;
-  if (isZeroEtaLike(txt)) return true;
-
-  return false;
+  return (
+    status === 'drynow' ||
+    ((status === 'ok' || status === 'reached' || status === 'within' || status === 'within72') && Number.isFinite(hours) && hours === 0)
+  );
 }
 
 function buildEtaFailureText(res, readinessNow, thr){
@@ -1472,7 +1385,7 @@ function getEtaCacheValue(state, key, { readinessNow=null, threshold=null } = {}
     const ready = Number(readinessNow);
     const thr = Number(threshold);
 
-    if (Number.isFinite(ready) && Number.isFinite(thr) && ready < thr && (isZeroEtaLike(txt) || txt === 'ETA DEBUG')){
+    if (Number.isFinite(ready) && Number.isFinite(thr) && ready < thr && isZeroEtaLike(txt)){
       return null;
     }
 
@@ -1602,6 +1515,7 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
     });
 
     if (cached){
+      const outCached = forceNonZeroEtaText(cached, authoritativeReadiness, thr) || cached;
       setEtaDebug(state, fid, {
         phase: 'cache-hit',
         readinessNow,
@@ -1611,9 +1525,9 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
         latestWeatherFetchedAtISO: safeStr(latest && latest.weatherFetchedAtISO),
         latestStoragePhysFinal: safeNum(latest && latest.storagePhysFinal),
         latestStorageFinal: safeNum(latest && latest.storageFinal),
-        outText: cached
+        outText: outCached
       });
-      return cached;
+      return outCached;
     }
 
     await ensureFRModules(state);
@@ -1677,8 +1591,10 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
       txt = `>${HORIZON_HOURS}h`;
     }
 
-    if (shouldShowEtaDebug(res, txt, authoritativeReadiness, thr)){
-      txt = 'ETA DEBUG';
+    if (shouldForceOneHourEta(res, txt, authoritativeReadiness, thr)){
+      txt = '~1h';
+    } else {
+      txt = forceNonZeroEtaText(txt, authoritativeReadiness, thr);
     }
 
     if (!txt){
@@ -1909,7 +1825,7 @@ function buildDepsForState(state, opKey){
 }
 
 /* =====================================================================
-   Optional deep model helpers (kept for details panel fallback)
+   Optional deep model helpers (kept for details panel)
 ===================================================================== */
 async function warmWeatherForFieldSet(state, fields){
   try{
@@ -2266,6 +2182,8 @@ async function _renderTilesInternal(state){
       ? filteredExisting.length
       : Math.min(filteredExisting.length, effectivePageSize);
 
+    // ✅ If DOM tile count does not match what this view should show,
+    // force a full rebuild instead of reusing stale tiles.
     if (tiles.length === desiredCount){
       const ids = tiles
         .slice(0, desiredCount)
@@ -2685,19 +2603,8 @@ async function _renderDetailsInternal(state){
   ensureFieldsCountHelperEl();
   await loadLatestReadiness(state, { force:false });
 
-  const selectedFieldIdAtStart = String(state && state.selectedFieldId || '');
-  const f = state.fields.find(x=>x.id === selectedFieldIdAtStart);
+  const f = state.fields.find(x=>x.id === state.selectedFieldId);
   if (!f) return;
-
-  const renderToken = `${selectedFieldIdAtStart}__${Date.now()}`;
-  state._detailsRenderToken = renderToken;
-
-  function stillCurrent(){
-    return (
-      String(state && state._detailsRenderToken || '') === renderToken &&
-      String(state && state.selectedFieldId || '') === selectedFieldIdAtStart
-    );
-  }
 
   updateDetailsHeaderPanel(state);
 
@@ -2710,35 +2617,22 @@ async function _renderDetailsInternal(state){
     }catch(_){}
   }
 
-  let run = latestRunHasUsableHistory(latestRun) ? latestRun : null;
-
-  if (!run){
-    try{
-      await ensureFRModules(state);
-      ensureEtaHelperModule(state);
-      await loadPersistedState(state, { force:false });
-      const opKey = getCurrentOp();
-      await warmWeatherForFieldSet(state, [f]);
-      if (!stillCurrent()) return;
-      run = await computeDeepModelRunForField(state, f, opKey);
-      if (!stillCurrent()) return;
-    }catch(e){
-      console.warn('[FieldReadiness] details deep model load failed:', e);
-    }
-  } else {
-    try{
-      await ensureFRModules(state);
-      ensureEtaHelperModule(state);
-      await loadPersistedState(state, { force:false });
-    }catch(_){}
+  let run = null;
+  try{
+    await ensureFRModules(state);
+    ensureEtaHelperModule(state);
+    await loadPersistedState(state, { force:false });
+    const opKey = getCurrentOp();
+    await warmWeatherForFieldSet(state, [f]);
+    run = await computeDeepModelRunForField(state, f, opKey);
+  }catch(e){
+    console.warn('[FieldReadiness] details deep model load failed:', e);
   }
-
-  if (!stillCurrent()) return;
 
   renderBetaInputs(state);
 
   let traceDisplay = Array.isArray(run && run.trace) ? run.trace : [];
-  if (!traceDisplay.length && run && !latestRunHasUsableHistory(latestRun)){
+  if (!traceDisplay.length && run){
     try{
       const opKey = getCurrentOp();
       const deps = buildDepsForState(state, opKey);
@@ -2748,8 +2642,6 @@ async function _renderDetailsInternal(state){
       if (dbgTrace.length) traceDisplay = dbgTrace;
     }catch(_){}
   }
-
-  if (!stillCurrent()) return;
 
   const trb = $('traceRows');
   if (trb){
@@ -2816,9 +2708,9 @@ async function _renderDetailsInternal(state){
 
       const rain = Number(r.rainInAdj ?? r.rainIn ?? 0);
       const temp = Math.round(Number(r.temp ?? r.tempF ?? 0));
-      const wind = Math.round(Number(r.wind ?? r.windMph ?? 0));
+      const wind = Math.round(Number(r.wind ?? 0));
       const rh = Math.round(Number(r.rh ?? 0));
-      const solar = Math.round(Number(r.solar ?? r.solarWm2 ?? 0));
+      const solar = Math.round(Number(r.solar ?? 0));
 
       const et0Num = (r.et0In == null ? r.et0 : r.et0In);
       const et0 = (et0Num == null ? '—' : Number(et0Num).toFixed(2));
@@ -2850,8 +2742,6 @@ async function _renderDetailsInternal(state){
         const fc = state && state._mods ? state._mods.forecast : null;
         if (fc && typeof fc.readWxSeriesFromCache === 'function'){
           const wx = await fc.readWxSeriesFromCache(String(f.id), {});
-          if (!stillCurrent()) return;
-
           const fcst = Array.isArray(wx?.fcst)
             ? wx.fcst.map(r => ({
                 ...r,
@@ -2888,11 +2778,9 @@ async function _renderDetailsInternal(state){
 
   try{
     const mrmsDoc = await loadFieldMrmsDoc(state, String(f.id), { force:true });
-    if (!stillCurrent()) return;
     renderMrmsPanelFromDoc(mrmsDoc);
   }catch(e){
     console.warn('[FieldReadiness] MRMS render failed:', e);
-    if (!stillCurrent()) return;
     renderMrmsPanelEmpty('MRMS data could not be loaded.');
   }
 }
