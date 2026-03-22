@@ -2598,7 +2598,6 @@ function renderMrmsPanelFromDoc(doc){
   }
 }
 
-/* ---------- details render (CORE) ---------- */
 async function _renderDetailsInternal(state){
   ensureFieldsCountHelperEl();
   await loadLatestReadiness(state, { force:false });
@@ -2609,67 +2608,50 @@ async function _renderDetailsInternal(state){
   updateDetailsHeaderPanel(state);
 
   const latest = getLatestReadinessForField(state, f.id);
-  const latestRun = buildSyntheticRunFromLatest(state, f, latest);
-  if (latestRun){
-    try{
-      state.lastRuns = state.lastRuns || new Map();
-      state.lastRuns.set(f.id, latestRun);
-    }catch(_){}
+  if (!latest || !latest._raw){
+    console.warn('[Details] No latest doc found');
+    return;
   }
 
-  let run = null;
-  try{
-    await ensureFRModules(state);
-    ensureEtaHelperModule(state);
-    await loadPersistedState(state, { force:false });
-    const opKey = getCurrentOp();
-    await warmWeatherForFieldSet(state, [f]);
-    run = await computeDeepModelRunForField(state, f, opKey);
-  }catch(e){
-    console.warn('[FieldReadiness] details deep model load failed:', e);
-  }
+  const d = latest._raw;
 
   renderBetaInputs(state);
 
-  let traceDisplay = Array.isArray(run && run.trace) ? run.trace : [];
-  if (!traceDisplay.length && run){
-    try{
-      const opKey = getCurrentOp();
-      const deps = buildDepsForState(state, opKey);
-      const depsDbg = { ...deps, seedMode:'rewind', rewindDays:14 };
-      const dbg = state._mods.model.runField(f, depsDbg);
-      const dbgTrace = Array.isArray(dbg && dbg.trace) ? dbg.trace : [];
-      if (dbgTrace.length) traceDisplay = dbgTrace;
-    }catch(_){}
-  }
-
+  /* ===============================
+     ✅ TANK TRACE (SAVED 30 DAYS)
+  =============================== */
   const trb = $('traceRows');
   if (trb){
     trb.innerHTML = '';
-    const rows = traceDisplay;
+    const rows = Array.isArray(d.tankTrace) ? d.tankTrace : [];
+
     if (!rows.length){
-      trb.innerHTML = `<tr><td colspan="7" class="muted">No trace rows.</td></tr>`;
+      trb.innerHTML = `<tr><td colspan="7" class="muted">No tank trace data.</td></tr>`;
     } else {
       for (const t of rows){
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td class="mono">${esc(String(t.dateISO || ''))}</td>
-          <td class="right mono">${Number(t.rain ?? 0).toFixed(2)}</td>
+          <td class="right mono">${Number(t.rainIn ?? 0).toFixed(2)}</td>
           <td class="right mono">${Number(t.infilMult ?? 0).toFixed(2)}</td>
-          <td class="right mono">${Number(t.add ?? 0).toFixed(2)}</td>
+          <td class="right mono">${Number(t.addIn ?? 0).toFixed(2)}</td>
           <td class="right mono">${Number(t.dryPwr ?? 0).toFixed(2)}</td>
-          <td class="right mono">${Number(t.loss ?? 0).toFixed(2)}</td>
-          <td class="right mono">${Number(t.before ?? 0).toFixed(2)}→${Number(t.after ?? 0).toFixed(2)}</td>
+          <td class="right mono">${Number(t.lossIn ?? 0).toFixed(2)}</td>
+          <td class="right mono">${Number(t.storageStart ?? 0).toFixed(2)}→${Number(t.storageEnd ?? 0).toFixed(2)}</td>
         `;
         trb.appendChild(tr);
       }
     }
   }
 
+  /* ===============================
+     ✅ DRY / MODEL ROWS (SAVED)
+  =============================== */
   const drb = $('dryRows');
   if (drb){
     drb.innerHTML = '';
-    const rows = Array.isArray(run && run.rows) ? run.rows : [];
+    const rows = Array.isArray(d.modelRows) ? d.modelRows : [];
+
     if (!rows.length){
       drb.innerHTML = `<tr><td colspan="15" class="muted">No rows.</td></tr>`;
     } else {
@@ -2677,17 +2659,17 @@ async function _renderDetailsInternal(state){
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td class="mono">${esc(r.dateISO)}</td>
-          <td class="right mono">${Math.round(Number(r.temp||0))}</td>
+          <td class="right mono">${Math.round(Number(r.tempF||0))}</td>
           <td class="right mono">${Number(r.tempN||0).toFixed(2)}</td>
-          <td class="right mono">${Math.round(Number(r.wind||0))}</td>
+          <td class="right mono">${Math.round(Number(r.windMph||0))}</td>
           <td class="right mono">${Number(r.windN||0).toFixed(2)}</td>
           <td class="right mono">${Math.round(Number(r.rh||0))}</td>
           <td class="right mono">${Number(r.rhN||0).toFixed(2)}</td>
-          <td class="right mono">${Math.round(Number(r.solar||0))}</td>
+          <td class="right mono">${Math.round(Number(r.solarWm2||0))}</td>
           <td class="right mono">${Number(r.solarN||0).toFixed(2)}</td>
-          <td class="right mono">${Number(r.vpd||0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.vpdKpa||0).toFixed(2)}</td>
           <td class="right mono">${Number(r.vpdN||0).toFixed(2)}</td>
-          <td class="right mono">${Math.round(Number(r.cloud||0))}</td>
+          <td class="right mono">${Math.round(Number(r.cloudPct||0))}</td>
           <td class="right mono">${Number(r.cloudN||0).toFixed(2)}</td>
           <td class="right mono">${Number(r.raw||0).toFixed(2)}</td>
           <td class="right mono">${Number(r.dryPwr||0).toFixed(2)}</td>
@@ -2697,92 +2679,44 @@ async function _renderDetailsInternal(state){
     }
   }
 
+  /* ===============================
+     ✅ WEATHER (SAVED)
+  =============================== */
   const wxb = $('wxRows');
   if (wxb){
     wxb.innerHTML = '';
-    const rows = Array.isArray(run && run.rows) ? run.rows : [];
-
-    function addWxRow(row){
-      const r = row || {};
-      const dateISO = String(r.dateISO || '').slice(0,32) || '—';
-
-      const rain = Number(r.rainInAdj ?? r.rainIn ?? 0);
-      const temp = Math.round(Number(r.temp ?? r.tempF ?? 0));
-      const wind = Math.round(Number(r.wind ?? 0));
-      const rh = Math.round(Number(r.rh ?? 0));
-      const solar = Math.round(Number(r.solar ?? 0));
-
-      const et0Num = (r.et0In == null ? r.et0 : r.et0In);
-      const et0 = (et0Num == null ? '—' : Number(et0Num).toFixed(2));
-
-      const sm010 = (r.sm010 == null ? '—' : Number(r.sm010).toFixed(3));
-      const st010F = (r.st010F == null ? '—' : String(Math.round(Number(r.st010F))));
-
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td class="mono">${esc(dateISO)}</td>
-        <td class="right mono">${rain.toFixed(2)}</td>
-        <td class="right mono">${temp}</td>
-        <td class="right mono">${wind}</td>
-        <td class="right mono">${rh}</td>
-        <td class="right mono">${solar}</td>
-        <td class="right mono">${esc(et0)}</td>
-        <td class="right mono">${esc(sm010)}</td>
-        <td class="right mono">${esc(st010F)}</td>
-      `;
-      wxb.appendChild(tr);
-    }
+    const rows = Array.isArray(d.modelRows) ? d.modelRows : [];
 
     if (!rows.length){
       wxb.innerHTML = `<tr><td colspan="9" class="muted">No weather rows.</td></tr>`;
     } else {
-      for (const r of rows) addWxRow(r);
-
-      try{
-        const fc = state && state._mods ? state._mods.forecast : null;
-        if (fc && typeof fc.readWxSeriesFromCache === 'function'){
-          const wx = await fc.readWxSeriesFromCache(String(f.id), {});
-          const fcst = Array.isArray(wx?.fcst)
-            ? wx.fcst.map(r => ({
-                ...r,
-                rainInAdj: Number.isFinite(Number(r?.rainInAdj)) ? Number(r.rainInAdj) : Number(r?.rainIn || 0),
-                rainSource: String(r?.rainSource || r?.precipSource || 'open-meteo')
-              }))
-            : [];
-
-          try{
-            state._frForecastCache = (state._frForecastCache instanceof Map) ? state._frForecastCache : new Map();
-            state._frForecastMetaByFieldId = (state._frForecastMetaByFieldId instanceof Map) ? state._frForecastMetaByFieldId : new Map();
-
-            state._frForecastCache.set(String(f.id), fcst);
-            state._frForecastMetaByFieldId.set(String(f.id), {
-              count: fcst.length,
-              updatedAt: Date.now(),
-              source: 'open-meteo'
-            });
-          }catch(_){}
-
-          if (fcst.length){
-            const div = document.createElement('tr');
-            div.innerHTML = `<td colspan="9" class="muted" style="font-weight:900;">Forecast (next 7 days)</td>`;
-            wxb.appendChild(div);
-
-            for (const d of fcst.slice(0, 7)){
-              addWxRow(d);
-            }
-          }
-        }
-      }catch(_){}
+      for (const r of rows){
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${esc(r.dateISO)}</td>
+          <td class="right mono">${Number(r.rainInAdj||0).toFixed(2)}</td>
+          <td class="right mono">${Math.round(Number(r.tempF||0))}</td>
+          <td class="right mono">${Math.round(Number(r.windMph||0))}</td>
+          <td class="right mono">${Math.round(Number(r.rh||0))}</td>
+          <td class="right mono">${Math.round(Number(r.solarWm2||0))}</td>
+          <td class="right mono">${Number(r.et0In||0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.sm010||0).toFixed(3)}</td>
+          <td class="right mono">${Math.round(Number(r.st010F||0))}</td>
+        `;
+        wxb.appendChild(tr);
+      }
     }
   }
 
-  try{
-    const mrmsDoc = await loadFieldMrmsDoc(state, String(f.id), { force:true });
-    renderMrmsPanelFromDoc(mrmsDoc);
-  }catch(e){
-    console.warn('[FieldReadiness] MRMS render failed:', e);
-    renderMrmsPanelEmpty('MRMS data could not be loaded.');
-  }
+  /* ===============================
+     ✅ MRMS (SAVED 30 DAYS)
+  =============================== */
+  renderMrmsPanelFromDoc({
+    mrmsDailySeries30d: d.mrmsDailySeries30d || [],
+    mrmsHourlyLast24: [],
+    mrmsHourlyLatest: {},
+    mrmsHistoryMeta: d.mrmsHistoryMeta || {}
+  });
 }
 
 /* ---------- details render (PUBLIC) ---------- */
