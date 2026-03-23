@@ -1,6 +1,6 @@
 /* =====================================================================
 /js/field-readiness/shared/readiness-core-shared.cjs  (FULL FILE)
-Rev: 2026-03-16b-add-explicit-storage-cap-output
+Rev: 2026-03-22c-force-full-history-from-persisted
 
 PURPOSE
 ✅ Shared PURE readiness math core for backend import
@@ -16,13 +16,8 @@ PURPOSE
    - storageMax
    - storageCapacity
    - storageMaxFinal
-
-IMPORTANT
-- This file does NOT decide whether a field should be marked
-  "waiting_for_weather_cache". That decision happens in the backend caller.
-- This file only computes readiness once the caller gives it:
-    1) weather rows, or
-    2) persisted state only
+✅ NEW: supports forceFullHistoryFromPersisted so history can seed from
+   persisted storage but still run the full 30-day loop
 ===================================================================== */
 
 'use strict';
@@ -406,7 +401,7 @@ function baselineSeedFromWindow(rowsWindow, factors){
   return { storage0, rain7, rainNudge };
 }
 
-function pickSeed(rows, factors, persistedState){
+function pickSeed(rows, factors, persistedState, opts = {}){
   if (
     persistedState &&
     Number.isFinite(Number(persistedState.storageFinal)) &&
@@ -416,10 +411,11 @@ function pickSeed(rows, factors, persistedState){
     const idx = rows.findIndex(r => String(r.dateISO || '').slice(0, 10) === asOf);
 
     if (idx >= 0){
+      const forceFull = !!opts.forceFullHistoryFromPersisted;
       return {
         seedStorage: clamp(Number(persistedState.storageFinal), 0, factors.Smax),
-        startIdx: idx + 1,
-        source: 'persisted'
+        startIdx: forceFull ? 0 : (idx + 1),
+        source: forceFull ? 'persisted-full-history' : 'persisted'
       };
     }
   }
@@ -485,7 +481,7 @@ function runFieldReadinessCore(
   const last = normalizedRows[normalizedRows.length - 1] || {};
   const factors = mapFactors(soilWetness, drainageIndex, last.sm010, extra);
 
-  const seedPick = pickSeed(normalizedRows, factors, persistedState);
+  const seedPick = pickSeed(normalizedRows, factors, persistedState, opts);
   let storage = clamp(seedPick.seedStorage, 0, factors.Smax);
 
   const trace = [];
@@ -533,16 +529,22 @@ function runFieldReadinessCore(
         before,
         after,
         rain,
+        rainIn: rain,
         rainSource: String(d.rainSource || 'unknown'),
         rainEff,
         infilMult: infilMultEff,
         addRain,
         addSm,
         add,
+        addIn: add,
         lossBase,
         stateDryMult,
         loss,
-        dryPwr: d.dryPwr
+        lossIn: loss,
+        dryPwr: d.dryPwr,
+        storageStart: before,
+        storageEnd: after,
+        storageCap: factors.Smax
       });
     }
   }
@@ -596,14 +598,14 @@ function runFieldReadinessCore(
       Smax: num(factors.Smax, 0),
       soilHold: num(factors.soilHold, 0),
       drainPoor: num(factors.drainPoor, 0),
-      storageMax: num(out.storageMax, 0)
+      storageMax: num(out.storageMax, 0),
+      forceFullHistoryFromPersisted: !!opts.forceFullHistoryFromPersisted
     }
   };
 }
 
 /* =====================================================================
    NEW: readiness from persisted storage only
-   Used when field exists but has no weather cache yet.
 ===================================================================== */
 function runReadinessFromPersistedStateOnly(
   soilWetness,
