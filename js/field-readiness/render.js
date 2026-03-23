@@ -2712,9 +2712,9 @@ async function _renderDetailsInternal(state){
      ✅ MRMS (SAVED 30 DAYS)
   =============================== */
   renderMrmsPanelFromDoc({
-    mrmsDailySeries30d: d.mrmsDailySeries30d || [],
-    mrmsHourlyLast24: [],
-    mrmsHourlyLatest: {},
+mrmsDailySeries30d: d.mrmsDailySeries30d || [],
+mrmsHourlyLast24: d.mrmsHourlyLast24 || [],
+mrmsHourlyLatest: d.mrmsHourlyLatest || {},
     mrmsHistoryMeta: d.mrmsHistoryMeta || {}
   });
 }
