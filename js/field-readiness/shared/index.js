@@ -735,12 +735,9 @@ async function writeReadinessLatest(runKey, timezone){
         const mrmsDoc = mrmsMap.get(fieldId) || null;
         const weatherRows = buildModelWeatherRowsForServer(wx, mrmsDoc);
 
-        // PRIMARY PATH: full weather-based readiness + persisted display history
         if (weatherRows.length){
-          // IMPORTANT:
-          // Use persistedState directly when available so the history trace seeds from
-          // real saved storage instead of collapsing to baseline/zero on same-day runs.
-          const historyPersistedState = (
+          // 1) Summary run seeded from persisted state when available.
+          const summaryPersistedState = (
             persistedState &&
             Number.isFinite(Number(persistedState.storageFinal)) &&
             safeISO10(persistedState.asOfDateISO)
@@ -748,11 +745,11 @@ async function writeReadinessLatest(runKey, timezone){
             ? persistedState
             : null;
 
-          const snapshot = runFieldReadinessCore(
+          const summarySnapshot = runFieldReadinessCore(
             weatherRows,
             soilWetness,
             drainageIndex,
-            historyPersistedState,
+            summaryPersistedState,
             {
               extra: EXTRA,
               tune: FV_TUNE,
@@ -761,16 +758,31 @@ async function writeReadinessLatest(runKey, timezone){
             }
           );
 
-          if (!snapshot || !Number.isFinite(Number(snapshot.readinessR))){
+          if (!summarySnapshot || !Number.isFinite(Number(summarySnapshot.readinessR))){
             fail++;
             continue;
           }
 
-          const modelRows = toPlainModelRows(
-            Array.isArray(snapshot.rows) && snapshot.rows.length ? snapshot.rows : weatherRows
-          ).slice(-30);
+          // 2) History run forced full-series so trace/rows are always present.
+          const historySnapshot = runFieldReadinessCore(
+            weatherRows,
+            soilWetness,
+            drainageIndex,
+            null,
+            {
+              extra: EXTRA,
+              tune: FV_TUNE,
+              lossScale: LOSS_SCALE,
+              includeTrace: true
+            }
+          );
 
-          const tankTrace = toPlainTankTrace(snapshot.trace).slice(-30);
+          const useHistoryRows = Array.isArray(historySnapshot && historySnapshot.rows) && historySnapshot.rows.length
+            ? historySnapshot.rows
+            : weatherRows;
+
+          const modelRows = toPlainModelRows(useHistoryRows).slice(-30);
+          const tankTrace = toPlainTankTrace(historySnapshot && historySnapshot.trace).slice(-30);
 
           const dailySeries30d = Array.isArray(wx && wx.dailySeries)
             ? wx.dailySeries.slice(-30)
@@ -794,24 +806,24 @@ async function writeReadinessLatest(runKey, timezone){
 
           batch.set(outRef, {
             ...baseDoc,
-            asOfDateISO: safeISO10(snapshot.asOfDateISO) || safeISO10((modelRows[modelRows.length - 1] || {}).dateISO) || null,
-            readiness: Number(snapshot.readinessR),
-            wetness: Number(snapshot.wetnessR),
-            storageFinal: Number(snapshot.storageFinal),
-            storagePhysFinal: Number(snapshot.storagePhysFinal),
-            readinessCreditIn: Number(snapshot.readinessCreditIn || 0),
-            storageForReadiness: Number(snapshot.storageForReadiness || 0),
+            asOfDateISO: safeISO10(summarySnapshot.asOfDateISO) || safeISO10((modelRows[modelRows.length - 1] || {}).dateISO) || null,
+            readiness: Number(summarySnapshot.readinessR),
+            wetness: Number(summarySnapshot.wetnessR),
+            storageFinal: Number(summarySnapshot.storageFinal),
+            storagePhysFinal: Number(summarySnapshot.storagePhysFinal),
+            readinessCreditIn: Number(summarySnapshot.readinessCreditIn || 0),
+            storageForReadiness: Number(summarySnapshot.storageForReadiness || 0),
 
-            storageMax: Number(snapshot.storageMax || 0),
-            storageCapacity: Number(snapshot.storageCapacity || 0),
-            storageMaxFinal: Number(snapshot.storageMaxFinal || 0),
+            storageMax: Number(summarySnapshot.storageMax || 0),
+            storageCapacity: Number(summarySnapshot.storageCapacity || 0),
+            storageMaxFinal: Number(summarySnapshot.storageMaxFinal || 0),
 
             soilWetness,
             drainageIndex,
-            seedSource: snapshot.seedSource || null,
-            seedStorage: safeNum(snapshot.seedStorage),
-            sourceMode: snapshot.sourceMode || null,
-            startIdx: safeNum(snapshot.startIdx),
+            seedSource: summarySnapshot.seedSource || null,
+            seedStorage: safeNum(summarySnapshot.seedStorage),
+            sourceMode: summarySnapshot.sourceMode || null,
+            startIdx: safeNum(summarySnapshot.startIdx),
 
             modelRows,
             tankTrace,
@@ -829,7 +841,10 @@ async function writeReadinessLatest(runKey, timezone){
             mrmsHistoryMeta: mrmsDoc && mrmsDoc.mrmsHistoryMeta ? mrmsDoc.mrmsHistoryMeta : null,
             mrmsLastUpdatedAt: mrmsDoc && mrmsDoc.mrmsLastUpdatedAt ? mrmsDoc.mrmsLastUpdatedAt : null,
 
-            debug: snapshot.debug || null,
+            debug: {
+              summary: summarySnapshot.debug || null,
+              history: historySnapshot && historySnapshot.debug ? historySnapshot.debug : null
+            },
             status: "ready",
             reason: _admin.firestore.FieldValue.delete()
           }, { merge: true });
@@ -837,7 +852,6 @@ async function writeReadinessLatest(runKey, timezone){
           writes++;
           ok++;
         }
-        // SECONDARY PATH: no weather cache, but persisted truth exists
         else if (persistedState && Number.isFinite(Number(persistedState.storageFinal))){
           const snapshot = runReadinessFromPersistedStateOnly(
             soilWetness,
@@ -875,7 +889,6 @@ async function writeReadinessLatest(runKey, timezone){
           ok++;
           provisionalFromPersisted++;
         }
-        // LAST PATH: create placeholder doc so new field is visible in collection
         else {
           const capOnly = buildStorageCapOnlySnapshot(soilWetness, drainageIndex);
 
