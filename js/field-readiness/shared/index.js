@@ -782,13 +782,7 @@ async function writeReadinessLatest(runKey, timezone){
         const historyReadiness = buildHistoryReadiness(wx, mrmsDoc, HISTORY_DAYS_REQUIRED);
 
         if (weatherRows.length){
-          const summaryPersistedState = (
-            persistedState &&
-            Number.isFinite(Number(persistedState.storageFinal)) &&
-            safeISO10(persistedState.asOfDateISO)
-          )
-            ? persistedState
-            : null;
+       const summaryPersistedState = null;
 
           const summarySnapshot = runFieldReadinessCore(
             weatherRows,
