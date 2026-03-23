@@ -764,11 +764,11 @@ async function writeReadinessLatest(runKey, timezone){
           }
 
           // 2) History run forced full-series so trace/rows are always present.
-          const historySnapshot = runFieldReadinessCore(
-            weatherRows,
-            soilWetness,
-            drainageIndex,
-            null,
+const historySnapshot = runFieldReadinessCore(
+  weatherRows,
+  soilWetness,
+  drainageIndex,
+  summaryPersistedState,
             {
               extra: EXTRA,
               tune: FV_TUNE,
