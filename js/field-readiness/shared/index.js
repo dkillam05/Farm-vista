@@ -1,13 +1,13 @@
 // /js/field-readiness/shared/index.js  (FULL FILE)
 // FarmVista Readiness Rebuilder (Cloud Run)
-// Rev: 2026-03-22f-fix-trace-seed-and-trace-mapping
+// Rev: 2026-03-23a-history-coverage-gate
 //
 // PURPOSE:
 // ✅ DOES NOT fetch Open-Meteo
 // ✅ DOES NOT write field_weather_cache
 // ✅ ONLY rebuilds field_readiness_latest
 // ✅ Uses existing field_weather_cache as primary input
-// ✅ Uses MRMS overlay when ready
+// ✅ Uses MRMS overlay when ready enough
 // ✅ Uses persisted truth from field_readiness_state
 // ✅ Uses same field param paths as frontend
 // ✅ Uses shared readiness core from readiness-core-shared.cjs
@@ -28,6 +28,8 @@
 // ✅ FIX: chunk processing + smaller batch commits to avoid heap/memory crashes
 // ✅ FIX: history run now uses persisted seed BUT still runs full 30-day loop
 // ✅ FIX: tank trace mapping now matches core trace keys
+// ✅ NEW: only writes tankTrace when 30-day weather exists AND MRMS coverage is >= 90%
+// ✅ NEW: when history inputs are incomplete, status is "processing_history"
 //
 const express = require("express");
 const {
@@ -141,6 +143,9 @@ const FV_TUNE = {
   MID_ACCEL_MAX_BOOST: Number.isFinite(Number(process.env.FV_MID_ACCEL_MAX_BOOST)) ? Number(process.env.FV_MID_ACCEL_MAX_BOOST) : 0.18,
   MID_ACCEL_EXP: Number.isFinite(Number(process.env.FV_MID_ACCEL_EXP)) ? Number(process.env.FV_MID_ACCEL_EXP) : 1.35
 };
+
+const HISTORY_DAYS_REQUIRED = 30;
+const MRMS_MIN_COVERAGE = 0.90;
 
 let _admin = null;
 let _db = null;
@@ -552,12 +557,68 @@ async function loadMrmsDocMap(){
   return out;
 }
 
+function getRecentMrmsDailyRows(mrmsDoc, days = HISTORY_DAYS_REQUIRED){
+  const rows = Array.isArray(mrmsDoc && mrmsDoc.mrmsDailySeries30d) ? mrmsDoc.mrmsDailySeries30d.slice() : [];
+  return rows.slice(-days);
+}
+
+function getMrmsCoverageStats(mrmsDoc, days = HISTORY_DAYS_REQUIRED){
+  const rows = getRecentMrmsDailyRows(mrmsDoc, days);
+  const expectedHours = days * 24;
+
+  let actualHours = 0;
+  for (const r of rows){
+    const hrs = Math.max(0, Math.min(24, Math.round(num(r && r.hoursCount, 0))));
+    actualHours += hrs;
+  }
+
+  const coverage = expectedHours > 0 ? (actualHours / expectedHours) : 0;
+
+  return {
+    daysRequired: days,
+    daysPresent: rows.length,
+    expectedHours,
+    actualHours,
+    coverage,
+    coveragePct: round(coverage * 100, 1),
+    isReady: rows.length >= days && coverage >= MRMS_MIN_COVERAGE
+  };
+}
+
+function hasSufficientWeatherHistory(wxDoc, days = HISTORY_DAYS_REQUIRED){
+  const rows = Array.isArray(wxDoc && wxDoc.dailySeries) ? wxDoc.dailySeries : [];
+  return rows.length >= days;
+}
+
+function buildHistoryReadiness(wxDoc, mrmsDoc, days = HISTORY_DAYS_REQUIRED){
+  const weatherReady = hasSufficientWeatherHistory(wxDoc, days);
+  const mrmsStats = getMrmsCoverageStats(mrmsDoc, days);
+  const ready = weatherReady && mrmsStats.isReady;
+
+  let reason = null;
+  if (!weatherReady){
+    const count = Array.isArray(wxDoc && wxDoc.dailySeries) ? wxDoc.dailySeries.length : 0;
+    reason = `Processing history: weather days ${count}/${days}.`;
+  } else if (!mrmsStats.isReady){
+    reason = `Processing history: MRMS coverage ${mrmsStats.coveragePct}% (${mrmsStats.actualHours}/${mrmsStats.expectedHours} hours).`;
+  }
+
+  return {
+    ready,
+    weatherReady,
+    mrmsStats,
+    reason
+  };
+}
+
 function buildModelWeatherRowsForServer(wxDoc, mrmsDoc){
   const baseRows = Array.isArray(wxDoc && wxDoc.dailySeries) ? wxDoc.dailySeries.slice() : [];
   if (!baseRows.length) return [];
 
-  const mrmsReady = mrmsBackfillReadyServer(mrmsDoc);
-  if (!mrmsReady){
+  const coverageReady = getMrmsCoverageStats(mrmsDoc).isReady;
+  const recentReady = mrmsBackfillReadyServer(mrmsDoc);
+
+  if (!(coverageReady || recentReady)){
     return withRainSource(baseRows, "open-meteo");
   }
 
@@ -679,6 +740,7 @@ async function writeReadinessLatest(runKey, timezone){
   let skippedNoWeather = 0;
   let placeholderOnly = 0;
   let provisionalFromPersisted = 0;
+  let processingHistory = 0;
   let totalFields = 0;
 
   const fieldEntries = Array.from(fieldsMap.entries());
@@ -717,6 +779,7 @@ async function writeReadinessLatest(runKey, timezone){
 
         const mrmsDoc = mrmsMap.get(fieldId) || null;
         const weatherRows = buildModelWeatherRowsForServer(wx, mrmsDoc);
+        const historyReadiness = buildHistoryReadiness(wx, mrmsDoc, HISTORY_DAYS_REQUIRED);
 
         if (weatherRows.length){
           const summaryPersistedState = (
@@ -745,29 +808,36 @@ async function writeReadinessLatest(runKey, timezone){
             continue;
           }
 
-          const historySnapshot = runFieldReadinessCore(
-            weatherRows,
-            soilWetness,
-            drainageIndex,
-            summaryPersistedState,
-            {
-              extra: EXTRA,
-              tune: FV_TUNE,
-              lossScale: LOSS_SCALE,
-              includeTrace: true,
-              forceFullHistoryFromPersisted: true
-            }
-          );
+          let historySnapshot = null;
+          if (historyReadiness.ready){
+            historySnapshot = runFieldReadinessCore(
+              weatherRows,
+              soilWetness,
+              drainageIndex,
+              summaryPersistedState,
+              {
+                extra: EXTRA,
+                tune: FV_TUNE,
+                lossScale: LOSS_SCALE,
+                includeTrace: true,
+                forceFullHistoryFromPersisted: true
+              }
+            );
+          } else {
+            processingHistory++;
+          }
 
-          const useHistoryRows = Array.isArray(historySnapshot && historySnapshot.rows) && historySnapshot.rows.length
+          const sourceRows = Array.isArray(historySnapshot && historySnapshot.rows) && historySnapshot.rows.length
             ? historySnapshot.rows
-            : weatherRows;
+            : (Array.isArray(summarySnapshot.rows) && summarySnapshot.rows.length ? summarySnapshot.rows : weatherRows);
 
-          const modelRows = toPlainModelRows(useHistoryRows).slice(-30);
-          const tankTrace = toPlainTankTrace(historySnapshot && historySnapshot.trace).slice(-30);
+          const modelRows = toPlainModelRows(sourceRows).slice(-HISTORY_DAYS_REQUIRED);
+          const tankTrace = historyReadiness.ready
+            ? toPlainTankTrace(historySnapshot && historySnapshot.trace).slice(-HISTORY_DAYS_REQUIRED)
+            : [];
 
           const dailySeries30d = Array.isArray(wx && wx.dailySeries)
-            ? wx.dailySeries.slice(-30)
+            ? wx.dailySeries.slice(-HISTORY_DAYS_REQUIRED)
             : [];
 
           const dailySeriesFcst = Array.isArray(wx && wx.dailySeriesFcst)
@@ -775,7 +845,7 @@ async function writeReadinessLatest(runKey, timezone){
             : [];
 
           const mrmsDailySeries30d = Array.isArray(mrmsDoc && mrmsDoc.mrmsDailySeries30d)
-            ? mrmsDoc.mrmsDailySeries30d.slice(-30)
+            ? mrmsDoc.mrmsDailySeries30d.slice(-HISTORY_DAYS_REQUIRED)
             : [];
 
           const mrmsHourlyLast24 = Array.isArray(mrmsDoc && mrmsDoc.mrmsHourlyLast24)
@@ -817,6 +887,9 @@ async function writeReadinessLatest(runKey, timezone){
               todayISO: safeISO10((dailySeries30d[dailySeries30d.length - 1] || {}).dateISO) || null
             },
 
+            historyReady: historyReadiness.ready,
+            historyCoverageMeta: historyReadiness.mrmsStats,
+
             mrmsDailySeries30d,
             mrmsHourlyLast24,
             mrmsHourlyLatest,
@@ -827,8 +900,10 @@ async function writeReadinessLatest(runKey, timezone){
               summary: summarySnapshot.debug || null,
               history: historySnapshot && historySnapshot.debug ? historySnapshot.debug : null
             },
-            status: "ready",
-            reason: _admin.firestore.FieldValue.delete()
+            status: historyReadiness.ready ? "ready" : "processing_history",
+            reason: historyReadiness.ready
+              ? _admin.firestore.FieldValue.delete()
+              : (historyReadiness.reason || "Processing history.")
           }, { merge: true });
 
           writes++;
@@ -923,6 +998,7 @@ async function writeReadinessLatest(runKey, timezone){
     skippedNoWeather,
     placeholderOnly,
     provisionalFromPersisted,
+    processingHistory,
     totalFields,
     weatherDocs: wxMap.size
   };
@@ -952,6 +1028,7 @@ app.get("/", async (req, res) => {
           skippedNoWeather: readiness.skippedNoWeather,
           placeholderOnly: readiness.placeholderOnly,
           provisionalFromPersisted: readiness.provisionalFromPersisted,
+          processingHistory: readiness.processingHistory,
           totalFields: readiness.totalFields,
           weatherDocs: readiness.weatherDocs
         }, { merge: true });
