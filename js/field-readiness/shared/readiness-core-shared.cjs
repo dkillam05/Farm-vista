@@ -414,7 +414,7 @@ function pickSeed(rows, factors, persistedState, opts = {}){
       const forceFull = !!opts.forceFullHistoryFromPersisted;
       return {
         seedStorage: clamp(Number(persistedState.storageFinal), 0, factors.Smax),
-        startIdx: forceFull ? 0 : (idx + 1),
+        startIdx: idx + 1,
         source: forceFull ? 'persisted-full-history' : 'persisted'
       };
     }
@@ -481,7 +481,9 @@ function runFieldReadinessCore(
   const last = normalizedRows[normalizedRows.length - 1] || {};
   const factors = mapFactors(soilWetness, drainageIndex, last.sm010, extra);
 
-  const seedPick = pickSeed(normalizedRows, factors, persistedState, opts);
+  const seedPick = pickSeed(normalizedRows, factors, persistedState, {
+  forceFullHistoryFromPersisted: false
+});
   let storage = clamp(seedPick.seedStorage, 0, factors.Smax);
 
   const trace = [];
