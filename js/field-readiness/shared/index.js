@@ -1,6 +1,6 @@
 // /js/field-readiness/shared/index.js  (FULL FILE)
 // FarmVista Readiness Rebuilder (Cloud Run)
-// Rev: 2026-03-22e-full-file-stable-history-hourly-seed
+// Rev: 2026-03-22f-fix-trace-seed-and-trace-mapping
 //
 // PURPOSE:
 // ✅ DOES NOT fetch Open-Meteo
@@ -25,8 +25,9 @@
 // ✅ NEW: persists 30-day display history into field_readiness_latest
 // ✅ NEW: writes modelRows + tankTrace + wx daily/forecast + MRMS daily to latest doc
 // ✅ NEW: writes MRMS hourly last 24 + latest hourly summary to latest doc
-// ✅ FIX: seed history rebuild from persisted state so tank trace is not all zeroes
 // ✅ FIX: chunk processing + smaller batch commits to avoid heap/memory crashes
+// ✅ FIX: history run now uses persisted seed BUT still runs full 30-day loop
+// ✅ FIX: tank trace mapping now matches core trace keys
 //
 const express = require("express");
 const {
@@ -563,24 +564,6 @@ function buildModelWeatherRowsForServer(wxDoc, mrmsDoc){
   return overlayMrmsRainOntoWeatherRows(baseRows, mrmsDoc);
 }
 
-function choosePersistedStateForHistoryRun(persistedState, weatherRows){
-  if (!persistedState || typeof persistedState !== "object") return null;
-  const rows = Array.isArray(weatherRows) ? weatherRows : [];
-  if (!rows.length) return persistedState;
-
-  const lastISO = safeISO10(rows[rows.length - 1] && rows[rows.length - 1].dateISO);
-  const persistedISO = safeISO10(persistedState.asOfDateISO);
-
-  if (!persistedISO) return null;
-  if (!lastISO) return persistedState;
-
-  if (persistedISO >= lastISO){
-    return null;
-  }
-
-  return persistedState;
-}
-
 function toPlainModelRows(rows){
   return (Array.isArray(rows) ? rows : []).map(r => ({
     dateISO: safeISO10(r && r.dateISO),
@@ -610,13 +593,13 @@ function toPlainModelRows(rows){
 function toPlainTankTrace(trace){
   return (Array.isArray(trace) ? trace : []).map(t => ({
     dateISO: safeISO10(t && t.dateISO),
-    rainIn: round(num(t && t.rainIn, 0), 3),
+    rainIn: round(num(t && t.rainIn, num(t && t.rain, 0)), 3),
     infilMult: round(num(t && t.infilMult, 0), 3),
-    addIn: round(num(t && t.addIn, 0), 3),
+    addIn: round(num(t && t.addIn, num(t && t.add, 0)), 3),
     dryPwr: round(num(t && t.dryPwr, 0), 3),
-    lossIn: round(num(t && t.lossIn, 0), 3),
-    storageStart: round(num(t && t.storageStart, 0), 4),
-    storageEnd: round(num(t && t.storageEnd, 0), 4),
+    lossIn: round(num(t && t.lossIn, num(t && t.loss, 0)), 3),
+    storageStart: round(num(t && t.storageStart, num(t && t.before, 0)), 4),
+    storageEnd: round(num(t && t.storageEnd, num(t && t.after, 0)), 4),
     storageCap: round(num(t && t.storageCap, 0), 4)
   }));
 }
@@ -736,7 +719,6 @@ async function writeReadinessLatest(runKey, timezone){
         const weatherRows = buildModelWeatherRowsForServer(wx, mrmsDoc);
 
         if (weatherRows.length){
-          // 1) Summary run seeded from persisted state when available.
           const summaryPersistedState = (
             persistedState &&
             Number.isFinite(Number(persistedState.storageFinal)) &&
@@ -763,17 +745,17 @@ async function writeReadinessLatest(runKey, timezone){
             continue;
           }
 
-          // 2) History run forced full-series so trace/rows are always present.
-const historySnapshot = runFieldReadinessCore(
-  weatherRows,
-  soilWetness,
-  drainageIndex,
-  summaryPersistedState,
+          const historySnapshot = runFieldReadinessCore(
+            weatherRows,
+            soilWetness,
+            drainageIndex,
+            summaryPersistedState,
             {
               extra: EXTRA,
               tune: FV_TUNE,
               lossScale: LOSS_SCALE,
-              includeTrace: true
+              includeTrace: true,
+              forceFullHistoryFromPersisted: true
             }
           );
 
