@@ -1,6 +1,6 @@
 // /js/field-readiness/shared/index.js  (FULL FILE)
 // FarmVista Readiness Rebuilder (Cloud Run)
-// Rev: 2026-03-23a-history-coverage-gate
+// Rev: 2026-03-23c-latlng-change-ignore-stale-cache
 //
 // PURPOSE:
 // ✅ DOES NOT fetch Open-Meteo
@@ -8,13 +8,11 @@
 // ✅ ONLY rebuilds field_readiness_latest
 // ✅ Uses existing field_weather_cache as primary input
 // ✅ Uses MRMS overlay when ready enough
-// ✅ Uses persisted truth from field_readiness_state
 // ✅ Uses same field param paths as frontend
 // ✅ Uses shared readiness core from readiness-core-shared.cjs
 // ✅ FIX: iterates ALL active fields, not only weather-cache docs
 // ✅ FIX: new fields with lat/lng now get written into field_readiness_latest
-// ✅ FIX: if weather cache is missing but persisted truth exists, writes provisional readiness
-// ✅ FIX: if both are missing, writes placeholder row so field is not invisible
+// ✅ FIX: if weather cache is missing, writes placeholder row so field is not invisible
 // ✅ NEW: saves tank size fields into field_readiness_latest:
 //    - storageMax
 //    - storageCapacity
@@ -26,10 +24,10 @@
 // ✅ NEW: writes modelRows + tankTrace + wx daily/forecast + MRMS daily to latest doc
 // ✅ NEW: writes MRMS hourly last 24 + latest hourly summary to latest doc
 // ✅ FIX: chunk processing + smaller batch commits to avoid heap/memory crashes
-// ✅ FIX: history run now uses persisted seed BUT still runs full 30-day loop
-// ✅ FIX: tank trace mapping now matches core trace keys
 // ✅ NEW: only writes tankTrace when 30-day weather exists AND MRMS coverage is >= 90%
 // ✅ NEW: when history inputs are incomplete, status is "processing_history"
+// ✅ NEW: if field lat/lng changed, stale weather/MRMS cache is ignored automatically
+// ✅ NEW: lat/lng-changed fields are treated like new fields until fresh cache arrives
 //
 const express = require("express");
 const {
@@ -146,6 +144,7 @@ const FV_TUNE = {
 
 const HISTORY_DAYS_REQUIRED = 30;
 const MRMS_MIN_COVERAGE = 0.90;
+const LOCATION_EPSILON = 0.00001;
 
 let _admin = null;
 let _db = null;
@@ -665,6 +664,23 @@ function toPlainTankTrace(trace){
   }));
 }
 
+function hasLocationChanged(oldLocation, newLocation){
+  if (!oldLocation || !newLocation) return false;
+
+  const oldLat = Number(oldLocation.lat);
+  const oldLng = Number(oldLocation.lng);
+  const newLat = Number(newLocation.lat);
+  const newLng = Number(newLocation.lng);
+
+  if (!Number.isFinite(oldLat) || !Number.isFinite(oldLng)) return false;
+  if (!Number.isFinite(newLat) || !Number.isFinite(newLng)) return false;
+
+  return (
+    Math.abs(oldLat - newLat) > LOCATION_EPSILON ||
+    Math.abs(oldLng - newLng) > LOCATION_EPSILON
+  );
+}
+
 /* =====================================================================
    Placeholder storage-cap helper
 ===================================================================== */
@@ -742,6 +758,7 @@ async function writeReadinessLatest(runKey, timezone){
   let provisionalFromPersisted = 0;
   let processingHistory = 0;
   let totalFields = 0;
+  let latLngChangedFields = 0;
 
   const fieldEntries = Array.from(fieldsMap.entries());
   const CHUNK_SIZE = 10;
@@ -753,8 +770,10 @@ async function writeReadinessLatest(runKey, timezone){
       totalFields++;
 
       const fd = fieldRow ? (fieldRow.data || {}) : {};
-      const wx = wxMap.get(fieldId) || null;
+      const currentLocation = fieldRow?.location || null;
+      const wxRaw = wxMap.get(fieldId) || null;
       const persistedState = persistedMap.get(fieldId) || null;
+      const mrmsRaw = mrmsMap.get(fieldId) || null;
 
       try{
         const extractedParams = extractFieldParamsLikeFrontend(fd);
@@ -767,22 +786,32 @@ async function writeReadinessLatest(runKey, timezone){
           ? Number(extractedParams.drainageIndex)
           : DEFAULT_DRAIN;
 
+        const wxLocationChanged = hasLocationChanged(wxRaw && wxRaw.location, currentLocation);
+        const mrmsLocationChanged = hasLocationChanged(mrmsRaw && mrmsRaw.location, currentLocation);
+        const locationChanged = !!(wxLocationChanged || mrmsLocationChanged);
+
+        const wx = locationChanged ? null : wxRaw;
+        const mrmsDoc = locationChanged ? null : mrmsRaw;
+
+        if (locationChanged){
+          latLngChangedFields++;
+        }
+
         const outRef = db.collection(READINESS_LATEST_COLLECTION).doc(fieldId);
         const baseDoc = buildBaseLatestDoc({
           fieldId,
           fieldData: fd,
-          fieldLocation: fieldRow?.location || null,
+          fieldLocation: currentLocation,
           wxDoc: wx,
           runKey,
           timezone
         });
 
-        const mrmsDoc = mrmsMap.get(fieldId) || null;
         const weatherRows = buildModelWeatherRowsForServer(wx, mrmsDoc);
         const historyReadiness = buildHistoryReadiness(wx, mrmsDoc, HISTORY_DAYS_REQUIRED);
 
         if (weatherRows.length){
-       const summaryPersistedState = null;
+          const summaryPersistedState = null;
 
           const summarySnapshot = runFieldReadinessCore(
             weatherRows,
@@ -883,6 +912,7 @@ async function writeReadinessLatest(runKey, timezone){
 
             historyReady: historyReadiness.ready,
             historyCoverageMeta: historyReadiness.mrmsStats,
+            locationChanged,
 
             mrmsDailySeries30d,
             mrmsHourlyLast24,
@@ -892,7 +922,10 @@ async function writeReadinessLatest(runKey, timezone){
 
             debug: {
               summary: summarySnapshot.debug || null,
-              history: historySnapshot && historySnapshot.debug ? historySnapshot.debug : null
+              history: historySnapshot && historySnapshot.debug ? historySnapshot.debug : null,
+              locationChanged,
+              wxLocationChanged,
+              mrmsLocationChanged
             },
             status: historyReadiness.ready ? "ready" : "processing_history",
             reason: historyReadiness.ready
@@ -902,6 +935,35 @@ async function writeReadinessLatest(runKey, timezone){
 
           writes++;
           ok++;
+        }
+        else if (locationChanged){
+          const capOnly = buildStorageCapOnlySnapshot(soilWetness, drainageIndex);
+
+          batch.set(outRef, {
+            ...baseDoc,
+            readiness: null,
+            wetness: null,
+            storageFinal: null,
+            storagePhysFinal: null,
+            readinessCreditIn: null,
+            storageForReadiness: null,
+
+            storageMax: safeNum(capOnly && capOnly.storageMax),
+            storageCapacity: safeNum(capOnly && capOnly.storageCapacity),
+            storageMaxFinal: safeNum(capOnly && capOnly.storageMaxFinal),
+
+            soilWetness,
+            drainageIndex,
+            seedSource: null,
+            historyReady: false,
+            locationChanged: true,
+            status: "waiting_for_weather_cache",
+            reason: "Field lat/lng changed. Waiting for fresh weather and MRMS cache for the new location."
+          }, { merge: true });
+
+          writes++;
+          skippedNoWeather++;
+          placeholderOnly++;
         }
         else if (persistedState && Number.isFinite(Number(persistedState.storageFinal))){
           const snapshot = runReadinessFromPersistedStateOnly(
@@ -993,6 +1055,7 @@ async function writeReadinessLatest(runKey, timezone){
     placeholderOnly,
     provisionalFromPersisted,
     processingHistory,
+    latLngChangedFields,
     totalFields,
     weatherDocs: wxMap.size
   };
@@ -1023,6 +1086,7 @@ app.get("/", async (req, res) => {
           placeholderOnly: readiness.placeholderOnly,
           provisionalFromPersisted: readiness.provisionalFromPersisted,
           processingHistory: readiness.processingHistory,
+          latLngChangedFields: readiness.latLngChangedFields,
           totalFields: readiness.totalFields,
           weatherDocs: readiness.weatherDocs
         }, { merge: true });
