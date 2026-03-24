@@ -2832,10 +2832,12 @@ function extractDailySeriesRows(rawDoc){
   try{
     const d = safeObj(rawDoc) || {};
 
+    // 1) direct array fields
     if (Array.isArray(d.dailySeries)) return d.dailySeries;
     if (Array.isArray(d.weatherDailySeries)) return d.weatherDailySeries;
     if (Array.isArray(d.wxDailySeries)) return d.wxDailySeries;
 
+    // 2) nested dailySeries object
     const ds = d.dailySeries;
     if (Array.isArray(ds)) return ds;
 
@@ -2851,6 +2853,27 @@ function extractDailySeriesRows(rawDoc){
       if (Array.isArray(ds.rows)) return ds.rows;
       if (Array.isArray(ds.items)) return ds.items;
       if (Array.isArray(ds.series)) return ds.series;
+    }
+
+    // 3) top-level numeric-key map on the doc itself
+    const topLevelNumericKeys = Object.keys(d)
+      .filter(k => /^\d+$/.test(String(k)))
+      .sort((a,b)=> Number(a) - Number(b));
+
+    if (topLevelNumericKeys.length){
+      return topLevelNumericKeys
+        .map(k => d[k])
+        .filter(row => row && typeof row === 'object' && (
+          row.dateISO != null ||
+          row.rainIn != null ||
+          row.tempF != null ||
+          row.windMph != null ||
+          row.rh != null ||
+          row.solarWm2 != null ||
+          row.et0In != null ||
+          row.sm010 != null ||
+          row.st010F != null
+        ));
     }
 
     return [];
