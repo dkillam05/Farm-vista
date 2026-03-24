@@ -1251,6 +1251,8 @@ function updateDetailsHeaderPanel(state){
 /* =====================================================================
    ETA helpers
 ===================================================================== */
+const ETA_FORCE_ONE_HOUR_MAX_GAP = 1; // only allow ~1h if field is within 1 point of threshold
+
 function parseEtaHoursFromText(txt){
   const s = String(txt || '');
   let m = s.match(/~\s*(\d+)\s*hours/i);
@@ -1295,6 +1297,13 @@ function isZeroEtaLike(txt){
   );
 }
 
+/*
+  IMPORTANT CHANGE:
+  We no longer "massage" zero-ish ETA into ~1h here.
+  If the model gives a contradictory zero-ish answer while the field is still
+  below threshold, treat that as unresolved unless shouldForceOneHourEta()
+  explicitly allows it.
+*/
 function forceNonZeroEtaText(txt, readinessNow, thr){
   const s = String(txt || '').trim();
   const ready = Number(readinessNow);
@@ -1303,26 +1312,40 @@ function forceNonZeroEtaText(txt, readinessNow, thr){
   if (!Number.isFinite(ready) || !Number.isFinite(threshold)) return s;
   if (ready >= threshold) return s;
 
-  // IMPORTANT FIX:
-  // blank is NOT the same as zero; blank means unresolved/failure/no forecast.
   if (!s) return '';
 
-  if (isZeroEtaLike(s)) return '~1h';
+  if (isZeroEtaLike(s)) return 'ETA ?';
 
   const h = parseEtaHoursFromText(s);
-  if (Number.isFinite(h) && h <= 0) return '~1h';
+  if (Number.isFinite(h) && h <= 0) return 'ETA ?';
 
   return s;
 }
 
-function shouldForceOneHourEta(res, txt, readinessNow, thr){
+/*
+  IMPORTANT CHANGE:
+  ~1h is now ONLY allowed when ALL of these are true:
+  1) field is still below threshold
+  2) field is within 1 point of threshold
+  3) we actually have forecast rows
+  4) model explicitly says drynow / reached / within with 0h
+*/
+function shouldForceOneHourEta(res, txt, readinessNow, thr, forecastCount=0){
   const ready = Number(readinessNow);
   const threshold = Number(thr);
+
   if (!Number.isFinite(ready) || !Number.isFinite(threshold)) return false;
   if (ready >= threshold) return false;
 
+  const gap = threshold - ready;
+  if (!(gap > 0 && gap <= ETA_FORCE_ONE_HOUR_MAX_GAP)) return false;
+
+  const fcCount = Number(forecastCount || 0);
+  if (!Number.isFinite(fcCount) || fcCount < 1) return false;
+
   const status = String(res && res.status || '').toLowerCase();
   const hours = Number(res && res.hours);
+  const zeroLikeTxt = isZeroEtaLike(txt);
 
   if (
     status === 'noforecast' ||
@@ -1335,10 +1358,20 @@ function shouldForceOneHourEta(res, txt, readinessNow, thr){
     return false;
   }
 
-  return (
-    status === 'drynow' ||
-    ((status === 'ok' || status === 'reached' || status === 'within' || status === 'within72') && Number.isFinite(hours) && hours === 0)
-  );
+  if (status === 'drynow'){
+    return true;
+  }
+
+  if (
+    (status === 'ok' || status === 'reached' || status === 'within' || status === 'within72') &&
+    Number.isFinite(hours) &&
+    hours === 0 &&
+    zeroLikeTxt
+  ){
+    return true;
+  }
+
+  return false;
 }
 
 function buildEtaFailureText(res, readinessNow, thr){
@@ -1378,12 +1411,16 @@ function getEtaCacheValue(state, key, { readinessNow=null, threshold=null } = {}
     const map = safeObj(state && state._etaTileCache) || {};
     const hit = safeObj(map[key]);
     if (!hit) return null;
+
     const ts = Number(hit.ts || 0);
     if (!ts || (Date.now() - ts) > ETA_CACHE_TTL_MS) return null;
 
     const txt = safeStr(hit.text);
     const ready = Number(readinessNow);
     const thr = Number(threshold);
+
+    // Never trust cached fake-short or unresolved ETA.
+    if (txt === '~1h' || txt === 'ETA ?') return null;
 
     if (Number.isFinite(ready) && Number.isFinite(thr) && ready < thr && isZeroEtaLike(txt)){
       return null;
@@ -1397,10 +1434,15 @@ function getEtaCacheValue(state, key, { readinessNow=null, threshold=null } = {}
 
 function setEtaCacheValue(state, key, text){
   try{
+    const txt = safeStr(text);
+
+    // Do not cache unresolved or suspiciously short fallback ETA.
+    if (!txt || txt === '~1h' || txt === 'ETA ?') return;
+
     if (!state._etaTileCache) state._etaTileCache = {};
     state._etaTileCache[key] = {
       ts: Date.now(),
-      text: safeStr(text)
+      text: txt
     };
   }catch(_){}
 }
@@ -1572,6 +1614,7 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
       (etaDeps && typeof etaDeps.getForecastSeriesForFieldId === 'function')
         ? (etaDeps.getForecastSeriesForFieldId(fid) || [])
         : [];
+    const forecastCount = Array.isArray(forecastRows) ? forecastRows.length : 0;
 
     const res = await model.etaToThreshold(fieldObj, etaDeps || deps, Number(thr), HORIZON_HOURS, 3);
 
@@ -1591,7 +1634,7 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
       txt = `>${HORIZON_HOURS}h`;
     }
 
-    if (shouldForceOneHourEta(res, txt, authoritativeReadiness, thr)){
+    if (shouldForceOneHourEta(res, txt, authoritativeReadiness, thr, forecastCount)){
       txt = '~1h';
     } else {
       txt = forceNonZeroEtaText(txt, authoritativeReadiness, thr);
@@ -1614,13 +1657,14 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
       readinessNow,
       authoritativeReadiness,
       threshold: Number(thr),
+      thresholdGap: Number(thr) - authoritativeReadiness,
       latestComputedAtISO: safeStr(latest && latest.computedAtISO),
       latestWeatherFetchedAtISO: safeStr(latest && latest.weatherFetchedAtISO),
       latestStoragePhysFinal: safeNum(latest && latest.storagePhysFinal),
       latestStorageFinal: safeNum(latest && latest.storageFinal),
       latestStorageForReadiness: safeNum(latest && latest.storageForReadiness),
       latestRunKey: safeStr(latest && latest.runKey),
-      forecastCount: Array.isArray(forecastRows) ? forecastRows.length : 0,
+      forecastCount,
       modelStatus: safeStr(res && res.status),
       modelHours: safeNum(res && res.hours),
       modelText: safeStr(res && res.text),
