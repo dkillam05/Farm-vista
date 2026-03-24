@@ -1414,7 +1414,9 @@ CHANGE (2026-03-16):
       return "";
     }
 
-    async function createField(){
+       async function createField(){
+      if(__saveBusy) return;
+
       if(!canNow('setup-fields:add')){
         alert("You don't have permission to add fields.");
         return;
@@ -1451,26 +1453,26 @@ CHANGE (2026-03-16):
         payload.location = { lat: Number(latVal), lng: Number(lngVal) };
       }
 
-      await addDoc(fieldsRef(), payload);
+      setSaveBusy(true);
 
-      if(hasLocation){
-        showToast("Field saved. Building weather and readiness…", 12000);
-        const buildRes = await triggerAutoWeatherAfterFieldSave({
-          requiresLocation:true,
-          lat: latVal,
-          lng: lngVal
-        });
+      try{
+        await addDoc(fieldsRef(), payload);
 
-        if(buildRes.ok){
-          showToast("Field saved and weather/readiness updated.", 5000);
+        if(hasLocation){
+          try{
+            sessionStorage.setItem("fv_fields_pending_weather_rebuild", "1");
+          }catch(_){}
+          showToast("Field saved. Refreshing…", 2500);
         }else{
-          showToast("Field saved. Auto weather/readiness build did not finish; next backend run will catch it.", 7000);
+          showToast("Field saved. Refreshing…", 2500);
         }
-      }else{
-        showToast("Field saved. Add a map location to auto-build weather/readiness.", 6500);
-      }
 
-      reloadPageSoon(650);
+        reloadPageSoon(120);
+      }catch(err){
+        console.error(err);
+        setSaveBusy(false);
+        alert("Field save failed. Please try again.");
+      }
     }
 
     function normStatus(s){
