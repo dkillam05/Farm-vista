@@ -264,6 +264,72 @@ export const NAV_MENU = {
           activeMatch: 'exact'
         },
         {
+          type: 'link',
+          id: 'office-farm-land-leases',
+          icon: '🌾',
+          label: 'Farm Land Leases',
+          href: '/Farm-vista/docs/cooming-soon.html',
+          activeMatch: 'starts-with'
+        },
+        {
+          type: 'group',
+          id: 'office-insurance',
+          icon: '🛡️',
+          label: 'Insurance',
+          collapsible: true,
+          initialOpen: false,
+          children: [
+            {
+              type: 'link',
+              id: 'insurance-vehicle',
+              icon: '🚘',
+              label: 'Vehicle',
+              href: '/Farm-vista/docs/cooming-soon.html',
+              activeMatch: 'starts-with'
+            },
+            {
+              type: 'link',
+              id: 'insurance-crop',
+              icon: '🌱',
+              label: 'Crop',
+              href: '/Farm-vista/docs/cooming-soon.html',
+              activeMatch: 'starts-with'
+            },
+            {
+              type: 'link',
+              id: 'insurance-health',
+              icon: '🏥',
+              label: 'Health',
+              href: '/Farm-vista/docs/cooming-soon.html',
+              activeMatch: 'starts-with'
+            },
+            {
+              type: 'link',
+              id: 'insurance-liability',
+              icon: '⚖️',
+              label: 'Liability',
+              href: '/Farm-vista/docs/cooming-soon.html',
+              activeMatch: 'starts-with'
+            },
+            {
+              type: 'link',
+              id: 'insurance-umbrella',
+              icon: '☂️',
+              label: 'Umbrella',
+              href: '/Farm-vista/docs/cooming-soon.html',
+              activeMatch: 'starts-with'
+            }
+          ]
+        },
+        {
+          type: 'link',
+          id: 'office-fsa',
+          icon: '🏛️',
+          label: 'FSA',
+          href: '/Farm-vista/docs/cooming-soon.html',
+          activeMatch: 'starts-with'
+        },
+        {
           type: 'group',
           id: 'office-teams',
           perm: 'office-teams',
