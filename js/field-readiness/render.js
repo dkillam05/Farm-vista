@@ -2641,6 +2641,157 @@ function renderMrmsPanelFromDoc(doc){
     }
   }
 }
+/* =====================================================================
+   Forecast rows helpers for details weather section
+===================================================================== */
+function firstArrayFrom(obj, keys){
+  try{
+    const src = safeObj(obj) || {};
+    for (const k of (Array.isArray(keys) ? keys : [])){
+      const v = src[k];
+      if (Array.isArray(v) && v.length) return v;
+    }
+  }catch(_){}
+  return [];
+}
+
+function normalizeForecastRow(raw){
+  try{
+    const r = safeObj(raw) || {};
+
+    const dateISO =
+      safeStr(r.dateISO) ||
+      safeISO10(r.date) ||
+      safeISO10(r.day) ||
+      safeISO10(r.timeISO) ||
+      safeISO10(r.timestampISO) ||
+      safeISO10(r.validDate) ||
+      safeISO10(r.validTime) ||
+      safeISO10(r.ds) ||
+      '';
+
+    const rainInAdj =
+      safeNum(r.rainInAdj) ??
+      safeNum(r.rainIn) ??
+      safeNum(r.precipIn) ??
+      safeNum(r.precipitationIn) ??
+      safeNum(r.rain) ??
+      safeNum(r.rainForecastIn) ??
+      0;
+
+    const tempF =
+      safeNum(r.tempF) ??
+      safeNum(r.tempAvgF) ??
+      safeNum(r.avgTempF) ??
+      safeNum(r.temperatureF) ??
+      safeNum(r.tavgF) ??
+      safeNum(r.tempMaxF) ??
+      0;
+
+    const windMph =
+      safeNum(r.windMph) ??
+      safeNum(r.windSpeedMph) ??
+      safeNum(r.windspeedMph) ??
+      safeNum(r.windAvgMph) ??
+      0;
+
+    const rh =
+      safeNum(r.rh) ??
+      safeNum(r.rhPct) ??
+      safeNum(r.relativeHumidity) ??
+      safeNum(r.relativeHumidityPct) ??
+      0;
+
+    const solarWm2 =
+      safeNum(r.solarWm2) ??
+      safeNum(r.shortwaveWm2) ??
+      safeNum(r.shortwaveRadiation) ??
+      safeNum(r.solar) ??
+      0;
+
+    const et0In =
+      safeNum(r.et0In) ??
+      safeNum(r.etIn) ??
+      safeNum(r.et0) ??
+      safeNum(r.evapotranspirationIn) ??
+      0;
+
+    const sm010 =
+      safeNum(r.sm010) ??
+      safeNum(r.soilMoisture010) ??
+      safeNum(r.soilMoisture0to10) ??
+      safeNum(r.soilMoisture_0_10) ??
+      0;
+
+    const st010F =
+      safeNum(r.st010F) ??
+      safeNum(r.soilTemp010F) ??
+      safeNum(r.soilTemp0to10F) ??
+      safeNum(r.soilTempF_0_10) ??
+      safeNum(r.soilTemperatureF) ??
+      0;
+
+    return {
+      dateISO,
+      rainInAdj,
+      tempF,
+      windMph,
+      rh,
+      solarWm2,
+      et0In,
+      sm010,
+      st010F,
+      __isForecast: true
+    };
+  }catch(_){
+    return null;
+  }
+}
+
+function getSavedForecastRowsForDetails(rawDoc){
+  try{
+    const d = safeObj(rawDoc) || {};
+
+    const direct =
+      firstArrayFrom(d, [
+        'forecastRows',
+        'weatherForecastRows',
+        'forecastDailyRows',
+        'openMeteoForecastRows',
+        'forecast',
+        'forecastDaily',
+        'wxForecast',
+        'weatherForecast'
+      ]);
+
+    let rows = direct;
+
+    if (!rows.length && d.forecast && typeof d.forecast === 'object'){
+      rows =
+        firstArrayFrom(d.forecast, [
+          'rows',
+          'dailyRows',
+          'forecastRows',
+          'weatherForecastRows'
+        ]);
+    }
+
+    if (!rows.length && d.openMeteo && typeof d.openMeteo === 'object'){
+      rows =
+        firstArrayFrom(d.openMeteo, [
+          'forecastRows',
+          'dailyRows',
+          'rows'
+        ]);
+    }
+
+    return (Array.isArray(rows) ? rows : [])
+      .map(normalizeForecastRow)
+      .filter(r => r && r.dateISO);
+  }catch(_){
+    return [];
+  }
+}
 
 async function _renderDetailsInternal(state){
   ensureFieldsCountHelperEl();
@@ -2723,21 +2874,49 @@ async function _renderDetailsInternal(state){
     }
   }
 
-  /* ===============================
-     ✅ WEATHER (SAVED)
+   /* ===============================
+     ✅ WEATHER (SAVED + FORECAST)
   =============================== */
   const wxb = $('wxRows');
   if (wxb){
     wxb.innerHTML = '';
-    const rows = Array.isArray(d.modelRows) ? d.modelRows : [];
 
-    if (!rows.length){
+    const historyRows = Array.isArray(d.modelRows) ? d.modelRows : [];
+    const forecastRows = getSavedForecastRowsForDetails(d);
+
+    if (!historyRows.length && !forecastRows.length){
       wxb.innerHTML = `<tr><td colspan="9" class="muted">No weather rows.</td></tr>`;
     } else {
-      for (const r of rows){
+      for (const r of historyRows){
         const tr = document.createElement('tr');
         tr.innerHTML = `
-          <td class="mono">${esc(r.dateISO)}</td>
+          <td class="mono">${esc(String(r.dateISO || ''))}</td>
+          <td class="right mono">${Number(r.rainInAdj||0).toFixed(2)}</td>
+          <td class="right mono">${Math.round(Number(r.tempF||0))}</td>
+          <td class="right mono">${Math.round(Number(r.windMph||0))}</td>
+          <td class="right mono">${Math.round(Number(r.rh||0))}</td>
+          <td class="right mono">${Math.round(Number(r.solarWm2||0))}</td>
+          <td class="right mono">${Number(r.et0In||0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.sm010||0).toFixed(3)}</td>
+          <td class="right mono">${Math.round(Number(r.st010F||0))}</td>
+        `;
+        wxb.appendChild(tr);
+      }
+
+      if (historyRows.length && forecastRows.length){
+        const sep = document.createElement('tr');
+        sep.innerHTML = `
+          <td colspan="9" class="muted" style="font-weight:800;padding-top:10px;">
+            Forecast
+          </td>
+        `;
+        wxb.appendChild(sep);
+      }
+
+      for (const r of forecastRows){
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">Forecast • ${esc(String(r.dateISO || ''))}</td>
           <td class="right mono">${Number(r.rainInAdj||0).toFixed(2)}</td>
           <td class="right mono">${Math.round(Number(r.tempF||0))}</td>
           <td class="right mono">${Math.round(Number(r.windMph||0))}</td>
