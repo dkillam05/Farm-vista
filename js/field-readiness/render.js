@@ -2899,7 +2899,23 @@ function getDailySeriesMeta(rawDoc){
 
 function splitWeatherHistoryAndForecast(rawDoc){
   try{
-    const rows = extractDailySeriesRows(rawDoc)
+    const d = safeObj(rawDoc) || {};
+    const meta = getDailySeriesMeta(d);
+
+    const historyRows = (Array.isArray(d.dailySeries30d) ? d.dailySeries30d : [])
+      .map(normalizeDailyWxRow)
+      .filter(r => r && r.dateISO);
+
+    const forecastRows = (Array.isArray(d.dailySeriesFcst) ? d.dailySeriesFcst : [])
+      .map(normalizeDailyWxRow)
+      .filter(r => r && r.dateISO);
+
+    if (historyRows.length || forecastRows.length){
+      return { historyRows, forecastRows };
+    }
+
+    // fallback to older combined-series shapes if present
+    const rows = extractDailySeriesRows(d)
       .map(normalizeDailyWxRow)
       .filter(r => r && r.dateISO);
 
@@ -2910,22 +2926,20 @@ function splitWeatherHistoryAndForecast(rawDoc){
       };
     }
 
-    const meta = getDailySeriesMeta(rawDoc);
     const todayISO = meta.todayISO;
 
     if (todayISO){
-      const historyRows = [];
-      const forecastRows = [];
+      const hist = [];
+      const fcst = [];
 
       for (const r of rows){
-        if (String(r.dateISO) <= todayISO) historyRows.push(r);
-        else forecastRows.push(r);
+        if (String(r.dateISO) <= todayISO) hist.push(r);
+        else fcst.push(r);
       }
 
-      return { historyRows, forecastRows };
+      return { historyRows: hist, forecastRows: fcst };
     }
 
-    // fallback if todayISO is unavailable
     const fcstDays = Math.max(0, Number(meta.fcstDays || 0));
     if (fcstDays > 0 && rows.length > fcstDays){
       return {
