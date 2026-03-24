@@ -1005,7 +1005,7 @@ CHANGE (2026-03-16):
 
     // ✅ NEW: reload helper (after successful saves)
     let __reloadArmed = false;
-    function reloadPageSoon(ms=650){
+    function reloadPageSoon(ms=150){
       if(__reloadArmed) return;
       __reloadArmed = true;
 
@@ -1014,6 +1014,34 @@ CHANGE (2026-03-16):
           try{ window.location.reload(); }
           catch{ window.location.href = window.location.href; }
         }, ms);
+      });
+    }
+
+    let __saveBusy = false;
+    function setSaveBusy(on){
+      __saveBusy = !!on;
+
+      [
+        "save",
+        "clear",
+        "mdSave",
+        "mdClose",
+        "mdArchive",
+        "mdDelete",
+        "fieldLocationSave",
+        "editFieldLocationSave",
+        "fieldLocationCancel",
+        "editFieldLocationCancel",
+        "editFieldLocationClear",
+        "btnMarkLocation",
+        "editBtnMarkLocation"
+      ].forEach(id=>{
+        const el = $(id);
+        if(el) el.disabled = !!on;
+      });
+
+      document.querySelectorAll(".view").forEach(btn=>{
+        btn.disabled = !!on;
       });
     }
 
@@ -1671,7 +1699,9 @@ setToggle(
       loadCountiesIntoDropdown(ddEditCounty, code);
     }
 
-    mdSave.addEventListener("click", async ()=>{
+        mdSave.addEventListener("click", async ()=>{
+      if(__saveBusy) return;
+
       if(!canNow('setup-fields:edit')){
         alert("You don't have permission to edit fields.");
         return;
@@ -1711,30 +1741,31 @@ setToggle(
       if(hasHEL && !(helAcres>0)){ alert("Enter HEL acres."); return; }
       if(hasCRP && !(crpAcres>0)){ alert("Enter CRP acres."); return; }
 
-      const ref = doc(db,'fields', editId);
-      await updateDoc(ref, {
-        name, farmId, state, county, tillable, rtkTowerId,
-        hasHEL, helAcres, hasCRP, crpAcres, hasPatternTiled,
-        soilWetness,
-        drainageIndex,
-        location: location || null,
-        updatedAt: serverTimestamp()
-      });
+      setSaveBusy(true);
 
-      showToast("Changes saved. Rebuilding weather/readiness…", 12000);
-      closeModal();
+      try{
+        const ref = doc(db,'fields', editId);
+        await updateDoc(ref, {
+          name, farmId, state, county, tillable, rtkTowerId,
+          hasHEL, helAcres, hasCRP, crpAcres, hasPatternTiled,
+          soilWetness,
+          drainageIndex,
+          location: location || null,
+          updatedAt: serverTimestamp()
+        });
 
-      const buildRes = await triggerAutoWeatherAfterFieldSave({
-        requiresLocation:false
-      });
+        try{
+          sessionStorage.setItem("fv_fields_pending_weather_rebuild", "1");
+        }catch(_){}
 
-      if(buildRes.ok){
-        showToast("Changes saved and weather/readiness updated.", 5000);
-      }else{
-        showToast("Changes saved. Auto weather/readiness build did not finish; next backend run will catch it.", 7000);
+        closeModal();
+        showToast("Changes saved. Refreshing…", 2500);
+        reloadPageSoon(120);
+      }catch(err){
+        console.error(err);
+        setSaveBusy(false);
+        alert("Save failed. Please try again.");
       }
-
-      reloadPageSoon(650);
     });
 
     mdArchive.addEventListener("click", async ()=>{
@@ -2674,7 +2705,27 @@ setToggle(
       setRange0100("editDrainageIndex", 50);
 
       await renderList();
-    }
+
+      try{
+        if(sessionStorage.getItem("fv_fields_pending_weather_rebuild") === "1"){
+          sessionStorage.removeItem("fv_fields_pending_weather_rebuild");
+
+          triggerAutoWeatherAfterFieldSave({
+            requiresLocation:false
+          }).then((buildRes)=>{
+            if(buildRes && buildRes.ok){
+              showToast("Weather/readiness rebuild started.", 4000);
+            }else{
+              showToast("Field saved. Auto weather/readiness build did not finish; next backend run will catch it.", 7000);
+            }
+          }).catch((err)=>{
+            console.warn("[Fields] post-reload weather/readiness rebuild failed:", err);
+            showToast("Field saved. Auto weather/readiness build did not finish; next backend run will catch it.", 7000);
+          });
+        }
+      }catch(err){
+        console.warn("[Fields] sessionStorage rebuild flag check failed:", err);
+      }
 
     init().catch(err=>{
       console.error(err);
