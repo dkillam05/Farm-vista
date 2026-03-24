@@ -2792,6 +2792,136 @@ function getSavedForecastRowsForDetails(rawDoc){
     return [];
   }
 }
+/* =====================================================================
+   Daily weather series helpers for details weather section
+===================================================================== */
+function toISODateOnly(v){
+  try{
+    const s = String(v || '').trim();
+    if (!s) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const d = new Date(s);
+    if (!Number.isFinite(d.getTime())) return '';
+    return d.toISOString().slice(0, 10);
+  }catch(_){
+    return '';
+  }
+}
+
+function normalizeDailyWxRow(raw){
+  try{
+    const r = safeObj(raw) || {};
+
+    return {
+      dateISO: toISODateOnly(r.dateISO || r.date || r.day || r.timeISO || ''),
+      rainInAdj: safeNum(r.rainInAdj) ?? safeNum(r.rainIn) ?? 0,
+      tempF: safeNum(r.tempF) ?? 0,
+      windMph: safeNum(r.windMph) ?? 0,
+      rh: safeNum(r.rh) ?? 0,
+      solarWm2: safeNum(r.solarWm2) ?? 0,
+      et0In: safeNum(r.et0In) ?? 0,
+      sm010: safeNum(r.sm010) ?? 0,
+      st010F: safeNum(r.st010F) ?? 0
+    };
+  }catch(_){
+    return null;
+  }
+}
+
+function extractDailySeriesRows(rawDoc){
+  try{
+    const d = safeObj(rawDoc) || {};
+
+    if (Array.isArray(d.dailySeries)) return d.dailySeries;
+    if (Array.isArray(d.weatherDailySeries)) return d.weatherDailySeries;
+    if (Array.isArray(d.wxDailySeries)) return d.wxDailySeries;
+
+    const ds = d.dailySeries;
+    if (Array.isArray(ds)) return ds;
+
+    if (safeObj(ds)){
+      const numericKeys = Object.keys(ds)
+        .filter(k => /^\d+$/.test(String(k)))
+        .sort((a,b)=> Number(a) - Number(b));
+
+      if (numericKeys.length){
+        return numericKeys.map(k => ds[k]).filter(Boolean);
+      }
+
+      if (Array.isArray(ds.rows)) return ds.rows;
+      if (Array.isArray(ds.items)) return ds.items;
+      if (Array.isArray(ds.series)) return ds.series;
+    }
+
+    return [];
+  }catch(_){
+    return [];
+  }
+}
+
+function getDailySeriesMeta(rawDoc){
+  try{
+    const d = safeObj(rawDoc) || {};
+    const m = safeObj(d.dailySeriesMeta) || {};
+
+    return {
+      todayISO: toISODateOnly(m.todayISO || d.todayISO || ''),
+      histDays: safeInt(m.histDays, 0) || 0,
+      fcstDays: safeInt(m.fcstDays, 0) || 0
+    };
+  }catch(_){
+    return { todayISO:'', histDays:0, fcstDays:0 };
+  }
+}
+
+function splitWeatherHistoryAndForecast(rawDoc){
+  try{
+    const rows = extractDailySeriesRows(rawDoc)
+      .map(normalizeDailyWxRow)
+      .filter(r => r && r.dateISO);
+
+    if (!rows.length){
+      return {
+        historyRows: [],
+        forecastRows: []
+      };
+    }
+
+    const meta = getDailySeriesMeta(rawDoc);
+    const todayISO = meta.todayISO;
+
+    if (todayISO){
+      const historyRows = [];
+      const forecastRows = [];
+
+      for (const r of rows){
+        if (String(r.dateISO) <= todayISO) historyRows.push(r);
+        else forecastRows.push(r);
+      }
+
+      return { historyRows, forecastRows };
+    }
+
+    // fallback if todayISO is unavailable
+    const fcstDays = Math.max(0, Number(meta.fcstDays || 0));
+    if (fcstDays > 0 && rows.length > fcstDays){
+      return {
+        historyRows: rows.slice(0, rows.length - fcstDays),
+        forecastRows: rows.slice(rows.length - fcstDays)
+      };
+    }
+
+    return {
+      historyRows: rows,
+      forecastRows: []
+    };
+  }catch(_){
+    return {
+      historyRows: [],
+      forecastRows: []
+    };
+  }
+}
 
 async function _renderDetailsInternal(state){
   ensureFieldsCountHelperEl();
@@ -2875,14 +3005,15 @@ async function _renderDetailsInternal(state){
   }
 
    /* ===============================
-     ✅ WEATHER (SAVED + FORECAST)
+     ✅ WEATHER (DAILY SERIES: HISTORY + FORECAST)
   =============================== */
   const wxb = $('wxRows');
   if (wxb){
     wxb.innerHTML = '';
 
-    const historyRows = Array.isArray(d.modelRows) ? d.modelRows : [];
-    const forecastRows = getSavedForecastRowsForDetails(d);
+    const split = splitWeatherHistoryAndForecast(d);
+    const historyRows = Array.isArray(split.historyRows) ? split.historyRows : [];
+    const forecastRows = Array.isArray(split.forecastRows) ? split.forecastRows : [];
 
     if (!historyRows.length && !forecastRows.length){
       wxb.innerHTML = `<tr><td colspan="9" class="muted">No weather rows.</td></tr>`;
@@ -2903,30 +3034,30 @@ async function _renderDetailsInternal(state){
         wxb.appendChild(tr);
       }
 
-      if (historyRows.length && forecastRows.length){
+      if (forecastRows.length){
         const sep = document.createElement('tr');
         sep.innerHTML = `
-          <td colspan="9" class="muted" style="font-weight:800;padding-top:10px;">
+          <td colspan="9" class="muted" style="font-weight:900;padding-top:10px;">
             Forecast
           </td>
         `;
         wxb.appendChild(sep);
-      }
 
-      for (const r of forecastRows){
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td class="mono">Forecast • ${esc(String(r.dateISO || ''))}</td>
-          <td class="right mono">${Number(r.rainInAdj||0).toFixed(2)}</td>
-          <td class="right mono">${Math.round(Number(r.tempF||0))}</td>
-          <td class="right mono">${Math.round(Number(r.windMph||0))}</td>
-          <td class="right mono">${Math.round(Number(r.rh||0))}</td>
-          <td class="right mono">${Math.round(Number(r.solarWm2||0))}</td>
-          <td class="right mono">${Number(r.et0In||0).toFixed(2)}</td>
-          <td class="right mono">${Number(r.sm010||0).toFixed(3)}</td>
-          <td class="right mono">${Math.round(Number(r.st010F||0))}</td>
-        `;
-        wxb.appendChild(tr);
+        for (const r of forecastRows){
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td class="mono">Forecast • ${esc(String(r.dateISO || ''))}</td>
+            <td class="right mono">${Number(r.rainInAdj||0).toFixed(2)}</td>
+            <td class="right mono">${Math.round(Number(r.tempF||0))}</td>
+            <td class="right mono">${Math.round(Number(r.windMph||0))}</td>
+            <td class="right mono">${Math.round(Number(r.rh||0))}</td>
+            <td class="right mono">${Math.round(Number(r.solarWm2||0))}</td>
+            <td class="right mono">${Number(r.et0In||0).toFixed(2)}</td>
+            <td class="right mono">${Number(r.sm010||0).toFixed(3)}</td>
+            <td class="right mono">${Math.round(Number(r.st010F||0))}</td>
+          `;
+          wxb.appendChild(tr);
+        }
       }
     }
   }
