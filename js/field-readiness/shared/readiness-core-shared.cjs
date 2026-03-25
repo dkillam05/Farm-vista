@@ -1,23 +1,24 @@
 /* =====================================================================
 /js/field-readiness/shared/readiness-core-shared.cjs  (FULL FILE)
-Rev: 2026-03-22c-force-full-history-from-persisted
+Rev: 2026-03-25a-align-shared-core-to-accelerated-drydown-model
 
 PURPOSE
 ✅ Shared PURE readiness math core for backend import
 ✅ CommonJS module for Cloud Run / Node
-✅ Matches current shared-core parity logic
-✅ FIX: rain precedence now matches live field-readiness.model.js
-✅ FIX: avgLossDay still works when includeTrace=false
-✅ CAL remains zero to match formula.js wiring
-✅ NEW: helper to compute readiness from persisted storage only
-✅ NEW: explicit sourceMode markers for backend debugging
-✅ NEW: preserves seed/debug metadata so caller can see which path ran
-✅ NEW: exposes explicit storage cap fields for UI display:
+✅ Keeps backend scheduler aligned to current frontend model behavior
+✅ Rain precedence matches live field-readiness.model.js
+✅ Drydown now matches newer accelerated model:
+   - stronger sunshine / daylight / wind influence
+   - stronger VPD / cloud effect
+   - stronger ET influence
+   - softer wet-hold
+   - stronger mid-range acceleration
+✅ Preserves helper to compute readiness from persisted storage only
+✅ Preserves storage cap fields for backend/UI display:
    - storageMax
    - storageCapacity
    - storageMaxFinal
-✅ NEW: supports forceFullHistoryFromPersisted so history can seed from
-   persisted storage but still run the full 30-day loop
+✅ FIX: forceFullHistoryFromPersisted now actually honors caller option
 ===================================================================== */
 
 'use strict';
@@ -92,13 +93,14 @@ const DEFAULT_TUNE = {
   DRY_TAIL_START: 0.12,
   DRY_TAIL_MIN_MULT: 0.55,
 
-  WET_HOLD_START: 0.62,
-  WET_HOLD_MAX_REDUCTION: 0.32,
-  WET_HOLD_EXP: 1.70,
+  // aligned to newer accelerated model
+  WET_HOLD_START: 0.70,
+  WET_HOLD_MAX_REDUCTION: 0.18,
+  WET_HOLD_EXP: 1.35,
 
-  MID_ACCEL_START: 0.50,
-  MID_ACCEL_MAX_BOOST: 0.18,
-  MID_ACCEL_EXP: 1.35
+  MID_ACCEL_START: 0.58,
+  MID_ACCEL_MAX_BOOST: 0.32,
+  MID_ACCEL_EXP: 1.20
 };
 
 /* =====================================================================
@@ -180,14 +182,26 @@ function calcDryParts(row, extra){
   const temp = num(row && row.tempF, 0);
   const wind = num(row && row.windMph, 0);
   const rh   = num(row && row.rh, 0);
-  const solar= num(row && row.solarWm2, 0);
+  const solar = num(row && row.solarWm2, 0);
+  const sunshineHr = num(row && row.sunshineHr, 0);
+  const daylightHr = num(row && row.daylightHr, 0);
 
-  const tempN  = clamp((temp - 20) / 45, 0, 1);
-  const windN  = clamp((wind - 2) / 20, 0, 1);
+  const tempN = clamp((temp - 20) / 45, 0, 1);
+  const windN = clamp((wind - 2) / 20, 0, 1);
   const solarN = clamp((solar - 60) / 300, 0, 1);
-  const rhN    = clamp((rh - 35) / 65, 0, 1);
+  const rhN = clamp((rh - 35) / 65, 0, 1);
+  const sunshineN = clamp(sunshineHr / 12, 0, 1);
+  const daylightN = clamp((daylightHr - 8) / 8, 0, 1);
 
-  const rawBase = (0.35 * tempN + 0.30 * solarN + 0.25 * windN - 0.25 * rhN);
+  // aligned to newer accelerated frontend model
+  const rawBase =
+    (0.24 * tempN) +
+    (0.34 * solarN) +
+    (0.36 * windN) +
+    (0.32 * sunshineN) +
+    (0.10 * daylightN) -
+    (0.18 * rhN);
+
   let dryPwr = clamp(rawBase, 0, 1);
 
   const vpd = (row && row.vpdKpa != null) ? Number(row.vpdKpa) : null;
@@ -196,15 +210,16 @@ function calcDryParts(row, extra){
   const vpdN = (vpd === null || !Number.isFinite(vpd)) ? 0 : clamp(vpd / 2.6, 0, 1);
   const cloudN = (cloud === null || !Number.isFinite(cloud)) ? 0 : clamp(cloud / 100, 0, 1);
 
+  // stronger VPD / cloud influence
   dryPwr = clamp(
-    dryPwr + extra.DRYPWR_VPD_W * vpdN - extra.DRYPWR_CLOUD_W * cloudN,
+    dryPwr + (0.28 * vpdN) - (0.18 * cloudN),
     0,
     1
   );
 
   return {
-    temp, wind, rh, solar,
-    tempN, windN, rhN, solarN,
+    temp, wind, rh, solar, sunshineHr, daylightHr,
+    tempN, windN, rhN, solarN, sunshineN, daylightN,
     vpd: Number.isFinite(vpd) ? vpd : 0,
     vpdN,
     cloud: Number.isFinite(cloud) ? cloud : 0,
@@ -414,7 +429,7 @@ function pickSeed(rows, factors, persistedState, opts = {}){
       const forceFull = !!opts.forceFullHistoryFromPersisted;
       return {
         seedStorage: clamp(Number(persistedState.storageFinal), 0, factors.Smax),
-        startIdx: idx + 1,
+        startIdx: forceFull ? 0 : (idx + 1),
         source: forceFull ? 'persisted-full-history' : 'persisted'
       };
     }
@@ -482,8 +497,8 @@ function runFieldReadinessCore(
   const factors = mapFactors(soilWetness, drainageIndex, last.sm010, extra);
 
   const seedPick = pickSeed(normalizedRows, factors, persistedState, {
-  forceFullHistoryFromPersisted: false
-});
+    forceFullHistoryFromPersisted: !!opts.forceFullHistoryFromPersisted
+  });
   let storage = clamp(seedPick.seedStorage, 0, factors.Smax);
 
   const trace = [];
@@ -502,7 +517,8 @@ function runFieldReadinessCore(
     const addRain = rainEff * factors.infilMult;
     const add = addRain + addSm;
 
-    let lossBase = Number(d.dryPwr || 0) * lossScale * factors.dryMult * (1 + extra.LOSS_ET0_W * d.et0N);
+    // aligned to newer frontend model: stronger ET influence
+    let lossBase = Number(d.dryPwr || 0) * lossScale * factors.dryMult * (1 + (extra.LOSS_ET0_W * 1.35 * d.et0N));
 
     const stateDryMult = storageDrydownMult(before, factors.Smax, tune);
     let loss = lossBase * stateDryMult;
@@ -607,7 +623,7 @@ function runFieldReadinessCore(
 }
 
 /* =====================================================================
-   NEW: readiness from persisted storage only
+   Readiness from persisted storage only
 ===================================================================== */
 function runReadinessFromPersistedStateOnly(
   soilWetness,
