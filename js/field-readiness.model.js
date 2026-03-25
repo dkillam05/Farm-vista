@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-03-15f-fix-eta-starting-state-priority
+Rev: 2026-03-25a-accelerate-drydown-sun-wind-et-cloud-vpd
 
 OPTION 1 (per Dane):
 ✅ Model owns ETA and computes it from the SAME truth-seeded run + SAME physics.
@@ -11,38 +11,18 @@ OPTION 1 (per Dane):
 
 THIS REV:
 ✅ Keeps MRMS rainfall preference with Open-Meteo fallback
-✅ Adds STORAGE-STATE DRYDOWN behavior:
-   - very full / saturated profile dries down slower
-   - mid-range profile dries down faster
-   - very dry tail still slows down as before
-✅ ETA can start from centralized field_readiness_latest truth
-   when deps.getEtaSeedForFieldId(fieldId) is available
-✅ FIX: ETA starting-state priority is now corrected:
-   1) storagePhysFinal from field_readiness_latest
-   2) storageFinal from field_readiness_latest
-   3) derive from latest readiness ONLY as last fallback
-✅ FIX: avoids fake 0h / 1h ETA caused by rebuilding storage from readiness
-   before using true latest stored moisture/storage values
-✅ HARD GUARD: if authoritative latest readiness is below threshold, ETA may NOT
-   return 0h / dryNow
-✅ Keeps ETA starting display/readiness aligned to Firestore latest truth
-
-TUNING NOTES FOR NEXT TIME:
-- WET_HOLD_START:
-    where "wet soils start holding on harder"
-- WET_HOLD_MAX_REDUCTION:
-    max drydown slowdown at saturation
-- MID_ACCEL_START:
-    where drying begins to accelerate once storage has come down enough
-- MID_ACCEL_MAX_BOOST:
-    max extra drydown boost in that middle zone
-- DRY_TAIL_START / DRY_TAIL_MIN_MULT:
-    still control the very-dry end slowdown
+✅ Speeds real-world drydown under recent sunny / windy conditions
+✅ Promotes SUNSHINE HOURS + WIND + ET + VPD in drydown math
+✅ Increases cloud-cover slowdown effect
+✅ Softens saturated wet-hold so fields can dry faster once weather turns
+✅ Increases mid-range drydown acceleration where fields often "flip" fast
+✅ Uses sunshineHr/daylightHr when present, without breaking older rows
+✅ Keeps existing truth-seed / ETA-start priority behavior intact
 
 IMPORTANT:
 - Truth seed (storageFinal + asOfDateISO) still anchors "now"
 - Learning (EXTRA.DRY_LOSS_MULT / EXTRA.RAIN_EFF_MULT) still applies
-- This file now supports merged weather input through deps:
+- This file still supports merged weather input through deps:
     1) getModelWeatherSeriesForFieldId(fieldId)
     2) getMergedWeatherSeriesForFieldId(fieldId)
     3) fallback getWeatherSeriesForFieldId(fieldId)
@@ -134,16 +114,15 @@ const FV_TUNE = {
   DRY_TAIL_START: 0.12,
   DRY_TAIL_MIN_MULT: 0.55,
 
-  // NEW: saturated/full profile holds wetness longer
-  WET_HOLD_START: 0.62,
-  WET_HOLD_MAX_REDUCTION: 0.32,
-  WET_HOLD_EXP: 1.70,
+  // Saturated/full profile still holds wetness longer, but less than before
+  WET_HOLD_START: 0.70,
+  WET_HOLD_MAX_REDUCTION: 0.18,
+  WET_HOLD_EXP: 1.35,
 
-  // NEW: once storage comes down enough, drying can accelerate
-  // This band sits ABOVE the very-dry tail so the two do not fight much.
-  MID_ACCEL_START: 0.50,
-  MID_ACCEL_MAX_BOOST: 0.18,
-  MID_ACCEL_EXP: 1.35
+  // Middle zone gets a stronger boost so fields can "flip" faster
+  MID_ACCEL_START: 0.58,
+  MID_ACCEL_MAX_BOOST: 0.32,
+  MID_ACCEL_EXP: 1.20
 };
 
 function getTune(deps){
@@ -219,13 +198,29 @@ export function calcDryParts(r, EXTRA){
   const wind = Number(r.windMph||0);
   const rh   = Number(r.rh||0);
   const solar= Number(r.solarWm2||0);
+  const sunshineHr = Number(r.sunshineHr||0);
+  const daylightHr = Number(r.daylightHr||0);
 
   const tempN = clamp((temp - 20) / 45, 0, 1);
   const windN = clamp((wind - 2) / 20, 0, 1);
   const solarN= clamp((solar - 60) / 300, 0, 1);
   const rhN   = clamp((rh - 35) / 65, 0, 1);
+  const sunshineN = clamp(sunshineHr / 12, 0, 1);
+  const daylightN = clamp((daylightHr - 8) / 8, 0, 1);
 
-  const rawBase = (0.35*tempN + 0.30*solarN + 0.25*windN - 0.25*rhN);
+  // Stronger atmospheric drying signal:
+  // - wind promoted
+  // - sunshine duration explicitly included
+  // - daylight helps but stays secondary
+  // - RH remains a drag
+  const rawBase =
+    (0.24 * tempN) +
+    (0.34 * solarN) +
+    (0.36 * windN) +
+    (0.32 * sunshineN) +
+    (0.10 * daylightN) -
+    (0.18 * rhN);
+
   let dryPwr = clamp(rawBase, 0, 1);
 
   const vpd = (r.vpdKpa===null || r.vpdKpa===undefined) ? null : Number(r.vpdKpa);
@@ -234,11 +229,16 @@ export function calcDryParts(r, EXTRA){
   const vpdN = (vpd===null || !isFinite(vpd)) ? 0 : clamp(vpd / 2.6, 0, 1);
   const cloudN = (cloud===null || !isFinite(cloud)) ? 0 : clamp(cloud / 100, 0, 1);
 
-  dryPwr = clamp(dryPwr + EXTRA.DRYPWR_VPD_W * vpdN - EXTRA.DRYPWR_CLOUD_W * cloudN, 0, 1);
+  // VPD and cloud move from "light nudges" to meaningful effects
+  dryPwr = clamp(
+    dryPwr + (0.28 * vpdN) - (0.18 * cloudN),
+    0,
+    1
+  );
 
   return {
-    temp, wind, rh, solar,
-    tempN, windN, rhN, solarN,
+    temp, wind, rh, solar, sunshineHr, daylightHr,
+    tempN, windN, rhN, solarN, sunshineN, daylightN,
     vpd: (isFinite(vpd)?vpd:0),
     vpdN,
     cloud: (isFinite(cloud)?cloud:0),
@@ -686,6 +686,8 @@ function interpDayRow(d0, d1, frac){
     windMph:lerpNum('windMph', 0),
     rh:     lerpNum('rh', 0),
     solarWm2: lerpNum('solarWm2', 0),
+    sunshineHr: lerpNum('sunshineHr', 0),
+    daylightHr: lerpNum('daylightHr', 0),
     cloudPct: lerpNullable('cloudPct'),
     vpdKpa:   lerpNullable('vpdKpa'),
     sm010:    lerpNullable('sm010'),
@@ -850,7 +852,8 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
       const addSm = ((deps.EXTRA.ADD_SM010_W * smN) * 0.05) * (stepH / 24);
       let add = addRain + addSm;
 
-      let lossDay = Number(parts.dryPwr||0) * deps.LOSS_SCALE * f.dryMult * (1 + deps.EXTRA.LOSS_ET0_W * et0N);
+      // Stronger ET influence layered onto the stronger dry-power signal
+      let lossDay = Number(parts.dryPwr||0) * deps.LOSS_SCALE * f.dryMult * (1 + (deps.EXTRA.LOSS_ET0_W * 1.35 * et0N));
 
       const stateDryMult = storageDrydownMult(before, f.Smax, tune);
       lossDay = lossDay * stateDryMult;
@@ -954,7 +957,8 @@ export function runField(field, deps){
     let addRain = rainEff * f.infilMult;
     let add = addRain + addSm;
 
-    let lossBase = Number(d.dryPwr||0) * deps.LOSS_SCALE * f.dryMult * (1 + deps.EXTRA.LOSS_ET0_W * d.et0N);
+    // Stronger ET influence layered onto the stronger dry-power signal
+    let lossBase = Number(d.dryPwr||0) * deps.LOSS_SCALE * f.dryMult * (1 + (deps.EXTRA.LOSS_ET0_W * 1.35 * d.et0N));
 
     const stateDryMult = storageDrydownMult(before, f.Smax, tune);
 
