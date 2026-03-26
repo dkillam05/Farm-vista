@@ -3100,15 +3100,19 @@ async function _renderDetailsInternal(state){
   }
 
   /* ===============================
-     ✅ MRMS (SAVED 30 DAYS)
+     ✅ MRMS (LIVE FROM field_mrms_weather)
   =============================== */
-  renderMrmsPanelFromDoc({
-mrmsDailySeries30d: d.mrmsDailySeries30d || [],
-mrmsHourlyLast24: d.mrmsHourlyLast24 || [],
-mrmsHourlyLatest: d.mrmsHourlyLatest || {},
-    mrmsHistoryMeta: d.mrmsHistoryMeta || {}
-  });
-}
+  try{
+    const liveMrmsDoc = await loadFieldMrmsDoc(state, f.id, { force:true });
+    renderMrmsPanelFromDoc(liveMrmsDoc);
+  }catch(_){
+    renderMrmsPanelFromDoc({
+      mrmsDailySeries30d: d.mrmsDailySeries30d || [],
+      mrmsHourlyLast24: d.mrmsHourlyLast24 || [],
+      mrmsHourlyLatest: d.mrmsHourlyLatest || {},
+      mrmsHistoryMeta: d.mrmsHistoryMeta || {}
+    });
+  }
 
 /* ---------- details render (PUBLIC) ---------- */
 export async function renderDetails(state){
