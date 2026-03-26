@@ -1,6 +1,6 @@
 // /js/field-readiness/shared/index.js  (FULL FILE)
 // FarmVista Readiness Rebuilder (Cloud Run)
-// Rev: 2026-03-23c-latlng-change-ignore-stale-cache
+// Rev: 2026-03-26a-keep-weather-flow-stop-copying-mrms-into-latest
 //
 // PURPOSE:
 // ✅ DOES NOT fetch Open-Meteo
@@ -21,13 +21,14 @@
 // ✅ FIX: when a field is updated, rebuild uses current fields/{fieldId} slider values
 // ✅ FIX: clears stale placeholder "reason" when field becomes ready/provisional
 // ✅ NEW: persists 30-day display history into field_readiness_latest
-// ✅ NEW: writes modelRows + tankTrace + wx daily/forecast + MRMS daily to latest doc
-// ✅ NEW: writes MRMS hourly last 24 + latest hourly summary to latest doc
+// ✅ NEW: writes modelRows + tankTrace + wx daily/forecast to latest doc
 // ✅ FIX: chunk processing + smaller batch commits to avoid heap/memory crashes
 // ✅ NEW: only writes tankTrace when 30-day weather exists AND MRMS coverage is >= 90%
 // ✅ NEW: when history inputs are incomplete, status is "processing_history"
 // ✅ NEW: if field lat/lng changed, stale weather/MRMS cache is ignored automatically
 // ✅ NEW: lat/lng-changed fields are treated like new fields until fresh cache arrives
+// ✅ IMPORTANT: keeps MRMS in the backend readiness math path
+// ✅ IMPORTANT: does NOT copy MRMS payload blobs into field_readiness_latest anymore
 //
 const express = require("express");
 const {
@@ -867,18 +868,6 @@ async function writeReadinessLatest(runKey, timezone){
             ? wx.dailySeriesFcst.slice(0, 7)
             : [];
 
-          const mrmsDailySeries30d = Array.isArray(mrmsDoc && mrmsDoc.mrmsDailySeries30d)
-            ? mrmsDoc.mrmsDailySeries30d.slice(-HISTORY_DAYS_REQUIRED)
-            : [];
-
-          const mrmsHourlyLast24 = Array.isArray(mrmsDoc && mrmsDoc.mrmsHourlyLast24)
-            ? mrmsDoc.mrmsHourlyLast24.slice(-24)
-            : [];
-
-          const mrmsHourlyLatest = mrmsDoc && mrmsDoc.mrmsHourlyLatest
-            ? mrmsDoc.mrmsHourlyLatest
-            : null;
-
           batch.set(outRef, {
             ...baseDoc,
             asOfDateISO: safeISO10(summarySnapshot.asOfDateISO) || safeISO10((modelRows[modelRows.length - 1] || {}).dateISO) || null,
@@ -913,12 +902,6 @@ async function writeReadinessLatest(runKey, timezone){
             historyReady: historyReadiness.ready,
             historyCoverageMeta: historyReadiness.mrmsStats,
             locationChanged,
-
-            mrmsDailySeries30d,
-            mrmsHourlyLast24,
-            mrmsHourlyLatest,
-            mrmsHistoryMeta: mrmsDoc && mrmsDoc.mrmsHistoryMeta ? mrmsDoc.mrmsHistoryMeta : null,
-            mrmsLastUpdatedAt: mrmsDoc && mrmsDoc.mrmsLastUpdatedAt ? mrmsDoc.mrmsLastUpdatedAt : null,
 
             debug: {
               summary: summarySnapshot.debug || null,
