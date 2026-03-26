@@ -3113,7 +3113,7 @@ async function _renderDetailsInternal(state){
       mrmsHistoryMeta: d.mrmsHistoryMeta || {}
     });
   }
-
+}
 /* ---------- details render (PUBLIC) ---------- */
 export async function renderDetails(state){
   await scheduleRender(state, 'details');
