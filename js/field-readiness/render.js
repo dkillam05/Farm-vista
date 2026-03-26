@@ -3100,11 +3100,44 @@ async function _renderDetailsInternal(state){
   }
 
   /* ===============================
-     ✅ MRMS (LIVE FROM field_mrms_weather)
+     ✅ MRMS (LIVE FROM field_mrms_weather + mrms_hourly fallback)
   =============================== */
   try{
-    const liveMrmsDoc = await loadFieldMrmsDoc(state, f.id, { force:true });
+    let liveMrmsDoc = await loadFieldMrmsDoc(state, f.id, { force:true });
+
+    // 🔧 FALLBACK: if parent doc missing hourly data, pull subcollection
+    if (!liveMrmsDoc?.mrmsHourlyLast24 || !liveMrmsDoc.mrmsHourlyLast24.length){
+      try{
+        const db = window.firebase.firestore();
+        const snap = await db
+          .collection('field_mrms_weather')
+          .doc(String(f.id))
+          .collection('mrms_hourly')
+          .orderBy('fileTimestampUtc', 'desc')
+          .limit(24)
+          .get();
+
+        const rows = [];
+        snap.forEach(doc => rows.push(doc.data()));
+
+        if (rows.length){
+          liveMrmsDoc = {
+            ...(liveMrmsDoc || {}),
+            mrmsHourlyLast24: rows,
+            mrmsHourlyLatest: rows[0] || {},
+            mrmsHistoryMeta: {
+              ...((liveMrmsDoc && liveMrmsDoc.mrmsHistoryMeta) || {}),
+              source: 'mrms_hourly_fallback'
+            }
+          };
+        }
+      }catch(e){
+        console.warn('[MRMS fallback] failed:', e);
+      }
+    }
+
     renderMrmsPanelFromDoc(liveMrmsDoc);
+
   }catch(_){
     renderMrmsPanelFromDoc({
       mrmsDailySeries30d: d.mrmsDailySeries30d || [],
@@ -3114,6 +3147,7 @@ async function _renderDetailsInternal(state){
     });
   }
 }
+
 /* ---------- details render (PUBLIC) ---------- */
 export async function renderDetails(state){
   await scheduleRender(state, 'details');
