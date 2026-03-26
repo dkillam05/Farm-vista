@@ -1,6 +1,6 @@
 // /js/field-readiness/shared/index.js  (FULL FILE)
 // FarmVista Readiness Rebuilder (Cloud Run)
-// Rev: 2026-03-23c-latlng-change-ignore-stale-cache
+// Rev: 2026-03-26a-align-index-tune-and-seeding-to-frontend
 //
 // PURPOSE:
 // ✅ DOES NOT fetch Open-Meteo
@@ -28,6 +28,8 @@
 // ✅ NEW: when history inputs are incomplete, status is "processing_history"
 // ✅ NEW: if field lat/lng changed, stale weather/MRMS cache is ignored automatically
 // ✅ NEW: lat/lng-changed fields are treated like new fields until fresh cache arrives
+// ✅ FIX: backend FV_TUNE now matches frontend model.js
+// ✅ FIX: summary/history runs now seed from persisted truth when available
 //
 const express = require("express");
 const {
@@ -113,6 +115,8 @@ const EXTRA = {
   RAIN_EFF_MULT: Number.isFinite(Number(process.env.FV_RAIN_EFF_MULT)) ? Number(process.env.FV_RAIN_EFF_MULT) : 1.0
 };
 
+// IMPORTANT:
+// These MUST match the newer frontend model defaults or they override the shared core.
 const FV_TUNE = {
   SAT_RUNOFF_START: Number.isFinite(Number(process.env.FV_SAT_RUNOFF_START)) ? Number(process.env.FV_SAT_RUNOFF_START) : 0.75,
   RUNOFF_EXP: Number.isFinite(Number(process.env.FV_RUNOFF_EXP)) ? Number(process.env.FV_RUNOFF_EXP) : 2.2,
@@ -133,13 +137,14 @@ const FV_TUNE = {
   DRY_TAIL_START: Number.isFinite(Number(process.env.FV_DRY_TAIL_START)) ? Number(process.env.FV_DRY_TAIL_START) : 0.12,
   DRY_TAIL_MIN_MULT: Number.isFinite(Number(process.env.FV_DRY_TAIL_MIN_MULT)) ? Number(process.env.FV_DRY_TAIL_MIN_MULT) : 0.55,
 
-  WET_HOLD_START: Number.isFinite(Number(process.env.FV_WET_HOLD_START)) ? Number(process.env.FV_WET_HOLD_START) : 0.62,
-  WET_HOLD_MAX_REDUCTION: Number.isFinite(Number(process.env.FV_WET_HOLD_MAX_REDUCTION)) ? Number(process.env.FV_WET_HOLD_MAX_REDUCTION) : 0.32,
-  WET_HOLD_EXP: Number.isFinite(Number(process.env.FV_WET_HOLD_EXP)) ? Number(process.env.FV_WET_HOLD_EXP) : 1.70,
+  // MATCH FRONTEND MODEL.JS
+  WET_HOLD_START: Number.isFinite(Number(process.env.FV_WET_HOLD_START)) ? Number(process.env.FV_WET_HOLD_START) : 0.70,
+  WET_HOLD_MAX_REDUCTION: Number.isFinite(Number(process.env.FV_WET_HOLD_MAX_REDUCTION)) ? Number(process.env.FV_WET_HOLD_MAX_REDUCTION) : 0.18,
+  WET_HOLD_EXP: Number.isFinite(Number(process.env.FV_WET_HOLD_EXP)) ? Number(process.env.FV_WET_HOLD_EXP) : 1.35,
 
-  MID_ACCEL_START: Number.isFinite(Number(process.env.FV_MID_ACCEL_START)) ? Number(process.env.FV_MID_ACCEL_START) : 0.50,
-  MID_ACCEL_MAX_BOOST: Number.isFinite(Number(process.env.FV_MID_ACCEL_MAX_BOOST)) ? Number(process.env.FV_MID_ACCEL_MAX_BOOST) : 0.18,
-  MID_ACCEL_EXP: Number.isFinite(Number(process.env.FV_MID_ACCEL_EXP)) ? Number(process.env.FV_MID_ACCEL_EXP) : 1.35
+  MID_ACCEL_START: Number.isFinite(Number(process.env.FV_MID_ACCEL_START)) ? Number(process.env.FV_MID_ACCEL_START) : 0.58,
+  MID_ACCEL_MAX_BOOST: Number.isFinite(Number(process.env.FV_MID_ACCEL_MAX_BOOST)) ? Number(process.env.FV_MID_ACCEL_MAX_BOOST) : 0.32,
+  MID_ACCEL_EXP: Number.isFinite(Number(process.env.FV_MID_ACCEL_EXP)) ? Number(process.env.FV_MID_ACCEL_EXP) : 1.20
 };
 
 const HISTORY_DAYS_REQUIRED = 30;
@@ -635,6 +640,8 @@ function toPlainModelRows(rows){
     windMph: safeNum(r && r.windMph),
     rh: safeNum(r && r.rh),
     solarWm2: safeNum(r && r.solarWm2),
+    sunshineHr: safeNum(r && r.sunshineHr),
+    daylightHr: safeNum(r && r.daylightHr),
     et0In: round(num(r && r.et0In, 0), 3),
     sm010: safeNum(r && r.sm010),
     st010F: safeNum(r && r.st010F),
@@ -645,6 +652,8 @@ function toPlainModelRows(rows){
     windN: safeNum(r && r.windN),
     rhN: safeNum(r && r.rhN),
     solarN: safeNum(r && r.solarN),
+    sunshineN: safeNum(r && r.sunshineN),
+    daylightN: safeNum(r && r.daylightN),
     vpdN: safeNum(r && r.vpdN),
     cloudN: safeNum(r && r.cloudN)
   }));
@@ -811,7 +820,9 @@ async function writeReadinessLatest(runKey, timezone){
         const historyReadiness = buildHistoryReadiness(wx, mrmsDoc, HISTORY_DAYS_REQUIRED);
 
         if (weatherRows.length){
-          const summaryPersistedState = null;
+          // IMPORTANT FIX:
+          // Use persisted truth for seeding when available so backend matches frontend better.
+          const summaryPersistedState = persistedState || null;
 
           const summarySnapshot = runFieldReadinessCore(
             weatherRows,
@@ -881,7 +892,11 @@ async function writeReadinessLatest(runKey, timezone){
 
           batch.set(outRef, {
             ...baseDoc,
-            asOfDateISO: safeISO10(summarySnapshot.asOfDateISO) || safeISO10((modelRows[modelRows.length - 1] || {}).dateISO) || null,
+            asOfDateISO:
+              safeISO10(summaryPersistedState && summaryPersistedState.asOfDateISO) ||
+              safeISO10((modelRows[modelRows.length - 1] || {}).dateISO) ||
+              null,
+
             readiness: Number(summarySnapshot.readinessR),
             wetness: Number(summarySnapshot.wetnessR),
             storageFinal: Number(summarySnapshot.storageFinal),
