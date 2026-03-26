@@ -1,13 +1,13 @@
 /* =====================================================================
 /js/field-readiness/shared/readiness-core-shared.cjs  (FULL FILE)
-Rev: 2026-03-25a-align-shared-core-to-accelerated-drydown-model
+Rev: 2026-03-26a-align-shared-core-exactly-to-frontend-model
 
 PURPOSE
 ✅ Shared PURE readiness math core for backend import
 ✅ CommonJS module for Cloud Run / Node
 ✅ Keeps backend scheduler aligned to current frontend model behavior
 ✅ Rain precedence matches live field-readiness.model.js
-✅ Drydown now matches newer accelerated model:
+✅ Drydown matches newer accelerated frontend model:
    - stronger sunshine / daylight / wind influence
    - stronger VPD / cloud effect
    - stronger ET influence
@@ -19,6 +19,12 @@ PURPOSE
    - storageCapacity
    - storageMaxFinal
 ✅ FIX: forceFullHistoryFromPersisted now actually honors caller option
+
+IMPORTANT ALIGNMENT NOTE
+- This file now mirrors frontend field-readiness.model.js more closely.
+- Most important fix:
+  mapFactors() NO LONGER applies STORAGE_CAP_SM010_W to Smax.
+  Frontend model.js does not do that, so backend should not either.
 ===================================================================== */
 
 'use strict';
@@ -59,7 +65,7 @@ function safeStr(v){
 }
 
 /* =====================================================================
-   Defaults aligned to live model
+   Defaults aligned to live frontend model.js
 ===================================================================== */
 const DEFAULT_LOSS_SCALE = 0.55;
 
@@ -93,7 +99,7 @@ const DEFAULT_TUNE = {
   DRY_TAIL_START: 0.12,
   DRY_TAIL_MIN_MULT: 0.55,
 
-  // aligned to newer accelerated model
+  // aligned to newer accelerated frontend model
   WET_HOLD_START: 0.70,
   WET_HOLD_MAX_REDUCTION: 0.18,
   WET_HOLD_EXP: 1.35,
@@ -193,7 +199,7 @@ function calcDryParts(row, extra){
   const sunshineN = clamp(sunshineHr / 12, 0, 1);
   const daylightN = clamp((daylightHr - 8) / 8, 0, 1);
 
-  // aligned to newer accelerated frontend model
+  // aligned to frontend model.js
   const rawBase =
     (0.24 * tempN) +
     (0.34 * solarN) +
@@ -210,7 +216,6 @@ function calcDryParts(row, extra){
   const vpdN = (vpd === null || !Number.isFinite(vpd)) ? 0 : clamp(vpd / 2.6, 0, 1);
   const cloudN = (cloud === null || !Number.isFinite(cloud)) ? 0 : clamp(cloud / 100, 0, 1);
 
-  // stronger VPD / cloud influence
   dryPwr = clamp(
     dryPwr + (0.28 * vpdN) - (0.18 * cloudN),
     0,
@@ -230,6 +235,8 @@ function calcDryParts(row, extra){
 }
 
 function mapFactors(soilWetness0_100, drainageIndex0_100, sm010, extra){
+  void extra;
+
   const soilHoldRaw = safePct01(soilWetness0_100);
   const drainPoorRaw = safePct01(drainageIndex0_100);
 
@@ -243,11 +250,11 @@ function mapFactors(soilWetness0_100, drainageIndex0_100, sm010, extra){
   const infilMult = 0.60 + 0.30 * soilHold + 0.35 * drainPoor;
   const dryMult   = 1.20 - 0.35 * soilHold - 0.40 * drainPoor;
 
+  // EXACTLY aligned to frontend model.js
   const SmaxBase = 3.00 + 1.00 * soilHold + 1.00 * drainPoor;
-  const SmaxUncapped = SmaxBase * (1 + num(extra && extra.STORAGE_CAP_SM010_W, 0) * smN);
-  const Smax = clamp(SmaxUncapped, 3.00, 5.00);
+  const Smax = clamp(SmaxBase, 3.00, 5.00);
 
-  return { soilHold, drainPoor, smN, infilMult, dryMult, Smax, SmaxBase, SmaxUncapped };
+  return { soilHold, drainPoor, smN, infilMult, dryMult, Smax, SmaxBase };
 }
 
 /* =====================================================================
@@ -360,6 +367,7 @@ function applyCalToStorage(storagePhys, Smax){
     };
   }
 
+  // backend shared core stays zero-cal like before
   const wetBias = 0;
   const readinessShift = 0;
 
@@ -499,6 +507,7 @@ function runFieldReadinessCore(
   const seedPick = pickSeed(normalizedRows, factors, persistedState, {
     forceFullHistoryFromPersisted: !!opts.forceFullHistoryFromPersisted
   });
+
   let storage = clamp(seedPick.seedStorage, 0, factors.Smax);
 
   const trace = [];
@@ -517,7 +526,7 @@ function runFieldReadinessCore(
     const addRain = rainEff * factors.infilMult;
     const add = addRain + addSm;
 
-    // aligned to newer frontend model: stronger ET influence
+    // EXACTLY aligned to frontend model.js
     let lossBase = Number(d.dryPwr || 0) * lossScale * factors.dryMult * (1 + (extra.LOSS_ET0_W * 1.35 * d.et0N));
 
     const stateDryMult = storageDrydownMult(before, factors.Smax, tune);
