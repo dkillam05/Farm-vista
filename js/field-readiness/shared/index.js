@@ -1,34 +1,27 @@
 // /js/field-readiness/shared/index.js  (FULL FILE)
 // FarmVista Readiness Rebuilder (Cloud Run)
-// Rev: 2026-03-26a-keep-weather-flow-stop-copying-mrms-into-latest
+// Rev: 2026-03-26a-preserve-readiness-score-write-weather-display-only
 //
 // PURPOSE:
 // ✅ DOES NOT fetch Open-Meteo
 // ✅ DOES NOT write field_weather_cache
-// ✅ ONLY rebuilds field_readiness_latest
-// ✅ Uses existing field_weather_cache as primary input
-// ✅ Uses MRMS overlay when ready enough
-// ✅ Uses same field param paths as frontend
-// ✅ Uses shared readiness core from readiness-core-shared.cjs
-// ✅ FIX: iterates ALL active fields, not only weather-cache docs
-// ✅ FIX: new fields with lat/lng now get written into field_readiness_latest
-// ✅ FIX: if weather cache is missing, writes placeholder row so field is not invisible
-// ✅ NEW: saves tank size fields into field_readiness_latest:
-//    - storageMax
-//    - storageCapacity
-//    - storageMaxFinal
-// ✅ NEW: placeholder/new fields ALSO get storageMax immediately from slider math
-// ✅ FIX: when a field is updated, rebuild uses current fields/{fieldId} slider values
-// ✅ FIX: clears stale placeholder "reason" when field becomes ready/provisional
-// ✅ NEW: persists 30-day display history into field_readiness_latest
-// ✅ NEW: writes modelRows + tankTrace + wx daily/forecast to latest doc
-// ✅ FIX: chunk processing + smaller batch commits to avoid heap/memory crashes
-// ✅ NEW: only writes tankTrace when 30-day weather exists AND MRMS coverage is >= 90%
-// ✅ NEW: when history inputs are incomplete, status is "processing_history"
-// ✅ NEW: if field lat/lng changed, stale weather/MRMS cache is ignored automatically
-// ✅ NEW: lat/lng-changed fields are treated like new fields until fresh cache arrives
-// ✅ IMPORTANT: keeps MRMS in the backend readiness math path
-// ✅ IMPORTANT: does NOT copy MRMS payload blobs into field_readiness_latest anymore
+// ✅ ONLY reads existing field_weather_cache as primary input
+// ✅ STILL writes weather / display history into field_readiness_latest
+// ✅ STILL uses MRMS overlay when ready enough for display/model rows
+// ✅ STILL writes:
+//    - modelRows
+//    - tankTrace
+//    - dailySeries30d
+//    - dailySeriesFcst
+//    - mrmsDailySeries30d
+//    - mrmsHourlyLast24
+//    - mrmsHourlyLatest
+//    - weatherFetchedAt / weatherSource / run metadata
+// ✅ STILL iterates ALL active fields
+// ✅ STILL writes placeholder docs for new fields so they are not invisible
+// ✅ STILL ignores stale cache automatically when lat/lng changed
+// ❌ DOES NOT overwrite readiness score fields in field_readiness_latest
+// ❌ DOES NOT overwrite wetness/storage/readiness-derived scalar fields
 //
 const express = require("express");
 const {
@@ -812,13 +805,11 @@ async function writeReadinessLatest(runKey, timezone){
         const historyReadiness = buildHistoryReadiness(wx, mrmsDoc, HISTORY_DAYS_REQUIRED);
 
         if (weatherRows.length){
-          const summaryPersistedState = null;
-
           const summarySnapshot = runFieldReadinessCore(
             weatherRows,
             soilWetness,
             drainageIndex,
-            summaryPersistedState,
+            null,
             {
               extra: EXTRA,
               tune: FV_TUNE,
@@ -827,7 +818,7 @@ async function writeReadinessLatest(runKey, timezone){
             }
           );
 
-          if (!summarySnapshot || !Number.isFinite(Number(summarySnapshot.readinessR))){
+          if (!summarySnapshot){
             fail++;
             continue;
           }
@@ -838,7 +829,7 @@ async function writeReadinessLatest(runKey, timezone){
               weatherRows,
               soilWetness,
               drainageIndex,
-              summaryPersistedState,
+              null,
               {
                 extra: EXTRA,
                 tune: FV_TUNE,
@@ -868,29 +859,22 @@ async function writeReadinessLatest(runKey, timezone){
             ? wx.dailySeriesFcst.slice(0, 7)
             : [];
 
+          const mrmsDailySeries30d = Array.isArray(mrmsDoc && mrmsDoc.mrmsDailySeries30d)
+            ? mrmsDoc.mrmsDailySeries30d.slice(-HISTORY_DAYS_REQUIRED)
+            : [];
+
+          const mrmsHourlyLast24 = Array.isArray(mrmsDoc && mrmsDoc.mrmsHourlyLast24)
+            ? mrmsDoc.mrmsHourlyLast24.slice(-24)
+            : [];
+
+          const mrmsHourlyLatest = mrmsDoc && mrmsDoc.mrmsHourlyLatest
+            ? mrmsDoc.mrmsHourlyLatest
+            : null;
+
           batch.set(outRef, {
             ...baseDoc,
-            asOfDateISO: safeISO10(summarySnapshot.asOfDateISO) || safeISO10((modelRows[modelRows.length - 1] || {}).dateISO) || null,
-            readiness: Number(summarySnapshot.readinessR),
-            wetness: Number(summarySnapshot.wetnessR),
-            storageFinal: Number(summarySnapshot.storageFinal),
-            storagePhysFinal: Number(summarySnapshot.storagePhysFinal),
-            readinessCreditIn: Number(summarySnapshot.readinessCreditIn || 0),
-            storageForReadiness: Number(summarySnapshot.storageForReadiness || 0),
 
-            storageMax: Number(summarySnapshot.storageMax || 0),
-            storageCapacity: Number(summarySnapshot.storageCapacity || 0),
-            storageMaxFinal: Number(summarySnapshot.storageMaxFinal || 0),
-
-            soilWetness,
-            drainageIndex,
-            seedSource: summarySnapshot.seedSource || null,
-            seedStorage: safeNum(summarySnapshot.seedStorage),
-            sourceMode: summarySnapshot.sourceMode || null,
-            startIdx: safeNum(summarySnapshot.startIdx),
-
-            modelRows,
-            tankTrace,
+            // KEEP weather/display data fresh
             dailySeries30d,
             dailySeriesFcst,
             dailySeriesMeta: {
@@ -899,9 +883,18 @@ async function writeReadinessLatest(runKey, timezone){
               todayISO: safeISO10((dailySeries30d[dailySeries30d.length - 1] || {}).dateISO) || null
             },
 
+            modelRows,
+            tankTrace,
+
             historyReady: historyReadiness.ready,
             historyCoverageMeta: historyReadiness.mrmsStats,
             locationChanged,
+
+            mrmsDailySeries30d,
+            mrmsHourlyLast24,
+            mrmsHourlyLatest,
+            mrmsHistoryMeta: mrmsDoc && mrmsDoc.mrmsHistoryMeta ? mrmsDoc.mrmsHistoryMeta : null,
+            mrmsLastUpdatedAt: mrmsDoc && mrmsDoc.mrmsLastUpdatedAt ? mrmsDoc.mrmsLastUpdatedAt : null,
 
             debug: {
               summary: summarySnapshot.debug || null,
@@ -910,10 +903,16 @@ async function writeReadinessLatest(runKey, timezone){
               wxLocationChanged,
               mrmsLocationChanged
             },
+
             status: historyReadiness.ready ? "ready" : "processing_history",
             reason: historyReadiness.ready
               ? _admin.firestore.FieldValue.delete()
               : (historyReadiness.reason || "Processing history.")
+
+            // IMPORTANT:
+            // readiness / wetness / storage* / seed* / sourceMode / startIdx
+            // are intentionally NOT written here, so existing readiness score
+            // is preserved and not recalculated/overwritten.
           }, { merge: true });
 
           writes++;
@@ -924,12 +923,6 @@ async function writeReadinessLatest(runKey, timezone){
 
           batch.set(outRef, {
             ...baseDoc,
-            readiness: null,
-            wetness: null,
-            storageFinal: null,
-            storagePhysFinal: null,
-            readinessCreditIn: null,
-            storageForReadiness: null,
 
             storageMax: safeNum(capOnly && capOnly.storageMax),
             storageCapacity: safeNum(capOnly && capOnly.storageCapacity),
@@ -937,11 +930,12 @@ async function writeReadinessLatest(runKey, timezone){
 
             soilWetness,
             drainageIndex,
-            seedSource: null,
             historyReady: false,
             locationChanged: true,
             status: "waiting_for_weather_cache",
             reason: "Field lat/lng changed. Waiting for fresh weather and MRMS cache for the new location."
+
+            // readiness fields intentionally not written
           }, { merge: true });
 
           writes++;
@@ -949,36 +943,21 @@ async function writeReadinessLatest(runKey, timezone){
           placeholderOnly++;
         }
         else if (persistedState && Number.isFinite(Number(persistedState.storageFinal))){
-          const snapshot = runReadinessFromPersistedStateOnly(
-            soilWetness,
-            drainageIndex,
-            persistedState,
-            { extra: EXTRA }
-          );
-
-          if (!snapshot || !Number.isFinite(Number(snapshot.readinessR))){
-            fail++;
-            continue;
-          }
+          const capOnly = buildStorageCapOnlySnapshot(soilWetness, drainageIndex);
 
           batch.set(outRef, {
             ...baseDoc,
-            readiness: Number(snapshot.readinessR),
-            wetness: Number(snapshot.wetnessR),
-            storageFinal: Number(snapshot.storageFinal),
-            storagePhysFinal: Number(snapshot.storagePhysFinal),
-            readinessCreditIn: Number(snapshot.readinessCreditIn || 0),
-            storageForReadiness: Number(snapshot.storageForReadiness || 0),
 
-            storageMax: Number(snapshot.storageMax || 0),
-            storageCapacity: Number(snapshot.storageCapacity || 0),
-            storageMaxFinal: Number(snapshot.storageMaxFinal || 0),
+            storageMax: safeNum(capOnly && capOnly.storageMax),
+            storageCapacity: safeNum(capOnly && capOnly.storageCapacity),
+            storageMaxFinal: safeNum(capOnly && capOnly.storageMaxFinal),
 
             soilWetness,
             drainageIndex,
-            seedSource: "persisted-state-only",
             status: "provisional_no_weather_cache",
-            reason: "Missing field_weather_cache; using persisted truth only."
+            reason: "Missing field_weather_cache; preserving existing readiness while waiting on weather cache."
+
+            // readiness fields intentionally not written
           }, { merge: true });
 
           writes++;
@@ -990,12 +969,6 @@ async function writeReadinessLatest(runKey, timezone){
 
           batch.set(outRef, {
             ...baseDoc,
-            readiness: null,
-            wetness: null,
-            storageFinal: null,
-            storagePhysFinal: null,
-            readinessCreditIn: null,
-            storageForReadiness: null,
 
             storageMax: safeNum(capOnly && capOnly.storageMax),
             storageCapacity: safeNum(capOnly && capOnly.storageCapacity),
@@ -1003,9 +976,10 @@ async function writeReadinessLatest(runKey, timezone){
 
             soilWetness,
             drainageIndex,
-            seedSource: null,
             status: "waiting_for_weather_cache",
             reason: "Field exists, but no field_weather_cache and no persisted truth are available yet."
+
+            // readiness fields intentionally not written
           }, { merge: true });
 
           writes++;
@@ -1079,7 +1053,7 @@ app.get("/", async (req, res) => {
 
       return res.status(200).json({
         ok: true,
-        mode: "readiness_only_rebuild",
+        mode: "readiness_display_refresh_only",
         ranAt: new Date().toISOString(),
         runKey,
         readiness
@@ -1098,7 +1072,7 @@ app.get("/", async (req, res) => {
   }
 
   return res.status(200).send(
-    "FarmVista Readiness Rebuilder OK. Use /?run=1 to rebuild field_readiness_latest from existing caches."
+    "FarmVista Readiness Display Refresher OK. Use /?run=1 to refresh weather/display fields in field_readiness_latest without overwriting readiness score."
   );
 });
 
