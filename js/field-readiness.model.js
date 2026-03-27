@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-03-25a-accelerate-drydown-sun-wind-et-cloud-vpd
+Rev: 2026-03-27a-add-surface-rain-wet-hit
 
 OPTION 1 (per Dane):
 ✅ Model owns ETA and computes it from the SAME truth-seeded run + SAME physics.
@@ -18,6 +18,8 @@ THIS REV:
 ✅ Increases mid-range drydown acceleration where fields often "flip" fast
 ✅ Uses sunshineHr/daylightHr when present, without breaking older rows
 ✅ Keeps existing truth-seed / ETA-start priority behavior intact
+✅ NEW: surface rain hit so >0.10" rain knocks readiness down even if tank was near empty
+✅ NEW: surface wetness dries back out from sun / heat / wind / VPD instead of only tank math
 
 IMPORTANT:
 - Truth seed (storageFinal + asOfDateISO) still anchors "now"
@@ -122,7 +124,20 @@ const FV_TUNE = {
   // Middle zone gets a stronger boost so fields can "flip" faster
   MID_ACCEL_START: 0.58,
   MID_ACCEL_MAX_BOOST: 0.32,
-  MID_ACCEL_EXP: 1.20
+  MID_ACCEL_EXP: 1.20,
+
+  // NEW: surface-rain wet hit (separate from deep storage tank)
+  SURFACE_RAIN_START: 0.10,
+  SURFACE_RAIN_FULL_AT: 0.50,
+  SURFACE_PENALTY_MIN: 14,
+  SURFACE_PENALTY_MAX: 52,
+  SURFACE_DRY_RECOVERY_BASE: 6,
+  SURFACE_DRY_RECOVERY_DRYPWR_W: 18,
+  SURFACE_DRY_RECOVERY_ET0_W: 10,
+  SURFACE_DRY_RECOVERY_WIND_W: 4,
+  SURFACE_DRY_RECOVERY_SUN_W: 4,
+  SURFACE_DRY_RECOVERY_VPD_W: 4,
+  SURFACE_DRY_RECOVERY_CLOUD_W: 5
 };
 
 function getTune(deps){
@@ -165,6 +180,18 @@ function getTune(deps){
   t.MID_ACCEL_START    = clamp(t.MID_ACCEL_START, t.DRY_TAIL_START + 0.05, 0.80);
   t.MID_ACCEL_MAX_BOOST= clamp(t.MID_ACCEL_MAX_BOOST, 0.00, 0.40);
   t.MID_ACCEL_EXP      = clamp(t.MID_ACCEL_EXP, 0.6, 4.0);
+
+  t.SURFACE_RAIN_START         = clamp(t.SURFACE_RAIN_START, 0.00, 0.30);
+  t.SURFACE_RAIN_FULL_AT       = clamp(t.SURFACE_RAIN_FULL_AT, t.SURFACE_RAIN_START + 0.05, 1.50);
+  t.SURFACE_PENALTY_MIN        = clamp(t.SURFACE_PENALTY_MIN, 0, 40);
+  t.SURFACE_PENALTY_MAX        = clamp(t.SURFACE_PENALTY_MAX, t.SURFACE_PENALTY_MIN, 80);
+  t.SURFACE_DRY_RECOVERY_BASE  = clamp(t.SURFACE_DRY_RECOVERY_BASE, 0, 30);
+  t.SURFACE_DRY_RECOVERY_DRYPWR_W = clamp(t.SURFACE_DRY_RECOVERY_DRYPWR_W, 0, 40);
+  t.SURFACE_DRY_RECOVERY_ET0_W = clamp(t.SURFACE_DRY_RECOVERY_ET0_W, 0, 25);
+  t.SURFACE_DRY_RECOVERY_WIND_W = clamp(t.SURFACE_DRY_RECOVERY_WIND_W, 0, 15);
+  t.SURFACE_DRY_RECOVERY_SUN_W = clamp(t.SURFACE_DRY_RECOVERY_SUN_W, 0, 15);
+  t.SURFACE_DRY_RECOVERY_VPD_W = clamp(t.SURFACE_DRY_RECOVERY_VPD_W, 0, 15);
+  t.SURFACE_DRY_RECOVERY_CLOUD_W = clamp(t.SURFACE_DRY_RECOVERY_CLOUD_W, 0, 15);
 
   return t;
 }
@@ -403,6 +430,70 @@ function storageDrydownMult(storageBefore, Smax, tune){
   }
 
   return clamp(mult, 0.20, 2.50);
+}
+
+function surfacePenaltyAddFromRain(rainIn, storageBefore, Smax, tune){
+  const rain = Math.max(0, Number(rainIn || 0));
+  if (!Number.isFinite(rain) || rain <= tune.SURFACE_RAIN_START) return 0;
+
+  const sat = (!Number.isFinite(storageBefore) || !Number.isFinite(Smax) || Smax <= 0)
+    ? 0
+    : clamp(storageBefore / Smax, 0, 1);
+
+  const frac = clamp(
+    (rain - tune.SURFACE_RAIN_START) / Math.max(1e-6, (tune.SURFACE_RAIN_FULL_AT - tune.SURFACE_RAIN_START)),
+    0,
+    1
+  );
+
+  // Keep a real "surface wet" hit even when profile storage is near empty.
+  // Slightly stronger penalty on drier profiles so a dry field still gets knocked down.
+  const dryBoost = 1 + (0.18 * (1 - sat));
+  const pts = lerp(tune.SURFACE_PENALTY_MIN, tune.SURFACE_PENALTY_MAX, Math.pow(frac, 0.90)) * dryBoost;
+
+  return clamp(pts, 0, tune.SURFACE_PENALTY_MAX + 10);
+}
+
+function surfacePenaltyDryRecoveryPerDay(parts, et0N, tune){
+  const p = safeObj(parts) || {};
+  const dryPwr = clamp(Number(p.dryPwr || 0), 0, 1);
+  const windN = clamp(Number(p.windN || 0), 0, 1);
+  const sunshineN = clamp(Number(p.sunshineN || 0), 0, 1);
+  const vpdN = clamp(Number(p.vpdN || 0), 0, 1);
+  const cloudN = clamp(Number(p.cloudN || 0), 0, 1);
+  const etN = clamp(Number(et0N || 0), 0, 1);
+
+  const recovery =
+    tune.SURFACE_DRY_RECOVERY_BASE +
+    (tune.SURFACE_DRY_RECOVERY_DRYPWR_W * dryPwr) +
+    (tune.SURFACE_DRY_RECOVERY_ET0_W * etN) +
+    (tune.SURFACE_DRY_RECOVERY_WIND_W * windN) +
+    (tune.SURFACE_DRY_RECOVERY_SUN_W * sunshineN) +
+    (tune.SURFACE_DRY_RECOVERY_VPD_W * vpdN) -
+    (tune.SURFACE_DRY_RECOVERY_CLOUD_W * cloudN);
+
+  return clamp(recovery, 0, 40);
+}
+
+function applySurfacePenaltyStep(surfacePenaltyBefore, rainIn, storageBefore, Smax, parts, et0N, tune, stepFrac=1){
+  const before = clamp(Number(surfacePenaltyBefore || 0), 0, 100);
+  const frac = clamp(Number(stepFrac || 0), 0, 1);
+
+  const dryLoss = surfacePenaltyDryRecoveryPerDay(parts, et0N, tune) * frac;
+  const afterDry = Math.max(0, before - dryLoss);
+
+  const rainAdd = surfacePenaltyAddFromRain(rainIn, storageBefore, Smax, tune);
+  const rainAddScaled = rainAdd * frac;
+
+  const after = clamp(afterDry + rainAddScaled, 0, 100);
+
+  return {
+    before,
+    dryLoss,
+    afterDry,
+    rainAdd: rainAddScaled,
+    after
+  };
 }
 
 /* =====================================================================
@@ -812,6 +903,7 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
     // Start interpolation from the same latest readiness truth the tile uses.
     let prevR = hasAuthoritativeNow ? authoritativeNowR : derivedNowR;
     let prevT = 0;
+    let surfacePenalty = clamp(Number(run.surfacePenaltyFinal || 0), 0, 100);
 
     // Hard guard against bad seed mismatch.
     if (hasAuthoritativeNow && authoritativeNowR < thr){
@@ -872,7 +964,11 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
 
       storagePhys = clamp(before + add - loss, 0, f.Smax);
 
-      const rNow = computeReadinessFromStorage(storagePhys, f, deps).readiness;
+      const surfStep = applySurfacePenaltyStep(surfacePenalty, stepRain, before, f.Smax, parts, et0N, tune, stepH / 24);
+      surfacePenalty = surfStep.after;
+
+      const baseNow = computeReadinessFromStorage(storagePhys, f, deps).readiness;
+      const rNow = clamp(baseNow - surfacePenalty, 0, 100);
 
       if (prevR < thr && rNow >= thr){
         const denom = rNow - prevR;
@@ -940,6 +1036,7 @@ export function runField(field, deps){
 
   const seedPick = pickSeed(rows, f, deps, field.id);
   let storage = clamp(seedPick.seedStorage, 0, f.Smax);
+  let surfacePenalty = 0;
 
   const trace = [];
 
@@ -977,6 +1074,9 @@ export function runField(field, deps){
     const after = clamp(before + add - loss, 0, f.Smax);
     storage = after;
 
+    const surf = applySurfacePenaltyStep(surfacePenalty, rain, before, f.Smax, d, d.et0N, tune, 1);
+    surfacePenalty = surf.after;
+
     const infilMultEff = (rain > 0)
       ? clamp((addRain / Math.max(1e-6, rain)), 0, 5)
       : 0;
@@ -998,7 +1098,12 @@ export function runField(field, deps){
       lossBase,
       stateDryMult,
       loss,
-      dryPwr: d.dryPwr
+      dryPwr: d.dryPwr,
+
+      surfacePenaltyBefore: surf.before,
+      surfacePenaltyDryLoss: surf.dryLoss,
+      surfacePenaltyRainAdd: surf.rainAdd,
+      surfacePenaltyAfter: surf.after
     });
   }
 
@@ -1010,11 +1115,16 @@ export function runField(field, deps){
   const creditIn = signedCreditInchesFromSmax(f.Smax);
   const storageForReadiness = clamp(storageEff - creditIn, 0, f.Smax);
 
-  const wetness = (f.Smax > 0) ? clamp((storageForReadiness / f.Smax) * 100, 0, 100) : 0;
-  const readiness = clamp(100 - wetness, 0, 100);
+  const baseWetness = (f.Smax > 0) ? clamp((storageForReadiness / f.Smax) * 100, 0, 100) : 0;
+  const baseReadiness = clamp(100 - baseWetness, 0, 100);
+
+  const readiness = clamp(baseReadiness - surfacePenalty, 0, 100);
+  const wetness = clamp(100 - readiness, 0, 100);
 
   const wetnessR = roundInt(wetness);
   const readinessR = roundInt(readiness);
+  const baseReadinessR = roundInt(baseReadiness);
+  const surfacePenaltyR = roundInt(surfacePenalty);
 
   const last7 = trace.slice(-7);
   const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
@@ -1030,6 +1140,9 @@ export function runField(field, deps){
 
     wetnessR,
     readinessR,
+    baseReadinessR,
+    surfacePenaltyFinal: surfacePenalty,
+    surfacePenaltyR,
     avgLossDay,
 
     readinessCreditIn: creditIn,
