@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-03-27a-add-surface-rain-wet-hit
+Rev: 2026-03-27b-stronger-surface-hit-slower-cool-cloudy-recovery
 
 OPTION 1 (per Dane):
 ✅ Model owns ETA and computes it from the SAME truth-seeded run + SAME physics.
@@ -18,8 +18,9 @@ THIS REV:
 ✅ Increases mid-range drydown acceleration where fields often "flip" fast
 ✅ Uses sunshineHr/daylightHr when present, without breaking older rows
 ✅ Keeps existing truth-seed / ETA-start priority behavior intact
-✅ NEW: surface rain hit so >0.10" rain knocks readiness down even if tank was near empty
-✅ NEW: surface wetness dries back out from sun / heat / wind / VPD instead of only tank math
+✅ Surface rain hit now starts at EXACTLY 0.10"
+✅ Stronger immediate readiness drop from 0.10"+ rain even on very dry tanks
+✅ Slower surface recovery on cool / cloudy / low-drying days
 
 IMPORTANT:
 - Truth seed (storageFinal + asOfDateISO) still anchors "now"
@@ -126,18 +127,20 @@ const FV_TUNE = {
   MID_ACCEL_MAX_BOOST: 0.32,
   MID_ACCEL_EXP: 1.20,
 
-  // NEW: surface-rain wet hit (separate from deep storage tank)
+  // Surface-rain wet hit (separate from deep storage tank)
   SURFACE_RAIN_START: 0.10,
-  SURFACE_RAIN_FULL_AT: 0.50,
-  SURFACE_PENALTY_MIN: 14,
-  SURFACE_PENALTY_MAX: 52,
-  SURFACE_DRY_RECOVERY_BASE: 6,
-  SURFACE_DRY_RECOVERY_DRYPWR_W: 18,
-  SURFACE_DRY_RECOVERY_ET0_W: 10,
-  SURFACE_DRY_RECOVERY_WIND_W: 4,
-  SURFACE_DRY_RECOVERY_SUN_W: 4,
-  SURFACE_DRY_RECOVERY_VPD_W: 4,
-  SURFACE_DRY_RECOVERY_CLOUD_W: 5
+  SURFACE_RAIN_FULL_AT: 0.40,
+  SURFACE_PENALTY_MIN: 18,
+  SURFACE_PENALTY_MAX: 72,
+
+  // Slower cool/cloudy recovery
+  SURFACE_DRY_RECOVERY_BASE: 2,
+  SURFACE_DRY_RECOVERY_DRYPWR_W: 13,
+  SURFACE_DRY_RECOVERY_ET0_W: 5,
+  SURFACE_DRY_RECOVERY_WIND_W: 2,
+  SURFACE_DRY_RECOVERY_SUN_W: 2,
+  SURFACE_DRY_RECOVERY_VPD_W: 2,
+  SURFACE_DRY_RECOVERY_CLOUD_W: 8
 };
 
 function getTune(deps){
@@ -181,17 +184,17 @@ function getTune(deps){
   t.MID_ACCEL_MAX_BOOST= clamp(t.MID_ACCEL_MAX_BOOST, 0.00, 0.40);
   t.MID_ACCEL_EXP      = clamp(t.MID_ACCEL_EXP, 0.6, 4.0);
 
-  t.SURFACE_RAIN_START         = clamp(t.SURFACE_RAIN_START, 0.00, 0.30);
-  t.SURFACE_RAIN_FULL_AT       = clamp(t.SURFACE_RAIN_FULL_AT, t.SURFACE_RAIN_START + 0.05, 1.50);
-  t.SURFACE_PENALTY_MIN        = clamp(t.SURFACE_PENALTY_MIN, 0, 40);
-  t.SURFACE_PENALTY_MAX        = clamp(t.SURFACE_PENALTY_MAX, t.SURFACE_PENALTY_MIN, 80);
-  t.SURFACE_DRY_RECOVERY_BASE  = clamp(t.SURFACE_DRY_RECOVERY_BASE, 0, 30);
+  t.SURFACE_RAIN_START            = clamp(t.SURFACE_RAIN_START, 0.00, 0.30);
+  t.SURFACE_RAIN_FULL_AT          = clamp(t.SURFACE_RAIN_FULL_AT, t.SURFACE_RAIN_START + 0.05, 1.50);
+  t.SURFACE_PENALTY_MIN           = clamp(t.SURFACE_PENALTY_MIN, 0, 50);
+  t.SURFACE_PENALTY_MAX           = clamp(t.SURFACE_PENALTY_MAX, t.SURFACE_PENALTY_MIN, 90);
+  t.SURFACE_DRY_RECOVERY_BASE     = clamp(t.SURFACE_DRY_RECOVERY_BASE, 0, 30);
   t.SURFACE_DRY_RECOVERY_DRYPWR_W = clamp(t.SURFACE_DRY_RECOVERY_DRYPWR_W, 0, 40);
-  t.SURFACE_DRY_RECOVERY_ET0_W = clamp(t.SURFACE_DRY_RECOVERY_ET0_W, 0, 25);
-  t.SURFACE_DRY_RECOVERY_WIND_W = clamp(t.SURFACE_DRY_RECOVERY_WIND_W, 0, 15);
-  t.SURFACE_DRY_RECOVERY_SUN_W = clamp(t.SURFACE_DRY_RECOVERY_SUN_W, 0, 15);
-  t.SURFACE_DRY_RECOVERY_VPD_W = clamp(t.SURFACE_DRY_RECOVERY_VPD_W, 0, 15);
-  t.SURFACE_DRY_RECOVERY_CLOUD_W = clamp(t.SURFACE_DRY_RECOVERY_CLOUD_W, 0, 15);
+  t.SURFACE_DRY_RECOVERY_ET0_W    = clamp(t.SURFACE_DRY_RECOVERY_ET0_W, 0, 25);
+  t.SURFACE_DRY_RECOVERY_WIND_W   = clamp(t.SURFACE_DRY_RECOVERY_WIND_W, 0, 15);
+  t.SURFACE_DRY_RECOVERY_SUN_W    = clamp(t.SURFACE_DRY_RECOVERY_SUN_W, 0, 15);
+  t.SURFACE_DRY_RECOVERY_VPD_W    = clamp(t.SURFACE_DRY_RECOVERY_VPD_W, 0, 15);
+  t.SURFACE_DRY_RECOVERY_CLOUD_W  = clamp(t.SURFACE_DRY_RECOVERY_CLOUD_W, 0, 20);
 
   return t;
 }
@@ -235,11 +238,6 @@ export function calcDryParts(r, EXTRA){
   const sunshineN = clamp(sunshineHr / 12, 0, 1);
   const daylightN = clamp((daylightHr - 8) / 8, 0, 1);
 
-  // Stronger atmospheric drying signal:
-  // - wind promoted
-  // - sunshine duration explicitly included
-  // - daylight helps but stays secondary
-  // - RH remains a drag
   const rawBase =
     (0.24 * tempN) +
     (0.34 * solarN) +
@@ -256,7 +254,6 @@ export function calcDryParts(r, EXTRA){
   const vpdN = (vpd===null || !isFinite(vpd)) ? 0 : clamp(vpd / 2.6, 0, 1);
   const cloudN = (cloud===null || !isFinite(cloud)) ? 0 : clamp(cloud / 100, 0, 1);
 
-  // VPD and cloud move from "light nudges" to meaningful effects
   dryPwr = clamp(
     dryPwr + (0.28 * vpdN) - (0.18 * cloudN),
     0,
@@ -434,7 +431,7 @@ function storageDrydownMult(storageBefore, Smax, tune){
 
 function surfacePenaltyAddFromRain(rainIn, storageBefore, Smax, tune){
   const rain = Math.max(0, Number(rainIn || 0));
-  if (!Number.isFinite(rain) || rain <= tune.SURFACE_RAIN_START) return 0;
+  if (!Number.isFinite(rain) || rain < tune.SURFACE_RAIN_START) return 0;
 
   const sat = (!Number.isFinite(storageBefore) || !Number.isFinite(Smax) || Smax <= 0)
     ? 0
@@ -446,12 +443,14 @@ function surfacePenaltyAddFromRain(rainIn, storageBefore, Smax, tune){
     1
   );
 
-  // Keep a real "surface wet" hit even when profile storage is near empty.
-  // Slightly stronger penalty on drier profiles so a dry field still gets knocked down.
-  const dryBoost = 1 + (0.18 * (1 - sat));
-  const pts = lerp(tune.SURFACE_PENALTY_MIN, tune.SURFACE_PENALTY_MAX, Math.pow(frac, 0.90)) * dryBoost;
+  // Stronger early ramp:
+  // - 0.10" now produces the MIN penalty
+  // - 0.15" rises quickly
+  // - 0.38" lands near the heavy-hit zone
+  const dryBoost = 1 + (0.28 * (1 - sat));
+  const pts = lerp(tune.SURFACE_PENALTY_MIN, tune.SURFACE_PENALTY_MAX, Math.pow(frac, 0.72)) * dryBoost;
 
-  return clamp(pts, 0, tune.SURFACE_PENALTY_MAX + 10);
+  return clamp(pts, 0, tune.SURFACE_PENALTY_MAX + 15);
 }
 
 function surfacePenaltyDryRecoveryPerDay(parts, et0N, tune){
@@ -472,7 +471,7 @@ function surfacePenaltyDryRecoveryPerDay(parts, et0N, tune){
     (tune.SURFACE_DRY_RECOVERY_VPD_W * vpdN) -
     (tune.SURFACE_DRY_RECOVERY_CLOUD_W * cloudN);
 
-  return clamp(recovery, 0, 40);
+  return clamp(recovery, 0, 30);
 }
 
 function applySurfacePenaltyStep(surfacePenaltyBefore, rainIn, storageBefore, Smax, parts, et0N, tune, stepFrac=1){
@@ -672,8 +671,6 @@ function deriveStoragePhysFromAuthoritativeReadiness(readinessValue, f, deps){
   const creditIn = signedCreditInchesFromSmax(f.Smax);
   const storageEff = clamp(storageForReadiness + creditIn, 0, f.Smax);
 
-  // applyCalToStorage() uses a storage delta that depends only on deps + Smax,
-  // so we can invert it by evaluating the same delta at 0.
   const calAtZero = applyCalToStorage(0, f.Smax, deps);
   const storageDeltaApplied = safeNum(calAtZero && calAtZero.storageDeltaApplied, 0);
 
@@ -687,11 +684,6 @@ function buildEtaNowStateFromSeed(run, f, deps, fieldId){
 
     const authoritativeReadiness = safeNum(seed.readiness, null);
 
-    // FIXED PRIORITY:
-    // 1) true latest physical storage
-    // 2) latest effective storage
-    // 3) derive from readiness only as last fallback
-    // 4) fallback to runField physical storage
     let storagePhys = safeNum(seed.storagePhysFinal, null);
     if (Number.isFinite(storagePhys)){
       storagePhys = clamp(storagePhys, 0, f.Smax);
@@ -892,20 +884,16 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
 
     const hasAuthoritativeNow = Number.isFinite(authoritativeNowR);
 
-    // Firestore latest readiness is the authority for the dryNow gate.
-    // If Firestore latest says below threshold, ETA may NOT be 0h.
     const dryNowGateR = hasAuthoritativeNow ? authoritativeNowR : derivedNowR;
 
     if (dryNowGateR >= thr && !(hasAuthoritativeNow && authoritativeNowR < thr)){
       return { ok:true, status:'dryNow', hours:0, text:'' };
     }
 
-    // Start interpolation from the same latest readiness truth the tile uses.
     let prevR = hasAuthoritativeNow ? authoritativeNowR : derivedNowR;
     let prevT = 0;
     let surfacePenalty = clamp(Number(run.surfacePenaltyFinal || 0), 0, 100);
 
-    // Hard guard against bad seed mismatch.
     if (hasAuthoritativeNow && authoritativeNowR < thr){
       prevR = Math.min(prevR, thr - 1);
     } else if (prevR >= thr){
@@ -944,7 +932,6 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
       const addSm = ((deps.EXTRA.ADD_SM010_W * smN) * 0.05) * (stepH / 24);
       let add = addRain + addSm;
 
-      // Stronger ET influence layered onto the stronger dry-power signal
       let lossDay = Number(parts.dryPwr||0) * deps.LOSS_SCALE * f.dryMult * (1 + (deps.EXTRA.LOSS_ET0_W * 1.35 * et0N));
 
       const stateDryMult = storageDrydownMult(before, f.Smax, tune);
@@ -975,7 +962,6 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
         const fracCross = denom <= 1e-6 ? 1 : clamp((thr - prevR) / denom, 0, 1);
         let eta = prevT + fracCross * (tHours - prevT);
 
-        // If latest truth started below threshold, never return 0h.
         if (eta <= 0 && Number(dryNowGateR) < thr){
           eta = 1;
         }
@@ -1054,7 +1040,6 @@ export function runField(field, deps){
     let addRain = rainEff * f.infilMult;
     let add = addRain + addSm;
 
-    // Stronger ET influence layered onto the stronger dry-power signal
     let lossBase = Number(d.dryPwr||0) * deps.LOSS_SCALE * f.dryMult * (1 + (deps.EXTRA.LOSS_ET0_W * 1.35 * d.et0N));
 
     const stateDryMult = storageDrydownMult(before, f.Smax, tune);
