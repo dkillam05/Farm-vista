@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-03-27a-add-surface-rain-wet-hit
+Rev: 2026-03-28a-slow-eta-to-match-wet-field-physics
 
 OPTION 1 (per Dane):
 ✅ Model owns ETA and computes it from the SAME truth-seeded run + SAME physics.
@@ -20,6 +20,7 @@ THIS REV:
 ✅ Keeps existing truth-seed / ETA-start priority behavior intact
 ✅ NEW: surface rain hit so >0.10" rain knocks readiness down even if tank was near empty
 ✅ NEW: surface wetness dries back out from sun / heat / wind / VPD instead of only tank math
+✅ NEW: ETA slowed to better match cold / recently-rained real field conditions
 
 IMPORTANT:
 - Truth seed (storageFinal + asOfDateISO) still anchors "now"
@@ -121,9 +122,9 @@ const FV_TUNE = {
   WET_HOLD_MAX_REDUCTION: 0.18,
   WET_HOLD_EXP: 1.35,
 
-  // Middle zone gets a stronger boost so fields can "flip" faster
+  // Middle zone still gets some acceleration, but much less than before
   MID_ACCEL_START: 0.58,
-  MID_ACCEL_MAX_BOOST: 0.32,
+  MID_ACCEL_MAX_BOOST: 0.12,
   MID_ACCEL_EXP: 1.20,
 
   // NEW: surface-rain wet hit (separate from deep storage tank)
@@ -131,13 +132,28 @@ const FV_TUNE = {
   SURFACE_RAIN_FULL_AT: 0.50,
   SURFACE_PENALTY_MIN: 14,
   SURFACE_PENALTY_MAX: 52,
-  SURFACE_DRY_RECOVERY_BASE: 6,
-  SURFACE_DRY_RECOVERY_DRYPWR_W: 18,
-  SURFACE_DRY_RECOVERY_ET0_W: 10,
-  SURFACE_DRY_RECOVERY_WIND_W: 4,
-  SURFACE_DRY_RECOVERY_SUN_W: 4,
-  SURFACE_DRY_RECOVERY_VPD_W: 4,
-  SURFACE_DRY_RECOVERY_CLOUD_W: 5
+  SURFACE_DRY_RECOVERY_BASE: 2,
+  SURFACE_DRY_RECOVERY_DRYPWR_W: 8,
+  SURFACE_DRY_RECOVERY_ET0_W: 6,
+  SURFACE_DRY_RECOVERY_WIND_W: 2,
+  SURFACE_DRY_RECOVERY_SUN_W: 2,
+  SURFACE_DRY_RECOVERY_VPD_W: 2,
+  SURFACE_DRY_RECOVERY_CLOUD_W: 5,
+
+  // NEW: cold weather should sharply slow true field recovery
+  COLD_DRY_START_F: 50,
+  COLD_DRY_FULL_F: 34,
+  COLD_DRY_MAX_REDUCTION: 0.72,
+
+  // NEW: ETA should respect recent rain / muddy surface lag
+  ETA_SURFACE_LOCK_START: 12,
+  ETA_SURFACE_LOCK_FULL_AT: 28,
+  ETA_SURFACE_LOCK_MIN_HOURS: 12,
+  ETA_SURFACE_LOCK_MAX_HOURS: 60,
+  ETA_COLD_LOCK_START_F: 50,
+  ETA_COLD_LOCK_FULL_F: 34,
+  ETA_COLD_LOCK_MAX_HOURS: 36,
+  ETA_MAX_GAIN_PER_HOUR: 0.40
 };
 
 function getTune(deps){
@@ -193,6 +209,19 @@ function getTune(deps){
   t.SURFACE_DRY_RECOVERY_VPD_W = clamp(t.SURFACE_DRY_RECOVERY_VPD_W, 0, 15);
   t.SURFACE_DRY_RECOVERY_CLOUD_W = clamp(t.SURFACE_DRY_RECOVERY_CLOUD_W, 0, 15);
 
+  t.COLD_DRY_START_F = clamp(t.COLD_DRY_START_F, 35, 70);
+  t.COLD_DRY_FULL_F = clamp(t.COLD_DRY_FULL_F, 0, t.COLD_DRY_START_F - 1);
+  t.COLD_DRY_MAX_REDUCTION = clamp(t.COLD_DRY_MAX_REDUCTION, 0, 0.95);
+
+  t.ETA_SURFACE_LOCK_START = clamp(t.ETA_SURFACE_LOCK_START, 0, 80);
+  t.ETA_SURFACE_LOCK_FULL_AT = clamp(t.ETA_SURFACE_LOCK_FULL_AT, t.ETA_SURFACE_LOCK_START + 1, 100);
+  t.ETA_SURFACE_LOCK_MIN_HOURS = clamp(t.ETA_SURFACE_LOCK_MIN_HOURS, 0, 72);
+  t.ETA_SURFACE_LOCK_MAX_HOURS = clamp(t.ETA_SURFACE_LOCK_MAX_HOURS, t.ETA_SURFACE_LOCK_MIN_HOURS, 120);
+  t.ETA_COLD_LOCK_START_F = clamp(t.ETA_COLD_LOCK_START_F, 35, 70);
+  t.ETA_COLD_LOCK_FULL_F = clamp(t.ETA_COLD_LOCK_FULL_F, 0, t.ETA_COLD_LOCK_START_F - 1);
+  t.ETA_COLD_LOCK_MAX_HOURS = clamp(t.ETA_COLD_LOCK_MAX_HOURS, 0, 72);
+  t.ETA_MAX_GAIN_PER_HOUR = clamp(t.ETA_MAX_GAIN_PER_HOUR, 0.05, 5);
+
   return t;
 }
 
@@ -227,6 +256,10 @@ export function calcDryParts(r, EXTRA){
   const solar= Number(r.solarWm2||0);
   const sunshineHr = Number(r.sunshineHr||0);
   const daylightHr = Number(r.daylightHr||0);
+
+  const coldStartF = clamp(Number((EXTRA && EXTRA.COLD_DRY_START_F) ?? FV_TUNE.COLD_DRY_START_F), 35, 70);
+  const coldFullF = clamp(Number((EXTRA && EXTRA.COLD_DRY_FULL_F) ?? FV_TUNE.COLD_DRY_FULL_F), 0, coldStartF - 1);
+  const coldMaxReduction = clamp(Number((EXTRA && EXTRA.COLD_DRY_MAX_REDUCTION) ?? FV_TUNE.COLD_DRY_MAX_REDUCTION), 0, 0.95);
 
   const tempN = clamp((temp - 20) / 45, 0, 1);
   const windN = clamp((wind - 2) / 20, 0, 1);
@@ -263,6 +296,14 @@ export function calcDryParts(r, EXTRA){
     1
   );
 
+  const coldFrac = clamp(
+    (coldStartF - temp) / Math.max(1e-6, (coldStartF - coldFullF)),
+    0,
+    1
+  );
+  const coldDryMult = 1 - (coldMaxReduction * Math.pow(coldFrac, 1.15));
+  dryPwr = clamp(dryPwr * coldDryMult, 0, 1);
+
   return {
     temp, wind, rh, solar, sunshineHr, daylightHr,
     tempN, windN, rhN, solarN, sunshineN, daylightN,
@@ -271,6 +312,8 @@ export function calcDryParts(r, EXTRA){
     cloud: (isFinite(cloud)?cloud:0),
     cloudN,
     raw: rawBase,
+    coldFrac,
+    coldDryMult,
     dryPwr
   };
 }
@@ -462,8 +505,10 @@ function surfacePenaltyDryRecoveryPerDay(parts, et0N, tune){
   const vpdN = clamp(Number(p.vpdN || 0), 0, 1);
   const cloudN = clamp(Number(p.cloudN || 0), 0, 1);
   const etN = clamp(Number(et0N || 0), 0, 1);
+  const coldFrac = clamp(Number(p.coldFrac || 0), 0, 1);
+  const coldDryMult = clamp(Number(p.coldDryMult || 1), 0.05, 1);
 
-  const recovery =
+  let recovery =
     tune.SURFACE_DRY_RECOVERY_BASE +
     (tune.SURFACE_DRY_RECOVERY_DRYPWR_W * dryPwr) +
     (tune.SURFACE_DRY_RECOVERY_ET0_W * etN) +
@@ -472,7 +517,41 @@ function surfacePenaltyDryRecoveryPerDay(parts, et0N, tune){
     (tune.SURFACE_DRY_RECOVERY_VPD_W * vpdN) -
     (tune.SURFACE_DRY_RECOVERY_CLOUD_W * cloudN);
 
-  return clamp(recovery, 0, 40);
+  recovery = recovery * coldDryMult;
+  recovery = recovery * (1 - (0.35 * Math.pow(coldFrac, 1.1)));
+
+  return clamp(recovery, 0, 20);
+}
+
+function etaMinHoursFromCurrentState(surfacePenaltyNow, partsNow, tune){
+  const surf = clamp(Number(surfacePenaltyNow || 0), 0, 100);
+  const p = safeObj(partsNow) || {};
+  const temp = Number.isFinite(Number(p.temp)) ? Number(p.temp) : null;
+
+  let minHours = 0;
+
+  if (surf > tune.ETA_SURFACE_LOCK_START){
+    const surfFrac = clamp(
+      (surf - tune.ETA_SURFACE_LOCK_START) / Math.max(1e-6, (tune.ETA_SURFACE_LOCK_FULL_AT - tune.ETA_SURFACE_LOCK_START)),
+      0,
+      1
+    );
+    minHours = Math.max(
+      minHours,
+      lerp(tune.ETA_SURFACE_LOCK_MIN_HOURS, tune.ETA_SURFACE_LOCK_MAX_HOURS, Math.pow(surfFrac, 0.95))
+    );
+  }
+
+  if (Number.isFinite(temp) && temp < tune.ETA_COLD_LOCK_START_F){
+    const coldFrac = clamp(
+      (tune.ETA_COLD_LOCK_START_F - temp) / Math.max(1e-6, (tune.ETA_COLD_LOCK_START_F - tune.ETA_COLD_LOCK_FULL_F)),
+      0,
+      1
+    );
+    minHours = Math.max(minHours, tune.ETA_COLD_LOCK_MAX_HOURS * Math.pow(coldFrac, 0.95));
+  }
+
+  return clamp(minHours, 0, 120);
 }
 
 function applySurfacePenaltyStep(surfacePenaltyBefore, rainIn, storageBefore, Smax, parts, et0N, tune, stepFrac=1){
@@ -903,7 +982,18 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
     // Start interpolation from the same latest readiness truth the tile uses.
     let prevR = hasAuthoritativeNow ? authoritativeNowR : derivedNowR;
     let prevT = 0;
-    let surfacePenalty = clamp(Number(run.surfacePenaltyFinal || 0), 0, 100);
+
+    const authoritativePenaltyFloor = hasAuthoritativeNow
+      ? Math.max(0, derivedNowR - authoritativeNowR)
+      : 0;
+
+    let surfacePenalty = Math.max(
+      clamp(Number(run.surfacePenaltyFinal || 0), 0, 100),
+      authoritativePenaltyFloor
+    );
+
+    const currentRow = run.rows && run.rows.length ? run.rows[run.rows.length - 1] : null;
+    const etaMinHours = etaMinHoursFromCurrentState(surfacePenalty, currentRow, tune);
 
     // Hard guard against bad seed mismatch.
     if (hasAuthoritativeNow && authoritativeNowR < thr){
@@ -968,12 +1058,17 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
       surfacePenalty = surfStep.after;
 
       const baseNow = computeReadinessFromStorage(storagePhys, f, deps).readiness;
-      const rNow = clamp(baseNow - surfacePenalty, 0, 100);
+      let rNow = clamp(baseNow - surfacePenalty, 0, 100);
+
+      const maxGain = tune.ETA_MAX_GAIN_PER_HOUR * stepH;
+      rNow = Math.min(rNow, prevR + maxGain);
 
       if (prevR < thr && rNow >= thr){
         const denom = rNow - prevR;
         const fracCross = denom <= 1e-6 ? 1 : clamp((thr - prevR) / denom, 0, 1);
         let eta = prevT + fracCross * (tHours - prevT);
+
+        eta = Math.max(eta, etaMinHours);
 
         // If latest truth started below threshold, never return 0h.
         if (eta <= 0 && Number(dryNowGateR) < thr){
