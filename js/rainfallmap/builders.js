@@ -1,12 +1,14 @@
 /* ======================================================================
 /Farm-vista/js/rainfallmap/builders.js   (FULL FILE)
-Rev: 2026-03-15b-labeled-builder-file
+Rev: 2026-03-29a-overlay-cache-hourly-no-trim
 
 GOAL
 ✔ Readiness mode uses centralized field_readiness_latest first
 ✔ Map readiness matches render.js / quickview.js / global-calibration.js
 ✔ Keeps fallback path available for fields missing latest docs
 ✔ Keeps rainfall-map Firebase bridge working
+✔ NEW: caches rainfall/readiness render payloads locally for fast reopen
+✔ NEW: uses 1-hour TTL so map overlay data can refresh in background later
 
 IMPORTANT NOTE
 Rainfall date-range switching is NOT fully fixed in this file yet because
@@ -54,6 +56,63 @@ import { getCurrentOp } from '/Farm-vista/js/field-readiness/thresholds.js';
    Centralized readiness collection
 ===================================================================== */
 const FR_LATEST_COLLECTION = 'field_readiness_latest';
+
+/* =====================================================================
+   Overlay cache (1 hour TTL)
+===================================================================== */
+const OVERLAY_CACHE_TTL_MS = 60 * 60 * 1000;
+
+function safeStorageGet(key){
+  try{
+    return localStorage.getItem(key);
+  }catch(_){
+    return null;
+  }
+}
+function safeStorageSet(key, value){
+  try{
+    localStorage.setItem(key, value);
+  }catch(_){}
+}
+function getCurrentRangeCachePart(){
+  const start = String(appState.currentRangeStartISO || '').trim();
+  const end = String(appState.currentRangeEndISO || '').trim();
+  if (start || end) return `custom:${start}|${end}`;
+  return String(appState.currentRangeKey || 'last72h');
+}
+function makeRainCacheKey(){
+  const farmId = String(getSelectedFarmId() || 'ALL');
+  const rangePart = getCurrentRangeCachePart();
+  return `fv_rainfallmap_overlay_rain_v1|farm:${farmId}|range:${rangePart}`;
+}
+function makeReadinessCacheKey(){
+  const farmId = String(getSelectedFarmId() || 'ALL');
+  return `fv_rainfallmap_overlay_ready_v1|farm:${farmId}`;
+}
+function readOverlayCache(key){
+  try{
+    const raw = safeStorageGet(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (!parsed.savedAt || !parsed.data) return null;
+    return parsed;
+  }catch(_){
+    return null;
+  }
+}
+function writeOverlayCache(key, data){
+  try{
+    safeStorageSet(key, JSON.stringify({
+      savedAt: Date.now(),
+      data
+    }));
+  }catch(_){}
+}
+function isOverlayCacheFresh(entry){
+  if (!entry || !entry.savedAt) return false;
+  return (Date.now() - Number(entry.savedAt)) <= OVERLAY_CACHE_TTL_MS;
+}
 
 function safeObj(x){ return (x && typeof x === 'object') ? x : null; }
 function safeStr(x){
@@ -159,6 +218,21 @@ async function loadLatestReadinessMapForState(state){
 ===================================================================== */
 
 export async function buildRainRenderableRows(requestId, force=false){
+  const cacheKey = makeRainCacheKey();
+  const cached = !force ? readOverlayCache(cacheKey) : null;
+
+  if (!force && cached && cached.data){
+    if (requestId !== appState.currentRequestId) return { cancelled:true };
+
+    if (!isOverlayCacheFresh(cached)){
+      setTimeout(()=>{
+        buildRainRenderableRows(requestId, true).catch(()=>{});
+      }, 0);
+    }
+
+    return cached.data;
+  }
+
   const rows = await loadMrmsDocs(force);
   if (requestId !== appState.currentRequestId) return { cancelled:true };
 
@@ -192,7 +266,9 @@ export async function buildRainRenderableRows(requestId, force=false){
     points.push(...fieldPoints);
   });
 
-  return { points, summaries, renderedFields };
+  const result = { points, summaries, renderedFields };
+  writeOverlayCache(cacheKey, result);
+  return result;
 }
 
 /* =====================================================================
@@ -281,6 +357,21 @@ function getFilteredActiveFieldsFromReadinessState(state, selectedFarmId){
 ===================================================================== */
 
 export async function buildReadinessRenderableRows(requestId, force=false){
+  const cacheKey = makeReadinessCacheKey();
+  const cached = !force ? readOverlayCache(cacheKey) : null;
+
+  if (!force && cached && cached.data){
+    if (requestId !== appState.currentRequestId) return { cancelled:true };
+
+    if (!isOverlayCacheFresh(cached)){
+      setTimeout(()=>{
+        buildReadinessRenderableRows(requestId, true).catch(()=>{});
+      }, 0);
+    }
+
+    return cached.data;
+  }
+
   const selectedFarmId = getSelectedFarmId();
   const state = appState.readinessState;
 
@@ -407,5 +498,7 @@ export async function buildReadinessRenderableRows(requestId, force=false){
     state.lastRuns.set(fid, run);
   }
 
-  return { summaries, renderedFields };
+  const result = { summaries, renderedFields };
+  writeOverlayCache(cacheKey, result);
+  return result;
 }
