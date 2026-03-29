@@ -792,6 +792,8 @@ async function writeReadinessLatest(runKey, timezone){
         }
 
         const outRef = db.collection(READINESS_LATEST_COLLECTION).doc(fieldId);
+        const persistedRef = db.collection(PERSISTED_STATE_COLLECTION).doc(fieldId);
+
         const baseDoc = buildBaseLatestDoc({
           fieldId,
           fieldData: fd,
@@ -915,7 +917,39 @@ async function writeReadinessLatest(runKey, timezone){
             // is preserved and not recalculated/overwritten.
           }, { merge: true });
 
-          writes++;
+          const stateSnapshot = historyReadiness.ready && historySnapshot
+            ? historySnapshot
+            : summarySnapshot;
+
+          const stateRows = Array.isArray(stateSnapshot && stateSnapshot.rows)
+            ? stateSnapshot.rows
+            : [];
+
+          const stateAsOfDateISO = safeISO10(
+            (stateRows[stateRows.length - 1] && stateRows[stateRows.length - 1].dateISO) ||
+            (dailySeries30d[dailySeries30d.length - 1] && dailySeries30d[dailySeries30d.length - 1].dateISO) ||
+            null
+          ) || null;
+
+          const stateSmax =
+            safeNum(stateSnapshot && stateSnapshot.storageMax) ??
+            safeNum(stateSnapshot && stateSnapshot.storageCapacity) ??
+            safeNum(stateSnapshot && stateSnapshot.storageMaxFinal) ??
+            safeNum(stateSnapshot && stateSnapshot.factors && stateSnapshot.factors.Smax) ??
+            safeNum(stateSnapshot && stateSnapshot.debug && stateSnapshot.debug.factors && stateSnapshot.debug.factors.Smax);
+
+          batch.set(persistedRef, {
+            fieldId: String(fieldId),
+            fieldName: safeStr(fd.name || (wx && wx.fieldName) || null) || null,
+            asOfDateISO: stateAsOfDateISO,
+            storageFinal: safeNum(stateSnapshot && stateSnapshot.storageFinal),
+            SmaxAtSave: stateSmax,
+            anchorReadiness: safeNum(stateSnapshot && stateSnapshot.readinessR),
+            source: "readiness-rebuilder",
+            updatedAt: _admin.firestore.FieldValue.serverTimestamp()
+          }, { merge: true });
+
+          writes += 2;
           ok++;
         }
         else if (locationChanged){
