@@ -1228,8 +1228,9 @@ async function fillQuickView(state, { live=false } = {}){
   setText('frQvWetness', displayRun && Number.isFinite(Number(displayRun.wetnessR)) ? displayRun.wetnessR : '—');
 
   let storageText = '—';
-  if (displayRun){
-    const tank = getQuickViewStorageDisplay(displayRun);
+  {
+    const storageRun = runTruth || displayRun || null;
+    const tank = getQuickViewStorageDisplay(storageRun);
     const v = safeNum(tank.value);
     const c = safeNum(tank.cap);
 
