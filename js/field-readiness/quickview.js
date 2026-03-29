@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-03-29a-fix-quickview-storage-display-to-match-trace-tank
+Rev: 2026-03-29b-show-soil-moisture-and-surface-wetness-separately
 
 GOAL (per Dane, Feb 2026):
 ✅ Make Quick View readiness MATCH centralized app readiness
@@ -10,7 +10,6 @@ GOAL (per Dane, Feb 2026):
 ✅ Save updated live readiness to field_readiness_latest/{fieldId}
 ✅ Keep Range rain display aligned with MRMS tile logic
 ✅ Support lightweight MRMS UI refresh while Quick View is open
-✅ FIX: Storage display now uses true storage cap on right side again
 
 THIS REV:
 ✅ CRITICAL FIX: Quick View model recompute now uses runFieldReadiness(...)
@@ -20,9 +19,11 @@ THIS REV:
    used by formula.js
 ✅ Save & Close now also writes centralized readiness from runFieldReadiness(...)
    so field_readiness_latest is no longer rewritten from the wrong model path
-✅ FIX: Quick View storage display now uses physical tank number
-   (storagePhysFinal) so it matches trace tank details
-✅ Keeps existing UI / modal / map / save behavior intact
+✅ UI CHANGE: replaces single "Storage" line with:
+   - Soil Moisture
+   - Surface Wetness
+✅ Soil Moisture now shows readiness-side storage number with cap
+✅ Surface Wetness now shows the larger fast-changing wetness storage number
 
 NOTES:
 - While sliders are moving, Quick View shows LIVE PREVIEW from the model.
@@ -556,29 +557,41 @@ function getPersistedStateForDeps(state, fieldId){
 }
 
 /* =====================================================================
-   Quick View storage display helper
+   Quick View display helpers
 ===================================================================== */
-function getQuickViewStorageDisplay(run){
+function getSoilMoistureDisplay(run){
   try{
     const r = run || {};
 
     const value =
-      safeNum(r.storagePhysFinal) ??
+      safeNum(r.storageFinal) ??
       safeNum(r.storageForReadiness) ??
-      safeNum(r.storageFinal);
+      safeNum(r.storagePhysFinal);
 
     const cap =
       safeNum(r.storageMax) ??
       safeNum(r.storageCapacity) ??
       safeNum(r.storageMaxFinal) ??
-      safeNum(r && r.factors && r.factors.Smax) ??
-      safeNum(r.storagePhysFinal) ??
-      safeNum(r.storageForReadiness) ??
-      safeNum(r.storageFinal);
+      safeNum(r && r.factors && r.factors.Smax);
 
     return { value, cap };
   }catch(_){
     return { value:null, cap:null };
+  }
+}
+
+function getSurfaceWetnessDisplay(run){
+  try{
+    const r = run || {};
+
+    const value =
+      safeNum(r.storagePhysFinal) ??
+      safeNum(r && r.trace && r.trace.length ? r.trace[r.trace.length - 1].after : null) ??
+      safeNum(r.surfaceStorageFinal);
+
+    return { value };
+  }catch(_){
+    return { value:null };
   }
 }
 
@@ -926,7 +939,8 @@ function ensureBuiltOnce(state){
             <div class="k">Range rain</div><div class="v" id="frQvRain">—</div>
             <div class="k">Readiness</div><div class="v" id="frQvReadiness">—</div>
             <div class="k">Wetness</div><div class="v" id="frQvWetness">—</div>
-            <div class="k">Storage</div><div class="v" id="frQvStorage">—</div>
+            <div class="k">Soil Moisture</div><div class="v" id="frQvSoilMoisture">—</div>
+            <div class="k">Surface Wetness</div><div class="v" id="frQvSurfaceWetness">—</div>
           </div>
           <div class="help" id="frQvWxMeta">—</div>
         </div>
@@ -1142,16 +1156,12 @@ async function fillQuickView(state, { live=false } = {}){
     persistedGetter: (id)=> getPersistedStateForDeps(state, id)
   });
 
-  // ✅ CRITICAL FIX:
-  // Always use formula.js entry point so model weather is properly prewarmed
-  // and MRMS-vs-Open-Meteo selection stays consistent with the app.
   const runTruth = await runFieldReadiness(state, f, {
     opKey,
     wxCtx,
     persistedGetter: (id)=> getPersistedStateForDeps(state, id)
   });
 
-  // Centralized doc remains default when modal first opens.
   const latestRec = getLatestReadinessForField(state, fid);
   const latestRun = buildSyntheticRunFromLatest(state, f, latestRec);
 
@@ -1227,20 +1237,32 @@ async function fillQuickView(state, { live=false } = {}){
   setText('frQvReadiness', displayRun && Number.isFinite(Number(displayRun.readinessR)) ? displayRun.readinessR : '—');
   setText('frQvWetness', displayRun && Number.isFinite(Number(displayRun.wetnessR)) ? displayRun.wetnessR : '—');
 
-  let storageText = '—';
+  let soilMoistureText = '—';
   {
-    const storageRun = runTruth || displayRun || null;
-    const tank = getQuickViewStorageDisplay(storageRun);
+    const soilRun = displayRun || runTruth || null;
+    const tank = getSoilMoistureDisplay(soilRun);
     const v = safeNum(tank.value);
     const c = safeNum(tank.cap);
 
     if (v != null && c != null){
-      storageText = `${v.toFixed(2)} / ${c.toFixed(2)}`;
+      soilMoistureText = `${v.toFixed(2)} / ${c.toFixed(2)}`;
     } else if (v != null){
-      storageText = `${v.toFixed(2)}`;
+      soilMoistureText = `${v.toFixed(2)}`;
     }
   }
-  setText('frQvStorage', storageText);
+  setText('frQvSoilMoisture', soilMoistureText);
+
+  let surfaceWetnessText = '—';
+  {
+    const surfaceRun = runTruth || displayRun || null;
+    const sw = getSurfaceWetnessDisplay(surfaceRun);
+    const v = safeNum(sw.value);
+
+    if (v != null){
+      surfaceWetnessText = `${v.toFixed(2)}`;
+    }
+  }
+  setText('frQvSurfaceWetness', surfaceWetnessText);
 
   const info = state.wxInfoByFieldId.get(f.id) || null;
   const when = (info && info.fetchedAt) ? new Date(info.fetchedAt) : null;
@@ -1332,10 +1354,6 @@ async function saveAndClose(state){
       }, { merge:true });
     }
 
-    // Recompute centralized readiness using the NEW saved slider values.
-    // ✅ CRITICAL FIX:
-    // Use runFieldReadiness(...) so formula.js prewarm/model-weather selection
-    // is applied before writing field_readiness_latest.
     await ensureFRModules(state);
     await loadPersistedState(state, { force:true });
 
