@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-03-29a-surface-storage-coupled-to-server
+Rev: 2026-03-29b-surface-penalty-recovers-faster
 
 OPTION 1 (per Dane):
 ✅ Model owns ETA and computes it from the SAME truth-seeded run + SAME physics.
@@ -20,6 +20,7 @@ THIS REV:
 ✅ NEW: wet surface slows deep-tank drydown
 ✅ NEW: soft storage floor while surface remains wet
 ✅ NEW: ETA forward sim uses the same coupled storage/surface logic
+✅ TUNE: physical penalty still hits after rain but recovers faster afterward
 
 IMPORTANT:
 - Truth seed (storageFinal + asOfDateISO) still anchors "now"
@@ -136,8 +137,8 @@ const FV_TUNE = {
   // Surface storage system (same pattern as server file)
   SURFACE_CAP_IN: 0.70,
   SURFACE_RAIN_CAPTURE: 1.00,
-  SURFACE_PENALTY_MAX: 42,
-  SURFACE_PENALTY_EXP: 0.82,
+  SURFACE_PENALTY_MAX: 36,
+  SURFACE_PENALTY_EXP: 1.35,
 
   SURFACE_DRY_BASE: 0.02,
   SURFACE_DRY_DRYPWR_W: 0.16,
@@ -216,7 +217,7 @@ function getTune(deps){
   t.SURFACE_CAP_IN = clamp(t.SURFACE_CAP_IN, 0.10, 1.25);
   t.SURFACE_RAIN_CAPTURE = clamp(t.SURFACE_RAIN_CAPTURE, 0.20, 1.50);
   t.SURFACE_PENALTY_MAX = clamp(t.SURFACE_PENALTY_MAX, 5, 60);
-  t.SURFACE_PENALTY_EXP = clamp(t.SURFACE_PENALTY_EXP, 0.30, 2.00);
+  t.SURFACE_PENALTY_EXP = clamp(t.SURFACE_PENALTY_EXP, 0.60, 2.00);
 
   t.SURFACE_DRY_BASE = clamp(t.SURFACE_DRY_BASE, 0.00, 0.20);
   t.SURFACE_DRY_DRYPWR_W = clamp(t.SURFACE_DRY_DRYPWR_W, 0.00, 0.40);
