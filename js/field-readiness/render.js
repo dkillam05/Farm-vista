@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js  (FULL FILE)
-Rev: 2026-03-18a-add-field-name-search-filter
+Rev: 2026-03-29a-live-details-trace-matches-runtruth
 
 GOAL (per Dane):
 ✅ Read ALL displayed readiness numbers from Firestore collection:
@@ -29,6 +29,9 @@ GOAL (per Dane):
    saved / fresh default page size instead of behaving like All
 ✅ NEW: field-name search filter tied to #fieldSearch input
 ✅ NEW: search filters rendered field tiles by field name only
+✅ FIX: details tank trace + model rows now come from live runFieldReadiness(...)
+   so trace matches current live model / quickview
+✅ FALLBACK: if live run is unavailable, details still fall back to saved doc rows
 ✅ No trimmed sections
 
 IMPORTANT ETA CHANGE:
@@ -1912,6 +1915,46 @@ async function computeDeepModelRunForField(state, fieldObj, opKey){
 }
 
 /* =====================================================================
+   Trace/model row adapters for details
+===================================================================== */
+function getLiveTraceRowsForDetails(runTruth, savedRawDoc){
+  try{
+    const liveRows = Array.isArray(runTruth && runTruth.trace) ? runTruth.trace : [];
+    if (liveRows.length){
+      return liveRows.map((t)=>({
+        dateISO: safeStr(t.dateISO),
+        rainIn: safeNum(t.rain),
+        infilMult: safeNum(t.infilMult),
+        addIn: safeNum(t.add),
+        dryPwr: safeNum(t.dryPwr),
+        lossIn: safeNum(t.loss),
+        storageStart: safeNum(t.before),
+        storageEnd: safeNum(t.after)
+      }));
+    }
+
+    const d = safeObj(savedRawDoc) || {};
+    return Array.isArray(d.tankTrace) ? d.tankTrace : [];
+  }catch(_){
+    const d = safeObj(savedRawDoc) || {};
+    return Array.isArray(d.tankTrace) ? d.tankTrace : [];
+  }
+}
+
+function getLiveModelRowsForDetails(runTruth, savedRawDoc){
+  try{
+    const liveRows = Array.isArray(runTruth && runTruth.rows) ? runTruth.rows : [];
+    if (liveRows.length) return liveRows;
+
+    const d = safeObj(savedRawDoc) || {};
+    return Array.isArray(d.modelRows) ? d.modelRows : [];
+  }catch(_){
+    const d = safeObj(savedRawDoc) || {};
+    return Array.isArray(d.modelRows) ? d.modelRows : [];
+  }
+}
+
+/* =====================================================================
    FAST helper: build runs from field_readiness_latest
 ===================================================================== */
 async function buildRunsForFields(state, fields, opKey){
@@ -2226,8 +2269,6 @@ async function _renderTilesInternal(state){
       ? filteredExisting.length
       : Math.min(filteredExisting.length, effectivePageSize);
 
-    // ✅ If DOM tile count does not match what this view should show,
-    // force a full rebuild instead of reusing stale tiles.
     if (tiles.length === desiredCount){
       const ids = tiles
         .slice(0, desiredCount)
@@ -2546,16 +2587,16 @@ function localTs(iso){
     return String(iso || '—');
   }
 }
-function setText(id, txt){
+function setPanelText(id, txt){
   const el = $(id);
   if (el) el.textContent = String(txt ?? '—');
 }
 function renderMrmsPanelEmpty(msg){
-  setText('mrmsMeta', msg || 'No MRMS data found for this field.');
-  setText('mrmsLatestHour', '—');
-  setText('mrmsLast24Total', '—');
-  setText('mrmsLast7dTotal', '—');
-  setText('mrmsUnits', 'mm');
+  setPanelText('mrmsMeta', msg || 'No MRMS data found for this field.');
+  setPanelText('mrmsLatestHour', '—');
+  setPanelText('mrmsLast24Total', '—');
+  setPanelText('mrmsLast7dTotal', '—');
+  setPanelText('mrmsUnits', 'mm');
 
   const hourly = $('mrmsHourlyRows');
   if (hourly){
@@ -2591,14 +2632,14 @@ function renderMrmsPanelFromDoc(doc){
   const latestTs = latest.fileTimestampUtc || meta.latestFileTimestampUtc || '';
   const latestProduct = latest.selectedProduct || meta.latestSelectedProduct || '—';
 
-  setText(
+  setPanelText(
     'mrmsMeta',
     `Latest file: ${latestTs ? localTs(latestTs) : '—'} • Product: ${latestProduct} • Daily rows: ${daily.length} • Hourly rows: ${hourly.length}`
   );
-  setText('mrmsLatestHour', `${fmt2(latestHourMm)} mm`);
-  setText('mrmsLast24Total', `${fmt2(mmToIn(last24Mm))} in`);
-  setText('mrmsLast7dTotal', `${fmt2(mmToIn(last7Mm))} in`);
-  setText('mrmsUnits', units);
+  setPanelText('mrmsLatestHour', `${fmt2(latestHourMm)} mm`);
+  setPanelText('mrmsLast24Total', `${fmt2(mmToIn(last24Mm))} in`);
+  setPanelText('mrmsLast7dTotal', `${fmt2(mmToIn(last7Mm))} in`);
+  setPanelText('mrmsUnits', units);
 
   const hourlyBody = $('mrmsHourlyRows');
   if (hourlyBody){
@@ -2832,12 +2873,10 @@ function extractDailySeriesRows(rawDoc){
   try{
     const d = safeObj(rawDoc) || {};
 
-    // 1) direct array fields
     if (Array.isArray(d.dailySeries)) return d.dailySeries;
     if (Array.isArray(d.weatherDailySeries)) return d.weatherDailySeries;
     if (Array.isArray(d.wxDailySeries)) return d.wxDailySeries;
 
-    // 2) nested dailySeries object
     const ds = d.dailySeries;
     if (Array.isArray(ds)) return ds;
 
@@ -2855,7 +2894,6 @@ function extractDailySeriesRows(rawDoc){
       if (Array.isArray(ds.series)) return ds.series;
     }
 
-    // 3) top-level numeric-key map on the doc itself
     const topLevelNumericKeys = Object.keys(d)
       .filter(k => /^\d+$/.test(String(k)))
       .sort((a,b)=> Number(a) - Number(b));
@@ -2914,7 +2952,6 @@ function splitWeatherHistoryAndForecast(rawDoc){
       return { historyRows, forecastRows };
     }
 
-    // fallback to older combined-series shapes if present
     const rows = extractDailySeriesRows(d)
       .map(normalizeDailyWxRow)
       .filter(r => r && r.dateISO);
@@ -2977,15 +3014,27 @@ async function _renderDetailsInternal(state){
 
   const d = latest._raw;
 
+  let runTruth = null;
+  try{
+    await ensureFRModules(state);
+    await loadPersistedState(state, { force:false });
+
+    const opKey = getCurrentOp();
+    runTruth = await computeDeepModelRunForField(state, f, opKey);
+  }catch(e){
+    console.warn('[Details] live runTruth failed, falling back to saved rows:', e);
+    runTruth = null;
+  }
+
   renderBetaInputs(state);
 
   /* ===============================
-     ✅ TANK TRACE (SAVED 30 DAYS)
+     ✅ TANK TRACE (LIVE RUN FIRST, SAVED FALLBACK)
   =============================== */
   const trb = $('traceRows');
   if (trb){
     trb.innerHTML = '';
-    const rows = Array.isArray(d.tankTrace) ? d.tankTrace : [];
+    const rows = getLiveTraceRowsForDetails(runTruth, d);
 
     if (!rows.length){
       trb.innerHTML = `<tr><td colspan="7" class="muted">No tank trace data.</td></tr>`;
@@ -3007,12 +3056,12 @@ async function _renderDetailsInternal(state){
   }
 
   /* ===============================
-     ✅ DRY / MODEL ROWS (SAVED)
+     ✅ DRY / MODEL ROWS (LIVE RUN FIRST, SAVED FALLBACK)
   =============================== */
   const drb = $('dryRows');
   if (drb){
     drb.innerHTML = '';
-    const rows = Array.isArray(d.modelRows) ? d.modelRows : [];
+    const rows = getLiveModelRowsForDetails(runTruth, d);
 
     if (!rows.length){
       drb.innerHTML = `<tr><td colspan="15" class="muted">No rows.</td></tr>`;
@@ -3041,7 +3090,7 @@ async function _renderDetailsInternal(state){
     }
   }
 
-   /* ===============================
+  /* ===============================
      ✅ WEATHER (DAILY SERIES: HISTORY + FORECAST)
   =============================== */
   const wxb = $('wxRows');
@@ -3105,7 +3154,6 @@ async function _renderDetailsInternal(state){
   try{
     let liveMrmsDoc = await loadFieldMrmsDoc(state, f.id, { force:true });
 
-    // 🔧 FALLBACK: if parent doc missing hourly data, pull subcollection
     if (!liveMrmsDoc?.mrmsHourlyLast24 || !liveMrmsDoc.mrmsHourlyLast24.length){
       try{
         const db = window.firebase.firestore();
