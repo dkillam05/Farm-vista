@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-03-20a-fix-mrms-model-path-and-centralized-writeback
+Rev: 2026-03-29a-fix-quickview-storage-display-to-match-trace-tank
 
 GOAL (per Dane, Feb 2026):
 ✅ Make Quick View readiness MATCH centralized app readiness
@@ -20,6 +20,8 @@ THIS REV:
    used by formula.js
 ✅ Save & Close now also writes centralized readiness from runFieldReadiness(...)
    so field_readiness_latest is no longer rewritten from the wrong model path
+✅ FIX: Quick View storage display now uses physical tank number
+   (storagePhysFinal) so it matches trace tank details
 ✅ Keeps existing UI / modal / map / save behavior intact
 
 NOTES:
@@ -550,6 +552,33 @@ function getPersistedStateForDeps(state, fieldId){
     return (s && typeof s === 'object') ? s : null;
   }catch(_){
     return null;
+  }
+}
+
+/* =====================================================================
+   Quick View storage display helper
+===================================================================== */
+function getQuickViewStorageDisplay(run){
+  try{
+    const r = run || {};
+
+    const value =
+      safeNum(r.storagePhysFinal) ??
+      safeNum(r.storageForReadiness) ??
+      safeNum(r.storageFinal);
+
+    const cap =
+      safeNum(r.storageMax) ??
+      safeNum(r.storageCapacity) ??
+      safeNum(r.storageMaxFinal) ??
+      safeNum(r && r.factors && r.factors.Smax) ??
+      safeNum(r.storagePhysFinal) ??
+      safeNum(r.storageForReadiness) ??
+      safeNum(r.storageFinal);
+
+    return { value, cap };
+  }catch(_){
+    return { value:null, cap:null };
   }
 }
 
@@ -1200,19 +1229,14 @@ async function fillQuickView(state, { live=false } = {}){
 
   let storageText = '—';
   if (displayRun){
-    const sf = safeNum(displayRun.storageFinal);
-    const smax =
-      safeNum(displayRun.storageMax) ??
-      safeNum(displayRun.storageCapacity) ??
-      safeNum(displayRun.storageMaxFinal) ??
-      safeNum(displayRun && displayRun.factors && displayRun.factors.Smax) ??
-      safeNum(displayRun.storagePhysFinal) ??
-      safeNum(displayRun.storageForReadiness);
+    const tank = getQuickViewStorageDisplay(displayRun);
+    const v = safeNum(tank.value);
+    const c = safeNum(tank.cap);
 
-    if (sf != null && smax != null){
-      storageText = `${sf.toFixed(2)} / ${smax.toFixed(2)}`;
-    } else if (sf != null){
-      storageText = `${sf.toFixed(2)}`;
+    if (v != null && c != null){
+      storageText = `${v.toFixed(2)} / ${c.toFixed(2)}`;
+    } else if (v != null){
+      storageText = `${v.toFixed(2)}`;
     }
   }
   setText('frQvStorage', storageText);
