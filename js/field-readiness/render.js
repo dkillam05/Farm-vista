@@ -1520,22 +1520,130 @@ function buildEtaDepsForField(state, fieldObj, opKey, latestRec){
 
   if (!deps || typeof deps !== 'object') return deps;
 
+  function getRecForField(id){
+    const fid = String(id || '');
+    if (rec && String(rec.fieldId || fieldObj?.id || '') === fid) return rec;
+    try{
+      return getLatestReadinessForField(state, fid);
+    }catch(_){
+      return null;
+    }
+  }
+
+  function getRawLatestDocForField(id){
+    try{
+      const useRec = getRecForField(id);
+      return safeObj(useRec && useRec._raw) || {};
+    }catch(_){
+      return {};
+    }
+  }
+
+  function normalizeForecastRows(rows){
+    try{
+      return (Array.isArray(rows) ? rows : [])
+        .map(r => normalizeForecastRow(r))
+        .filter(r => r && r.dateISO)
+        .map(r => ({
+          ...r,
+          rainInAdj: Number.isFinite(Number(r.rainInAdj)) ? Number(r.rainInAdj) : Number(r.rainIn || 0),
+          rainSource: String(r.rainSource || 'open-meteo')
+        }));
+    }catch(_){
+      return [];
+    }
+  }
+
+  function normalizeHistoryRows(rows){
+    try{
+      return (Array.isArray(rows) ? rows : [])
+        .map(r => normalizeDailyWxRow(r))
+        .filter(r => r && r.dateISO)
+        .map(r => ({
+          ...r,
+          rainInAdj: Number.isFinite(Number(r.rainInAdj)) ? Number(r.rainInAdj) : 0,
+          rainSource: String(r.rainSource || 'history')
+        }));
+    }catch(_){
+      return [];
+    }
+  }
+
+  function getForecastRowsFromAnySource(id){
+    const fid = String(id || '');
+
+    try{
+      if (deps && typeof deps.getForecastSeriesForFieldId === 'function'){
+        const got = deps.getForecastSeriesForFieldId(fid);
+        if (Array.isArray(got) && got.length){
+          const norm = normalizeForecastRows(got);
+          if (norm.length) return norm;
+        }
+      }
+    }catch(_){}
+
+    try{
+      const cache = state && state._frForecastCache instanceof Map ? state._frForecastCache : null;
+      const got = cache ? cache.get(fid) : null;
+      if (Array.isArray(got) && got.length){
+        const norm = normalizeForecastRows(got);
+        if (norm.length) return norm;
+      }
+    }catch(_){}
+
+    try{
+      const raw = getRawLatestDocForField(fid);
+
+      const direct =
+        Array.isArray(raw.dailySeriesFcst) ? raw.dailySeriesFcst :
+        Array.isArray(raw.forecastRows) ? raw.forecastRows :
+        Array.isArray(raw.weatherForecastRows) ? raw.weatherForecastRows :
+        Array.isArray(raw.forecastDailyRows) ? raw.forecastDailyRows :
+        Array.isArray(raw.openMeteoForecastRows) ? raw.openMeteoForecastRows :
+        [];
+
+      const norm = normalizeForecastRows(direct);
+      if (norm.length) return norm;
+    }catch(_){}
+
+    return [];
+  }
+
+  function getMergedWxRowsFromAnySource(id){
+    const fid = String(id || '');
+
+    try{
+      if (deps && typeof deps.getWxSeriesWithForecastForFieldId === 'function'){
+        const got = deps.getWxSeriesWithForecastForFieldId(fid);
+        if (Array.isArray(got) && got.length) return got;
+      }
+    }catch(_){}
+
+    try{
+      const raw = getRawLatestDocForField(fid);
+      const hist = normalizeHistoryRows(
+        Array.isArray(raw.dailySeries30d) ? raw.dailySeries30d : []
+      );
+      const fcst = getForecastRowsFromAnySource(fid);
+
+      if (hist.length || fcst.length){
+        return [...hist, ...fcst];
+      }
+    }catch(_){}
+
+    return [];
+  }
+
   return {
     ...deps,
+
     getCentralizedLatestForFieldId: (id)=>{
-      const fid = String(id || '');
-      if (rec && String(rec.fieldId || fieldObj?.id || '') === fid) return rec;
-      try{
-        return getLatestReadinessForField(state, fid);
-      }catch(_){
-        return null;
-      }
+      return getRecForField(id);
     },
+
     getEtaSeedForFieldId: (id)=>{
       const fid = String(id || '');
-      const useRec = (rec && String(rec.fieldId || fieldObj?.id || '') === fid)
-        ? rec
-        : getLatestReadinessForField(state, fid);
+      const useRec = getRecForField(fid);
 
       if (!useRec) return null;
 
@@ -1553,6 +1661,18 @@ function buildEtaDepsForField(state, fieldObj, opKey, latestRec){
         runKey: safeStr(useRec.runKey),
         source: 'field_readiness_latest'
       };
+    },
+
+    // CRITICAL FIX:
+    // ETA can now read forecast directly from Firestore latest doc fallback
+    getForecastSeriesForFieldId: (id)=>{
+      return getForecastRowsFromAnySource(id);
+    },
+
+    // CRITICAL FIX:
+    // ETA fallback path can also read merged history + forecast from latest doc
+    getWxSeriesWithForecastForFieldId: (id)=>{
+      return getMergedWxRowsFromAnySource(id);
     }
   };
 }
