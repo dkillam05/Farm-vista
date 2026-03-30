@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-03-30b-eta-restructure-smoother-more-realistic
+Rev: 2026-03-30c-eta-full-restructure-stable-forward-sim
 
 GOAL:
 ✅ Match the new no-state backend direction
@@ -9,7 +9,7 @@ GOAL:
 ✅ Keep ETA using the same model physics
 ✅ Seed from rewind window or baseline only
 ✅ Default to rewind mode (10 days) so model behaves closer to index
-✅ Restructure ETA so it is less erratic and more physically believable
+✅ COMPLETELY RESTRUCTURE ETA so it is stable and believable
 
 IMPORTANT:
 - No persisted state
@@ -153,15 +153,16 @@ const FV_TUNE = {
   SURFACE_STORAGE_FLOOR_CAP_FRAC: 0.06,
 
   // ETA pacing / guardrails
-  ETA_MAX_GAIN_PER_HOUR: 0.42,
-  ETA_SMOOTHING_W_PREV: 0.55,
-  ETA_SMOOTHING_W_CURR: 0.45,
-  ETA_MIN_NEAR_HOURS: 3,
-  ETA_MIN_MID_HOURS: 9,
-  ETA_MIN_FAR_HOURS: 18,
-  ETA_NEAR_GAP: 4,
-  ETA_MID_GAP: 10,
-  ETA_REQUIRE_CONSECUTIVE_STEPS: 2
+  ETA_MAX_GAIN_PER_HOUR: 0.28,
+  ETA_STEPS_PER_DAY: 2,                 // 12h steps
+  ETA_REQUIRE_CONSECUTIVE_STEPS: 2,     // must stay above threshold for 2 steps
+  ETA_MIN_HOURS_ANY_WET: 6,
+  ETA_MIN_HOURS_80S: 18,
+  ETA_MIN_HOURS_70S: 36,
+  ETA_MIN_HOURS_60S: 60,
+  ETA_WET_RAIN_LOCK_HOURS: 24,
+  ETA_HEAVY_RAIN_LOCK_HOURS: 48,
+  ETA_MAX_DAILY_GAIN: 10
 };
 
 function getTune(deps){
@@ -235,15 +236,16 @@ function getTune(deps){
   t.SURFACE_STORAGE_FLOOR_W = clamp(t.SURFACE_STORAGE_FLOOR_W, 0.00, 1.00);
   t.SURFACE_STORAGE_FLOOR_CAP_FRAC = clamp(t.SURFACE_STORAGE_FLOOR_CAP_FRAC, 0.00, 0.60);
 
-  t.ETA_MAX_GAIN_PER_HOUR = clamp(t.ETA_MAX_GAIN_PER_HOUR, 0.05, 3.0);
-  t.ETA_SMOOTHING_W_PREV = clamp(t.ETA_SMOOTHING_W_PREV, 0.0, 1.0);
-  t.ETA_SMOOTHING_W_CURR = clamp(t.ETA_SMOOTHING_W_CURR, 0.0, 1.0);
-  t.ETA_MIN_NEAR_HOURS = clamp(t.ETA_MIN_NEAR_HOURS, 1, 24);
-  t.ETA_MIN_MID_HOURS = clamp(t.ETA_MIN_MID_HOURS, 1, 48);
-  t.ETA_MIN_FAR_HOURS = clamp(t.ETA_MIN_FAR_HOURS, 1, 72);
-  t.ETA_NEAR_GAP = clamp(t.ETA_NEAR_GAP, 1, 10);
-  t.ETA_MID_GAP = clamp(t.ETA_MID_GAP, 2, 20);
+  t.ETA_MAX_GAIN_PER_HOUR = clamp(t.ETA_MAX_GAIN_PER_HOUR, 0.05, 2.0);
+  t.ETA_STEPS_PER_DAY = clamp(Math.round(t.ETA_STEPS_PER_DAY), 1, 4);
   t.ETA_REQUIRE_CONSECUTIVE_STEPS = clamp(Math.round(t.ETA_REQUIRE_CONSECUTIVE_STEPS), 1, 4);
+  t.ETA_MIN_HOURS_ANY_WET = clamp(t.ETA_MIN_HOURS_ANY_WET, 1, 48);
+  t.ETA_MIN_HOURS_80S = clamp(t.ETA_MIN_HOURS_80S, 1, 72);
+  t.ETA_MIN_HOURS_70S = clamp(t.ETA_MIN_HOURS_70S, 1, 120);
+  t.ETA_MIN_HOURS_60S = clamp(t.ETA_MIN_HOURS_60S, 1, 168);
+  t.ETA_WET_RAIN_LOCK_HOURS = clamp(t.ETA_WET_RAIN_LOCK_HOURS, 0, 72);
+  t.ETA_HEAVY_RAIN_LOCK_HOURS = clamp(t.ETA_HEAVY_RAIN_LOCK_HOURS, 0, 96);
+  t.ETA_MAX_DAILY_GAIN = clamp(t.ETA_MAX_DAILY_GAIN, 1, 30);
 
   return t;
 }
@@ -731,7 +733,7 @@ function computeReadinessFromState(storagePhys, surfaceStorage, f, deps, tune){
 }
 
 /* =====================================================================
-   Forecast / split helpers
+   Forecast helpers
 ===================================================================== */
 function interpDayRow(d0, d1, frac){
   const a = d0 || {};
@@ -770,94 +772,14 @@ function interpDayRow(d0, d1, frac){
     vpdKpa:   lerpNullable('vpdKpa'),
     sm010:    lerpNullable('sm010'),
     et0In:    lerpNullable('et0In'),
-
     rainMorningIn: lerpNum('rainMorningIn', 0),
     rainMiddayIn: lerpNum('rainMiddayIn', 0),
     rainEveningIn: lerpNum('rainEveningIn', 0)
   };
 }
 
-function rainFracForHourSlot(stepStartHour, stepHours, row){
-  const start = clamp(Number(stepStartHour || 0), 0, 24);
-  const end = clamp(start + Number(stepHours || 0), 0, 24);
-
-  const morningIn = Math.max(0, Number(row?.rainMorningIn || 0));
-  const middayIn = Math.max(0, Number(row?.rainMiddayIn || 0));
-  const eveningIn = Math.max(0, Number(row?.rainEveningIn || 0));
-  const timedTotal = morningIn + middayIn + eveningIn;
-
-  if (timedTotal > 0){
-    let frac = 0;
-
-    if (end > 0 && start < 12){
-      const overlap = Math.max(0, Math.min(end, 12) - Math.max(start, 0));
-      frac += (overlap / 12) * (morningIn / timedTotal);
-    }
-
-    if (end > 12 && start < 18){
-      const overlap = Math.max(0, Math.min(end, 18) - Math.max(start, 12));
-      frac += (overlap / 6) * (middayIn / timedTotal);
-    }
-
-    if (end > 18 && start < 24){
-      const overlap = Math.max(0, Math.min(end, 24) - Math.max(start, 18));
-      frac += (overlap / 6) * (eveningIn / timedTotal);
-    }
-
-    return clamp(frac, 0, 1);
-  }
-
-  return clamp(Number(stepHours || 0) / 24, 0, 1);
-}
-
 function normalizeDailyRowForSim(w, deps, tune){
   return normalizeRowForModel(w, deps, tune);
-}
-
-function buildEtaStepRow(fcst, tHours, stepHours, deps, tune){
-  const stepStart = Math.max(0, tHours - stepHours);
-  const mid = stepStart + (stepHours / 2);
-
-  const dayIdx0 = Math.floor(stepStart / 24);
-  const dayIdx1 = Math.floor(mid / 24);
-
-  const d0a = fcst[Math.min(dayIdx0, fcst.length - 1)] || fcst[fcst.length - 1];
-  const d0b = fcst[Math.min(dayIdx0 + 1, fcst.length - 1)] || d0a;
-  const d1a = fcst[Math.min(dayIdx1, fcst.length - 1)] || fcst[fcst.length - 1];
-  const d1b = fcst[Math.min(dayIdx1 + 1, fcst.length - 1)] || d1a;
-
-  const frac0 = clamp((stepStart % 24) / 24, 0, 1);
-  const frac1 = clamp((mid % 24) / 24, 0, 1);
-
-  const rowStart = normalizeDailyRowForSim(interpDayRow(d0a, d0b, frac0), deps, tune);
-  const rowMid = normalizeDailyRowForSim(interpDayRow(d1a, d1b, frac1), deps, tune);
-
-  const stepRain =
-    Math.max(0, Number(rowStart.rainInAdj || 0)) * rainFracForHourSlot(stepStart % 24, stepHours * 0.5, rowStart) +
-    Math.max(0, Number(rowMid.rainInAdj || 0)) * rainFracForHourSlot(mid % 24, stepHours * 0.5, rowMid);
-
-  return {
-    row: blendEtaRows(rowStart, rowMid),
-    stepRain
-  };
-}
-
-function blendEtaRows(a, b){
-  const wa = 0.50;
-  const wb = 0.50;
-  return {
-    ...a,
-    dryPwr: (wa * Number(a.dryPwr || 0)) + (wb * Number(b.dryPwr || 0)),
-    windN: (wa * Number(a.windN || 0)) + (wb * Number(b.windN || 0)),
-    sunshineN: (wa * Number(a.sunshineN || 0)) + (wb * Number(b.sunshineN || 0)),
-    vpdN: (wa * Number(a.vpdN || 0)) + (wb * Number(b.vpdN || 0)),
-    cloudN: (wa * Number(a.cloudN || 0)) + (wb * Number(b.cloudN || 0)),
-    et0N: (wa * Number(a.et0N || 0)) + (wb * Number(b.et0N || 0)),
-    smN_day: (wa * Number(a.smN_day || 0)) + (wb * Number(b.smN_day || 0)),
-    rainMorningShare: (wa * Number(a.rainMorningShare || 0)) + (wb * Number(b.rainMorningShare || 0)),
-    rainEveningShare: (wa * Number(a.rainEveningShare || 0)) + (wb * Number(b.rainEveningShare || 0)),
-    rainTimingDryFactor: (wa * Number(a.rainTimingDryFactor || 1)) + (wb * Number(b.rainTimingDryFactor || 1))
-  };
 }
 
 function splitHistFcstFromWx(wxSeries){
@@ -879,33 +801,141 @@ function splitHistFcstFromWx(wxSeries){
   return { hist, fcst };
 }
 
+function buildEtaForecastSteps(fcstDaily, deps, tune){
+  const out = [];
+  const stepsPerDay = Math.max(1, Number(tune.ETA_STEPS_PER_DAY || 2));
+  const fracPerStep = 1 / stepsPerDay;
+
+  for (let i = 0; i < fcstDaily.length; i++){
+    const d0 = fcstDaily[i];
+    const d1 = fcstDaily[Math.min(i + 1, fcstDaily.length - 1)] || d0;
+
+    for (let s = 0; s < stepsPerDay; s++){
+      const frac = (s + 0.5) * fracPerStep;
+      const base = interpDayRow(d0, d1, frac);
+      const row = normalizeDailyRowForSim(base, deps, tune);
+
+      row.rainInAdj = Math.max(0, Number(row.rainInAdj || 0)) * fracPerStep;
+      row.rainMorningIn = Math.max(0, Number(row.rainMorningIn || 0)) * fracPerStep;
+      row.rainMiddayIn = Math.max(0, Number(row.rainMiddayIn || 0)) * fracPerStep;
+      row.rainEveningIn = Math.max(0, Number(row.rainEveningIn || 0)) * fracPerStep;
+      row.rainTimingDryFactor = sameDayRainDryFactor(row, tune);
+
+      out.push(row);
+    }
+  }
+
+  return out;
+}
+
+/* =====================================================================
+   Shared step simulation
+===================================================================== */
+function simulateOneStep(state, row, stepFrac, f, deps, tune, rate){
+  let storagePhys = clamp(Number(state.storagePhys || 0), 0, f.Smax);
+  let surfaceStorage = clamp(Number(state.surfaceStorage || 0), 0, tune.SURFACE_CAP_IN);
+
+  const rain = Math.max(0, Number(row.rainInAdj || 0));
+  const before = storagePhys;
+  const surfaceBefore = surfaceStorage;
+
+  let rainEff = effectiveRainInches(rain, before, f.Smax, f, tune);
+  rainEff = clamp(rainEff * rate.rainEffMult, 0, 1000);
+
+  const addRain = rainEff * f.infilMult;
+  const addSm = ((Number((deps.EXTRA && deps.EXTRA.ADD_SM010_W) || 0.10) * Number(row.smN_day || 0)) * 0.05) * stepFrac;
+  const add = addRain + addSm;
+
+  const lossEt0W = Number((deps.EXTRA && deps.EXTRA.LOSS_ET0_W) || 0.08);
+  let lossBase =
+    Number(row.dryPwr || 0) *
+    Number(deps.LOSS_SCALE || 0.55) *
+    f.dryMult *
+    (1 + (lossEt0W * Number(row.et0N || 0)));
+
+  const rainTimingDryFactorVal = clamp(
+    Number(row.rainTimingDryFactor ?? sameDayRainDryFactor(row, tune)),
+    tune.SAME_DAY_LATE_RAIN_DRY_FLOOR,
+    1
+  );
+  lossBase *= rainTimingDryFactorVal;
+
+  const stateDryMult = storageDrydownMult(before, f.Smax, tune);
+  const surfaceWetDryMult = surfaceWetHoldDryMult(surfaceBefore, tune);
+
+  let loss = lossBase * stateDryMult * surfaceWetDryMult * stepFrac;
+  loss = Math.max(0, loss * rate.dryLossMult);
+
+  if (f.Smax > 0 && isFinite(before)){
+    const sat = clamp(before / f.Smax, 0, 1);
+    if (sat < tune.DRY_TAIL_START){
+      const frac = clamp(sat / Math.max(1e-6, tune.DRY_TAIL_START), 0, 1);
+      const mult = tune.DRY_TAIL_MIN_MULT + (1 - tune.DRY_TAIL_MIN_MULT) * frac;
+      loss = loss * mult;
+    }
+  }
+
+  let after = clamp(before + add - loss, 0, f.Smax);
+
+  const surfaceAdd = surfaceStorageAddFromRain(rain, tune);
+  const surfaceDryBase = surfaceDrydownInchesPerDay(row, row.et0N, tune);
+  const surfaceDry = surfaceDryBase * rainTimingDryFactorVal * stepFrac;
+
+  surfaceStorage = clamp(surfaceBefore + surfaceAdd - surfaceDry, 0, tune.SURFACE_CAP_IN);
+
+  const handoffFrac = surfaceToStorageFrac(row, tune);
+  const storageRoom = Math.max(0, f.Smax - after);
+  const surfaceToStorage = Math.min(surfaceStorage * handoffFrac * stepFrac, storageRoom);
+
+  after = clamp(after + surfaceToStorage, 0, f.Smax);
+  surfaceStorage = clamp(surfaceStorage - surfaceToStorage, 0, tune.SURFACE_CAP_IN);
+
+  const storageFloor = surfaceDrivenStorageFloor(surfaceStorage, f.Smax, tune);
+  after = Math.max(after, storageFloor);
+
+  storagePhys = clamp(after, 0, f.Smax);
+
+  const stateNow = computeReadinessFromState(storagePhys, surfaceStorage, f, deps, tune);
+
+  return {
+    storagePhys,
+    surfaceStorage,
+    readiness: clamp(Number(stateNow.readiness || 0), 0, 100),
+    wetness: clamp(Number(stateNow.wetness || 0), 0, 100),
+    baseReadiness: clamp(Number(stateNow.baseReadiness || 0), 0, 100),
+    surfacePenalty: clamp(Number(stateNow.surfacePenalty || 0), 0, 100)
+  };
+}
+
 /* =====================================================================
    ETA helpers
 ===================================================================== */
-function etaMinHoursFromGap(gap, tune){
-  const g = Math.max(0, Number(gap || 0));
-  if (g <= tune.ETA_NEAR_GAP) return tune.ETA_MIN_NEAR_HOURS;
-  if (g <= tune.ETA_MID_GAP) return tune.ETA_MIN_MID_HOURS;
-  return tune.ETA_MIN_FAR_HOURS;
-}
+function etaMinHoursFloor(readinessNow, rainRecentIn, tune){
+  let floor = 0;
 
-function etaDisplayHours(etaHours, dryNowGap, tune){
-  const raw = Math.max(0, Number(etaHours || 0));
-  const minH = etaMinHoursFromGap(dryNowGap, tune);
-  const out = Math.max(minH, Math.round(raw));
-  return out;
+  const r = Number(readinessNow || 0);
+  const rain = Math.max(0, Number(rainRecentIn || 0));
+
+  if (r < 90) floor = Math.max(floor, tune.ETA_MIN_HOURS_ANY_WET);
+  if (r <= 89) floor = Math.max(floor, tune.ETA_MIN_HOURS_80S);
+  if (r <= 79) floor = Math.max(floor, tune.ETA_MIN_HOURS_70S);
+  if (r <= 69) floor = Math.max(floor, tune.ETA_MIN_HOURS_60S);
+
+  if (rain >= 0.20) floor = Math.max(floor, tune.ETA_WET_RAIN_LOCK_HOURS);
+  if (rain >= 0.50) floor = Math.max(floor, tune.ETA_HEAVY_RAIN_LOCK_HOURS);
+
+  return floor;
 }
 
 /* =====================================================================
    Model-owned ETA
 ===================================================================== */
-export async function etaToThreshold(field, deps, threshold, horizonHours=168, stepHours=6){
+export async function etaToThreshold(field, deps, threshold, horizonHours=168, _stepHours=12){
   try{
     if (!field || !deps) return { ok:false, status:'noData', hours:null, text:'ETA ?' };
 
     const thr = clamp(Number(threshold || 0), 0, 100);
     const H = clamp(Number(horizonHours || 168), 1, 360);
-    const stepH = clamp(Number(stepHours || 6), 3, 12);
 
     const run = runField(field, deps);
     if (!run) return { ok:false, status:'noData', hours:null, text:'ETA ?' };
@@ -936,134 +966,89 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
       return { ok:true, status:'noForecast', hours:null, text:'ETA ?' };
     }
 
+    const stepRows = buildEtaForecastSteps(fcst, deps, tune);
+    if (!stepRows.length){
+      return { ok:true, status:'noForecast', hours:null, text:'ETA ?' };
+    }
+
     const f = run.factors;
     const rate = getRateMults(deps);
+    const stepHours = 24 / Math.max(1, Number(tune.ETA_STEPS_PER_DAY || 2));
+    const stepFrac = stepHours / 24;
+    const maxSteps = Math.min(stepRows.length, Math.ceil(H / stepHours));
 
-    let storagePhys = Number.isFinite(Number(run.storagePhysFinal))
-      ? Number(run.storagePhysFinal)
-      : Number(run.storageFinal || 0);
-    storagePhys = clamp(storagePhys, 0, f.Smax);
+    let state = {
+      storagePhys: Number.isFinite(Number(run.storagePhysFinal))
+        ? Number(run.storagePhysFinal)
+        : Number(run.storageFinal || 0),
+      surfaceStorage: Number.isFinite(Number(run.surfaceStorageFinal))
+        ? Number(run.surfaceStorageFinal)
+        : 0
+    };
 
-    let surfaceStorage = Number.isFinite(Number(run.surfaceStorageFinal))
-      ? Number(run.surfaceStorageFinal)
-      : 0;
-    surfaceStorage = clamp(surfaceStorage, 0, tune.SURFACE_CAP_IN);
+    state.storagePhys = clamp(state.storagePhys, 0, f.Smax);
+    state.surfaceStorage = clamp(state.surfaceStorage, 0, tune.SURFACE_CAP_IN);
 
-    const nowState = computeReadinessFromState(storagePhys, surfaceStorage, f, deps, tune);
-    const dryNowGateR = Number(nowState.readiness);
-    const startGap = Math.max(0, thr - dryNowGateR);
+    const nowState = computeReadinessFromState(state.storagePhys, state.surfaceStorage, f, deps, tune);
+    const readinessNow = clamp(Number(nowState.readiness || 0), 0, 100);
 
-    if (dryNowGateR >= thr){
+    if (readinessNow >= thr){
       return { ok:true, status:'dryNow', hours:0, text:'Now' };
     }
 
-    const steps = Math.ceil(H / stepH);
-    const needConsecutive = tune.ETA_REQUIRE_CONSECUTIVE_STEPS;
+    const recentTrace = Array.isArray(run.trace) ? run.trace.slice(-2) : [];
+    const recentRainIn = recentTrace.reduce((s, x) => s + Math.max(0, Number(x && x.rain || 0)), 0);
+    const minFloorHours = etaMinHoursFloor(readinessNow, recentRainIn, tune);
 
-    let prevRawR = clamp(dryNowGateR, 0, 100);
-    let prevSmoothR = prevRawR;
-    let prevT = 0;
-    let consecutiveAtOrAbove = 0;
+    let prevReadiness = readinessNow;
+    let prevHours = 0;
+    let consecutiveHit = 0;
+    let dailyGainTracker = 0;
+    let stepsIntoDay = 0;
 
-    for (let s = 1; s <= steps; s++){
-      const tHours = Math.min(H, s * stepH);
-      const stepFrac = stepH / 24;
+    for (let i = 0; i < maxSteps; i++){
+      const row = stepRows[i];
+      const next = simulateOneStep(state, row, stepFrac, f, deps, tune, rate);
 
-      const stepInfo = buildEtaStepRow(fcst, tHours, stepH, deps, tune);
-      const row = stepInfo.row;
-      const stepRain = stepInfo.stepRain;
+      let rNow = clamp(Number(next.readiness || 0), 0, 100);
 
-      const before = storagePhys;
-      const surfaceBefore = surfaceStorage;
+      const maxGainThisStep = tune.ETA_MAX_GAIN_PER_HOUR * stepHours;
+      rNow = Math.min(rNow, prevReadiness + maxGainThisStep);
 
-      let rainEff = effectiveRainInches(stepRain, before, f.Smax, f, tune);
-      rainEff = clamp(rainEff * rate.rainEffMult, 0, 1000);
+      dailyGainTracker += Math.max(0, rNow - prevReadiness);
+      stepsIntoDay += 1;
 
-      const addRain = rainEff * f.infilMult;
-      const addSm = ((Number((deps.EXTRA && deps.EXTRA.ADD_SM010_W) || 0.10) * row.smN_day) * 0.05) * stepFrac;
-      const add = addRain + addSm;
-
-      const lossEt0W = Number((deps.EXTRA && deps.EXTRA.LOSS_ET0_W) || 0.08);
-      let lossBase =
-        Number(row.dryPwr || 0) *
-        Number(deps.LOSS_SCALE || 0.55) *
-        f.dryMult *
-        (1 + (lossEt0W * row.et0N));
-
-      const rainTimingDryFactorVal = clamp(
-        Number(row.rainTimingDryFactor ?? sameDayRainDryFactor(row, tune)),
-        tune.SAME_DAY_LATE_RAIN_DRY_FLOOR,
-        1
-      );
-      lossBase *= rainTimingDryFactorVal;
-
-      const stateDryMult = storageDrydownMult(before, f.Smax, tune);
-      const surfaceWetDryMult = surfaceWetHoldDryMult(surfaceBefore, tune);
-
-      let lossDay = lossBase * stateDryMult * surfaceWetDryMult;
-      let loss = Math.max(0, lossDay * stepFrac);
-      loss = Math.max(0, loss * rate.dryLossMult);
-
-      if (f.Smax > 0 && isFinite(before)){
-        const sat = clamp(before / f.Smax, 0, 1);
-        if (sat < tune.DRY_TAIL_START){
-          const frac2 = clamp(sat / Math.max(1e-6, tune.DRY_TAIL_START), 0, 1);
-          const mult = tune.DRY_TAIL_MIN_MULT + (1 - tune.DRY_TAIL_MIN_MULT) * frac2;
-          loss = loss * mult;
+      if (stepsIntoDay >= tune.ETA_STEPS_PER_DAY){
+        if (dailyGainTracker > tune.ETA_MAX_DAILY_GAIN){
+          const over = dailyGainTracker - tune.ETA_MAX_DAILY_GAIN;
+          rNow = Math.max(prevReadiness, rNow - over);
         }
+        dailyGainTracker = 0;
+        stepsIntoDay = 0;
       }
 
-      let after = clamp(before + add - loss, 0, f.Smax);
+      const tHours = Math.min(H, (i + 1) * stepHours);
 
-      const surfaceAdd = surfaceStorageAddFromRain(stepRain, tune);
-      const surfaceDryBase = surfaceDrydownInchesPerDay(row, row.et0N, tune);
-      const surfaceDry = surfaceDryBase * rainTimingDryFactorVal * stepFrac;
-
-      surfaceStorage = clamp(surfaceBefore + surfaceAdd - surfaceDry, 0, tune.SURFACE_CAP_IN);
-
-      const handoffFrac = surfaceToStorageFrac(row, tune);
-      const storageRoom = Math.max(0, f.Smax - after);
-      const surfaceToStorage = Math.min(surfaceStorage * handoffFrac * stepFrac, storageRoom);
-
-      after = clamp(after + surfaceToStorage, 0, f.Smax);
-      surfaceStorage = clamp(surfaceStorage - surfaceToStorage, 0, tune.SURFACE_CAP_IN);
-
-      const storageFloor = surfaceDrivenStorageFloor(surfaceStorage, f.Smax, tune);
-      after = Math.max(after, storageFloor);
-
-      storagePhys = clamp(after, 0, f.Smax);
-
-      const stateNow = computeReadinessFromState(storagePhys, surfaceStorage, f, deps, tune);
-      let rawR = clamp(stateNow.readiness, 0, 100);
-
-      const maxGain = tune.ETA_MAX_GAIN_PER_HOUR * stepH;
-      rawR = Math.min(rawR, prevRawR + maxGain);
-
-      const smoothR = clamp(
-        (tune.ETA_SMOOTHING_W_PREV * prevSmoothR) + (tune.ETA_SMOOTHING_W_CURR * rawR),
-        0,
-        100
-      );
-
-      if (smoothR >= thr){
-        consecutiveAtOrAbove += 1;
+      if (rNow >= thr){
+        consecutiveHit += 1;
       }else{
-        consecutiveAtOrAbove = 0;
+        consecutiveHit = 0;
       }
 
-      if (prevSmoothR < thr && smoothR >= thr && consecutiveAtOrAbove >= needConsecutive){
-        const denom = smoothR - prevSmoothR;
-        const fracCross = denom <= 1e-6 ? 1 : clamp((thr - prevSmoothR) / denom, 0, 1);
-        let eta = prevT + fracCross * (tHours - prevT);
+      if (prevReadiness < thr && rNow >= thr && consecutiveHit >= tune.ETA_REQUIRE_CONSECUTIVE_STEPS){
+        const denom = rNow - prevReadiness;
+        const fracCross = denom <= 1e-6 ? 1 : clamp((thr - prevReadiness) / denom, 0, 1);
+        const rawEta = prevHours + fracCross * (tHours - prevHours);
+        const eta = Math.max(minFloorHours, Math.round(rawEta));
 
-        const outHrs = etaDisplayHours(eta, startGap, tune);
-        if (outHrs <= H) return { ok:true, status:'within', hours:outHrs, text:`~${outHrs}h` };
+        if (eta <= H) return { ok:true, status:'within', hours:eta, text:`~${eta}h` };
         return { ok:true, status:'beyond', hours:null, text:`>${Math.round(H)}h` };
       }
 
-      prevRawR = rawR;
-      prevSmoothR = smoothR;
-      prevT = tHours;
+      state.storagePhys = next.storagePhys;
+      state.surfaceStorage = next.surfaceStorage;
+      prevReadiness = rNow;
+      prevHours = tHours;
     }
 
     return { ok:true, status:'beyond', hours:null, text:`>${Math.round(H)}h` };
@@ -1096,8 +1081,18 @@ export function runField(field, deps){
 
   for (let i = seedPick.startIdx; i < rows.length; i++){
     const d = rows[i];
-    const rain = Number(d.rainInAdj||0);
 
+    const next = simulateOneStep(
+      { storagePhys: storage, surfaceStorage },
+      d,
+      1,
+      f,
+      deps,
+      tune,
+      rate
+    );
+
+    const rain = Number(d.rainInAdj || 0);
     const before = storage;
     const surfaceBefore = surfaceStorage;
 
@@ -1137,25 +1132,17 @@ export function runField(field, deps){
       }
     }
 
-    let after = clamp(before + add - loss, 0, f.Smax);
-
     const surfaceAdd = surfaceStorageAddFromRain(rain, tune);
     const surfaceDryBase = surfaceDrydownInchesPerDay(d, d.et0N, tune);
     const surfaceDry = surfaceDryBase * rainTimingDryFactorVal;
 
-    surfaceStorage = clamp(surfaceBefore + surfaceAdd - surfaceDry, 0, tune.SURFACE_CAP_IN);
-
+    const surfaceAfterTemp = clamp(surfaceBefore + surfaceAdd - surfaceDry, 0, tune.SURFACE_CAP_IN);
     const handoffFrac = surfaceToStorageFrac(d, tune);
-    const storageRoom = Math.max(0, f.Smax - after);
-    const surfaceToStorage = Math.min(surfaceStorage * handoffFrac, storageRoom);
+    const storageRoom = Math.max(0, f.Smax - next.storagePhys);
+    const surfaceToStorage = Math.min(surfaceAfterTemp * handoffFrac, storageRoom);
 
-    after = clamp(after + surfaceToStorage, 0, f.Smax);
-    surfaceStorage = clamp(surfaceStorage - surfaceToStorage, 0, tune.SURFACE_CAP_IN);
-
-    const storageFloor = surfaceDrivenStorageFloor(surfaceStorage, f.Smax, tune);
-    after = Math.max(after, storageFloor);
-
-    storage = clamp(after, 0, f.Smax);
+    storage = clamp(next.storagePhys, 0, f.Smax);
+    surfaceStorage = clamp(next.surfaceStorage, 0, tune.SURFACE_CAP_IN);
 
     const infilMultEff = (rain > 0)
       ? clamp((addRain / Math.max(1e-6, rain)), 0, 5)
@@ -1193,7 +1180,7 @@ export function runField(field, deps){
       surfaceAfter: surfaceStorage,
       surfacePenalty: surfacePenaltyFromStorage(surfaceStorage, tune),
 
-      storageFloor
+      storageFloor: surfaceDrivenStorageFloor(surfaceStorage, f.Smax, tune)
     });
   }
 
