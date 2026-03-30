@@ -1,6 +1,6 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/field-readiness-dev.html  (FULL FILE)
-Rev: 2026-03-30h-dev-page-recent-latest-browser
+Rev: 2026-03-30i-dev-page-fix-lookup-recent-docs-rerun
 
 GOAL:
 ✅ Standalone single-field debug page
@@ -8,9 +8,10 @@ GOAL:
 ✅ Self-boots Firebase on its own
 ✅ Reads Firestore directly
 ✅ Runs actual model math from field-readiness.model.js
-✅ Stronger lookup resolution
-✅ Adds recent latest-doc browser so user does NOT need to guess IDs
-✅ Can load a real fieldId from recent field_readiness_latest docs
+✅ Better doc-id vs field-id handling
+✅ Better recent latest-doc browser
+✅ Better nested weather/forecast extraction
+✅ Better synthetic field fallback
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -309,7 +310,7 @@ GOAL:
         <div class="row">
           <div class="field">
             <label for="fieldKeyInput">FIELD PTR OR FIELD ID</label>
-            <input id="fieldKeyInput" class="input mono" type="text" placeholder="mndh2avo or 02Kq4WH8RrGXR4DAyQDz" />
+            <input id="fieldKeyInput" class="input mono" type="text" placeholder="field id, ptr, or latest doc id" />
           </div>
           <div class="field">
             <label for="thresholdInput">THRESHOLD</label>
@@ -553,6 +554,10 @@ GOAL:
       return Number.isFinite(n) ? n : fallback;
     }
 
+    function safeObj(v){
+      return (v && typeof v === 'object') ? v : null;
+    }
+
     function setStatus(el, msg, kind = ''){
       if (!el) return;
       el.textContent = String(msg || '');
@@ -570,6 +575,22 @@ GOAL:
       }catch(_){
         return String(obj);
       }
+    }
+
+    function tsToIso(v){
+      try{
+        if (!v) return '';
+        if (typeof v === 'string') return v;
+        if (v && typeof v.toDate === 'function'){
+          const d = v.toDate();
+          return Number.isFinite(d.getTime()) ? d.toISOString() : '';
+        }
+        if (v && typeof v.seconds === 'number'){
+          const d = new Date((Number(v.seconds) * 1000) + Math.round(Number(v.nanoseconds || 0) / 1e6));
+          return Number.isFinite(d.getTime()) ? d.toISOString() : '';
+        }
+      }catch(_){}
+      return '';
     }
 
     function uniqueList(arr){
@@ -675,6 +696,28 @@ GOAL:
         .split(',')
         .map(s => safeStr(s))
         .filter(Boolean);
+    }
+
+    function getByPath(obj, path){
+      try{
+        const parts = String(path || '').split('.');
+        let cur = obj;
+        for (const part of parts){
+          if (!cur || typeof cur !== 'object') return undefined;
+          cur = cur[part];
+        }
+        return cur;
+      }catch(_){
+        return undefined;
+      }
+    }
+
+    function firstDefinedValue(obj, paths){
+      for (const path of (Array.isArray(paths) ? paths : [])){
+        const v = getByPath(obj, path);
+        if (v !== undefined && v !== null && v !== '') return v;
+      }
+      return undefined;
     }
 
     async function getDocById(db, collectionName, docId){
@@ -805,11 +848,11 @@ GOAL:
             farmName: d.farmName || '',
             county: d.county || '',
             state: d.state || '',
-            lat: safeNum(d.lat ?? d.location?.lat ?? d.center?.lat, null),
-            lng: safeNum(d.lng ?? d.location?.lng ?? d.center?.lng, null),
+            lat: safeNum(firstDefinedValue(d, ['location.lat','lat','latitude','center.lat']), null),
+            lng: safeNum(firstDefinedValue(d, ['location.lng','lng','longitude','lon','center.lng']), null),
             location: {
-              lat: safeNum(d.location?.lat ?? d.lat ?? d.center?.lat, null),
-              lng: safeNum(d.location?.lng ?? d.lng ?? d.center?.lng, null)
+              lat: safeNum(firstDefinedValue(d, ['location.lat','lat','latitude','center.lat']), null),
+              lng: safeNum(firstDefinedValue(d, ['location.lng','lng','longitude','lon','center.lng']), null)
             }
           }
         };
@@ -825,6 +868,7 @@ GOAL:
 
       return uniqueList([
         inputKey,
+
         latestDoc && latestDoc.id,
         ld.fieldId,
         ld.id,
@@ -862,29 +906,35 @@ GOAL:
       const ld = (latestDoc && latestDoc.data) || {};
       const wd = (weatherDoc && weatherDoc.data) || {};
 
-      const id =
-        safeStr(
-          fd.fieldId || fd.id || fieldDoc?.id ||
-          ld.fieldId || ld.id || latestDoc?.id ||
-          wd.fieldId || wd.id || weatherDoc?.id ||
-          lookupKey
-        );
+      const id = safeStr(
+        firstDefinedValue(fd, ['fieldId','id']) ||
+        fieldDoc?.id ||
+        firstDefinedValue(ld, ['fieldId','id']) ||
+        latestDoc?.id ||
+        firstDefinedValue(wd, ['fieldId','id']) ||
+        weatherDoc?.id ||
+        lookupKey
+      );
 
-      const lat =
-        safeNum(
-          fd.location?.lat ?? fd.lat ?? fd.latitude ?? fd.center?.lat ??
-          ld.location?.lat ?? ld.lat ?? ld.latitude ??
-          wd.location?.lat ?? wd.lat ?? wd.latitude,
-          null
-        );
+      const lat = safeNum(firstDefinedValue({
+        fd, ld, wd
+      }, []), null);
 
-      const lng =
-        safeNum(
-          fd.location?.lng ?? fd.lng ?? fd.longitude ?? fd.lon ?? fd.center?.lng ??
-          ld.location?.lng ?? ld.lng ?? ld.longitude ?? ld.lon ??
-          wd.location?.lng ?? wd.lng ?? wd.longitude ?? wd.lon,
-          null
-        );
+      const outLat = safeNum(
+        firstDefinedValue(fd, ['location.lat','lat','latitude','center.lat']) ??
+        firstDefinedValue(ld, ['location.lat','lat','latitude','center.lat']) ??
+        firstDefinedValue(wd, ['location.lat','lat','latitude','center.lat']),
+        null
+      );
+
+      const outLng = safeNum(
+        firstDefinedValue(fd, ['location.lng','lng','longitude','lon','center.lng']) ??
+        firstDefinedValue(ld, ['location.lng','lng','longitude','lon','center.lng']) ??
+        firstDefinedValue(wd, ['location.lng','lng','longitude','lon','center.lng']),
+        null
+      );
+
+      void lat;
 
       return {
         id,
@@ -895,9 +945,9 @@ GOAL:
         farmName: safeStr(fd.farmName || ld.farmName || wd.farmName || ''),
         county: safeStr(fd.county || ld.county || wd.county || ''),
         state: safeStr(fd.state || ld.state || wd.state || ''),
-        lat,
-        lng,
-        location: { lat, lng }
+        lat: outLat,
+        lng: outLng,
+        location: { lat: outLat, lng: outLng }
       };
     }
 
@@ -908,23 +958,15 @@ GOAL:
 
       return {
         soilWetness: safeNum(
-          fd.soilWetness ??
-          fd.soilWetnessPct ??
-          fd.soilWetness0_100 ??
-          ld.soilWetness ??
-          ld.soilWetnessPct ??
-          wd.soilWetness ??
-          wd.soilWetnessPct,
+          firstDefinedValue(fd, ['soilWetness','soilWetnessPct','soilWetness0_100']) ??
+          firstDefinedValue(ld, ['soilWetness','soilWetnessPct','soilWetness0_100']) ??
+          firstDefinedValue(wd, ['soilWetness','soilWetnessPct','soilWetness0_100']),
           45
         ),
         drainageIndex: safeNum(
-          fd.drainageIndex ??
-          fd.drainage ??
-          fd.drainagePct ??
-          ld.drainageIndex ??
-          ld.drainage ??
-          wd.drainageIndex ??
-          wd.drainage,
+          firstDefinedValue(fd, ['drainageIndex','drainage','drainagePct']) ??
+          firstDefinedValue(ld, ['drainageIndex','drainage','drainagePct']) ??
+          firstDefinedValue(wd, ['drainageIndex','drainage','drainagePct']),
           45
         )
       };
@@ -933,42 +975,34 @@ GOAL:
     function normalizeWxRow(raw){
       const r = raw || {};
       const dateISO = safeStr(
-        r.dateISO ||
-        r.date ||
-        r.day ||
-        r.timeISO ||
-        r.timestampISO ||
-        r.validDate ||
-        r.validTime ||
-        ''
+        firstDefinedValue(r, [
+          'dateISO','date','day','timeISO','timestampISO','validDate','validTime'
+        ]) || ''
       ).slice(0, 10);
 
       const rainInAdj =
-        safeNum(r.rainMrmsIn, null) ??
-        safeNum(r.rainInAdj, null) ??
-        safeNum(r.rainIn, null) ??
-        safeNum(r.precipIn, null) ??
-        safeNum(r.precipitationIn, null) ??
+        safeNum(firstDefinedValue(r, ['rainMrmsIn']), null) ??
+        safeNum(firstDefinedValue(r, ['rainInAdj','rainIn','precipIn','precipitationIn']), null) ??
         0;
 
       return {
         dateISO,
         rainInAdj,
-        rainIn: safeNum(r.rainIn, rainInAdj),
-        rainSource: safeStr(r.rainSource || (safeNum(r.rainMrmsIn, null) != null ? 'mrms' : 'open-meteo') || 'unknown'),
-        tempF: safeNum(r.tempF ?? r.tempAvgF ?? r.avgTempF ?? r.temperatureF, 0),
-        windMph: safeNum(r.windMph ?? r.windSpeedMph ?? r.windspeedMph, 0),
-        rh: safeNum(r.rh ?? r.rhPct ?? r.relativeHumidityPct ?? r.relativeHumidity, 0),
-        solarWm2: safeNum(r.solarWm2 ?? r.shortwaveWm2 ?? r.shortwaveRadiation ?? r.solar, 0),
-        sunshineHr: safeNum(r.sunshineHr ?? r.sunshineHours ?? r.sunshine_duration_hr, 0),
-        daylightHr: safeNum(r.daylightHr ?? r.daylightHours ?? r.daylight_duration_hr, 0),
-        cloudPct: safeNum(r.cloudPct ?? r.cloudCoverPct ?? r.cloud_cover, null),
-        vpdKpa: safeNum(r.vpdKpa ?? r.vpd ?? r.vapour_pressure_deficit_kpa, null),
-        sm010: safeNum(r.sm010 ?? r.soilMoisture010 ?? r.soilMoisture_0_10, null),
-        et0In: safeNum(r.et0In ?? r.etIn ?? r.et0, null),
-        rainMorningIn: safeNum(r.rainMorningIn, 0),
-        rainMiddayIn: safeNum(r.rainMiddayIn, 0),
-        rainEveningIn: safeNum(r.rainEveningIn, 0)
+        rainIn: safeNum(firstDefinedValue(r, ['rainIn','precipIn','precipitationIn']), rainInAdj),
+        rainSource: safeStr(firstDefinedValue(r, ['rainSource']) || (safeNum(firstDefinedValue(r, ['rainMrmsIn']), null) != null ? 'mrms' : 'open-meteo')),
+        tempF: safeNum(firstDefinedValue(r, ['tempF','tempAvgF','avgTempF','temperatureF']), 0),
+        windMph: safeNum(firstDefinedValue(r, ['windMph','windSpeedMph','windspeedMph']), 0),
+        rh: safeNum(firstDefinedValue(r, ['rh','rhPct','relativeHumidityPct','relativeHumidity']), 0),
+        solarWm2: safeNum(firstDefinedValue(r, ['solarWm2','shortwaveWm2','shortwaveRadiation','solar']), 0),
+        sunshineHr: safeNum(firstDefinedValue(r, ['sunshineHr','sunshineHours','sunshine_duration_hr']), 0),
+        daylightHr: safeNum(firstDefinedValue(r, ['daylightHr','daylightHours','daylight_duration_hr']), 0),
+        cloudPct: safeNum(firstDefinedValue(r, ['cloudPct','cloudCoverPct','cloud_cover']), null),
+        vpdKpa: safeNum(firstDefinedValue(r, ['vpdKpa','vpd','vapour_pressure_deficit_kpa']), null),
+        sm010: safeNum(firstDefinedValue(r, ['sm010','soilMoisture010','soilMoisture_0_10']), null),
+        et0In: safeNum(firstDefinedValue(r, ['et0In','etIn','et0']), null),
+        rainMorningIn: safeNum(firstDefinedValue(r, ['rainMorningIn']), 0),
+        rainMiddayIn: safeNum(firstDefinedValue(r, ['rainMiddayIn']), 0),
+        rainEveningIn: safeNum(firstDefinedValue(r, ['rainEveningIn']), 0)
       };
     }
 
@@ -990,7 +1024,7 @@ GOAL:
     function firstRowArrayFromDoc(docData, candidates){
       const d = docData || {};
       for (const key of candidates){
-        const value = d[key];
+        const value = getByPath(d, key) ?? d[key];
         if (Array.isArray(value) && value.length){
           return value;
         }
@@ -1016,12 +1050,21 @@ GOAL:
       const wd = (weatherDoc && weatherDoc.data) || {};
 
       const direct = [
-        ...normalizeRowsArray(firstRowArrayFromDoc(ld, ['dailySeries30d', 'dailySeries', 'weatherDailySeries', 'wxDailySeries', 'rows'])),
-        ...normalizeRowsArray(firstRowArrayFromDoc(wd, ['dailySeries30d', 'dailySeries', 'weatherDailySeries', 'wxDailySeries', 'rows']))
+        ...normalizeRowsArray(firstRowArrayFromDoc(ld, [
+          'dailySeries30d','dailySeries','weatherDailySeries','wxDailySeries','rows',
+          'debug.dailySeries30d','debug.dailySeries','debug.rows',
+          'weather.dailySeries30d','weather.dailySeries',
+          'history.rows','history.dailySeries'
+        ])),
+        ...normalizeRowsArray(firstRowArrayFromDoc(wd, [
+          'dailySeries30d','dailySeries','weatherDailySeries','wxDailySeries','rows',
+          'debug.dailySeries30d','debug.dailySeries','debug.rows',
+          'weather.dailySeries30d','weather.dailySeries',
+          'history.rows','history.dailySeries'
+        ]))
       ];
 
-      if (direct.length) return uniqueWeatherRows(direct);
-      return [];
+      return direct.length ? uniqueWeatherRows(direct) : [];
     }
 
     function pickForecastRows(latestDoc, weatherDoc){
@@ -1029,12 +1072,19 @@ GOAL:
       const wd = (weatherDoc && weatherDoc.data) || {};
 
       const direct = [
-        ...normalizeRowsArray(firstRowArrayFromDoc(ld, ['dailySeriesFcst', 'forecastRows', 'weatherForecastRows', 'forecastDailyRows', 'openMeteoForecastRows'])),
-        ...normalizeRowsArray(firstRowArrayFromDoc(wd, ['dailySeriesFcst', 'forecastRows', 'weatherForecastRows', 'forecastDailyRows', 'openMeteoForecastRows']))
+        ...normalizeRowsArray(firstRowArrayFromDoc(ld, [
+          'dailySeriesFcst','forecastRows','weatherForecastRows','forecastDailyRows','openMeteoForecastRows',
+          'debug.dailySeriesFcst','debug.forecastRows',
+          'weather.forecastRows','forecast.rows','forecast.dailySeries'
+        ])),
+        ...normalizeRowsArray(firstRowArrayFromDoc(wd, [
+          'dailySeriesFcst','forecastRows','weatherForecastRows','forecastDailyRows','openMeteoForecastRows',
+          'debug.dailySeriesFcst','debug.forecastRows',
+          'weather.forecastRows','forecast.rows','forecast.dailySeries'
+        ]))
       ];
 
-      if (direct.length) return uniqueWeatherRows(direct);
-      return [];
+      return direct.length ? uniqueWeatherRows(direct) : [];
     }
 
     function mergeHistoryAndForecast(historyRows, forecastRows){
@@ -1080,16 +1130,17 @@ GOAL:
 
       els.recentSelect.innerHTML = '<option value="">Choose a recent doc</option>';
 
-      for (const item of list){
+      list.forEach((item, idx)=>{
         const opt = document.createElement('option');
-        opt.value = safeStr(item.fieldId || item.id);
-        opt.textContent = `${safeStr(item.fieldName || item.name || 'Field')} • ${safeStr(item.fieldId || item.id)}`;
+        opt.value = String(idx);
+        opt.textContent = `${safeStr(item.fieldName || item.name || 'Field')} • ${safeStr(item.fieldId || item.docId || item.id)}`;
         els.recentSelect.appendChild(opt);
-      }
+      });
 
       els.recentList.innerHTML = '';
 
-      for (const item of list){
+      for (let idx = 0; idx < list.length; idx++){
+        const item = list[idx];
         const div = document.createElement('div');
         div.className = 'recent-item';
         div.innerHTML = `
@@ -1104,10 +1155,8 @@ GOAL:
           </div>
         `;
         div.addEventListener('click', ()=>{
-          const val = safeStr(item.fieldId || item.id || item.docId);
-          if (!val) return;
-          els.fieldKeyInput.value = val;
-          setStatus(els.runStatus, 'Loaded recent fieldId into input:\n' + val, 'ok');
+          els.recentSelect.value = String(idx);
+          useRecentSelection(true);
         });
         els.recentList.appendChild(div);
       }
@@ -1120,14 +1169,22 @@ GOAL:
         const latestCollection = safeStr(els.latestCollectionInput.value) || 'field_readiness_latest';
 
         let snap = null;
+        let mode = '';
 
         try{
           snap = await db.collection(latestCollection).orderBy('computedAt', 'desc').limit(25).get();
+          mode = 'orderBy(computedAt desc)';
         }catch(_){
           try{
             snap = await db.collection(latestCollection).orderBy('weatherFetchedAt', 'desc').limit(25).get();
+            mode = 'orderBy(weatherFetchedAt desc)';
           }catch(_){
-            snap = await db.collection(latestCollection).limit(25).get();
+            try{
+              snap = await db.collection(latestCollection).limit(25).get();
+              mode = 'limit(25)';
+            }catch(err){
+              throw new Error('Could not load recent latest docs. ' + String(err && err.message ? err.message : err));
+            }
           }
         }
 
@@ -1140,22 +1197,30 @@ GOAL:
             fieldId: safeStr(d.fieldId || ''),
             fieldName: safeStr(d.fieldName || d.name || ''),
             readiness: safeNum(d.readiness, null),
-            computedAt: safeStr(d.computedAt && d.computedAt.toDate ? d.computedAt.toDate().toISOString() : d.computedAt || ''),
-            weatherFetchedAt: safeStr(d.weatherFetchedAt && d.weatherFetchedAt.toDate ? d.weatherFetchedAt.toDate().toISOString() : d.weatherFetchedAt || ''),
+            computedAt: safeStr(tsToIso(d.computedAt) || d.computedAt || ''),
+            weatherFetchedAt: safeStr(tsToIso(d.weatherFetchedAt) || d.weatherFetchedAt || ''),
             raw: d
           });
+        });
+
+        rows.sort((a, b)=>{
+          const aWhen = safeStr(a.computedAt || a.weatherFetchedAt || '');
+          const bWhen = safeStr(b.computedAt || b.weatherFetchedAt || '');
+          return bWhen.localeCompare(aWhen);
         });
 
         state.recentLatestDocs = rows;
         renderRecentDocsList();
 
         if (rows.length){
-          setStatus(els.recentStatus, `Loaded ${rows.length} recent latest docs. Tap one or use the dropdown.`, 'ok');
+          setStatus(els.recentStatus, `Loaded ${rows.length} recent latest docs using ${mode}. Tap one or use the dropdown.`, 'ok');
         } else {
           setStatus(els.recentStatus, 'No docs came back from field_readiness_latest.', 'err');
         }
       }catch(err){
         setStatus(els.recentStatus, String(err && err.message ? err.message : err), 'err');
+        state.recentLatestDocs = [];
+        renderRecentDocsList();
       }finally{
         els.loadRecentBtn.disabled = false;
       }
@@ -1169,7 +1234,7 @@ GOAL:
       const weatherCollection = safeStr(els.weatherCollectionInput.value) || 'field_weather_cache';
 
       if (!inputKey){
-        setStatus(els.runStatus, 'Enter a field ptr or id first.', 'err');
+        setStatus(els.runStatus, 'Enter a field ptr, field id, or latest doc id first.', 'err');
         return;
       }
 
@@ -1184,14 +1249,23 @@ GOAL:
         let weatherDoc = await resolveWeatherDoc(db, weatherCollection, buildCandidateKeys(inputKey, latestDoc, null, null), tried);
         let fieldDoc = await resolveFieldDoc(db, fieldCollections, buildCandidateKeys(inputKey, latestDoc, weatherDoc, null), latestDoc, weatherDoc, tried);
 
-        if (!latestDoc){
-          latestDoc = await resolveLatestDoc(db, latestCollection, buildCandidateKeys(inputKey, null, weatherDoc, fieldDoc), tried);
-        }
-        if (!weatherDoc){
-          weatherDoc = await resolveWeatherDoc(db, weatherCollection, buildCandidateKeys(inputKey, latestDoc, null, fieldDoc), tried);
-        }
-        if (!fieldDoc){
-          fieldDoc = await resolveFieldDoc(db, fieldCollections, buildCandidateKeys(inputKey, latestDoc, weatherDoc, null), latestDoc, weatherDoc, tried);
+        let pass = 0;
+        while (pass < 3){
+          pass += 1;
+          const keys = buildCandidateKeys(inputKey, latestDoc, weatherDoc, fieldDoc);
+
+          if (!latestDoc){
+            latestDoc = await resolveLatestDoc(db, latestCollection, keys, tried);
+          }
+          if (!weatherDoc){
+            weatherDoc = await resolveWeatherDoc(db, weatherCollection, keys, tried);
+          }
+          if (!fieldDoc){
+            fieldDoc = await resolveFieldDoc(db, fieldCollections, keys, latestDoc, weatherDoc, tried);
+          }
+
+          const expandedKeys = buildCandidateKeys(inputKey, latestDoc, weatherDoc, fieldDoc);
+          if (expandedKeys.join('|') === keys.join('|')) break;
         }
 
         state.lastLatestDoc = latestDoc;
@@ -1200,9 +1274,9 @@ GOAL:
 
         if (!fieldDoc && !latestDoc && !weatherDoc){
           throw new Error(
-            'That ID is not being found in field_readiness_latest, field_weather_cache, or the field collections.\n' +
-            'Use "Load Recent Latest Docs" and choose a real field from there.\n\n' +
-            'Tried: ' + tried.join(' | ')
+            'Nothing matched that input.\n\n' +
+            'Use "Load Recent Latest Docs", tap one, then run again.\n\n' +
+            'Tried:\n' + tried.join(' | ')
           );
         }
 
@@ -1255,7 +1329,8 @@ GOAL:
           [
             field.id ? `ID ${field.id}` : '',
             field.county || '',
-            field.state || ''
+            field.state || '',
+            latestDoc && latestDoc.id ? `latestDoc ${latestDoc.id}` : ''
           ].filter(Boolean).join(' • ') || 'Field loaded'
         );
 
@@ -1341,14 +1416,31 @@ ETA: ${eta && eta.text ? eta.text : '—'}`,
       setStatus(els.runStatus, 'Loaded latest doc fieldId into input:\n' + fieldId, 'ok');
     }
 
-    function useRecentSelection(){
-      const val = safeStr(els.recentSelect.value);
-      if (!val){
+    function useRecentSelection(autoRun = false){
+      const idx = safeStr(els.recentSelect.value);
+      if (idx === ''){
         setStatus(els.runStatus, 'Pick a recent doc first.', 'err');
         return;
       }
+
+      const item = state.recentLatestDocs[Number(idx)];
+      if (!item){
+        setStatus(els.runStatus, 'Selected recent doc could not be read.', 'err');
+        return;
+      }
+
+      const val = safeStr(item.fieldId || item.docId || item.id);
+      if (!val){
+        setStatus(els.runStatus, 'Selected recent doc is missing both fieldId and docId.', 'err');
+        return;
+      }
+
       els.fieldKeyInput.value = val;
-      setStatus(els.runStatus, 'Loaded selected recent fieldId into input:\n' + val, 'ok');
+      setStatus(els.runStatus, 'Loaded selected recent value into input:\n' + val, 'ok');
+
+      if (autoRun){
+        runDevTest();
+      }
     }
 
     function wireButtons(){
@@ -1356,7 +1448,7 @@ ETA: ${eta && eta.text ? eta.text : '—'}`,
       els.copyUrlBtn.addEventListener('click', copyUrl);
       els.useLatestIdBtn.addEventListener('click', useLatestDocFieldId);
       els.loadRecentBtn.addEventListener('click', ()=>{ loadRecentLatestDocs(); });
-      els.useRecentBtn.addEventListener('click', useRecentSelection);
+      els.useRecentBtn.addEventListener('click', ()=>{ useRecentSelection(false); });
 
       els.fieldKeyInput.addEventListener('keydown', (e)=>{
         if (e.key === 'Enter'){
@@ -1373,8 +1465,9 @@ ETA: ${eta && eta.text ? eta.text : '—'}`,
       });
 
       els.recentSelect.addEventListener('change', ()=>{
-        const val = safeStr(els.recentSelect.value);
-        if (val) els.fieldKeyInput.value = val;
+        const idx = safeStr(els.recentSelect.value);
+        if (idx === '') return;
+        useRecentSelection(false);
       });
     }
 
