@@ -1,34 +1,20 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-03-29b-surface-penalty-recovers-faster
+Rev: 2026-03-30a-no-state-rewind-match-index
 
-OPTION 1 (per Dane):
-✅ Model owns ETA and computes it from the SAME truth-seeded run + SAME physics.
-✅ Forward sim uses forecast daily rows when available (dailySeriesFcst).
-✅ No legacy ETA math (avgLossDay shortcut) anywhere.
-✅ Legacy etaFor() is kept ONLY as a compatibility stub returning '' (blank),
-   so older callers won't crash while we wire quickview/details to model ETA.
-
-THIS REV:
-✅ Keeps MRMS rainfall preference with Open-Meteo fallback
-✅ Keeps truth seed / ETA-start priority behavior intact
-✅ Rebuilds model to match server-side coupled physics
-✅ NEW: surface storage and deep storage now work together
-✅ NEW: same-day rain timing affects how much drying counts
-✅ NEW: late-day rain suppresses same-day drydown much more
-✅ NEW: surface storage can percolate into deep storage over time
-✅ NEW: wet surface slows deep-tank drydown
-✅ NEW: soft storage floor while surface remains wet
-✅ NEW: ETA forward sim uses the same coupled storage/surface logic
-✅ TUNE: physical penalty still hits after rain but recovers faster afterward
+GOAL:
+✅ Match the new no-state backend direction
+✅ Remove persisted-state and ETA-seed dependence
+✅ Keep coupled storage + surface physics
+✅ Keep ETA using the same model physics
+✅ Seed from rewind window or baseline only
+✅ Default to rewind mode (10 days) so model behaves closer to index
 
 IMPORTANT:
-- Truth seed (storageFinal + asOfDateISO) still anchors "now"
-- Learning (EXTRA.DRY_LOSS_MULT / EXTRA.RAIN_EFF_MULT) still applies
-- This file still supports merged weather input through deps:
-    1) getModelWeatherSeriesForFieldId(fieldId)
-    2) getMergedWeatherSeriesForFieldId(fieldId)
-    3) fallback getWeatherSeriesForFieldId(fieldId)
+- No persisted state
+- No field_readiness_state dependency
+- No ETA seed from field_readiness_latest
+- "Now" comes from the model run itself
 ===================================================================== */
 'use strict';
 
@@ -134,7 +120,7 @@ const FV_TUNE = {
   MID_ACCEL_MAX_BOOST: 0.18,
   MID_ACCEL_EXP: 1.35,
 
-  // Surface storage system (same pattern as server file)
+  // Surface storage system
   SURFACE_CAP_IN: 0.70,
   SURFACE_RAIN_CAPTURE: 1.00,
   SURFACE_PENALTY_MAX: 36,
@@ -288,7 +274,6 @@ export function calcDryParts(r, EXTRA){
   const sunshineN = clamp(sunshineHr / 12, 0, 1);
   const daylightN = clamp((daylightHr - 8) / 8, 0, 1);
 
-  // Match server-style dry power
   const rawBase =
     (0.35 * tempN) +
     (0.30 * solarN) +
@@ -572,56 +557,18 @@ function surfaceDrivenStorageFloor(surfaceStorage, Smax, tune){
 }
 
 /* =====================================================================
-   Persisted / centralized seed helpers
+   No-state seed helpers
 ===================================================================== */
-function getPersistedState(deps, fieldId){
-  try{
-    if (!deps || !fieldId) return null;
-    if (typeof deps.getPersistedState === 'function'){
-      const s = deps.getPersistedState(fieldId);
-      return (s && typeof s === 'object') ? s : null;
-    }
-    const map = deps.persistedStateByFieldId;
-    if (map && typeof map === 'object'){
-      const s = map[fieldId];
-      return (s && typeof s === 'object') ? s : null;
-    }
-    return null;
-  }catch(_){
-    return null;
-  }
-}
-
-function getEtaSeed(deps, fieldId){
-  try{
-    if (!deps || !fieldId) return null;
-
-    if (typeof deps.getEtaSeedForFieldId === 'function'){
-      const s = deps.getEtaSeedForFieldId(fieldId);
-      if (s && typeof s === 'object') return s;
-    }
-
-    const map = deps.etaSeedByFieldId;
-    if (map && typeof map === 'object'){
-      const s = map[fieldId];
-      if (s && typeof s === 'object') return s;
-    }
-
-    return null;
-  }catch(_){
-    return null;
-  }
-}
-
 function getSeedMode(deps){
   const m = deps && deps.seedMode ? String(deps.seedMode) : '';
-  if (m === 'rewind' || m === 'baseline' || m === 'persisted') return m;
-  return 'persisted';
+  if (m === 'rewind' || m === 'baseline') return m;
+  return 'rewind';
 }
+
 function getRewindDays(deps){
   const n = Number(deps && deps.rewindDays);
-  if (!isFinite(n)) return 14;
-  return clamp(Math.round(n), 3, 45);
+  if (!isFinite(n)) return 10;
+  return clamp(Math.round(n), 3, 21);
 }
 
 function baselineSeedFromWindow(rowsWindow, f){
@@ -629,13 +576,13 @@ function baselineSeedFromWindow(rowsWindow, f){
   const rain7 = first7.reduce((s,x)=> s + Number(x && x.rainInAdj || 0), 0);
 
   const rainNudgeFrac = clamp(rain7 / 8.0, 0, 1);
-  const rainNudge = rainNudgeFrac * (0.1 * f.Smax);
+  const rainNudge = rainNudgeFrac * (0.10 * f.Smax);
 
   const storage0 = clamp((0.10 * f.Smax) + rainNudge, 0, f.Smax);
   return { storage0 };
 }
 
-function pickSeed(rows, f, deps, fieldId){
+function pickSeed(rows, f, deps){
   const mode = getSeedMode(deps);
 
   if (mode === 'rewind'){
@@ -643,21 +590,6 @@ function pickSeed(rows, f, deps, fieldId){
     const startIdx = Math.max(0, rows.length - N);
     const b = baselineSeedFromWindow(rows.slice(startIdx), f);
     return { seedStorage: b.storage0, startIdx, source: 'rewind' };
-  }
-
-  if (mode === 'persisted'){
-    const persisted = getPersistedState(deps, fieldId);
-    if (persisted && isFinite(Number(persisted.storageFinal)) && persisted.asOfDateISO){
-      const asOf = String(persisted.asOfDateISO).slice(0,10);
-      const idx = rows.findIndex(r => String(r.dateISO||'').slice(0,10) === asOf);
-      if (idx >= 0){
-        return {
-          seedStorage: clamp(Number(persisted.storageFinal), 0, f.Smax),
-          startIdx: idx + 1,
-          source: 'persisted'
-        };
-      }
-    }
   }
 
   const b0 = baselineSeedFromWindow(rows, f);
@@ -785,83 +717,6 @@ function computeReadinessFromState(storagePhys, surfaceStorage, f, deps, tune){
   };
 }
 
-function deriveStoragePhysFromAuthoritativeReadiness(readinessValue, f, deps){
-  const readiness = safeNum(readinessValue, null);
-  if (!Number.isFinite(readiness)) return null;
-
-  const wetness = clamp(100 - readiness, 0, 100);
-  const storageForReadiness = (wetness / 100) * f.Smax;
-
-  const creditIn = signedCreditInchesFromSmax(f.Smax);
-  const storageEff = clamp(storageForReadiness + creditIn, 0, f.Smax);
-
-  const calAtZero = applyCalToStorage(0, f.Smax, deps);
-  const storageDeltaApplied = safeNum(calAtZero && calAtZero.storageDeltaApplied, 0);
-
-  return clamp(storageEff - storageDeltaApplied, 0, f.Smax);
-}
-
-function buildEtaNowStateFromSeed(run, f, deps, fieldId){
-  try{
-    const seed = getEtaSeed(deps, fieldId);
-    if (!seed) return null;
-
-    const authoritativeReadiness = safeNum(seed.readiness, null);
-
-    let storagePhys = safeNum(seed.storagePhysFinal, null);
-    if (Number.isFinite(storagePhys)){
-      storagePhys = clamp(storagePhys, 0, f.Smax);
-    }
-
-    if (!Number.isFinite(storagePhys)){
-      const storageEffMaybe = safeNum(seed.storageFinal, null);
-      if (Number.isFinite(storageEffMaybe)){
-        const calAtZero = applyCalToStorage(0, f.Smax, deps);
-        const storageDeltaApplied = safeNum(calAtZero && calAtZero.storageDeltaApplied, 0);
-        storagePhys = clamp(storageEffMaybe - storageDeltaApplied, 0, f.Smax);
-      }
-    }
-
-    if (!Number.isFinite(storagePhys)){
-      storagePhys = deriveStoragePhysFromAuthoritativeReadiness(authoritativeReadiness, f, deps);
-    }
-
-    if (!Number.isFinite(storagePhys)){
-      storagePhys = Number.isFinite(Number(run && run.storagePhysFinal))
-        ? clamp(Number(run.storagePhysFinal), 0, f.Smax)
-        : null;
-    }
-
-    const surfaceStorage = Number.isFinite(Number(seed.surfaceStorageFinal))
-      ? clamp(Number(seed.surfaceStorageFinal), 0, getTune(deps).SURFACE_CAP_IN)
-      : (
-          Number.isFinite(Number(run && run.surfaceStorageFinal))
-            ? clamp(Number(run.surfaceStorageFinal), 0, getTune(deps).SURFACE_CAP_IN)
-            : 0
-        );
-
-    const derived = Number.isFinite(storagePhys)
-      ? computeReadinessFromState(storagePhys, surfaceStorage, f, deps, getTune(deps))
-      : null;
-
-    return {
-      storagePhys: Number.isFinite(storagePhys) ? storagePhys : null,
-      surfaceStorage,
-      readiness: Number.isFinite(authoritativeReadiness)
-        ? authoritativeReadiness
-        : Number(derived && derived.readiness),
-      wetness: Number.isFinite(Number(seed.wetness))
-        ? Number(seed.wetness)
-        : Number(derived && derived.wetness),
-      derivedReadiness: Number(derived && derived.readiness),
-      source: safeStr(seed.source || 'field_readiness_latest'),
-      seed
-    };
-  }catch(_){
-    return null;
-  }
-}
-
 /* =====================================================================
    Forecast / split helpers
 ===================================================================== */
@@ -975,49 +830,27 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
     const f = run.factors;
     const rate = getRateMults(deps);
 
-    const etaSeedNow = buildEtaNowStateFromSeed(run, f, deps, field.id);
-
-    let storagePhys = Number.isFinite(Number(etaSeedNow && etaSeedNow.storagePhys))
-      ? Number(etaSeedNow.storagePhys)
-      : (
-          Number.isFinite(Number(run.storagePhysFinal))
-            ? Number(run.storagePhysFinal)
-            : Number(run.storageFinal || 0)
-        );
+    let storagePhys = Number.isFinite(Number(run.storagePhysFinal))
+      ? Number(run.storagePhysFinal)
+      : Number(run.storageFinal || 0);
 
     storagePhys = clamp(storagePhys, 0, f.Smax);
 
-    let surfaceStorage = Number.isFinite(Number(etaSeedNow && etaSeedNow.surfaceStorage))
-      ? Number(etaSeedNow.surfaceStorage)
-      : (
-          Number.isFinite(Number(run.surfaceStorageFinal))
-            ? Number(run.surfaceStorageFinal)
-            : 0
-        );
+    let surfaceStorage = Number.isFinite(Number(run.surfaceStorageFinal))
+      ? Number(run.surfaceStorageFinal)
+      : 0;
 
     surfaceStorage = clamp(surfaceStorage, 0, tune.SURFACE_CAP_IN);
 
-    const authoritativeNowR = Number.isFinite(Number(etaSeedNow && etaSeedNow.readiness))
-      ? Number(etaSeedNow.readiness)
-      : null;
+    const nowState = computeReadinessFromState(storagePhys, surfaceStorage, f, deps, tune);
+    const dryNowGateR = Number(nowState.readiness);
 
-    const derivedNowR = computeReadinessFromState(storagePhys, surfaceStorage, f, deps, tune).readiness;
-    const hasAuthoritativeNow = Number.isFinite(authoritativeNowR);
-
-    const dryNowGateR = hasAuthoritativeNow ? authoritativeNowR : derivedNowR;
-
-    if (dryNowGateR >= thr && !(hasAuthoritativeNow && authoritativeNowR < thr)){
+    if (dryNowGateR >= thr){
       return { ok:true, status:'dryNow', hours:0, text:'' };
     }
 
-    let prevR = hasAuthoritativeNow ? authoritativeNowR : derivedNowR;
+    let prevR = Math.max(0, Math.min(thr - 1, dryNowGateR));
     let prevT = 0;
-
-    if (hasAuthoritativeNow && authoritativeNowR < thr){
-      prevR = Math.min(prevR, thr - 1);
-    } else if (prevR >= thr){
-      prevR = Math.max(0, thr - 1);
-    }
 
     const steps = Math.ceil(H / stepH);
 
@@ -1142,7 +975,7 @@ export function runField(field, deps){
 
   const rows = wx.map(w => normalizeRowForModel(w, deps, tune));
 
-  const seedPick = pickSeed(rows, f, deps, field.id);
+  const seedPick = pickSeed(rows, f, deps);
   let storage = clamp(seedPick.seedStorage, 0, f.Smax);
   let surfaceStorage = 0;
 
@@ -1281,7 +1114,8 @@ export function runField(field, deps){
 
     readinessCreditIn: stateFinal.creditIn,
     storageForReadiness: stateFinal.storageForReadiness,
-    seedSource: seedPick.source
+    seedSource: seedPick.source,
+    rewindDays: getRewindDays(deps)
   };
 }
 
