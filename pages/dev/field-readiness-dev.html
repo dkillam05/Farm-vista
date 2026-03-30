@@ -1,20 +1,15 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/field-readiness-dev.html  (FULL FILE)
-Rev: 2026-03-30e-dev-page-hardwired-button-working
+Rev: 2026-03-30f-dev-page-self-boots-firebase
 
 GOAL:
-✅ Single-field debug page
+✅ Standalone single-field debug page
 ✅ No tile renderer
-✅ Hard-wired Run button
-✅ Visible startup / click / error status
-✅ Can resolve by:
-   - real field doc id
-   - latest doc id
-   - weather cache doc id
-✅ Uses actual model math from:
-   /Farm-vista/js/field-readiness.model.js
-✅ Reads Firestore through:
-   /Farm-vista/js/field-readiness/firebase.js
+✅ Self-boots Firebase on its own
+✅ Does NOT depend on field-readiness getAPI()
+✅ Reads Firestore directly
+✅ Runs actual model math from field-readiness.model.js
+✅ Shows lookup/debug/model/trace clearly
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -31,6 +26,12 @@ GOAL:
   <script src="/Farm-vista/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
+
+  <!-- IMPORTANT:
+       These try to populate window.FV_FIREBASE_CONFIG if your project already does that.
+       If they fail or are absent, the page still tries to continue and reports it clearly. -->
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+  <script src="/Farm-vista/js/firebase-init.js"></script>
 
   <style>
     :root{
@@ -292,13 +293,13 @@ GOAL:
 
         <div class="kgrid">
           <div class="kcard">
-            <div class="klabel">FIELD</div>
+            <div class="klabel">Field</div>
             <div id="fieldTitle" class="kvalue">—</div>
             <div id="fieldSub" class="muted" style="margin-top:6px;">No field loaded yet.</div>
           </div>
 
           <div class="kcard">
-            <div class="klabel">MODEL OUTPUT</div>
+            <div class="klabel">Model Output</div>
             <div id="readinessValue" class="kvalue">—</div>
             <div class="muted" style="margin-top:6px;">Readiness</div>
           </div>
@@ -417,7 +418,6 @@ GOAL:
   </div>
 
   <script type="module">
-    import { getAPI } from '/Farm-vista/js/field-readiness/firebase.js';
     import { runField, etaToThreshold } from '/Farm-vista/js/field-readiness.model.js';
 
     const $ = (id)=> document.getElementById(id);
@@ -460,7 +460,8 @@ GOAL:
     };
 
     const state = {
-      api: null,
+      db: null,
+      firebaseReady: false,
       lastLatestDoc: null,
       lastFieldDoc: null,
       lastWeatherDoc: null
@@ -478,9 +479,9 @@ GOAL:
       el.textContent = String(msg || '');
       el.className = 'status' + (kind ? ' ' + kind : '');
     }
-    function setText(idEl, value){
-      if (!idEl) return;
-      idEl.textContent = String(value == null || value === '' ? '—' : value);
+    function setText(el, value){
+      if (!el) return;
+      el.textContent = String(value == null || value === '' ? '—' : value);
     }
     function pretty(obj){
       try{
@@ -488,6 +489,69 @@ GOAL:
       }catch(_){
         return String(obj);
       }
+    }
+    function loadScript(src){
+      return new Promise((resolve, reject)=>{
+        const existing = document.querySelector('script[data-dev-src="' + src + '"]');
+        if (existing){
+          if (existing.dataset.loaded === '1') return resolve();
+          existing.addEventListener('load', ()=> resolve(), { once:true });
+          existing.addEventListener('error', ()=> reject(new Error('Failed to load ' + src)), { once:true });
+          return;
+        }
+
+        const s = document.createElement('script');
+        s.src = src;
+        s.async = true;
+        s.dataset.devSrc = src;
+        s.addEventListener('load', ()=>{
+          s.dataset.loaded = '1';
+          resolve();
+        }, { once:true });
+        s.addEventListener('error', ()=>{
+          reject(new Error('Failed to load ' + src));
+        }, { once:true });
+        document.head.appendChild(s);
+      });
+    }
+    async function ensureFirebaseCompat(){
+      if (state.firebaseReady && state.db) return state.db;
+
+      if (window.firebase && window.firebase.firestore){
+        try{
+          state.db = window.firebase.firestore();
+          state.firebaseReady = true;
+          return state.db;
+        }catch(_){}
+      }
+
+      const cfg =
+        window.FV_FIREBASE_CONFIG ||
+        window.__FV_FIREBASE_CONFIG ||
+        window.firebaseConfig ||
+        null;
+
+      if (!cfg){
+        throw new Error(
+          'Firebase config not found on window. ' +
+          'This page expected /Farm-vista/js/firebase-config.js to populate FV_FIREBASE_CONFIG.'
+        );
+      }
+
+      await loadScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
+      await loadScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js');
+
+      if (!window.firebase || !window.firebase.initializeApp){
+        throw new Error('Firebase compat library loaded, but window.firebase is still missing.');
+      }
+
+      if (!window.firebase.apps || !window.firebase.apps.length){
+        window.firebase.initializeApp(cfg);
+      }
+
+      state.db = window.firebase.firestore();
+      state.firebaseReady = true;
+      return state.db;
     }
     function getUrlForCopy(){
       const url = new URL(window.location.href);
@@ -515,105 +579,86 @@ GOAL:
         .filter(Boolean);
     }
 
-    async function getDocById(api, collectionName, docId){
-      if (!api || !collectionName || !docId) return null;
-
-      if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
-        const db = window.firebase.firestore();
-        const snap = await db.collection(collectionName).doc(docId).get();
-        if (!snap.exists) return null;
-        return { id: snap.id, data: snap.data() || {}, source: `doc:${collectionName}/${docId}` };
-      }
-
-      const db = api.getFirestore();
-      const ref = api.doc(db, collectionName, docId);
-      const snap = await api.getDoc(ref);
-      if (!snap.exists()) return null;
+    async function getDocById(db, collectionName, docId){
+      const snap = await db.collection(collectionName).doc(docId).get();
+      if (!snap.exists) return null;
       return { id: snap.id, data: snap.data() || {}, source: `doc:${collectionName}/${docId}` };
     }
 
-    async function queryWhereEq(api, collectionName, fieldName, value){
-      if (!api || !collectionName || !fieldName) return null;
-
-      if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
-        const db = window.firebase.firestore();
-        const snap = await db.collection(collectionName).where(fieldName, '==', value).limit(1).get();
-        if (snap.empty) return null;
-        const doc = snap.docs[0];
-        return { id: doc.id, data: doc.data() || {}, source: `where:${collectionName}.${fieldName} == ${value}` };
-      }
-
-      const db = api.getFirestore();
-      const col = api.collection(db, collectionName);
-      const q = api.query(col, api.where(fieldName, '==', value), api.limit(1));
-      const snap = await api.getDocs(q);
+    async function queryWhereEq(db, collectionName, fieldName, value){
+      const snap = await db.collection(collectionName).where(fieldName, '==', value).limit(1).get();
       if (snap.empty) return null;
       const doc = snap.docs[0];
       return { id: doc.id, data: doc.data() || {}, source: `where:${collectionName}.${fieldName} == ${value}` };
     }
 
-    async function resolveLatestDoc(api, latestCollection, key, tried){
-      const direct = await getDocById(api, latestCollection, key);
-      if (direct){
-        tried.push(direct.source);
-        return direct;
+    async function resolveLatestDoc(db, latestCollection, key, tried){
+      try{
+        const direct = await getDocById(db, latestCollection, key);
+        tried.push(`doc:${latestCollection}/${key}`);
+        if (direct) return direct;
+      }catch(_){
+        tried.push(`doc:${latestCollection}/${key}`);
       }
-      tried.push(`doc:${latestCollection}/${key}`);
 
       for (const fld of ['fieldId', 'ptr', 'fieldPtr', 'id']){
-        const hit = await queryWhereEq(api, latestCollection, fld, key);
-        if (hit){
-          tried.push(hit.source);
-          return hit;
+        try{
+          const hit = await queryWhereEq(db, latestCollection, fld, key);
+          tried.push(`where:${latestCollection}.${fld} == ${key}`);
+          if (hit) return hit;
+        }catch(_){
+          tried.push(`where:${latestCollection}.${fld} == ${key}`);
         }
-        tried.push(`where:${latestCollection}.${fld} == ${key}`);
       }
 
       return null;
     }
 
-    async function resolveWeatherDoc(api, weatherCollection, key, tried){
-      const direct = await getDocById(api, weatherCollection, key);
-      if (direct){
-        tried.push(direct.source);
-        return direct;
+    async function resolveWeatherDoc(db, weatherCollection, key, tried){
+      try{
+        const direct = await getDocById(db, weatherCollection, key);
+        tried.push(`doc:${weatherCollection}/${key}`);
+        if (direct) return direct;
+      }catch(_){
+        tried.push(`doc:${weatherCollection}/${key}`);
       }
-      tried.push(`doc:${weatherCollection}/${key}`);
 
       for (const fld of ['fieldId', 'ptr', 'fieldPtr', 'id']){
-        const hit = await queryWhereEq(api, weatherCollection, fld, key);
-        if (hit){
-          tried.push(hit.source);
-          return hit;
+        try{
+          const hit = await queryWhereEq(db, weatherCollection, fld, key);
+          tried.push(`where:${weatherCollection}.${fld} == ${key}`);
+          if (hit) return hit;
+        }catch(_){
+          tried.push(`where:${weatherCollection}.${fld} == ${key}`);
         }
-        tried.push(`where:${weatherCollection}.${fld} == ${key}`);
       }
 
       return null;
     }
 
-    async function resolveFieldDoc(api, fieldCollections, key, latestDoc, weatherDoc, tried){
+    async function resolveFieldDoc(db, fieldCollections, key, latestDoc, weatherDoc, tried){
       for (const collectionName of fieldCollections){
-        const direct = await getDocById(api, collectionName, key);
-        if (direct){
-          tried.push(direct.source);
-          return { ...direct, collection: collectionName };
+        try{
+          const direct = await getDocById(db, collectionName, key);
+          tried.push(`doc:${collectionName}/${key}`);
+          if (direct) return { ...direct, collection: collectionName };
+        }catch(_){
+          tried.push(`doc:${collectionName}/${key}`);
         }
-        tried.push(`doc:${collectionName}/${key}`);
       }
 
       for (const collectionName of fieldCollections){
         for (const fld of ['ptr', 'fieldPtr', 'slug', 'shortId', 'fieldId', 'id']){
-          const hit = await queryWhereEq(api, collectionName, fld, key);
-          if (hit){
-            tried.push(hit.source);
-            return { ...hit, collection: collectionName };
+          try{
+            const hit = await queryWhereEq(db, collectionName, fld, key);
+            tried.push(`where:${collectionName}.${fld} == ${key}`);
+            if (hit) return { ...hit, collection: collectionName };
+          }catch(_){
+            tried.push(`where:${collectionName}.${fld} == ${key}`);
           }
-          tried.push(`where:${collectionName}.${fld} == ${key}`);
         }
       }
 
-      // synthesize from latest or weather if real field doc is missing
       const synthSource = latestDoc || weatherDoc;
       if (synthSource){
         const d = synthSource.data || {};
@@ -831,18 +876,12 @@ GOAL:
       els.runBtn.disabled = true;
 
       try{
-        const api = state.api || getAPI(window.__FV_FR || {});
-        state.api = api;
-
-        if (!api){
-          throw new Error('Firebase API not available. This page cannot read Firestore yet.');
-        }
-
+        const db = await ensureFirebaseCompat();
         const tried = [];
 
-        const latestDoc = await resolveLatestDoc(api, latestCollection, key, tried);
-        const weatherDoc = await resolveWeatherDoc(api, weatherCollection, key, tried);
-        const fieldDoc = await resolveFieldDoc(api, fieldCollections, key, latestDoc, weatherDoc, tried);
+        const latestDoc = await resolveLatestDoc(db, latestCollection, key, tried);
+        const weatherDoc = await resolveWeatherDoc(db, weatherCollection, key, tried);
+        const fieldDoc = await resolveFieldDoc(db, fieldCollections, key, latestDoc, weatherDoc, tried);
 
         state.lastLatestDoc = latestDoc;
         state.lastFieldDoc = fieldDoc;
@@ -883,12 +922,12 @@ GOAL:
             return mergedRows;
           },
           getForecastSeriesForFieldId: (fieldId)=>{
-            if (String(fieldId) !== String(field.id)) return [];
-            return forecastRows;
+            if (String(fieldId) !== String(field.id)) return forecastRows;
+            return [];
           },
           getWxSeriesWithForecastForFieldId: (fieldId)=>{
-            if (String(fieldId) !== String(field.id)) return [];
-            return mergedRows;
+            if (String(fieldId) !== String(field.id)) return mergedRows;
+            return [];
           }
         };
 
@@ -944,7 +983,12 @@ GOAL:
 
         setStatus(
           els.runStatus,
-          `Run finished.\nField: ${field.name || field.id}\nHistory rows: ${historyRows.length}\nForecast rows: ${forecastRows.length}\nReadiness: ${run ? run.readinessR : '—'}\nETA: ${eta && eta.text ? eta.text : '—'}`,
+          `Run finished.
+Field: ${field.name || field.id}
+History rows: ${historyRows.length}
+Forecast rows: ${forecastRows.length}
+Readiness: ${run ? run.readinessR : '—'}
+ETA: ${eta && eta.text ? eta.text : '—'}`,
           'ok'
         );
       }catch(err){
@@ -979,22 +1023,14 @@ GOAL:
     }
 
     function wireButtons(){
-      if (!els.runBtn) throw new Error('runBtn missing from page');
-      if (!els.copyUrlBtn) throw new Error('copyUrlBtn missing from page');
-      if (!els.useLatestIdBtn) throw new Error('useLatestIdBtn missing from page');
-
-      els.runBtn.addEventListener('click', ()=>{
-        setStatus(els.runStatus, 'Run button clicked…');
-        runDevTest();
-      });
-
+      els.runBtn.addEventListener('click', ()=>{ runDevTest(); });
       els.copyUrlBtn.addEventListener('click', copyUrl);
       els.useLatestIdBtn.addEventListener('click', useLatestDocFieldId);
 
       els.fieldKeyInput.addEventListener('keydown', (e)=>{
         if (e.key === 'Enter'){
           e.preventDefault();
-          els.runBtn.click();
+          runDevTest();
         }
       });
     }
@@ -1003,11 +1039,17 @@ GOAL:
       try{
         applyUrlToInputs();
         wireButtons();
-        setStatus(els.bootStatus, 'Dev page booted. Button wiring is active.', 'ok');
+
+        try{
+          await ensureFirebaseCompat();
+          setStatus(els.bootStatus, 'Dev page booted. Firebase is ready.', 'ok');
+        }catch(err){
+          const msg = err && err.message ? err.message : String(err);
+          setStatus(els.bootStatus, 'Dev page booted, but Firebase is not ready yet.\n' + msg, 'err');
+        }
 
         const autoKey = safeStr(els.fieldKeyInput.value);
         if (autoKey){
-          setStatus(els.runStatus, 'Auto-run from URL detected…');
           await runDevTest();
         } else {
           setStatus(els.runStatus, 'Ready. Enter a field ptr or id, then tap Run Dev Test.');
