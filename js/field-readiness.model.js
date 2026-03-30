@@ -631,7 +631,7 @@ function baselineSeedFromWindow(rowsWindow, f){
   const rainNudgeFrac = clamp(rain7 / 8.0, 0, 1);
   const rainNudge = rainNudgeFrac * (0.1 * f.Smax);
 
-  const storage0 = clamp((0.30 * f.Smax) + rainNudge, 0, f.Smax);
+  const storage0 = clamp((0.10 * f.Smax) + rainNudge, 0, f.Smax);
   return { storage0 };
 }
 
