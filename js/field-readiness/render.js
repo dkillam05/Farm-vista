@@ -2016,12 +2016,12 @@ function getSurfaceWetnessSnapshot(runTruth, latestRec, savedRawDoc){
   const rec = safeObj(latestRec && latestRec._raw ? latestRec._raw : latestRec) || {};
 
   const surfaceValue =
+    safeNum(runTruth && runTruth.surfaceStorageFinal) ??
+    safeNum(rec.surfaceStorageFinal) ??
+    safeNum(d.surfaceStorageFinal) ??
     safeNum(runTruth && runTruth.storagePhysFinal) ??
-    safeNum(runTruth && runTruth.wetness) ??
     safeNum(rec.storagePhysFinal) ??
-    safeNum(rec.wetness) ??
-    safeNum(d.storagePhysFinal) ??
-    safeNum(d.wetness);
+    safeNum(d.storagePhysFinal);
 
   return fmtSingleMoisture(surfaceValue);
 }
@@ -2065,30 +2065,43 @@ function getSurfaceTraceRowsForDetails(runTruth, savedRawDoc){
   try{
     const liveRows = Array.isArray(runTruth && runTruth.trace) ? runTruth.trace : [];
     if (liveRows.length){
-      return liveRows.map((t)=>({
-        dateISO: safeStr(t.dateISO),
-        rainIn: safeNum(t.rainIn) ?? safeNum(t.rain),
-        infilMult: safeNum(t.infilMult),
-        addIn: safeNum(t.addIn) ?? safeNum(t.add),
-        dryPwr: safeNum(t.dryPwr),
-        lossIn: safeNum(t.lossIn) ?? safeNum(t.loss),
-        storageStart:
-          safeNum(t.surfaceStart) ??
-          safeNum(t.storagePhysStart) ??
-          safeNum(t.beforePhys) ??
-          safeNum(t.before),
-        storageEnd:
-          safeNum(t.surfaceEnd) ??
-          safeNum(t.storagePhysEnd) ??
-          safeNum(t.afterPhys) ??
-          safeNum(t.after)
-      }));
+      return liveRows
+        .map((t)=>({
+          dateISO: safeStr(t.dateISO),
+          rainIn: safeNum(t.rainIn) ?? safeNum(t.rain),
+          infilMult: safeNum(t.infilMult),
+          addIn:
+            safeNum(t.surfaceAdd) ??
+            safeNum(t.addIn) ??
+            safeNum(t.add),
+          dryPwr:
+            safeNum(t.surfaceDry) ??
+            safeNum(t.dryPwr),
+          lossIn:
+            safeNum(t.surfaceToStorage) ??
+            safeNum(t.lossIn) ??
+            safeNum(t.loss),
+          storageStart:
+            safeNum(t.surfaceBefore) ??
+            safeNum(t.surfaceStart) ??
+            safeNum(t.storagePhysStart) ??
+            safeNum(t.beforePhys),
+          storageEnd:
+            safeNum(t.surfaceAfter) ??
+            safeNum(t.surfaceEnd) ??
+            safeNum(t.storagePhysEnd) ??
+            safeNum(t.afterPhys)
+        }))
+        .filter((r)=>
+          r.dateISO &&
+          (r.storageStart != null || r.storageEnd != null)
+        );
     }
 
     const d = safeObj(savedRawDoc) || {};
     if (Array.isArray(d.surfaceWetnessTrace)) return d.surfaceWetnessTrace;
     if (Array.isArray(d.surfaceTrace)) return d.surfaceTrace;
-    if (Array.isArray(d.tankTrace)) return d.tankTrace;
+
     return [];
   }catch(_){
     return [];
