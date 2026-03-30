@@ -1332,10 +1332,13 @@ function forceNonZeroEtaText(txt, readinessNow, thr){
 
   if (!s) return '';
 
-  if (isZeroEtaLike(s)) return 'ETA ?';
+  // Do not create ETA ? here anymore.
+  // If model gives a contradictory zero-ish answer below threshold,
+  // treat it as unresolved and let downstream fallback convert it.
+  if (isZeroEtaLike(s)) return '';
 
   const h = parseEtaHoursFromText(s);
-  if (Number.isFinite(h) && h <= 0) return 'ETA ?';
+  if (Number.isFinite(h) && h <= 0) return '';
 
   return s;
 }
@@ -2445,7 +2448,7 @@ async function updateTileForField(state, fieldId){
       badge.textContent = `Field Readiness ${readiness}`;
     }
 
-    let etaText = '';
+      let etaText = '';
     try{
       const deps = buildDepsForState(state, opKey);
       etaText = await getTileEtaText(state, f, deps, run0, thr, latest);
@@ -2456,7 +2459,7 @@ async function updateTileForField(state, fieldId){
         threshold: Number(thr),
         error: safeStr(err && err.message || err)
       });
-      etaText = 'ETA ?';
+      etaText = `>${ETA_HORIZON_HOURS}h`;
     }
 
     upsertEtaHelp(state, tile, {
