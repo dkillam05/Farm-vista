@@ -1,0 +1,583 @@
+<!-- /Farm-vista/pages/dev/field-readiness-dev.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Field Readiness Dev</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{
+      --bg:#f6f7f8;
+      --card:#ffffff;
+      --text:#182026;
+      --muted:#5e6a73;
+      --border:#d9dee3;
+      --green:#2f6c3c;
+      --red:#a93a32;
+      --amber:#b7791f;
+    }
+    *{ box-sizing:border-box; }
+    body{
+      margin:0;
+      font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+      color:var(--text);
+      background:var(--bg);
+    }
+    .wrap{
+      max-width:980px;
+      margin:24px auto;
+      padding:0 16px 40px;
+    }
+    .card{
+      background:var(--card);
+      border:1px solid var(--border);
+      border-radius:16px;
+      padding:16px;
+      box-shadow:0 10px 24px rgba(0,0,0,.05);
+      margin-bottom:16px;
+    }
+    h1{
+      margin:0 0 12px;
+      font-size:22px;
+      line-height:1.15;
+    }
+    h2{
+      margin:0 0 10px;
+      font-size:16px;
+      line-height:1.2;
+    }
+    .muted{ color:var(--muted); }
+    .row{
+      display:grid;
+      grid-template-columns: 1fr 160px 120px;
+      gap:12px;
+      align-items:end;
+    }
+    .grid{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:12px;
+    }
+    label{
+      display:block;
+      font-weight:700;
+      margin-bottom:6px;
+    }
+    input, select, button, textarea{
+      width:100%;
+      font:inherit;
+    }
+    input, select, textarea{
+      padding:10px 12px;
+      border:1px solid var(--border);
+      border-radius:10px;
+      background:#fff;
+    }
+    button{
+      padding:10px 12px;
+      border:0;
+      border-radius:10px;
+      background:var(--green);
+      color:#fff;
+      font-weight:700;
+      cursor:pointer;
+    }
+    button.secondary{
+      background:#e9eef0;
+      color:var(--text);
+      border:1px solid var(--border);
+    }
+    .result-box{
+      display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:12px;
+    }
+    .metric{
+      border:1px solid var(--border);
+      border-radius:14px;
+      padding:14px;
+      background:#fff;
+    }
+    .metric .k{
+      font-size:12px;
+      color:var(--muted);
+      margin-bottom:6px;
+      text-transform:uppercase;
+      letter-spacing:.04em;
+    }
+    .metric .v{
+      font-size:30px;
+      font-weight:900;
+      line-height:1;
+    }
+    .ok{ color:var(--green); }
+    .warn{ color:var(--amber); }
+    .bad{ color:var(--red); }
+    .code{
+      font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+      font-size:12px;
+      white-space:pre-wrap;
+      word-break:break-word;
+      background:#f7f9fa;
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:12px;
+    }
+    table{
+      width:100%;
+      border-collapse:collapse;
+      font-size:13px;
+    }
+    th, td{
+      border-bottom:1px solid var(--border);
+      padding:8px 6px;
+      text-align:left;
+      vertical-align:top;
+    }
+    th{
+      font-size:12px;
+      color:var(--muted);
+      text-transform:uppercase;
+      letter-spacing:.04em;
+    }
+    .small{ font-size:12px; }
+    @media (max-width: 760px){
+      .row, .grid, .result-box{
+        grid-template-columns:1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Field Readiness Dev</h1>
+      <div class="muted">
+        Simple one-field test page. This does not use render.js. It runs the math directly from
+        <span class="code" style="display:inline;padding:2px 6px;">field-readiness.model.js</span>
+        so you can test readiness and ETA without tile surgery.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <div>
+          <label for="fieldSelect">Field</label>
+          <select id="fieldSelect">
+            <option value="">Loading fields…</option>
+          </select>
+        </div>
+        <div>
+          <label for="thresholdInput">Threshold</label>
+          <input id="thresholdInput" type="number" value="85" min="0" max="100" step="1" />
+        </div>
+        <div>
+          <button id="runBtn">Run Math</button>
+        </div>
+      </div>
+      <div style="margin-top:12px;">
+        <button class="secondary" id="reloadFieldsBtn">Reload Field List</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Result</h2>
+      <div class="result-box">
+        <div class="metric">
+          <div class="k">Field Readiness</div>
+          <div class="v" id="readinessOut">—</div>
+        </div>
+        <div class="metric">
+          <div class="k">ETA</div>
+          <div class="v" id="etaOut">—</div>
+        </div>
+        <div class="metric">
+          <div class="k">Wetness</div>
+          <div class="v" id="wetnessOut">—</div>
+        </div>
+      </div>
+      <div style="margin-top:12px;" class="small muted" id="headlineOut">Waiting to run.</div>
+    </div>
+
+    <div class="card">
+      <h2>What this page is pulling</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Piece</th>
+            <th>Where it comes from</th>
+            <th>What this page uses</th>
+          </tr>
+        </thead>
+        <tbody id="sourceRows">
+          <tr><td colspan="3" class="muted">Nothing loaded yet.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Debug Summary</h2>
+      <div class="code" id="debugOut">Waiting to run.</div>
+    </div>
+  </div>
+
+  <script type="module">
+    import {
+      getAPI
+    } from '../../js/field-readiness/firebase.js';
+
+    import {
+      runField,
+      etaToThreshold
+    } from '../../js/field-readiness.model.js';
+
+    const state = { _mods:{} };
+
+    const $ = (id) => document.getElementById(id);
+
+    function setText(id, txt){
+      const el = $(id);
+      if (el) el.textContent = String(txt ?? '');
+    }
+
+    function esc(s){
+      return String(s ?? '')
+        .replaceAll('&','&amp;')
+        .replaceAll('<','&lt;')
+        .replaceAll('>','&gt;')
+        .replaceAll('"','&quot;')
+        .replaceAll("'",'&#39;');
+    }
+
+    function todayISO(){
+      const d = new Date();
+      return d.toISOString().slice(0,10);
+    }
+
+    async function getDbApi(){
+      const api = getAPI(state);
+      if (!api) throw new Error('Firebase API not ready.');
+      return api;
+    }
+
+    async function listFields(){
+      const sel = $('fieldSelect');
+      sel.innerHTML = '<option value="">Loading fields…</option>';
+
+      const api = await getDbApi();
+
+      let rows = [];
+
+      if (api.kind === 'compat' && window.firebase?.firestore){
+        const db = window.firebase.firestore();
+        const snap = await db.collection('fields').limit(250).get();
+        snap.forEach(doc => rows.push({ id: doc.id, ...doc.data() }));
+      } else {
+        const db = api.getFirestore();
+        const col = api.collection(db, 'fields');
+        const q = api.query ? api.query(col, api.limit(250)) : col;
+        const snap = await api.getDocs(q);
+        snap.forEach(doc => rows.push({ id: doc.id, ...doc.data() }));
+      }
+
+      rows = rows
+        .filter(r => r && r.id)
+        .sort((a,b) => String(a.name || '').localeCompare(String(b.name || '')));
+
+      sel.innerHTML = '';
+
+      if (!rows.length){
+        sel.innerHTML = '<option value="">No fields found</option>';
+        return;
+      }
+
+      for (const r of rows){
+        const opt = document.createElement('option');
+        opt.value = String(r.id);
+        opt.textContent = r.name ? `${r.name} (${r.id})` : r.id;
+        sel.appendChild(opt);
+      }
+    }
+
+    function firstArrayFrom(obj, keys){
+      const src = obj && typeof obj === 'object' ? obj : {};
+      for (const k of keys){
+        if (Array.isArray(src[k]) && src[k].length) return src[k];
+      }
+      return [];
+    }
+
+    function normalizeDailyWxRow(raw){
+      const r = raw && typeof raw === 'object' ? raw : {};
+      const dateISO = String(r.dateISO || r.date || r.day || '').slice(0,10);
+
+      return {
+        dateISO,
+        rainInAdj:
+          Number.isFinite(Number(r.rainInAdj)) ? Number(r.rainInAdj) :
+          Number.isFinite(Number(r.rainIn)) ? Number(r.rainIn) :
+          Number.isFinite(Number(r.precipIn)) ? Number(r.precipIn) : 0,
+
+        tempF: Number.isFinite(Number(r.tempF)) ? Number(r.tempF) : 0,
+        windMph: Number.isFinite(Number(r.windMph)) ? Number(r.windMph) : 0,
+        rh: Number.isFinite(Number(r.rh)) ? Number(r.rh) : 0,
+        solarWm2: Number.isFinite(Number(r.solarWm2)) ? Number(r.solarWm2) : 0,
+        et0In: Number.isFinite(Number(r.et0In)) ? Number(r.et0In) : 0,
+        sm010: Number.isFinite(Number(r.sm010)) ? Number(r.sm010) : null,
+        st010F: Number.isFinite(Number(r.st010F)) ? Number(r.st010F) : null,
+
+        sunshineHr:
+          Number.isFinite(Number(r.sunshineHr)) ? Number(r.sunshineHr) :
+          Number.isFinite(Number(r.sunshine_duration_hr)) ? Number(r.sunshine_duration_hr) : 0,
+
+        daylightHr:
+          Number.isFinite(Number(r.daylightHr)) ? Number(r.daylightHr) :
+          Number.isFinite(Number(r.daylight_duration_hr)) ? Number(r.daylight_duration_hr) : 0,
+
+        cloudPct: Number.isFinite(Number(r.cloudPct)) ? Number(r.cloudPct) : null,
+        vpdKpa: Number.isFinite(Number(r.vpdKpa)) ? Number(r.vpdKpa) : null,
+
+        rainMorningIn: Number.isFinite(Number(r.rainMorningIn)) ? Number(r.rainMorningIn) : 0,
+        rainMiddayIn: Number.isFinite(Number(r.rainMiddayIn)) ? Number(r.rainMiddayIn) : 0,
+        rainEveningIn: Number.isFinite(Number(r.rainEveningIn)) ? Number(r.rainEveningIn) : 0
+      };
+    }
+
+    async function readDocPair(fieldId){
+      const api = await getDbApi();
+
+      let fieldDoc = null;
+      let latestDoc = null;
+
+      if (api.kind === 'compat' && window.firebase?.firestore){
+        const db = window.firebase.firestore();
+        const [fieldSnap, latestSnap] = await Promise.all([
+          db.collection('fields').doc(String(fieldId)).get(),
+          db.collection('field_readiness_latest').doc(String(fieldId)).get()
+        ]);
+
+        fieldDoc = fieldSnap.exists ? { id: fieldSnap.id, ...fieldSnap.data() } : null;
+        latestDoc = latestSnap.exists ? { id: latestSnap.id, ...latestSnap.data() } : null;
+      } else {
+        const db = api.getFirestore();
+        const [fieldSnap, latestSnap] = await Promise.all([
+          api.getDoc(api.doc(db, 'fields', String(fieldId))),
+          api.getDoc(api.doc(db, 'field_readiness_latest', String(fieldId)))
+        ]);
+
+        fieldDoc = fieldSnap.exists() ? { id: fieldSnap.id, ...fieldSnap.data() } : null;
+        latestDoc = latestSnap.exists() ? { id: latestSnap.id, ...latestSnap.data() } : null;
+      }
+
+      return { fieldDoc, latestDoc };
+    }
+
+    function buildDeps(fieldDoc, latestDoc){
+      const rawLatest = latestDoc || {};
+
+      const historyRowsRaw =
+        Array.isArray(rawLatest.dailySeries30d) ? rawLatest.dailySeries30d :
+        Array.isArray(rawLatest.dailySeries) ? rawLatest.dailySeries.filter(r => String(r?.dateISO || r?.date || '').slice(0,10) <= todayISO()) :
+        [];
+
+      const forecastRowsRaw =
+        Array.isArray(rawLatest.dailySeriesFcst) ? rawLatest.dailySeriesFcst :
+        firstArrayFrom(rawLatest, [
+          'forecastRows',
+          'weatherForecastRows',
+          'forecastDailyRows',
+          'openMeteoForecastRows'
+        ]);
+
+      const historyRows = historyRowsRaw.map(normalizeDailyWxRow).filter(r => r.dateISO);
+      const forecastRows = forecastRowsRaw.map(normalizeDailyWxRow).filter(r => r.dateISO);
+
+      const soilWetness =
+        Number.isFinite(Number(fieldDoc?.soilWetness)) ? Number(fieldDoc.soilWetness) :
+        Number.isFinite(Number(rawLatest?.soilWetness)) ? Number(rawLatest.soilWetness) :
+        50;
+
+      const drainageIndex =
+        Number.isFinite(Number(fieldDoc?.drainageIndex)) ? Number(fieldDoc.drainageIndex) :
+        Number.isFinite(Number(rawLatest?.drainageIndex)) ? Number(rawLatest.drainageIndex) :
+        50;
+
+      return {
+        seedMode: 'rewind',
+        rewindDays: 10,
+        LOSS_SCALE: 0.55,
+        EXTRA: {},
+        CAL: {},
+
+        getFieldParams(id){
+          if (String(id) !== String(fieldDoc?.id || rawLatest?.fieldId || '')) return null;
+          return {
+            soilWetness,
+            drainageIndex
+          };
+        },
+
+        getWeatherSeriesForFieldId(id){
+          if (String(id) !== String(fieldDoc?.id || rawLatest?.fieldId || '')) return [];
+          return historyRows;
+        },
+
+        getForecastSeriesForFieldId(id){
+          if (String(id) !== String(fieldDoc?.id || rawLatest?.fieldId || '')) return [];
+          return forecastRows;
+        },
+
+        getWxSeriesWithForecastForFieldId(id){
+          if (String(id) !== String(fieldDoc?.id || rawLatest?.fieldId || '')) return [];
+          return [...historyRows, ...forecastRows];
+        },
+
+        __debug: {
+          fieldCollection: 'fields',
+          latestCollection: 'field_readiness_latest',
+          weatherHistoryKeyUsed:
+            Array.isArray(rawLatest.dailySeries30d) ? 'dailySeries30d' :
+            Array.isArray(rawLatest.dailySeries) ? 'dailySeries' :
+            'none',
+          forecastKeyUsed:
+            Array.isArray(rawLatest.dailySeriesFcst) ? 'dailySeriesFcst' :
+            Array.isArray(rawLatest.forecastRows) ? 'forecastRows' :
+            Array.isArray(rawLatest.weatherForecastRows) ? 'weatherForecastRows' :
+            Array.isArray(rawLatest.forecastDailyRows) ? 'forecastDailyRows' :
+            Array.isArray(rawLatest.openMeteoForecastRows) ? 'openMeteoForecastRows' :
+            'none',
+          historyCount: historyRows.length,
+          forecastCount: forecastRows.length,
+          soilWetness,
+          drainageIndex
+        }
+      };
+    }
+
+    function renderSources(fieldDoc, latestDoc, deps){
+      const tbody = $('sourceRows');
+      const d = deps.__debug;
+
+      tbody.innerHTML = `
+        <tr>
+          <td>Field doc</td>
+          <td><span class="code">fields/${esc(fieldDoc?.id || 'missing')}</span></td>
+          <td>Name + params like soilWetness / drainageIndex</td>
+        </tr>
+        <tr>
+          <td>Current/history weather</td>
+          <td><span class="code">field_readiness_latest/${esc(latestDoc?.id || 'missing')}</span></td>
+          <td>Key used: <span class="code">${esc(d.weatherHistoryKeyUsed)}</span> • Rows: ${d.historyCount}</td>
+        </tr>
+        <tr>
+          <td>Forecast for ETA</td>
+          <td><span class="code">field_readiness_latest/${esc(latestDoc?.id || 'missing')}</span></td>
+          <td>Key used: <span class="code">${esc(d.forecastKeyUsed)}</span> • Rows: ${d.forecastCount}</td>
+        </tr>
+        <tr>
+          <td>Math file</td>
+          <td><span class="code">/Farm-vista/js/field-readiness.model.js</span></td>
+          <td>Readiness = <span class="code">runField(...)</span> • ETA = <span class="code">etaToThreshold(...)</span></td>
+        </tr>
+      `;
+    }
+
+    function setResultClasses(readiness){
+      const r = Number(readiness);
+      const box = $('readinessOut');
+      if (!box) return;
+      box.className = 'v';
+      if (!Number.isFinite(r)) return;
+      if (r >= 85) box.classList.add('ok');
+      else if (r >= 70) box.classList.add('warn');
+      else box.classList.add('bad');
+    }
+
+    async function runOneField(){
+      try{
+        const fieldId = $('fieldSelect').value;
+        const threshold = Number($('thresholdInput').value || 85);
+
+        if (!fieldId){
+          throw new Error('Pick a field first.');
+        }
+
+        setText('readinessOut', '…');
+        setText('etaOut', '…');
+        setText('wetnessOut', '…');
+        setText('headlineOut', 'Running math…');
+        setText('debugOut', 'Running…');
+
+        const { fieldDoc, latestDoc } = await readDocPair(fieldId);
+
+        if (!fieldDoc) throw new Error(`fields/${fieldId} not found`);
+        if (!latestDoc) throw new Error(`field_readiness_latest/${fieldId} not found`);
+
+        const deps = buildDeps(fieldDoc, latestDoc);
+        renderSources(fieldDoc, latestDoc, deps);
+
+        const run = runField(fieldDoc, deps);
+        if (!run) throw new Error('runField returned null');
+
+        const eta = await etaToThreshold(fieldDoc, deps, threshold, 168);
+
+        setText('readinessOut', String(run.readinessR));
+        setText('etaOut', String(eta?.text || 'ETA ?'));
+        setText('wetnessOut', String(run.wetnessR));
+        setResultClasses(run.readinessR);
+
+        setText(
+          'headlineOut',
+          `${fieldDoc.name || fieldDoc.id} • readiness ${run.readinessR} • ETA ${eta?.text || 'ETA ?'} • threshold ${threshold}`
+        );
+
+        $('debugOut').textContent = JSON.stringify({
+          fieldId: fieldDoc.id,
+          fieldName: fieldDoc.name || '',
+          threshold,
+          collectionsRead: {
+            field: `fields/${fieldDoc.id}`,
+            latest: `field_readiness_latest/${fieldDoc.id}`
+          },
+          paramsUsed: {
+            soilWetness: deps.__debug.soilWetness,
+            drainageIndex: deps.__debug.drainageIndex
+          },
+          dataUsed: {
+            historyKey: deps.__debug.weatherHistoryKeyUsed,
+            historyCount: deps.__debug.historyCount,
+            forecastKey: deps.__debug.forecastKeyUsed,
+            forecastCount: deps.__debug.forecastCount
+          },
+          runSummary: {
+            readinessR: run.readinessR,
+            wetnessR: run.wetnessR,
+            baseReadinessR: run.baseReadinessR,
+            surfacePenaltyR: run.surfacePenaltyR,
+            storagePhysFinal: run.storagePhysFinal,
+            storageFinal: run.storageFinal,
+            surfaceStorageFinal: run.surfaceStorageFinal,
+            storageForReadiness: run.storageForReadiness,
+            seedSource: run.seedSource,
+            rewindDays: run.rewindDays
+          },
+          etaResult: eta
+        }, null, 2);
+
+      }catch(err){
+        setText('readinessOut', 'ERR');
+        setText('etaOut', 'ERR');
+        setText('wetnessOut', 'ERR');
+        setText('headlineOut', String(err?.message || err));
+        setText('debugOut', String(err?.stack || err?.message || err));
+        $('sourceRows').innerHTML = `<tr><td colspan="3" class="bad">${esc(String(err?.message || err))}</td></tr>`;
+      }
+    }
+
+    $('runBtn').addEventListener('click', runOneField);
+    $('reloadFieldsBtn').addEventListener('click', listFields);
+
+    await listFields();
+  </script>
+</body>
+</html>
