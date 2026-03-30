@@ -2029,7 +2029,9 @@ function getSurfaceWetnessSnapshot(runTruth, latestRec, savedRawDoc){
 function getSoilTraceRowsForDetails(runTruth, savedRawDoc){
   try{
     const liveRows = Array.isArray(runTruth && runTruth.trace) ? runTruth.trace : [];
-    if (liveRows.length){
+
+    // ✅ ONLY use live if it actually has enough history
+    if (liveRows.length >= 10){
       return liveRows.map((t)=>({
         dateISO: safeStr(t.dateISO),
         rainIn: safeNum(t.rainIn) ?? safeNum(t.rain),
@@ -2040,21 +2042,21 @@ function getSoilTraceRowsForDetails(runTruth, savedRawDoc){
         storageStart:
           safeNum(t.soilStart) ??
           safeNum(t.storageForReadinessStart) ??
-          safeNum(t.readyStart) ??
-          safeNum(t.beforeReady) ??
           safeNum(t.before),
         storageEnd:
           safeNum(t.soilEnd) ??
           safeNum(t.storageForReadinessEnd) ??
-          safeNum(t.readyEnd) ??
-          safeNum(t.afterReady) ??
           safeNum(t.after)
       }));
     }
 
+    // ✅ FALLBACK → use saved 30-day trace
     const d = safeObj(savedRawDoc) || {};
+
+    if (Array.isArray(d.tankTrace)) return d.tankTrace;   // ← YOUR DATA
     if (Array.isArray(d.soilMoistureTrace)) return d.soilMoistureTrace;
     if (Array.isArray(d.soilTrace)) return d.soilTrace;
+
     return [];
   }catch(_){
     return [];
