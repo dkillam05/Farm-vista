@@ -1,6 +1,6 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/field-readiness-dev.html  (FULL FILE)
-Rev: 2026-03-30g-dev-page-lookup-rebuild-stronger-resolution
+Rev: 2026-03-30h-dev-page-recent-latest-browser
 
 GOAL:
 ✅ Standalone single-field debug page
@@ -9,8 +9,8 @@ GOAL:
 ✅ Reads Firestore directly
 ✅ Runs actual model math from field-readiness.model.js
 ✅ Stronger lookup resolution
-✅ Can recover when input is latest-doc id OR field id OR ptr
-✅ Shows clear debug for field / latest / weather / merged rows
+✅ Adds recent latest-doc browser so user does NOT need to guess IDs
+✅ Can load a real fieldId from recent field_readiness_latest docs
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -28,14 +28,13 @@ GOAL:
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
-  <!-- Existing FarmVista boot files -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
   <script src="/Farm-vista/js/firebase-init.js"></script>
 
   <style>
     :root{
       --accent:#2F6C3C;
-      --card-max:980px;
+      --card-max:1080px;
     }
     body{
       background:var(--app-bg,var(--surface));
@@ -82,8 +81,14 @@ GOAL:
       gap:10px;
       grid-template-columns:1fr 1fr 1fr;
     }
+    .rowRecent{
+      display:grid;
+      gap:10px;
+      grid-template-columns:1fr 180px;
+      align-items:end;
+    }
     @media (max-width:760px){
-      .row,.row3{ grid-template-columns:1fr; }
+      .row,.row3,.rowRecent{ grid-template-columns:1fr; }
     }
     .field label{
       display:block;
@@ -92,7 +97,7 @@ GOAL:
       font-size:12px;
       letter-spacing:.02em;
     }
-    .input{
+    .input,.select{
       width:100%;
       font:inherit;
       font-size:16px;
@@ -105,7 +110,7 @@ GOAL:
       outline:none;
       box-sizing:border-box;
     }
-    .input:focus{
+    .input:focus,.select:focus{
       border-color:color-mix(in srgb, var(--accent) 45%, var(--border) 55%);
       box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent 84%);
     }
@@ -133,6 +138,10 @@ GOAL:
       -webkit-tap-highlight-color:transparent;
     }
     .btn:active{ transform:translateY(1px); }
+    .btn:disabled{
+      opacity:.55;
+      cursor:not-allowed;
+    }
     .btn-primary{
       background:var(--accent);
       border-color:transparent;
@@ -243,6 +252,47 @@ GOAL:
       background:var(--surface);
     }
     .right{ text-align:right; }
+    .recent-list{
+      display:grid;
+      gap:8px;
+    }
+    .recent-item{
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:10px;
+      background:color-mix(in srgb, var(--surface) 96%, #ffffff 4%);
+      cursor:pointer;
+    }
+    .recent-item:active{ transform:translateY(1px); }
+    .recent-top{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .recent-title{
+      font-weight:900;
+      font-size:13px;
+    }
+    .recent-meta{
+      font-size:12px;
+      color:var(--muted,#67706B);
+      margin-top:4px;
+      white-space:normal;
+      word-break:break-word;
+    }
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      padding:4px 8px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      font-size:11px;
+      font-weight:900;
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+    }
   </style>
 </head>
 <body>
@@ -286,9 +336,30 @@ GOAL:
           <button id="runBtn" class="btn btn-primary" type="button">Run Dev Test</button>
           <button id="copyUrlBtn" class="btn" type="button">Copy Test URL</button>
           <button id="useLatestIdBtn" class="btn" type="button">Use Latest Doc Field ID</button>
+          <button id="loadRecentBtn" class="btn" type="button">Load Recent Latest Docs</button>
         </div>
 
         <div id="runStatus" class="status">Waiting to run.</div>
+
+        <details open>
+          <summary>Recent Latest Docs</summary>
+          <div class="detail-body">
+            <div class="rowRecent">
+              <div class="field">
+                <label for="recentSelect">RECENT FIELD_READINESS_LATEST DOCS</label>
+                <select id="recentSelect" class="select">
+                  <option value="">Tap "Load Recent Latest Docs"</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>&nbsp;</label>
+                <button id="useRecentBtn" class="btn btn-primary" type="button" style="width:100%;">Use Selected Recent Doc</button>
+              </div>
+            </div>
+            <div id="recentStatus" class="status">No recent docs loaded yet.</div>
+            <div id="recentList" class="recent-list"></div>
+          </div>
+        </details>
 
         <div class="kgrid">
           <div class="kcard">
@@ -424,14 +495,20 @@ GOAL:
     const els = {
       bootStatus: $('bootStatus'),
       runStatus: $('runStatus'),
+      recentStatus: $('recentStatus'),
       fieldKeyInput: $('fieldKeyInput'),
       thresholdInput: $('thresholdInput'),
       fieldCollectionsInput: $('fieldCollectionsInput'),
       latestCollectionInput: $('latestCollectionInput'),
       weatherCollectionInput: $('weatherCollectionInput'),
+      recentSelect: $('recentSelect'),
+      recentList: $('recentList'),
+
       runBtn: $('runBtn'),
       copyUrlBtn: $('copyUrlBtn'),
       useLatestIdBtn: $('useLatestIdBtn'),
+      loadRecentBtn: $('loadRecentBtn'),
+      useRecentBtn: $('useRecentBtn'),
 
       fieldTitle: $('fieldTitle'),
       fieldSub: $('fieldSub'),
@@ -463,25 +540,30 @@ GOAL:
       firebaseReady: false,
       lastLatestDoc: null,
       lastFieldDoc: null,
-      lastWeatherDoc: null
+      lastWeatherDoc: null,
+      recentLatestDocs: []
     };
 
     function safeStr(v){
       return String(v == null ? '' : v).trim();
     }
+
     function safeNum(v, fallback = null){
       const n = Number(v);
       return Number.isFinite(n) ? n : fallback;
     }
+
     function setStatus(el, msg, kind = ''){
       if (!el) return;
       el.textContent = String(msg || '');
       el.className = 'status' + (kind ? ' ' + kind : '');
     }
+
     function setText(el, value){
       if (!el) return;
       el.textContent = String(value == null || value === '' ? '—' : value);
     }
+
     function pretty(obj){
       try{
         return JSON.stringify(obj, null, 2);
@@ -489,6 +571,7 @@ GOAL:
         return String(obj);
       }
     }
+
     function uniqueList(arr){
       const out = [];
       const seen = new Set();
@@ -500,6 +583,7 @@ GOAL:
       }
       return out;
     }
+
     function loadScript(src){
       return new Promise((resolve, reject)=>{
         const existing = document.querySelector('script[data-dev-src="' + src + '"]');
@@ -872,7 +956,6 @@ GOAL:
         rainInAdj,
         rainIn: safeNum(r.rainIn, rainInAdj),
         rainSource: safeStr(r.rainSource || (safeNum(r.rainMrmsIn, null) != null ? 'mrms' : 'open-meteo') || 'unknown'),
-
         tempF: safeNum(r.tempF ?? r.tempAvgF ?? r.avgTempF ?? r.temperatureF, 0),
         windMph: safeNum(r.windMph ?? r.windSpeedMph ?? r.windspeedMph, 0),
         rh: safeNum(r.rh ?? r.rhPct ?? r.relativeHumidityPct ?? r.relativeHumidity, 0),
@@ -883,7 +966,6 @@ GOAL:
         vpdKpa: safeNum(r.vpdKpa ?? r.vpd ?? r.vapour_pressure_deficit_kpa, null),
         sm010: safeNum(r.sm010 ?? r.soilMoisture010 ?? r.soilMoisture_0_10, null),
         et0In: safeNum(r.et0In ?? r.etIn ?? r.et0, null),
-
         rainMorningIn: safeNum(r.rainMorningIn, 0),
         rainMiddayIn: safeNum(r.rainMiddayIn, 0),
         rainEveningIn: safeNum(r.rainEveningIn, 0)
@@ -920,6 +1002,15 @@ GOAL:
       return [];
     }
 
+    function uniqueWeatherRows(rows){
+      const map = new Map();
+      for (const r of (Array.isArray(rows) ? rows : [])){
+        if (!r || !r.dateISO) continue;
+        map.set(String(r.dateISO), r);
+      }
+      return Array.from(map.values()).sort((a, b)=> String(a.dateISO).localeCompare(String(b.dateISO)));
+    }
+
     function pickHistoryRows(latestDoc, weatherDoc){
       const ld = (latestDoc && latestDoc.data) || {};
       const wd = (weatherDoc && weatherDoc.data) || {};
@@ -944,15 +1035,6 @@ GOAL:
 
       if (direct.length) return uniqueWeatherRows(direct);
       return [];
-    }
-
-    function uniqueWeatherRows(rows){
-      const map = new Map();
-      for (const r of (Array.isArray(rows) ? rows : [])){
-        if (!r || !r.dateISO) continue;
-        map.set(String(r.dateISO), r);
-      }
-      return Array.from(map.values()).sort((a, b)=> String(a.dateISO).localeCompare(String(b.dateISO)));
     }
 
     function mergeHistoryAndForecast(historyRows, forecastRows){
@@ -986,6 +1068,99 @@ GOAL:
       }
     }
 
+    function renderRecentDocsList(){
+      const list = Array.isArray(state.recentLatestDocs) ? state.recentLatestDocs : [];
+      els.recentSelect.innerHTML = '';
+
+      if (!list.length){
+        els.recentSelect.innerHTML = '<option value="">No recent docs loaded</option>';
+        els.recentList.innerHTML = '';
+        return;
+      }
+
+      els.recentSelect.innerHTML = '<option value="">Choose a recent doc</option>';
+
+      for (const item of list){
+        const opt = document.createElement('option');
+        opt.value = safeStr(item.fieldId || item.id);
+        opt.textContent = `${safeStr(item.fieldName || item.name || 'Field')} • ${safeStr(item.fieldId || item.id)}`;
+        els.recentSelect.appendChild(opt);
+      }
+
+      els.recentList.innerHTML = '';
+
+      for (const item of list){
+        const div = document.createElement('div');
+        div.className = 'recent-item';
+        div.innerHTML = `
+          <div class="recent-top">
+            <div class="recent-title">${safeStr(item.fieldName || item.name || 'Field')}</div>
+            <div class="pill">Readiness ${safeNum(item.readiness, 0)}</div>
+          </div>
+          <div class="recent-meta mono">
+            fieldId: ${safeStr(item.fieldId || '—')}
+            ${safeStr(item.docId || '') ? '\ndocId: ' + safeStr(item.docId) : ''}
+            ${safeStr(item.computedAt || item.weatherFetchedAt || '') ? '\nwhen: ' + safeStr(item.computedAt || item.weatherFetchedAt) : ''}
+          </div>
+        `;
+        div.addEventListener('click', ()=>{
+          const val = safeStr(item.fieldId || item.id || item.docId);
+          if (!val) return;
+          els.fieldKeyInput.value = val;
+          setStatus(els.runStatus, 'Loaded recent fieldId into input:\n' + val, 'ok');
+        });
+        els.recentList.appendChild(div);
+      }
+    }
+
+    async function loadRecentLatestDocs(){
+      els.loadRecentBtn.disabled = true;
+      try{
+        const db = await ensureFirebaseCompat();
+        const latestCollection = safeStr(els.latestCollectionInput.value) || 'field_readiness_latest';
+
+        let snap = null;
+
+        try{
+          snap = await db.collection(latestCollection).orderBy('computedAt', 'desc').limit(25).get();
+        }catch(_){
+          try{
+            snap = await db.collection(latestCollection).orderBy('weatherFetchedAt', 'desc').limit(25).get();
+          }catch(_){
+            snap = await db.collection(latestCollection).limit(25).get();
+          }
+        }
+
+        const rows = [];
+        snap.forEach(doc=>{
+          const d = doc.data() || {};
+          rows.push({
+            id: safeStr(d.fieldId || doc.id),
+            docId: doc.id,
+            fieldId: safeStr(d.fieldId || ''),
+            fieldName: safeStr(d.fieldName || d.name || ''),
+            readiness: safeNum(d.readiness, null),
+            computedAt: safeStr(d.computedAt && d.computedAt.toDate ? d.computedAt.toDate().toISOString() : d.computedAt || ''),
+            weatherFetchedAt: safeStr(d.weatherFetchedAt && d.weatherFetchedAt.toDate ? d.weatherFetchedAt.toDate().toISOString() : d.weatherFetchedAt || ''),
+            raw: d
+          });
+        });
+
+        state.recentLatestDocs = rows;
+        renderRecentDocsList();
+
+        if (rows.length){
+          setStatus(els.recentStatus, `Loaded ${rows.length} recent latest docs. Tap one or use the dropdown.`, 'ok');
+        } else {
+          setStatus(els.recentStatus, 'No docs came back from field_readiness_latest.', 'err');
+        }
+      }catch(err){
+        setStatus(els.recentStatus, String(err && err.message ? err.message : err), 'err');
+      }finally{
+        els.loadRecentBtn.disabled = false;
+      }
+    }
+
     async function runDevTest(){
       const inputKey = safeStr(els.fieldKeyInput.value);
       const threshold = safeNum(els.thresholdInput.value, 85);
@@ -1009,7 +1184,6 @@ GOAL:
         let weatherDoc = await resolveWeatherDoc(db, weatherCollection, buildCandidateKeys(inputKey, latestDoc, null, null), tried);
         let fieldDoc = await resolveFieldDoc(db, fieldCollections, buildCandidateKeys(inputKey, latestDoc, weatherDoc, null), latestDoc, weatherDoc, tried);
 
-        // second pass now that more keys may exist
         if (!latestDoc){
           latestDoc = await resolveLatestDoc(db, latestCollection, buildCandidateKeys(inputKey, null, weatherDoc, fieldDoc), tried);
         }
@@ -1025,7 +1199,11 @@ GOAL:
         state.lastWeatherDoc = weatherDoc;
 
         if (!fieldDoc && !latestDoc && !weatherDoc){
-          throw new Error('Field not found. Tried: ' + tried.join(' | '));
+          throw new Error(
+            'That ID is not being found in field_readiness_latest, field_weather_cache, or the field collections.\n' +
+            'Use "Load Recent Latest Docs" and choose a real field from there.\n\n' +
+            'Tried: ' + tried.join(' | ')
+          );
         }
 
         const field = normalizeField(fieldDoc, latestDoc, weatherDoc, inputKey);
@@ -1163,10 +1341,22 @@ ETA: ${eta && eta.text ? eta.text : '—'}`,
       setStatus(els.runStatus, 'Loaded latest doc fieldId into input:\n' + fieldId, 'ok');
     }
 
+    function useRecentSelection(){
+      const val = safeStr(els.recentSelect.value);
+      if (!val){
+        setStatus(els.runStatus, 'Pick a recent doc first.', 'err');
+        return;
+      }
+      els.fieldKeyInput.value = val;
+      setStatus(els.runStatus, 'Loaded selected recent fieldId into input:\n' + val, 'ok');
+    }
+
     function wireButtons(){
       els.runBtn.addEventListener('click', ()=>{ runDevTest(); });
       els.copyUrlBtn.addEventListener('click', copyUrl);
       els.useLatestIdBtn.addEventListener('click', useLatestDocFieldId);
+      els.loadRecentBtn.addEventListener('click', ()=>{ loadRecentLatestDocs(); });
+      els.useRecentBtn.addEventListener('click', useRecentSelection);
 
       els.fieldKeyInput.addEventListener('keydown', (e)=>{
         if (e.key === 'Enter'){
@@ -1180,6 +1370,11 @@ ETA: ${eta && eta.text ? eta.text : '—'}`,
           e.preventDefault();
           runDevTest();
         }
+      });
+
+      els.recentSelect.addEventListener('change', ()=>{
+        const val = safeStr(els.recentSelect.value);
+        if (val) els.fieldKeyInput.value = val;
       });
     }
 
@@ -1196,11 +1391,13 @@ ETA: ${eta && eta.text ? eta.text : '—'}`,
           setStatus(els.bootStatus, 'Dev page booted, but Firebase is not ready yet.\n' + msg, 'err');
         }
 
+        await loadRecentLatestDocs();
+
         const autoKey = safeStr(els.fieldKeyInput.value);
         if (autoKey){
           await runDevTest();
         } else {
-          setStatus(els.runStatus, 'Ready. Enter a field ptr or id, then tap Run Dev Test.');
+          setStatus(els.runStatus, 'Ready. Load recent latest docs, choose one, then run the dev test.');
         }
       }catch(err){
         const msg = err && err.message ? err.message : String(err || 'Boot failed');
