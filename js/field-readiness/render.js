@@ -1334,16 +1334,6 @@ function forceNonZeroEtaText(txt, readinessNow, thr){
   return s;
 }
 
-  // Do not create ETA ? here anymore.
-  // If model gives a contradictory zero-ish answer below threshold,
-  // treat it as unresolved and let downstream fallback convert it.
-  if (isZeroEtaLike(s)) return '';
-
-  const h = parseEtaHoursFromText(s);
-  if (Number.isFinite(h) && h <= 0) return '';
-
-  return s;
-}
 /*
   IMPORTANT CHANGE:
   Do NOT force ~1h anymore.
