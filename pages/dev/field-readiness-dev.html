@@ -1,6 +1,6 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/field-readiness-dev.html  (FULL FILE)
-Rev: 2026-03-30i-dev-page-auth-first-clean-lookup
+Rev: 2026-03-30j-dev-page-fix-eta-forecast-debug
 
 GOAL:
 ✅ Standalone single-field debug page
@@ -10,6 +10,8 @@ GOAL:
 ✅ Cleaner lookup flow
 ✅ Better recent-doc browser
 ✅ Better error text when rules/auth are the real problem
+✅ FIX: ETA forecast getters now return forecast rows for the matching field
+✅ NEW: Shows ETA status / hours / forecast diagnostics
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -27,11 +29,9 @@ GOAL:
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
-  <!-- Keep the same app boot files -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
   <script src="/Farm-vista/js/firebase-init.js"></script>
 
-  <!-- Optional shell boot so auth/app context has a chance to initialize -->
   <script>
     (function(){
       try{
@@ -401,6 +401,21 @@ GOAL:
 
           <div class="kgrid">
             <div class="kcard">
+              <div class="klabel">ETA status</div>
+              <div id="etaStatusValue" class="mono">—</div>
+            </div>
+            <div class="kcard">
+              <div class="klabel">ETA hours</div>
+              <div id="etaHoursValue" class="mono">—</div>
+            </div>
+            <div class="kcard">
+              <div class="klabel">Forecast usable</div>
+              <div id="forecastUsableValue" class="mono">—</div>
+            </div>
+          </div>
+
+          <div class="kgrid">
+            <div class="kcard">
               <div class="klabel">Field doc source</div>
               <div id="fieldSource" class="mono">—</div>
             </div>
@@ -466,6 +481,13 @@ GOAL:
             <summary>Resolved Weather / Forecast</summary>
             <div class="detail-body">
               <pre id="weatherDebug" class="pre">—</pre>
+            </div>
+          </details>
+
+          <details open>
+            <summary>ETA Diagnostics</summary>
+            <div class="detail-body">
+              <pre id="etaDebug" class="pre">—</pre>
             </div>
           </details>
 
@@ -535,6 +557,10 @@ GOAL:
       etaValue: $('etaValue'),
       etaSub: $('etaSub'),
 
+      etaStatusValue: $('etaStatusValue'),
+      etaHoursValue: $('etaHoursValue'),
+      forecastUsableValue: $('forecastUsableValue'),
+
       fieldSource: $('fieldSource'),
       latestSource: $('latestSource'),
       weatherSource: $('weatherSource'),
@@ -550,6 +576,7 @@ GOAL:
       fieldDocDebug: $('fieldDocDebug'),
       latestDocDebug: $('latestDocDebug'),
       weatherDebug: $('weatherDebug'),
+      etaDebug: $('etaDebug'),
       modelDebug: $('modelDebug'),
       traceRows: $('traceRows')
     };
@@ -610,6 +637,9 @@ GOAL:
       setText(els.readinessValue, '—');
       setText(els.etaValue, '—');
       setText(els.etaSub, `Threshold ${safeNum(els.thresholdInput.value, 85)}`);
+      setText(els.etaStatusValue, '—');
+      setText(els.etaHoursValue, '—');
+      setText(els.forecastUsableValue, '—');
       setText(els.fieldSource, '—');
       setText(els.latestSource, '—');
       setText(els.weatherSource, '—');
@@ -622,6 +652,7 @@ GOAL:
       els.fieldDocDebug.textContent = '—';
       els.latestDocDebug.textContent = '—';
       els.weatherDebug.textContent = '—';
+      els.etaDebug.textContent = '—';
       els.modelDebug.textContent = '—';
       renderTraceRows([]);
     }
@@ -711,6 +742,7 @@ GOAL:
 
       await new Promise((resolve)=>{
         let done = false;
+        let unsub = null;
 
         const finish = ()=>{
           if (done) return;
@@ -721,7 +753,7 @@ GOAL:
 
         const timer = setTimeout(finish, maxMs);
 
-        const unsub = auth.onAuthStateChanged(()=>{
+        unsub = auth.onAuthStateChanged(()=>{
           clearTimeout(timer);
           finish();
         }, ()=>{
@@ -1291,6 +1323,48 @@ GOAL:
       }
     }
 
+    function buildForecastDiagnostics(forecastRows){
+      const rows = Array.isArray(forecastRows) ? forecastRows : [];
+      const badRows = [];
+      const goodRows = [];
+
+      for (const row of rows){
+        const issues = [];
+        if (!safeStr(row.dateISO)) issues.push('dateISO');
+        if (safeNum(row.tempF, null) == null) issues.push('tempF');
+        if (safeNum(row.windMph, null) == null) issues.push('windMph');
+        if (safeNum(row.rh, null) == null) issues.push('rh');
+        if (safeNum(row.solarWm2, null) == null) issues.push('solarWm2');
+
+        const item = {
+          dateISO: safeStr(row.dateISO),
+          rainInAdj: safeNum(row.rainInAdj, null),
+          tempF: safeNum(row.tempF, null),
+          windMph: safeNum(row.windMph, null),
+          rh: safeNum(row.rh, null),
+          solarWm2: safeNum(row.solarWm2, null),
+          et0In: safeNum(row.et0In, null),
+          sm010: safeNum(row.sm010, null),
+          cloudPct: safeNum(row.cloudPct, null),
+          vpdKpa: safeNum(row.vpdKpa, null),
+          issues
+        };
+
+        if (issues.length) badRows.push(item);
+        else goodRows.push(item);
+      }
+
+      return {
+        total: rows.length,
+        usable: goodRows.length,
+        bad: badRows.length,
+        firstDate: rows.length ? safeStr(rows[0].dateISO) : '',
+        lastDate: rows.length ? safeStr(rows[rows.length - 1].dateISO) : '',
+        goodRowsPreview: goodRows.slice(0, 6),
+        badRowsPreview: badRows.slice(0, 6)
+      };
+    }
+
     async function runDevTest(){
       const inputKey = safeStr(els.fieldKeyInput.value);
       const threshold = safeNum(els.thresholdInput.value, 85);
@@ -1352,6 +1426,7 @@ GOAL:
         const historyRows = pickHistoryRows(latestDoc, weatherDoc);
         const forecastRows = pickForecastRows(latestDoc, weatherDoc);
         const mergedRows = mergeHistoryAndForecast(historyRows, forecastRows);
+        const forecastDiag = buildForecastDiagnostics(forecastRows);
 
         const deps = {
           opKey: 'dev_test',
@@ -1377,12 +1452,12 @@ GOAL:
             return mergedRows;
           },
           getForecastSeriesForFieldId: (fieldId)=>{
-            if (String(fieldId) !== String(field.id)) return forecastRows;
-            return [];
+            if (String(fieldId) !== String(field.id)) return [];
+            return forecastRows;
           },
           getWxSeriesWithForecastForFieldId: (fieldId)=>{
-            if (String(fieldId) !== String(field.id)) return mergedRows;
-            return [];
+            if (String(fieldId) !== String(field.id)) return [];
+            return mergedRows;
           }
         };
 
@@ -1402,6 +1477,12 @@ GOAL:
         setText(els.readinessValue, run ? String(run.readinessR) : '—');
         setText(els.etaValue, eta && eta.text ? eta.text : '—');
         setText(els.etaSub, `Threshold ${threshold}`);
+        setText(els.etaStatusValue, eta && eta.status ? eta.status : '—');
+        setText(els.etaHoursValue, eta && safeNum(eta.hours, null) != null ? String(eta.hours) : '—');
+        setText(
+          els.forecastUsableValue,
+          `${forecastDiag.usable}/${forecastDiag.total}` + (forecastDiag.bad ? ` (bad ${forecastDiag.bad})` : '')
+        );
 
         setText(els.fieldSource, fieldDoc ? (fieldDoc.source || fieldDoc.collection || '—') : '—');
         setText(els.latestSource, latestDoc ? latestDoc.source : '—');
@@ -1426,6 +1507,14 @@ GOAL:
           mergedRowsPreview: mergedRows.slice(0, 20)
         });
 
+        els.etaDebug.textContent = pretty({
+          threshold,
+          etaResult: eta,
+          forecastDiagnostics: forecastDiag,
+          exactForecastRowsSentToEta: forecastRows,
+          exactMergedRowsSentToModel: mergedRows.slice(-20)
+        });
+
         els.modelDebug.textContent = pretty({
           field,
           fieldParams,
@@ -1444,7 +1533,8 @@ GOAL:
           `History rows: ${historyRows.length}\n` +
           `Forecast rows: ${forecastRows.length}\n` +
           `Readiness: ${run ? run.readinessR : '—'}\n` +
-          `ETA: ${eta && eta.text ? eta.text : '—'}`,
+          `ETA: ${eta && eta.text ? eta.text : '—'}\n` +
+          `ETA status: ${eta && eta.status ? eta.status : '—'}`,
           'ok'
         );
       }catch(err){
@@ -1454,6 +1544,7 @@ GOAL:
           els.lookupDebug.textContent = msg;
         }
         els.modelDebug.textContent = pretty({ error: msg });
+        els.etaDebug.textContent = pretty({ error: msg });
         renderTraceRows([]);
       }finally{
         els.runBtn.disabled = false;
