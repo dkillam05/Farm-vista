@@ -1395,21 +1395,44 @@ function shouldForceOneHourEta(res, txt, readinessNow, thr, forecastCount=0){
 function buildEtaFailureText(res, readinessNow, thr){
   const ready = Number(readinessNow);
   const threshold = Number(thr);
+
   if (!Number.isFinite(ready) || !Number.isFinite(threshold)) return '';
   if (ready >= threshold) return '';
 
   const status = String(res && res.status || '').toLowerCase();
+  const hours = Number(res && res.hours);
+  const text = String(res && res.text || '').trim();
 
+  if (status === 'beyond' || status === 'notwithin72'){
+    return `>${ETA_HORIZON_HOURS}h`;
+  }
+
+  if (Number.isFinite(hours)){
+    return hours <= ETA_HORIZON_HOURS
+      ? `~${Math.max(1, Math.round(hours))}h`
+      : `>${ETA_HORIZON_HOURS}h`;
+  }
+
+  if (text){
+    const compact = compactEtaForMobile(text, ETA_HORIZON_HOURS);
+    if (compact) return compact;
+  }
+
+  // IMPORTANT:
+  // Do not show ETA ? on tiles anymore.
+  // If ETA cannot be solved cleanly but field is still below threshold,
+  // show horizon-beyond instead of a question mark.
   if (
     status === 'noforecast' ||
     status === 'nodata' ||
     status === 'error' ||
-    status === 'none'
+    status === 'none' ||
+    !status
   ){
-    return 'ETA ?';
+    return `>${ETA_HORIZON_HOURS}h`;
   }
 
-  return 'ETA ?';
+  return `>${ETA_HORIZON_HOURS}h`;
 }
 
 function getEtaCacheKey(fieldObj, opKey, thr, latestRec){
@@ -1616,16 +1639,16 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
       }catch(_){}
     }
 
-    const model = state && state._mods ? state._mods.model : null;
-    if (!model || typeof model.etaToThreshold !== 'function'){
-      setEtaDebug(state, fid, {
-        phase: 'model-missing',
-        readinessNow,
-        authoritativeReadiness,
-        threshold: Number(thr)
-      });
-      return 'ETA ?';
-    }
+const model = state && state._mods ? state._mods.model : null;
+if (!model || typeof model.etaToThreshold !== 'function'){
+  setEtaDebug(state, fid, {
+    phase: 'model-missing',
+    readinessNow,
+    authoritativeReadiness,
+    threshold: Number(thr)
+  });
+  return `>${ETA_HORIZON_HOURS}h`;
+}
 
     const etaDeps = buildEtaDepsForField(state, fieldObj, opKey, latest);
     const forecastRows =
@@ -1662,9 +1685,9 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
       txt = buildEtaFailureText(res, authoritativeReadiness, thr);
     }
 
-    if (!txt && authoritativeReadiness < Number(thr)){
-      txt = 'ETA ?';
-    }
+ if (!txt && authoritativeReadiness < Number(thr)){
+  txt = `>${ETA_HORIZON_HOURS}h`;
+}
 
     if (txt){
       setEtaCacheValue(state, cacheKey, txt);
@@ -1690,15 +1713,15 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
     });
 
     return txt;
-  }catch(err){
-    setEtaDebug(state, fid, {
-      phase: 'exception',
-      readinessNow,
-      threshold: Number(thr),
-      error: safeStr(err && err.message || err)
-    });
-    return 'ETA ?';
-  }
+}catch(err){
+  setEtaDebug(state, fid, {
+    phase: 'exception',
+    readinessNow,
+    threshold: Number(thr),
+    error: safeStr(err && err.message || err)
+  });
+  return `>${ETA_HORIZON_HOURS}h`;
+}
 }
 
 /* =====================================================================
