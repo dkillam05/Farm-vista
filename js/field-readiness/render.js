@@ -1324,13 +1324,15 @@ function isZeroEtaLike(txt){
 */
 function forceNonZeroEtaText(txt, readinessNow, thr){
   const s = String(txt || '').trim();
-  const ready = Number(readinessNow);
-  const threshold = Number(thr);
-
-  if (!Number.isFinite(ready) || !Number.isFinite(threshold)) return s;
-  if (ready >= threshold) return s;
-
   if (!s) return '';
+
+  const h = parseEtaHoursFromText(s);
+  if (Number.isFinite(h)){
+    return `~${Math.max(1, Math.round(h))}h`;
+  }
+
+  return s;
+}
 
   // Do not create ETA ? here anymore.
   // If model gives a contradictory zero-ish answer below threshold,
