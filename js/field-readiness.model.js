@@ -148,14 +148,14 @@ const FV_TUNE = {
 
   // Wet surface suppresses deep drying
   SURFACE_WET_HOLD_START_FRAC: 0.28,
-  SURFACE_WET_HOLD_MAX_REDUCTION: 0.30,
+  SURFACE_WET_HOLD_MAX_REDUCTION: 0.25,
 
   // Storage floor while surface still wet
-  SURFACE_STORAGE_FLOOR_W: 0.20,
-  SURFACE_STORAGE_FLOOR_CAP_FRAC: 0.10,
+  SURFACE_STORAGE_FLOOR_W: 0.12,
+  SURFACE_STORAGE_FLOOR_CAP_FRAC: 0.06,
 
   // ETA pacing / guardrails
-  ETA_MAX_GAIN_PER_HOUR: 0.55
+  ETA_MAX_GAIN_PER_HOUR: 0.75
 
 };
 
