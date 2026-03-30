@@ -1,24 +1,28 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-03-30c-eta-full-restructure-stable-forward-sim
+Rev: 2026-03-30d-full-rebuild-clean-eta-hourly
 
 GOAL:
-✅ Match the new no-state backend direction
-✅ Remove persisted-state and ETA-seed dependence
+✅ Full clean replacement
+✅ No persisted-state dependency
+✅ No field_readiness_state dependency
+✅ No ETA seed from field_readiness_latest
 ✅ Keep coupled storage + surface physics
 ✅ Keep ETA using the same model physics
-✅ Seed from rewind window or baseline only
-✅ Default to rewind mode (10 days) so model behaves closer to index
-✅ COMPLETELY RESTRUCTURE ETA so it is stable and believable
+✅ Default to rewind seeding so it behaves closer to index
+✅ ETA returns exact modeled hour counts when solvable
+✅ Maintain existing export names used elsewhere in FarmVista
 
 IMPORTANT:
-- No persisted state
-- No field_readiness_state dependency
-- No ETA seed from field_readiness_latest
-- "Now" comes from the model run itself
+- This file only does MODEL + ETA math.
+- It does NOT read Firestore directly.
+- Weather / forecast collection loading happens OUTSIDE this file in deps.
 ===================================================================== */
 'use strict';
 
+/* =====================================================================
+   Small helpers
+===================================================================== */
 function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
 function roundInt(x){
   const n = Number(x);
@@ -30,6 +34,18 @@ function roundTo(x, d = 2){
   const p = Math.pow(10, d);
   return Math.round(n * p) / p;
 }
+function safeObj(x){
+  return (x && typeof x === 'object') ? x : null;
+}
+function safeNum(v, fallback = null){
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+function toNum(v, d = 0){
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+}
+function lerp(a, b, t){ return a + (b - a) * t; }
 function safePct01(v){
   const n = Number(v);
   if (!Number.isFinite(n)) return 0;
@@ -46,40 +62,22 @@ function todayISO(){
   try{
     const d = new Date();
     const y = d.getFullYear();
-    const m = String(d.getMonth()+1).padStart(2,'0');
-    const day = String(d.getDate()).padStart(2,'0');
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
     return `${y}-${m}-${day}`;
   }catch(_){
     return '';
   }
 }
-function safeObj(x){
-  return (x && typeof x === 'object') ? x : null;
-}
-function safeNum(v, fallback = null){
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-}
-function lerp(a,b,t){ return a + (b-a)*t; }
-function toNum(v, d=0){
-  const n = Number(v);
-  return Number.isFinite(n) ? n : d;
-}
 
-// Slider extremes
+/* =====================================================================
+   Slider extremes / readiness credit
+===================================================================== */
 const SMAX_MIN = 3.0;
 const SMAX_MAX = 5.0;
 const SMAX_MID = 4.0;
-
-// EXTREME: 20 points each way => 40 total swing
 const REV_POINTS_MAX = 20;
 
-/**
- * SIGNED credit in inches:
- *  - at Smax=3 => + (20% of Smax)  => subtracts water => drier => readiness UP
- *  - at Smax=4 => 0
- *  - at Smax=5 => - (20% of Smax) => adds water      => wetter => readiness DOWN
- */
 function signedCreditInchesFromSmax(Smax){
   const s = clamp(Number(Smax), SMAX_MIN, SMAX_MAX);
   const signed = clamp((SMAX_MID - s) / 1.0, -1, 1);
@@ -87,7 +85,7 @@ function signedCreditInchesFromSmax(Smax){
 }
 
 /* =====================================================================
-   FV_TUNE
+   Base tune
 ===================================================================== */
 const FV_TUNE = {
   SAT_RUNOFF_START: 0.75,
@@ -117,7 +115,6 @@ const FV_TUNE = {
   MID_ACCEL_MAX_BOOST: 0.18,
   MID_ACCEL_EXP: 1.35,
 
-  // Surface storage system
   SURFACE_CAP_IN: 0.70,
   SURFACE_RAIN_CAPTURE: 1.00,
   SURFACE_PENALTY_MAX: 36,
@@ -131,31 +128,26 @@ const FV_TUNE = {
   SURFACE_DRY_VPD_W: 0.05,
   SURFACE_DRY_CLOUD_W: 0.08,
 
-  // Same-day rain timing
   SAME_DAY_LATE_RAIN_DRY_FLOOR: 0.25,
   SAME_DAY_MORNING_RAIN_DRY_MIN: 0.78,
   SAME_DAY_MIDDAY_RAIN_DRY_MIN: 0.58,
   SAME_DAY_EVENING_RAIN_DRY_MIN: 0.20,
 
-  // Surface -> storage handoff
   SURFACE_TO_STORAGE_BASE: 0.10,
   SURFACE_TO_STORAGE_DRY_W: 0.06,
   SURFACE_TO_STORAGE_MORNING_W: 0.08,
   SURFACE_TO_STORAGE_EVENING_W: 0.05,
   SURFACE_TO_STORAGE_MAX_FRAC: 0.28,
 
-  // Wet surface suppresses deep drying
   SURFACE_WET_HOLD_START_FRAC: 0.28,
   SURFACE_WET_HOLD_MAX_REDUCTION: 0.25,
 
-  // Storage floor while surface still wet
   SURFACE_STORAGE_FLOOR_W: 0.12,
   SURFACE_STORAGE_FLOOR_CAP_FRAC: 0.06,
 
-  // ETA pacing / guardrails
-  ETA_MAX_GAIN_PER_HOUR: 0.28,
-  ETA_STEPS_PER_DAY: 2,                 // 12h steps
-  ETA_REQUIRE_CONSECUTIVE_STEPS: 2,     // must stay above threshold for 2 steps
+  // ETA
+  ETA_STEPS_PER_DAY: 8,                // 3h steps => exact hours possible
+  ETA_REQUIRE_CONSECUTIVE_STEPS: 2,    // must hold above threshold twice
   ETA_MIN_HOURS_ANY_WET: 6,
   ETA_MIN_HOURS_80S: 18,
   ETA_MIN_HOURS_70S: 36,
@@ -173,38 +165,38 @@ function getTune(deps){
   for (const src of [srcA, srcB]){
     if (!src) continue;
     for (const k of Object.keys(t)){
-      if (src[k] === null || src[k] === undefined) continue;
+      if (src[k] == null) continue;
       const v = Number(src[k]);
-      if (isFinite(v)) t[k] = v;
+      if (Number.isFinite(v)) t[k] = v;
     }
   }
 
-  t.SAT_RUNOFF_START   = clamp(t.SAT_RUNOFF_START, 0.40, 0.95);
-  t.RUNOFF_EXP         = clamp(t.RUNOFF_EXP, 0.8, 6.0);
+  t.SAT_RUNOFF_START = clamp(t.SAT_RUNOFF_START, 0.40, 0.95);
+  t.RUNOFF_EXP = clamp(t.RUNOFF_EXP, 0.8, 6.0);
   t.RUNOFF_DRAINPOOR_W = clamp(t.RUNOFF_DRAINPOOR_W, 0.0, 0.8);
 
-  t.DRY_BYPASS_END     = clamp(t.DRY_BYPASS_END, 0.10, 0.70);
-  t.DRY_EXP            = clamp(t.DRY_EXP, 0.8, 6.0);
-  t.DRY_BYPASS_BASE    = clamp(t.DRY_BYPASS_BASE, 0.0, 0.85);
+  t.DRY_BYPASS_END = clamp(t.DRY_BYPASS_END, 0.10, 0.70);
+  t.DRY_EXP = clamp(t.DRY_EXP, 0.8, 6.0);
+  t.DRY_BYPASS_BASE = clamp(t.DRY_BYPASS_BASE, 0.0, 0.85);
   t.BYPASS_GOODDRAIN_W = clamp(t.BYPASS_GOODDRAIN_W, 0.0, 0.6);
 
   t.DRY_BYPASS_CAP_SAT = clamp(t.DRY_BYPASS_CAP_SAT, 0.03, 0.35);
   t.DRY_BYPASS_CAP_MAX = clamp(t.DRY_BYPASS_CAP_MAX, 0.0, 0.35);
 
-  t.SAT_DRYBYPASS_FLOOR= clamp(t.SAT_DRYBYPASS_FLOOR, 0.0, 0.20);
-  t.SAT_RUNOFF_CAP     = clamp(t.SAT_RUNOFF_CAP, 0.20, 0.95);
-  t.RAIN_EFF_MIN       = clamp(t.RAIN_EFF_MIN, 0.0, 0.20);
+  t.SAT_DRYBYPASS_FLOOR = clamp(t.SAT_DRYBYPASS_FLOOR, 0.0, 0.20);
+  t.SAT_RUNOFF_CAP = clamp(t.SAT_RUNOFF_CAP, 0.20, 0.95);
+  t.RAIN_EFF_MIN = clamp(t.RAIN_EFF_MIN, 0.0, 0.20);
 
-  t.DRY_TAIL_START     = clamp(t.DRY_TAIL_START, 0.03, 0.30);
-  t.DRY_TAIL_MIN_MULT  = clamp(t.DRY_TAIL_MIN_MULT, 0.20, 1.00);
+  t.DRY_TAIL_START = clamp(t.DRY_TAIL_START, 0.03, 0.30);
+  t.DRY_TAIL_MIN_MULT = clamp(t.DRY_TAIL_MIN_MULT, 0.20, 1.00);
 
-  t.WET_HOLD_START        = clamp(t.WET_HOLD_START, 0.40, 0.90);
-  t.WET_HOLD_MAX_REDUCTION= clamp(t.WET_HOLD_MAX_REDUCTION, 0.00, 0.60);
-  t.WET_HOLD_EXP          = clamp(t.WET_HOLD_EXP, 0.6, 4.0);
+  t.WET_HOLD_START = clamp(t.WET_HOLD_START, 0.40, 0.90);
+  t.WET_HOLD_MAX_REDUCTION = clamp(t.WET_HOLD_MAX_REDUCTION, 0.00, 0.60);
+  t.WET_HOLD_EXP = clamp(t.WET_HOLD_EXP, 0.6, 4.0);
 
-  t.MID_ACCEL_START    = clamp(t.MID_ACCEL_START, t.DRY_TAIL_START + 0.05, 0.80);
-  t.MID_ACCEL_MAX_BOOST= clamp(t.MID_ACCEL_MAX_BOOST, 0.00, 0.40);
-  t.MID_ACCEL_EXP      = clamp(t.MID_ACCEL_EXP, 0.6, 4.0);
+  t.MID_ACCEL_START = clamp(t.MID_ACCEL_START, t.DRY_TAIL_START + 0.05, 0.80);
+  t.MID_ACCEL_MAX_BOOST = clamp(t.MID_ACCEL_MAX_BOOST, 0.00, 0.40);
+  t.MID_ACCEL_EXP = clamp(t.MID_ACCEL_EXP, 0.6, 4.0);
 
   t.SURFACE_CAP_IN = clamp(t.SURFACE_CAP_IN, 0.10, 1.25);
   t.SURFACE_RAIN_CAPTURE = clamp(t.SURFACE_RAIN_CAPTURE, 0.20, 1.50);
@@ -236,9 +228,8 @@ function getTune(deps){
   t.SURFACE_STORAGE_FLOOR_W = clamp(t.SURFACE_STORAGE_FLOOR_W, 0.00, 1.00);
   t.SURFACE_STORAGE_FLOOR_CAP_FRAC = clamp(t.SURFACE_STORAGE_FLOOR_CAP_FRAC, 0.00, 0.60);
 
-  t.ETA_MAX_GAIN_PER_HOUR = clamp(t.ETA_MAX_GAIN_PER_HOUR, 0.05, 2.0);
-  t.ETA_STEPS_PER_DAY = clamp(Math.round(t.ETA_STEPS_PER_DAY), 1, 4);
-  t.ETA_REQUIRE_CONSECUTIVE_STEPS = clamp(Math.round(t.ETA_REQUIRE_CONSECUTIVE_STEPS), 1, 4);
+  t.ETA_STEPS_PER_DAY = clamp(Math.round(t.ETA_STEPS_PER_DAY), 1, 24);
+  t.ETA_REQUIRE_CONSECUTIVE_STEPS = clamp(Math.round(t.ETA_REQUIRE_CONSECUTIVE_STEPS), 1, 6);
   t.ETA_MIN_HOURS_ANY_WET = clamp(t.ETA_MIN_HOURS_ANY_WET, 1, 48);
   t.ETA_MIN_HOURS_80S = clamp(t.ETA_MIN_HOURS_80S, 1, 72);
   t.ETA_MIN_HOURS_70S = clamp(t.ETA_MIN_HOURS_70S, 1, 120);
@@ -257,35 +248,65 @@ function getRateMults(deps){
     const rainEffMult = Number(EXTRA.RAIN_EFF_MULT);
 
     return {
-      dryLossMult: clamp(isFinite(dryLossMult) ? dryLossMult : 1.0, 0.30, 3.00),
-      rainEffMult: clamp(isFinite(rainEffMult) ? rainEffMult : 1.0, 0.30, 3.00)
+      dryLossMult: clamp(Number.isFinite(dryLossMult) ? dryLossMult : 1.0, 0.30, 3.00),
+      rainEffMult: clamp(Number.isFinite(rainEffMult) ? rainEffMult : 1.0, 0.30, 3.00)
     };
   }catch(_){
     return { dryLossMult: 1.0, rainEffMult: 1.0 };
   }
 }
 
+/* =====================================================================
+   Classification / UI helpers
+===================================================================== */
 export function modelClassFromRun(run){
   if (!run) return 'ok';
   const w = Number(run.wetnessR);
-  if (!isFinite(w)) return 'ok';
+  if (!Number.isFinite(w)) return 'ok';
   if (w >= 70) return 'wet';
   if (w <= 30) return 'dry';
   return 'ok';
 }
 
+export function readinessColor(score){
+  const p = clamp(score, 0, 100);
+  if (p <= 55){
+    const t = p / 55;
+    const r = Math.round(200 + (216 - 200) * t);
+    const g = Math.round(59 + (178 - 59) * t);
+    const b = 59;
+    return `rgb(${r},${g},${b})`;
+  } else {
+    const t = (p - 55) / 45;
+    const r = Math.round(216 + (47 - 216) * t);
+    const g = Math.round(178 + (143 - 178) * t);
+    const b = Math.round(59 + (75 - 59) * t);
+    return `rgb(${r},${g},${b})`;
+  }
+}
+
+export function markerLeftCSS(pct){
+  const p = clamp(pct, 0, 100);
+  if (p >= 100) return 'calc(100% - 2px)';
+  if (p <= 0) return '2px';
+  return p.toFixed(2) + '%';
+}
+
+/* =====================================================================
+   Drying parts
+===================================================================== */
 export function calcDryParts(r, EXTRA){
-  const temp = Number(r.tempF||0);
-  const wind = Number(r.windMph||0);
-  const rh   = Number(r.rh||0);
-  const solar= Number(r.solarWm2||0);
-  const sunshineHr = Number(r.sunshineHr||0);
-  const daylightHr = Number(r.daylightHr||0);
+  const temp = Number(r.tempF || 0);
+  const wind = Number(r.windMph || 0);
+  const rh = Number(r.rh || 0);
+  const solar = Number(r.solarWm2 || 0);
+  const sunshineHr = Number(r.sunshineHr || 0);
+  const daylightHr = Number(r.daylightHr || 0);
 
   const tempN = clamp((temp - 20) / 45, 0, 1);
   const windN = clamp((wind - 2) / 20, 0, 1);
-  const solarN= clamp((solar - 60) / 300, 0, 1);
-  const rhN   = clamp((rh - 35) / 65, 0, 1);
+  const solarN = clamp((solar - 60) / 300, 0, 1);
+  const rhN = clamp((rh - 35) / 65, 0, 1);
   const sunshineN = clamp(sunshineHr / 12, 0, 1);
   const daylightN = clamp((daylightHr - 8) / 8, 0, 1);
 
@@ -297,11 +318,11 @@ export function calcDryParts(r, EXTRA){
 
   let dryPwr = clamp(rawBase, 0, 1);
 
-  const vpd = (r.vpdKpa===null || r.vpdKpa===undefined) ? null : Number(r.vpdKpa);
-  const cloud = (r.cloudPct===null || r.cloudPct===undefined) ? null : Number(r.cloudPct);
+  const vpd = (r.vpdKpa == null) ? null : Number(r.vpdKpa);
+  const cloud = (r.cloudPct == null) ? null : Number(r.cloudPct);
 
-  const vpdN = (vpd===null || !isFinite(vpd)) ? 0 : clamp(vpd / 2.6, 0, 1);
-  const cloudN = (cloud===null || !isFinite(cloud)) ? 0 : clamp(cloud / 100, 0, 1);
+  const vpdN = (vpd == null || !Number.isFinite(vpd)) ? 0 : clamp(vpd / 2.6, 0, 1);
+  const cloudN = (cloud == null || !Number.isFinite(cloud)) ? 0 : clamp(cloud / 100, 0, 1);
 
   const vpdW = Number((EXTRA && EXTRA.DRYPWR_VPD_W) ?? 0.06);
   const cloudW = Number((EXTRA && EXTRA.DRYPWR_CLOUD_W) ?? 0.04);
@@ -315,30 +336,33 @@ export function calcDryParts(r, EXTRA){
   return {
     temp, wind, rh, solar, sunshineHr, daylightHr,
     tempN, windN, rhN, solarN, sunshineN, daylightN,
-    vpd: (isFinite(vpd)?vpd:0),
+    vpd: Number.isFinite(vpd) ? vpd : 0,
     vpdN,
-    cloud: (isFinite(cloud)?cloud:0),
+    cloud: Number.isFinite(cloud) ? cloud : 0,
     cloudN,
     raw: rawBase,
     dryPwr
   };
 }
 
-export function mapFactors(soilWetness0_100, drainageIndex0_100, sm010, EXTRA){
+/* =====================================================================
+   Field factor mapping
+===================================================================== */
+export function mapFactors(soilWetness0_100, drainageIndex0_100, sm010, _EXTRA){
   const soilHoldRaw = safePct01(soilWetness0_100);
-  const drainPoorRaw= safePct01(drainageIndex0_100);
+  const drainPoorRaw = safePct01(drainageIndex0_100);
 
   const soilHold = snap01(soilHoldRaw);
-  const drainPoor= snap01(drainPoorRaw);
+  const drainPoor = snap01(drainPoorRaw);
 
-  const smN = (sm010===null || sm010===undefined || !isFinite(Number(sm010)))
+  const smN = (sm010 == null || !Number.isFinite(Number(sm010)))
     ? 0
     : clamp((Number(sm010) - 0.10) / 0.25, 0, 1);
 
-  const infilMult = 0.60 + 0.30*soilHold + 0.35*drainPoor;
-  const dryMult   = 1.20 - 0.35*soilHold - 0.40*drainPoor;
+  const infilMult = 0.60 + 0.30 * soilHold + 0.35 * drainPoor;
+  const dryMult = 1.20 - 0.35 * soilHold - 0.40 * drainPoor;
 
-  const SmaxBase = 3.00 + 1.00*soilHold + 1.00*drainPoor;
+  const SmaxBase = 3.00 + 1.00 * soilHold + 1.00 * drainPoor;
   const Smax = clamp(SmaxBase, 3.00, 5.00);
 
   return { soilHold, drainPoor, smN, infilMult, dryMult, Smax, SmaxBase };
@@ -356,12 +380,11 @@ function getWetBiasFromDeps(deps){
 
     if (opKey && CAL.opWetBias && typeof CAL.opWetBias === 'object'){
       const vOp = CAL.opWetBias[opKey];
-      if (isFinite(Number(vOp))) return Number(vOp);
+      if (Number.isFinite(Number(vOp))) return Number(vOp);
     }
 
     const v = CAL.wetBias;
-    if (isFinite(Number(v))) return Number(v);
-
+    if (Number.isFinite(Number(v))) return Number(v);
     return 0;
   }catch(_){
     return 0;
@@ -377,12 +400,11 @@ function getReadinessShiftFromDeps(deps){
 
     if (opKey && CAL.opReadinessShift && typeof CAL.opReadinessShift === 'object'){
       const vOp = CAL.opReadinessShift[opKey];
-      if (isFinite(Number(vOp))) return Number(vOp);
+      if (Number.isFinite(Number(vOp))) return Number(vOp);
     }
 
     const v = CAL.readinessShift;
-    if (isFinite(Number(v))) return Number(v);
-
+    if (Number.isFinite(Number(v))) return Number(v);
     return 0;
   }catch(_){
     return 0;
@@ -393,9 +415,9 @@ function applyCalToStorage(storagePhys, Smax, deps){
   const smax = Number(Smax);
   const s0 = Number(storagePhys);
 
-  if (!isFinite(smax) || smax <= 0 || !isFinite(s0)){
+  if (!Number.isFinite(smax) || smax <= 0 || !Number.isFinite(s0)){
     return {
-      storageEff: isFinite(s0) ? s0 : 0,
+      storageEff: Number.isFinite(s0) ? s0 : 0,
       wetBiasApplied: 0,
       readinessShiftApplied: 0,
       wetnessDeltaApplied: 0,
@@ -405,7 +427,6 @@ function applyCalToStorage(storagePhys, Smax, deps){
 
   const wetBias = clamp(getWetBiasFromDeps(deps), -25, 25);
   const readinessShift = clamp(getReadinessShiftFromDeps(deps), -50, 50);
-
   const wetnessDelta = clamp((wetBias - readinessShift), -60, 60);
 
   const storageDelta = (wetnessDelta / 100) * smax;
@@ -424,16 +445,16 @@ function applyCalToStorage(storagePhys, Smax, deps){
    Physics helpers
 ===================================================================== */
 function effectiveRainInches(rainIn, storageBefore, Smax, factors, tune){
-  const rain = Math.max(0, Number(rainIn||0));
-  if (!rain || !isFinite(rain) || !isFinite(storageBefore) || !isFinite(Smax) || Smax <= 0) return 0;
+  const rain = Math.max(0, Number(rainIn || 0));
+  if (!rain || !Number.isFinite(rain) || !Number.isFinite(storageBefore) || !Number.isFinite(Smax) || Smax <= 0){
+    return 0;
+  }
 
-  const satRaw = storageBefore / Smax;
-  const sat = clamp(satRaw, 0, 1);
+  const sat = clamp(storageBefore / Smax, 0, 1);
   const drainPoor = clamp(Number(factors && factors.drainPoor), 0, 1);
 
   const sr = clamp((sat - tune.SAT_RUNOFF_START) / Math.max(1e-6, (1 - tune.SAT_RUNOFF_START)), 0, 1);
   let runoffFrac = Math.pow(sr, tune.RUNOFF_EXP);
-
   runoffFrac = runoffFrac * (1 + tune.RUNOFF_DRAINPOOR_W * drainPoor);
   runoffFrac = clamp(runoffFrac, 0, tune.SAT_RUNOFF_CAP);
 
@@ -457,7 +478,7 @@ function effectiveRainInches(rainIn, storageBefore, Smax, factors, tune){
 }
 
 function storageDrydownMult(storageBefore, Smax, tune){
-  if (!isFinite(storageBefore) || !isFinite(Smax) || Smax <= 0) return 1;
+  if (!Number.isFinite(storageBefore) || !Number.isFinite(Smax) || Smax <= 0) return 1;
 
   const sat = clamp(storageBefore / Smax, 0, 1);
   let mult = 1;
@@ -506,7 +527,7 @@ function surfaceDrydownInchesPerDay(parts, et0N, tune){
 }
 
 function surfacePenaltyFromStorage(surfaceStorage, tune){
-  const cap = Math.max(1e-6, Number(tune.SURFACE_CAP_IN || 0.60));
+  const cap = Math.max(1e-6, Number(tune.SURFACE_CAP_IN || 0.70));
   const frac = clamp(Number(surfaceStorage || 0) / cap, 0, 1);
   return clamp(
     Math.pow(frac, tune.SURFACE_PENALTY_EXP) * tune.SURFACE_PENALTY_MAX,
@@ -551,9 +572,9 @@ function surfaceToStorageFrac(row, tune){
 }
 
 function surfaceWetHoldDryMult(surfaceStorage, tune){
-  const cap = Math.max(1e-6, Number(tune.SURFACE_CAP_IN || 0.7));
+  const cap = Math.max(1e-6, Number(tune.SURFACE_CAP_IN || 0.70));
   const frac = clamp(Number(surfaceStorage || 0) / cap, 0, 1);
-  const start = clamp(Number(tune.SURFACE_WET_HOLD_START_FRAC || 0.18), 0, 1);
+  const start = clamp(Number(tune.SURFACE_WET_HOLD_START_FRAC || 0.28), 0, 1);
   if (frac <= start) return 1;
 
   const wetFrac = clamp((frac - start) / Math.max(1e-6, 1 - start), 0, 1);
@@ -572,7 +593,7 @@ function surfaceDrivenStorageFloor(surfaceStorage, Smax, tune){
 }
 
 /* =====================================================================
-   No-state seed helpers
+   Seed helpers
 ===================================================================== */
 function getSeedMode(deps){
   const m = deps && deps.seedMode ? String(deps.seedMode) : '';
@@ -582,13 +603,13 @@ function getSeedMode(deps){
 
 function getRewindDays(deps){
   const n = Number(deps && deps.rewindDays);
-  if (!isFinite(n)) return 10;
+  if (!Number.isFinite(n)) return 10;
   return clamp(Math.round(n), 3, 21);
 }
 
 function baselineSeedFromWindow(rowsWindow, f){
-  const first7 = rowsWindow.slice(0,7);
-  const rain7 = first7.reduce((s,x)=> s + Number((x && x.rainInAdj) || 0), 0);
+  const first7 = rowsWindow.slice(0, 7);
+  const rain7 = first7.reduce((s, x)=> s + Number((x && x.rainInAdj) || 0), 0);
 
   const rainNudgeFrac = clamp(rain7 / 8.0, 0, 1);
   const rainNudge = rainNudgeFrac * (0.10 * f.Smax);
@@ -612,7 +633,7 @@ function pickSeed(rows, f, deps){
 }
 
 /* =====================================================================
-   Weather-series selection
+   Weather-series getters
 ===================================================================== */
 function getBestWeatherSeriesForField(deps, fieldId){
   try{
@@ -639,6 +660,49 @@ function getBestWeatherSeriesForField(deps, fieldId){
   }
 }
 
+function splitHistFcstFromWx(wxSeries){
+  const arr = Array.isArray(wxSeries) ? wxSeries.slice() : [];
+  const tISO = todayISO();
+  if (!tISO) return { hist: arr, fcst: [] };
+
+  const hist = [];
+  const fcst = [];
+
+  for (const d of arr){
+    const iso = String(d && d.dateISO ? d.dateISO : '').slice(0, 10);
+    if (!iso){
+      hist.push(d);
+      continue;
+    }
+    if (iso <= tISO) hist.push(d);
+    else fcst.push(d);
+  }
+
+  return { hist, fcst };
+}
+
+function getForecastSeriesForField(deps, fieldId){
+  try{
+    if (deps && typeof deps.getForecastSeriesForFieldId === 'function'){
+      const rows = deps.getForecastSeriesForFieldId(fieldId);
+      if (Array.isArray(rows) && rows.length) return rows;
+    }
+
+    if (deps && typeof deps.getWxSeriesWithForecastForFieldId === 'function'){
+      const rows = deps.getWxSeriesWithForecastForFieldId(fieldId);
+      const split = splitHistFcstFromWx(Array.isArray(rows) ? rows : []);
+      if (Array.isArray(split.fcst) && split.fcst.length) return split.fcst;
+    }
+
+    return [];
+  }catch(_){
+    return [];
+  }
+}
+
+/* =====================================================================
+   Row normalization
+===================================================================== */
 function pickRainForRow(w){
   if (!w || typeof w !== 'object'){
     return { rainInAdj: 0, rainSource: 'none' };
@@ -669,12 +733,12 @@ function normalizeRowForModel(w, deps, tune){
   const rainPick = pickRainForRow(w);
   const parts = calcDryParts(w, deps.EXTRA || {});
 
-  const et0 = (w.et0In===null || w.et0In===undefined) ? null : Number(w.et0In);
-  const et0N = (et0===null || !isFinite(et0)) ? 0 : clamp(et0 / 0.30, 0, 1);
+  const et0 = (w.et0In == null) ? null : Number(w.et0In);
+  const et0N = (et0 == null || !Number.isFinite(et0)) ? 0 : clamp(et0 / 0.30, 0, 1);
 
-  const smN2 = (w.sm010===null || w.sm010===undefined || !isFinite(Number(w.sm010)))
+  const smN2 = (w.sm010 == null || !Number.isFinite(Number(w.sm010)))
     ? 0
-    : clamp((Number(w.sm010)-0.10)/0.25, 0, 1);
+    : clamp((Number(w.sm010) - 0.10) / 0.25, 0, 1);
 
   const rainMorningIn = Number.isFinite(Number(w.rainMorningIn)) ? Number(w.rainMorningIn) : 0;
   const rainMiddayIn = Number.isFinite(Number(w.rainMiddayIn)) ? Number(w.rainMiddayIn) : 0;
@@ -685,7 +749,7 @@ function normalizeRowForModel(w, deps, tune){
     ...w,
     rainInAdj: rainPick.rainInAdj,
     rainSource: rainPick.rainSource,
-    et0: (isFinite(et0)?et0:0),
+    et0: Number.isFinite(et0) ? et0 : 0,
     et0N,
     smN_day: smN2,
 
@@ -704,7 +768,7 @@ function normalizeRowForModel(w, deps, tune){
 }
 
 /* =====================================================================
-   Readiness from physical storage
+   Readiness from state
 ===================================================================== */
 function computeReadinessFromState(storagePhys, surfaceStorage, f, deps, tune){
   const calRes = applyCalToStorage(storagePhys, f.Smax, deps);
@@ -713,7 +777,10 @@ function computeReadinessFromState(storagePhys, surfaceStorage, f, deps, tune){
   const creditIn = signedCreditInchesFromSmax(f.Smax);
   const storageForReadiness = clamp(storageEff - creditIn, 0, f.Smax);
 
-  const baseWetness = (f.Smax > 0) ? clamp((storageForReadiness / f.Smax) * 100, 0, 100) : 0;
+  const baseWetness = (f.Smax > 0)
+    ? clamp((storageForReadiness / f.Smax) * 100, 0, 100)
+    : 0;
+
   const baseReadiness = clamp(100 - baseWetness, 0, 100);
   const surfacePenalty = surfacePenaltyFromStorage(surfaceStorage, tune);
 
@@ -730,102 +797,6 @@ function computeReadinessFromState(storagePhys, surfaceStorage, f, deps, tune){
     storageForReadiness,
     calRes
   };
-}
-
-/* =====================================================================
-   Forecast helpers
-===================================================================== */
-function interpDayRow(d0, d1, frac){
-  const a = d0 || {};
-  const b = d1 || d0 || {};
-  const f = clamp(frac, 0, 1);
-
-  function lerpNum(k, fallback=0){
-    const va = toNum(a[k], fallback);
-    const vb = toNum(b[k], va);
-    return lerp(va, vb, f);
-  }
-  function lerpNullable(k){
-    const va = a[k];
-    const vb = b[k];
-    if (va == null && vb == null) return null;
-    if (va == null) return vb;
-    if (vb == null) return va;
-    return lerpNum(k, 0);
-  }
-
-  const rainPickA = pickRainForRow(a);
-  const rainPickB = pickRainForRow(b);
-
-  return {
-    dateISO: String(a.dateISO || b.dateISO || '').slice(0,10),
-    rainIn: lerpNum('rainIn', 0),
-    rainInAdj: lerp(rainPickA.rainInAdj, rainPickB.rainInAdj, f),
-    rainSource: String(rainPickA.rainSource || rainPickB.rainSource || 'mixed'),
-    tempF:  lerpNum('tempF', 0),
-    windMph:lerpNum('windMph', 0),
-    rh:     lerpNum('rh', 0),
-    solarWm2: lerpNum('solarWm2', 0),
-    sunshineHr: lerpNum('sunshineHr', 0),
-    daylightHr: lerpNum('daylightHr', 0),
-    cloudPct: lerpNullable('cloudPct'),
-    vpdKpa:   lerpNullable('vpdKpa'),
-    sm010:    lerpNullable('sm010'),
-    et0In:    lerpNullable('et0In'),
-    rainMorningIn: lerpNum('rainMorningIn', 0),
-    rainMiddayIn: lerpNum('rainMiddayIn', 0),
-    rainEveningIn: lerpNum('rainEveningIn', 0)
-  };
-}
-
-function normalizeDailyRowForSim(w, deps, tune){
-  return normalizeRowForModel(w, deps, tune);
-}
-
-function splitHistFcstFromWx(wxSeries){
-  const arr = Array.isArray(wxSeries) ? wxSeries.slice() : [];
-  const tISO = todayISO();
-  if (!tISO) return { hist: arr, fcst: [] };
-
-  const hist = [];
-  const fcst = [];
-  for (const d of arr){
-    const iso = String(d && d.dateISO ? d.dateISO : '').slice(0,10);
-    if (!iso){
-      hist.push(d);
-      continue;
-    }
-    if (iso <= tISO) hist.push(d);
-    else fcst.push(d);
-  }
-  return { hist, fcst };
-}
-
-function buildEtaForecastSteps(fcstDaily, deps, tune){
-  const out = [];
-  const stepsPerDay = Math.max(1, Number(tune.ETA_STEPS_PER_DAY || 2));
-  const fracPerStep = 1 / stepsPerDay;
-
-  for (let i = 0; i < fcstDaily.length; i++){
-    const d0 = fcstDaily[i];
-    const d1 = fcstDaily[Math.min(i + 1, fcstDaily.length - 1)] || d0;
-
-    for (let s = 0; s < stepsPerDay; s++){
-      const frac = (s + 0.5) * fracPerStep;
-      const base = interpDayRow(d0, d1, frac);
-      const row = normalizeDailyRowForSim(base, deps, tune);
-
-      row.rainInAdj = Math.max(0, Number(row.rainInAdj || 0)) * fracPerStep;
-      row.rainMorningIn = Math.max(0, Number(row.rainMorningIn || 0)) * fracPerStep;
-      row.rainMiddayIn = Math.max(0, Number(row.rainMiddayIn || 0)) * fracPerStep;
-      row.rainEveningIn = Math.max(0, Number(row.rainEveningIn || 0)) * fracPerStep;
-      row.rainTimingDryFactor = sameDayRainDryFactor(row, tune);
-
-      out.push(row);
-    }
-  }
-
-  return out;
 }
 
 /* =====================================================================
@@ -866,7 +837,7 @@ function simulateOneStep(state, row, stepFrac, f, deps, tune, rate){
   let loss = lossBase * stateDryMult * surfaceWetDryMult * stepFrac;
   loss = Math.max(0, loss * rate.dryLossMult);
 
-  if (f.Smax > 0 && isFinite(before)){
+  if (f.Smax > 0 && Number.isFinite(before)){
     const sat = clamp(before / f.Smax, 0, 1);
     if (sat < tune.DRY_TAIL_START){
       const frac = clamp(sat / Math.max(1e-6, tune.DRY_TAIL_START), 0, 1);
@@ -908,6 +879,83 @@ function simulateOneStep(state, row, stepFrac, f, deps, tune, rate){
 }
 
 /* =====================================================================
+   Forecast interpolation for ETA
+===================================================================== */
+function interpDayRow(d0, d1, frac){
+  const a = d0 || {};
+  const b = d1 || d0 || {};
+  const f = clamp(frac, 0, 1);
+
+  function lerpNum(k, fallback = 0){
+    const va = toNum(a[k], fallback);
+    const vb = toNum(b[k], va);
+    return lerp(va, vb, f);
+  }
+  function lerpNullable(k){
+    const va = a[k];
+    const vb = b[k];
+    if (va == null && vb == null) return null;
+    if (va == null) return vb;
+    if (vb == null) return va;
+    return lerpNum(k, 0);
+  }
+
+  const rainPickA = pickRainForRow(a);
+  const rainPickB = pickRainForRow(b);
+
+  return {
+    dateISO: String(a.dateISO || b.dateISO || '').slice(0, 10),
+    rainIn: lerpNum('rainIn', 0),
+    rainInAdj: lerp(rainPickA.rainInAdj, rainPickB.rainInAdj, f),
+    rainSource: String(rainPickA.rainSource || rainPickB.rainSource || 'mixed'),
+    tempF: lerpNum('tempF', 0),
+    windMph: lerpNum('windMph', 0),
+    rh: lerpNum('rh', 0),
+    solarWm2: lerpNum('solarWm2', 0),
+    sunshineHr: lerpNum('sunshineHr', 0),
+    daylightHr: lerpNum('daylightHr', 0),
+    cloudPct: lerpNullable('cloudPct'),
+    vpdKpa: lerpNullable('vpdKpa'),
+    sm010: lerpNullable('sm010'),
+    et0In: lerpNullable('et0In'),
+    rainMorningIn: lerpNum('rainMorningIn', 0),
+    rainMiddayIn: lerpNum('rainMiddayIn', 0),
+    rainEveningIn: lerpNum('rainEveningIn', 0)
+  };
+}
+
+function normalizeDailyRowForSim(w, deps, tune){
+  return normalizeRowForModel(w, deps, tune);
+}
+
+function buildEtaForecastSteps(fcstDaily, deps, tune){
+  const out = [];
+  const stepsPerDay = Math.max(1, Number(tune.ETA_STEPS_PER_DAY || 8));
+  const fracPerStep = 1 / stepsPerDay;
+
+  for (let i = 0; i < fcstDaily.length; i++){
+    const d0 = fcstDaily[i];
+    const d1 = fcstDaily[Math.min(i + 1, fcstDaily.length - 1)] || d0;
+
+    for (let s = 0; s < stepsPerDay; s++){
+      const frac = (s + 0.5) * fracPerStep;
+      const base = interpDayRow(d0, d1, frac);
+      const row = normalizeDailyRowForSim(base, deps, tune);
+
+      row.rainInAdj = Math.max(0, Number(row.rainInAdj || 0)) * fracPerStep;
+      row.rainMorningIn = Math.max(0, Number(row.rainMorningIn || 0)) * fracPerStep;
+      row.rainMiddayIn = Math.max(0, Number(row.rainMiddayIn || 0)) * fracPerStep;
+      row.rainEveningIn = Math.max(0, Number(row.rainEveningIn || 0)) * fracPerStep;
+      row.rainTimingDryFactor = sameDayRainDryFactor(row, tune);
+
+      out.push(row);
+    }
+  }
+
+  return out;
+}
+
+/* =====================================================================
    ETA helpers
 ===================================================================== */
 function etaMinHoursFloor(readinessNow, rainRecentIn, tune){
@@ -928,156 +976,23 @@ function etaMinHoursFloor(readinessNow, rainRecentIn, tune){
 }
 
 /* =====================================================================
-   Model-owned ETA (FIXED REALISTIC)
-===================================================================== */
-export async function etaToThreshold(field, deps, threshold, horizonHours=168){
-  try{
-    if (!field || !deps) return { ok:false, status:'nodata', text:'ETA ?' };
-
-    const thr = clamp(Number(threshold || 0), 0, 100);
-    const run = runField(field, deps);
-    if (!run) return { ok:false, status:'nodata', text:'ETA ?' };
-
-    const readinessNow = Number(run.readinessR || 0);
-
-    if (readinessNow >= thr){
-      return { ok:true, status:'dryNow', hours:0, text:'Now' };
-    }
-
-    let fcstDaily = [];
-    if (deps.getForecastSeriesForFieldId){
-      try{
-        const got = deps.getForecastSeriesForFieldId(field.id);
-        fcstDaily = Array.isArray(got) ? got : [];
-      }catch(_){
-        fcstDaily = [];
-      }
-    }
-
-    if (!fcstDaily.length && deps.getWxSeriesWithForecastForFieldId){
-      try{
-        const merged = deps.getWxSeriesWithForecastForFieldId(field.id);
-        const split = splitHistFcstFromWx(Array.isArray(merged) ? merged : []);
-        fcstDaily = Array.isArray(split.fcst) ? split.fcst : [];
-      }catch(_){
-        fcstDaily = [];
-      }
-    }
-
-    if (!fcstDaily.length){
-      return { ok:true, status:'noforecast', text:'ETA ?' };
-    }
-
-    const tune = getTune(deps);
-    const rate = getRateMults(deps);
-    const f = run.factors;
-
-    if (!f || !Number.isFinite(Number(f.Smax))){
-      return { ok:false, status:'badstate', text:'ETA ?' };
-    }
-
-    const steps = buildEtaForecastSteps(fcstDaily, deps, tune);
-    if (!steps.length){
-      return { ok:true, status:'noforecast', text:'ETA ?' };
-    }
-
-    const stepsPerDay = Math.max(1, Number(tune.ETA_STEPS_PER_DAY || 2));
-    const stepFrac = 1 / stepsPerDay;
-    const stepHours = 24 / stepsPerDay;
-
-    let state = {
-      storagePhys: clamp(Number(run.storagePhysFinal || 0), 0, f.Smax),
-      surfaceStorage: clamp(Number(run.surfaceStorageFinal || 0), 0, tune.SURFACE_CAP_IN),
-      readiness: clamp(Number(run.readinessR || 0), 0, 100),
-      wetness: clamp(Number(run.wetnessR || 0), 0, 100),
-      baseReadiness: clamp(Number(run.baseReadinessR || 0), 0, 100),
-      surfacePenalty: clamp(Number(run.surfacePenaltyR || 0), 0, 100)
-    };
-
-    const recentRainIn = (Array.isArray(run.trace) ? run.trace.slice(-2) : [])
-      .reduce((s, x) => s + Math.max(0, Number((x && x.rain) || 0)), 0);
-
-    const minHours = etaMinHoursFloor(readinessNow, recentRainIn, tune);
-    const maxDailyGain = Math.max(0, Number(tune.ETA_MAX_DAILY_GAIN || 10));
-    const maxStepGain = maxDailyGain * stepFrac;
-    const neededConsecutive = Math.max(1, Number(tune.ETA_REQUIRE_CONSECUTIVE_STEPS || 2));
-
-    let hours = 0;
-    let consecutiveAtOrAbove = 0;
-
-    for (let i = 0; i < steps.length; i++){
-      const next = simulateOneStep(
-        {
-          storagePhys: state.storagePhys,
-          surfaceStorage: state.surfaceStorage
-        },
-        steps[i],
-        stepFrac,
-        f,
-        deps,
-        tune,
-        rate
-      );
-
-      const prevReadiness = clamp(Number(state.readiness || 0), 0, 100);
-      let nextReadiness = clamp(Number(next.readiness || 0), 0, 100);
-
-      if (Number.isFinite(maxStepGain)){
-        nextReadiness = Math.min(nextReadiness, prevReadiness + maxStepGain);
-      }
-
-      state = {
-        storagePhys: clamp(Number(next.storagePhys || 0), 0, f.Smax),
-        surfaceStorage: clamp(Number(next.surfaceStorage || 0), 0, tune.SURFACE_CAP_IN),
-        readiness: nextReadiness,
-        wetness: clamp(100 - nextReadiness, 0, 100),
-        baseReadiness: clamp(Number(next.baseReadiness || 0), 0, 100),
-        surfacePenalty: clamp(Number(next.surfacePenalty || 0), 0, 100)
-      };
-
-      hours += stepHours;
-
-      if (state.readiness >= thr){
-        consecutiveAtOrAbove += 1;
-      } else {
-        consecutiveAtOrAbove = 0;
-      }
-
-      if (hours >= minHours && consecutiveAtOrAbove >= neededConsecutive){
-        return {
-          ok:true,
-          status:'within',
-          hours:Math.round(hours),
-          text:`~${Math.round(hours)}h`
-        };
-      }
-
-      if (hours >= horizonHours){
-        return { ok:true, status:'beyond', text:`>${horizonHours}h` };
-      }
-    }
-
-    return { ok:true, status:'beyond', text:`>${horizonHours}h` };
-  }catch(_){
-    return { ok:false, status:'error', text:'ETA ?' };
-  }
-}
-
-/* =====================================================================
    runField
 ===================================================================== */
 export function runField(field, deps){
   const wx = getBestWeatherSeriesForField(deps, field.id);
   if (!wx || !wx.length) return null;
+  if (!deps || typeof deps.getFieldParams !== 'function') return null;
 
   const p = deps.getFieldParams(field.id);
+  if (!p) return null;
 
   const tune = getTune(deps);
-  const last = wx[wx.length-1] || {};
+  const last = wx[wx.length - 1] || {};
   const f = mapFactors(p.soilWetness, p.drainageIndex, last.sm010, deps.EXTRA);
   const rate = getRateMults(deps);
 
   const rows = wx.map(w => normalizeRowForModel(w, deps, tune));
+  if (!rows.length) return null;
 
   const seedPick = pickSeed(rows, f, deps);
   let storage = clamp(seedPick.seedStorage, 0, f.Smax);
@@ -1105,16 +1020,16 @@ export function runField(field, deps){
     let rainEff = effectiveRainInches(rain, before, f.Smax, f, tune);
     rainEff = clamp(rainEff * rate.rainEffMult, 0, 1000);
 
-    const addSm = (Number((deps.EXTRA && deps.EXTRA.ADD_SM010_W) || 0.10) * d.smN_day) * 0.05;
+    const addSm = (Number((deps.EXTRA && deps.EXTRA.ADD_SM010_W) || 0.10) * Number(d.smN_day || 0)) * 0.05;
     const addRain = rainEff * f.infilMult;
     const add = addRain + addSm;
 
     const lossEt0W = Number((deps.EXTRA && deps.EXTRA.LOSS_ET0_W) || 0.08);
     let lossBase =
-      Number(d.dryPwr||0) *
+      Number(d.dryPwr || 0) *
       Number(deps.LOSS_SCALE || 0.55) *
       f.dryMult *
-      (1 + (lossEt0W * d.et0N));
+      (1 + (lossEt0W * Number(d.et0N || 0)));
 
     const rainTimingDryFactorVal = clamp(
       Number(d.rainTimingDryFactor ?? sameDayRainDryFactor(d, tune)),
@@ -1129,7 +1044,7 @@ export function runField(field, deps){
     let loss = lossBase * stateDryMult * surfaceWetDryMult;
     loss = Math.max(0, loss * rate.dryLossMult);
 
-    if (f.Smax > 0 && isFinite(before)){
+    if (f.Smax > 0 && Number.isFinite(before)){
       const sat = clamp(before / f.Smax, 0, 1);
       if (sat < tune.DRY_TAIL_START){
         const frac = clamp(sat / Math.max(1e-6, tune.DRY_TAIL_START), 0, 1);
@@ -1199,7 +1114,9 @@ export function runField(field, deps){
   const surfacePenaltyR = roundInt(stateFinal.surfacePenalty);
 
   const last7 = trace.slice(-7);
-  const avgLossDay = last7.length ? (last7.reduce((s,x)=> s + x.loss, 0) / last7.length) : 0.08;
+  const avgLossDay = last7.length
+    ? (last7.reduce((s, x)=> s + Number(x.loss || 0), 0) / last7.length)
+    : 0.08;
 
   return {
     field,
@@ -1225,33 +1142,130 @@ export function runField(field, deps){
   };
 }
 
-export function readinessColor(score){
-  const p = clamp(score, 0, 100);
-  if (p <= 55){
-    const t = p / 55;
-    const r = Math.round(200 + (216-200)*t);
-    const g = Math.round(59  + (178-59)*t);
-    const b = 59;
-    return `rgb(${r},${g},${b})`;
-  } else {
-    const t = (p - 55) / 45;
-    const r = Math.round(216 + (47-216)*t);
-    const g = Math.round(178 + (143-178)*t);
-    const b = Math.round(59  + (75-59)*t);
-    return `rgb(${r},${g},${b})`;
+/* =====================================================================
+   Model-owned ETA
+===================================================================== */
+export async function etaToThreshold(field, deps, threshold, horizonHours = 168){
+  try{
+    if (!field || !deps){
+      return { ok:false, status:'nodata', text:'ETA ?' };
+    }
+
+    const thr = clamp(Number(threshold || 0), 0, 100);
+    const run = runField(field, deps);
+    if (!run){
+      return { ok:false, status:'nodata', text:'ETA ?' };
+    }
+
+    const readinessNow = Number(run.readinessR || 0);
+    if (readinessNow >= thr){
+      return { ok:true, status:'dryNow', hours:0, text:'Now' };
+    }
+
+    const fcstDaily = getForecastSeriesForField(deps, field.id);
+    if (!fcstDaily.length){
+      return { ok:true, status:'noforecast', text:'ETA ?' };
+    }
+
+    const tune = getTune(deps);
+    const rate = getRateMults(deps);
+    const f = run.factors;
+
+    if (!f || !Number.isFinite(Number(f.Smax))){
+      return { ok:false, status:'badstate', text:'ETA ?' };
+    }
+
+    const steps = buildEtaForecastSteps(fcstDaily, deps, tune);
+    if (!steps.length){
+      return { ok:true, status:'noforecast', text:'ETA ?' };
+    }
+
+    const stepsPerDay = Math.max(1, Number(tune.ETA_STEPS_PER_DAY || 8));
+    const stepFrac = 1 / stepsPerDay;
+    const stepHours = 24 / stepsPerDay;
+
+    let state = {
+      storagePhys: clamp(Number(run.storagePhysFinal || 0), 0, f.Smax),
+      surfaceStorage: clamp(Number(run.surfaceStorageFinal || 0), 0, tune.SURFACE_CAP_IN),
+      readiness: clamp(Number(run.readinessR || 0), 0, 100),
+      wetness: clamp(Number(run.wetnessR || 0), 0, 100),
+      baseReadiness: clamp(Number(run.baseReadinessR || 0), 0, 100),
+      surfacePenalty: clamp(Number(run.surfacePenaltyR || 0), 0, 100)
+    };
+
+    const recentRainIn = (Array.isArray(run.trace) ? run.trace.slice(-2) : [])
+      .reduce((s, x)=> s + Math.max(0, Number((x && x.rain) || 0)), 0);
+
+    const minHours = etaMinHoursFloor(readinessNow, recentRainIn, tune);
+    const maxDailyGain = Math.max(0, Number(tune.ETA_MAX_DAILY_GAIN || 10));
+    const maxStepGain = maxDailyGain * stepFrac;
+    const neededConsecutive = Math.max(1, Number(tune.ETA_REQUIRE_CONSECUTIVE_STEPS || 2));
+
+    let hours = 0;
+    let consecutiveAtOrAbove = 0;
+
+    for (let i = 0; i < steps.length; i++){
+      const next = simulateOneStep(
+        {
+          storagePhys: state.storagePhys,
+          surfaceStorage: state.surfaceStorage
+        },
+        steps[i],
+        stepFrac,
+        f,
+        deps,
+        tune,
+        rate
+      );
+
+      const prevReadiness = clamp(Number(state.readiness || 0), 0, 100);
+      let nextReadiness = clamp(Number(next.readiness || 0), 0, 100);
+
+      if (Number.isFinite(maxStepGain)){
+        nextReadiness = Math.min(nextReadiness, prevReadiness + maxStepGain);
+      }
+
+      state = {
+        storagePhys: clamp(Number(next.storagePhys || 0), 0, f.Smax),
+        surfaceStorage: clamp(Number(next.surfaceStorage || 0), 0, tune.SURFACE_CAP_IN),
+        readiness: nextReadiness,
+        wetness: clamp(100 - nextReadiness, 0, 100),
+        baseReadiness: clamp(Number(next.baseReadiness || 0), 0, 100),
+        surfacePenalty: clamp(Number(next.surfacePenalty || 0), 0, 100)
+      };
+
+      hours += stepHours;
+
+      if (state.readiness >= thr){
+        consecutiveAtOrAbove += 1;
+      } else {
+        consecutiveAtOrAbove = 0;
+      }
+
+      if (hours >= minHours && consecutiveAtOrAbove >= neededConsecutive){
+        const outHours = Math.max(1, Math.round(hours));
+        return {
+          ok:true,
+          status:'within',
+          hours: outHours,
+          text:`~${outHours}h`
+        };
+      }
+
+      if (hours >= horizonHours){
+        return { ok:true, status:'beyond', hours:horizonHours, text:`>${horizonHours}h` };
+      }
+    }
+
+    return { ok:true, status:'beyond', hours:horizonHours, text:`>${horizonHours}h` };
+  }catch(_){
+    return { ok:false, status:'error', text:'ETA ?' };
   }
 }
 
-export function markerLeftCSS(pct){
-  const p = clamp(pct, 0, 100);
-  if (p >= 100) return 'calc(100% - 2px)';
-  if (p <= 0) return '2px';
-  return p.toFixed(2) + '%';
-}
-
-/**
- * Legacy ETA function (COMPAT STUB ONLY)
- */
+/* =====================================================================
+   Legacy compat stub
+===================================================================== */
 export function etaFor(_run, _threshold, _ETA_MAX_HOURS){
   return 'ETA n/a';
 }
