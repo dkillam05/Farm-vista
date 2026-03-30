@@ -1,48 +1,49 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/field-readiness-dev.html  (FULL FILE)
-Rev: 2026-03-30e-dev-page-direct-debug-rebuild
+Rev: 2026-03-30e-dev-page-hardwired-button-working
 
-GOAL
+GOAL:
 ✅ Single-field debug page
 ✅ No tile renderer
-✅ No field list dependency
-✅ Lets Dane test one field directly by ID / ptr
-✅ Runs the REAL model math from /Farm-vista/js/field-readiness.model.js
-✅ Shows exactly what field doc / latest doc / weather / forecast were found
-✅ Allows manual collection overrides on-page
-✅ Uses Firestore directly so we can debug the real source path
-✅ Keeps everything in one file for easier copy/paste replacement
-
-IMPORTANT
-- This page does NOT depend on the normal render.js tile flow.
-- This page is for debugging the data path + model path only.
-- If your actual collections are different, type them into the boxes and re-run.
+✅ Hard-wired Run button
+✅ Visible startup / click / error status
+✅ Can resolve by:
+   - real field doc id
+   - latest doc id
+   - weather cache doc id
+✅ Uses actual model math from:
+   /Farm-vista/js/field-readiness.model.js
+✅ Reads Firestore through:
+   /Farm-vista/js/field-readiness/firebase.js
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
+  <meta charset="utf-8" />
   <title>FarmVista • Field Readiness Dev</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-  <meta name="theme-color" content="#2F6C3C"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#2F6C3C" />
+
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
 
   <script src="/Farm-vista/js/theme-boot.js"></script>
-  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
-  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
   <style>
     :root{
       --accent:#2F6C3C;
-      --wrap:980px;
+      --card-max:980px;
     }
     body{
-      margin:0;
       background:var(--app-bg,var(--surface));
       color:var(--text);
-      font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+      margin:0;
     }
     .wrap{
-      max-width:var(--wrap);
+      max-width:var(--card-max);
       margin:0 auto;
       padding:18px;
       display:grid;
@@ -52,40 +53,38 @@ IMPORTANT
       border:1px solid var(--border);
       border-radius:16px;
       background:var(--surface);
-      box-shadow:0 8px 24px rgba(0,0,0,.08);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
       overflow:hidden;
     }
     .head{
       padding:14px 16px;
       border-bottom:1px solid var(--border);
-      background:linear-gradient(90deg, rgba(47,108,60,.10), transparent);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
     }
     .head h1{
-      margin:0;
+      margin:0 0 6px;
       font-size:22px;
       line-height:1.15;
     }
     .muted{ color:var(--muted,#67706B); }
-    .body{ padding:16px; display:grid; gap:14px; }
-
-    .grid{
+    .body{
+      padding:16px;
+      display:grid;
+      gap:14px;
+    }
+    .row{
       display:grid;
       gap:10px;
-      grid-template-columns:1.2fr .5fr;
+      grid-template-columns:1.3fr 140px;
     }
-    @media (max-width:760px){
-      .grid{ grid-template-columns:1fr; }
-    }
-
-    .grid3{
+    .row3{
       display:grid;
       gap:10px;
       grid-template-columns:1fr 1fr 1fr;
     }
-    @media (max-width:900px){
-      .grid3{ grid-template-columns:1fr; }
+    @media (max-width:760px){
+      .row,.row3{ grid-template-columns:1fr; }
     }
-
     .field label{
       display:block;
       font-weight:900;
@@ -93,34 +92,23 @@ IMPORTANT
       font-size:12px;
       letter-spacing:.02em;
     }
-
-    .input,.select,.textarea{
+    .input{
       width:100%;
-      box-sizing:border-box;
-      border:1px solid var(--border);
-      border-radius:12px;
-      background:color-mix(in srgb, var(--surface) 96%, #ffffff 4%);
-      color:var(--text);
-      padding:12px;
       font:inherit;
       font-size:16px;
+      line-height:1.2;
+      color:var(--text);
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:12px;
       outline:none;
-      box-shadow:none;
-      -webkit-appearance:none;
-      appearance:none;
+      box-sizing:border-box;
     }
-    .textarea{
-      min-height:120px;
-      resize:vertical;
-      font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-      font-size:12px;
-      line-height:1.35;
-    }
-    .input:focus,.select:focus,.textarea:focus{
-      border-color:color-mix(in srgb, var(--accent) 48%, var(--border) 52%);
+    .input:focus{
+      border-color:color-mix(in srgb, var(--accent) 45%, var(--border) 55%);
       box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent 84%);
     }
-
     .btnrow{
       display:flex;
       gap:10px;
@@ -131,14 +119,15 @@ IMPORTANT
       align-items:center;
       justify-content:center;
       gap:8px;
-      min-height:42px;
-      padding:10px 14px;
-      border-radius:12px;
-      border:1px solid var(--border);
-      background:color-mix(in srgb, var(--surface) 94%, #ffffff 6%);
-      color:var(--text);
       font:inherit;
       font-weight:900;
+      font-size:13px;
+      line-height:1;
+      padding:12px 14px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      color:var(--text);
       cursor:pointer;
       user-select:none;
       -webkit-tap-highlight-color:transparent;
@@ -149,79 +138,55 @@ IMPORTANT
       border-color:transparent;
       color:#fff !important;
     }
-
-    .resultbox{
+    .status{
       border:1px solid var(--border);
-      border-radius:16px;
-      padding:16px;
+      border-radius:12px;
+      padding:10px 12px;
       background:color-mix(in srgb, var(--surface) 96%, #ffffff 4%);
-      display:grid;
-      gap:12px;
-    }
-
-    .heroresult{
-      display:grid;
-      gap:10px;
-      grid-template-columns:1.2fr .8fr .8fr;
-    }
-    @media (max-width:760px){
-      .heroresult{ grid-template-columns:1fr; }
-    }
-
-    .big{
-      border:1px solid var(--border);
-      border-radius:16px;
-      padding:14px;
-      background:var(--surface);
-      display:grid;
-      gap:6px;
-      min-height:92px;
-      align-content:start;
-    }
-    .big .k{
-      font-size:12px;
-      font-weight:900;
-      color:var(--muted,#67706B);
-      text-transform:uppercase;
-      letter-spacing:.04em;
-    }
-    .big .v{
-      font-size:28px;
-      font-weight:950;
-      line-height:1.05;
-    }
-    .big .s{
-      font-size:12px;
-      color:var(--muted,#67706B);
-    }
-
-    .kv{
-      display:grid;
-      grid-template-columns:180px 1fr;
-      gap:8px 12px;
-      align-items:start;
-    }
-    @media (max-width:760px){
-      .kv{ grid-template-columns:1fr; }
-    }
-    .kv .k{
-      font-weight:900;
-      font-size:12px;
-      color:var(--muted,#67706B);
-    }
-    .kv .v{
-      min-width:0;
+      font-size:13px;
+      line-height:1.35;
+      white-space:pre-wrap;
       word-break:break-word;
     }
-
-    .mono{
-      font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    .status.ok{
+      border-color:color-mix(in srgb, var(--accent) 35%, var(--border) 65%);
+      background:color-mix(in srgb, var(--accent) 8%, var(--surface) 92%);
     }
-
-    .ok{ color:#1f7a36; }
-    .warn{ color:#9a6700; }
-    .bad{ color:#b42318; }
-
+    .status.err{
+      border-color:rgba(176,0,32,.28);
+      background:rgba(176,0,32,.06);
+    }
+    .kgrid{
+      display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:10px;
+    }
+    @media (max-width:760px){
+      .kgrid{ grid-template-columns:1fr; }
+    }
+    .kcard{
+      border:1px solid var(--border);
+      border-radius:14px;
+      padding:12px;
+      background:color-mix(in srgb, var(--surface) 96%, #ffffff 4%);
+    }
+    .klabel{
+      font-size:12px;
+      font-weight:900;
+      margin-bottom:6px;
+      color:var(--muted,#67706B);
+      text-transform:uppercase;
+      letter-spacing:.03em;
+    }
+    .kvalue{
+      font-size:22px;
+      font-weight:900;
+      line-height:1.1;
+      word-break:break-word;
+    }
+    .mono{
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+    }
     details{
       border:1px solid var(--border);
       border-radius:14px;
@@ -234,19 +199,42 @@ IMPORTANT
       padding:12px 14px;
       font-weight:900;
       border-bottom:1px solid var(--border);
-      background:color-mix(in srgb, var(--surface) 93%, #ffffff 7%);
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
     }
     summary::-webkit-details-marker{ display:none; }
-    .details-body{
+    .detail-body{
       padding:12px;
       display:grid;
-      gap:12px;
+      gap:10px;
     }
-
+    .pre{
+      margin:0;
+      padding:12px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:color-mix(in srgb, var(--surface) 96%, #ffffff 4%);
+      overflow:auto;
+      white-space:pre-wrap;
+      word-break:break-word;
+      font-size:12px;
+      line-height:1.35;
+    }
     table{
       width:100%;
       border-collapse:collapse;
-      min-width:780px;
+      min-width:760px;
+    }
+    th,td{
+      padding:8px 10px;
+      border-bottom:1px solid var(--border);
+      text-align:left;
+      font-size:12px;
+      vertical-align:top;
+      white-space:nowrap;
+    }
+    th{
+      font-weight:900;
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
     }
     .table-wrap{
       overflow:auto;
@@ -254,33 +242,7 @@ IMPORTANT
       border-radius:12px;
       background:var(--surface);
     }
-    th,td{
-      border-bottom:1px solid var(--border);
-      padding:8px 10px;
-      font-size:12px;
-      white-space:nowrap;
-      text-align:left;
-      vertical-align:top;
-    }
-    th{
-      position:sticky;
-      top:0;
-      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
-      font-weight:900;
-    }
-    tr:last-child td{ border-bottom:none; }
-
-    .pill{
-      display:inline-flex;
-      align-items:center;
-      gap:6px;
-      padding:6px 10px;
-      border-radius:999px;
-      border:1px solid var(--border);
-      background:color-mix(in srgb, var(--surface) 94%, #ffffff 6%);
-      font-size:12px;
-      font-weight:900;
-    }
+    .right{ text-align:right; }
   </style>
 </head>
 <body>
@@ -288,151 +250,163 @@ IMPORTANT
     <section class="card">
       <div class="head">
         <h1>Field Readiness Dev</h1>
-        <div class="muted" style="margin-top:6px;">
-          Single-field debug page. No tile renderer. Direct Firestore lookup + actual model math.
-        </div>
+        <div class="muted">Single-field debug page. No tile renderer. Direct Firestore lookup + actual model math.</div>
       </div>
 
       <div class="body">
-        <div class="grid">
+        <div id="bootStatus" class="status">Booting dev page…</div>
+
+        <div class="row">
           <div class="field">
-            <label for="ptrOrId">FIELD PTR OR FIELD ID</label>
-            <input id="ptrOrId" class="input" type="text" placeholder="Example: 02Kq4WH8RrGXR4DAyQDz">
+            <label for="fieldKeyInput">FIELD PTR OR FIELD ID</label>
+            <input id="fieldKeyInput" class="input mono" type="text" placeholder="mndh2avo or 02Kq4WH8RrGXR4DAyQDz" />
           </div>
           <div class="field">
-            <label for="threshold">THRESHOLD</label>
-            <input id="threshold" class="input" type="number" min="0" max="100" step="1" value="85">
+            <label for="thresholdInput">THRESHOLD</label>
+            <input id="thresholdInput" class="input mono" type="number" min="0" max="100" step="1" value="85" />
           </div>
         </div>
 
-        <div class="grid3">
+        <div class="row3">
           <div class="field">
-            <label for="fieldCollections">FIELD COLLECTIONS</label>
-            <input id="fieldCollections" class="input" type="text" value="fields, field_boundaries, field_profiles">
+            <label for="fieldCollectionsInput">FIELD COLLECTIONS</label>
+            <input id="fieldCollectionsInput" class="input mono" type="text" value="fields,field_boundaries,field_profiles" />
           </div>
           <div class="field">
-            <label for="latestCollection">LATEST COLLECTION</label>
-            <input id="latestCollection" class="input" type="text" value="field_readiness_latest">
+            <label for="latestCollectionInput">LATEST COLLECTION</label>
+            <input id="latestCollectionInput" class="input mono" type="text" value="field_readiness_latest" />
           </div>
           <div class="field">
-            <label for="weatherCollection">WEATHER CACHE COLLECTION</label>
-            <input id="weatherCollection" class="input" type="text" value="field_weather_cache">
+            <label for="weatherCollectionInput">WEATHER CACHE COLLECTION</label>
+            <input id="weatherCollectionInput" class="input mono" type="text" value="field_weather_cache" />
           </div>
         </div>
 
         <div class="btnrow">
           <button id="runBtn" class="btn btn-primary" type="button">Run Dev Test</button>
-          <button id="copyBtn" class="btn" type="button">Copy Test URL</button>
-          <button id="useLatestBtn" class="btn" type="button">Use Latest Doc Field ID</button>
+          <button id="copyUrlBtn" class="btn" type="button">Copy Test URL</button>
+          <button id="useLatestIdBtn" class="btn" type="button">Use Latest Doc Field ID</button>
         </div>
 
-        <div class="resultbox">
-          <div class="heroresult">
-            <div class="big">
-              <div class="k">Field</div>
-              <div class="v" id="fieldName">—</div>
-              <div class="s" id="fieldMeta">No field loaded yet.</div>
-            </div>
+        <div id="runStatus" class="status">Waiting to run.</div>
 
-            <div class="big">
-              <div class="k">Model Output</div>
-              <div class="v" id="readinessValue">—</div>
-              <div class="s" id="readinessSub">Readiness</div>
-            </div>
-
-            <div class="big">
-              <div class="k">ETA</div>
-              <div class="v" id="etaValue">—</div>
-              <div class="s" id="etaSub">Threshold <span id="etaThreshold">85</span></div>
-            </div>
+        <div class="kgrid">
+          <div class="kcard">
+            <div class="klabel">FIELD</div>
+            <div id="fieldTitle" class="kvalue">—</div>
+            <div id="fieldSub" class="muted" style="margin-top:6px;">No field loaded yet.</div>
           </div>
 
-          <div class="kv">
-            <div class="k">Field doc source</div>
-            <div class="v mono" id="fieldDocSource">—</div>
-
-            <div class="k">Latest doc source</div>
-            <div class="v mono" id="latestDocSource">—</div>
-
-            <div class="k">Weather source found</div>
-            <div class="v mono" id="weatherSourceFound">—</div>
-
-            <div class="k">Math file</div>
-            <div class="v mono">/Farm-vista/js/field-readiness.model.js</div>
-
-            <div class="k">Model function</div>
-            <div class="v mono">runField(field, deps)</div>
-
-            <div class="k">ETA function</div>
-            <div class="v mono">etaToThreshold(field, deps, threshold, 168)</div>
+          <div class="kcard">
+            <div class="klabel">MODEL OUTPUT</div>
+            <div id="readinessValue" class="kvalue">—</div>
+            <div class="muted" style="margin-top:6px;">Readiness</div>
           </div>
 
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <span class="pill">History rows: <span class="mono" id="histCount">0</span></span>
-            <span class="pill">Forecast rows: <span class="mono" id="fcstCount">0</span></span>
-            <span class="pill">Merged rows: <span class="mono" id="mergedCount">0</span></span>
-            <span class="pill">Seed source: <span class="mono" id="seedSource">—</span></span>
-            <span class="pill">Storage final: <span class="mono" id="storageFinal">—</span></span>
-            <span class="pill">Surface storage final: <span class="mono" id="surfaceFinal">—</span></span>
+          <div class="kcard">
+            <div class="klabel">ETA</div>
+            <div id="etaValue" class="kvalue">—</div>
+            <div id="etaSub" class="muted" style="margin-top:6px;">Threshold 85</div>
           </div>
+        </div>
+
+        <div class="kgrid">
+          <div class="kcard">
+            <div class="klabel">Field doc source</div>
+            <div id="fieldSource" class="mono">—</div>
+          </div>
+          <div class="kcard">
+            <div class="klabel">Latest doc source</div>
+            <div id="latestSource" class="mono">—</div>
+          </div>
+          <div class="kcard">
+            <div class="klabel">Weather source found</div>
+            <div id="weatherSource" class="mono">—</div>
+          </div>
+        </div>
+
+        <div class="kgrid">
+          <div class="kcard">
+            <div class="klabel">Math file</div>
+            <div class="mono">/Farm-vista/js/field-readiness.model.js</div>
+          </div>
+          <div class="kcard">
+            <div class="klabel">Model function</div>
+            <div class="mono">runField(field, deps)</div>
+          </div>
+          <div class="kcard">
+            <div class="klabel">ETA function</div>
+            <div class="mono">etaToThreshold(field, deps, threshold, 168)</div>
+          </div>
+        </div>
+
+        <div class="kgrid">
+          <div class="kcard"><div class="klabel">History rows</div><div id="histCount" class="kvalue">0</div></div>
+          <div class="kcard"><div class="klabel">Forecast rows</div><div id="fcstCount" class="kvalue">0</div></div>
+          <div class="kcard"><div class="klabel">Merged rows</div><div id="mergedCount" class="kvalue">0</div></div>
+        </div>
+
+        <div class="kgrid">
+          <div class="kcard"><div class="klabel">Seed source</div><div id="seedSource" class="mono">—</div></div>
+          <div class="kcard"><div class="klabel">Storage final</div><div id="storageFinal" class="mono">—</div></div>
+          <div class="kcard"><div class="klabel">Surface storage final</div><div id="surfaceStorageFinal" class="mono">—</div></div>
         </div>
 
         <details open>
           <summary>Lookup Debug</summary>
-          <div class="details-body">
-            <textarea id="lookupDebug" class="textarea" readonly></textarea>
+          <div class="detail-body">
+            <pre id="lookupDebug" class="pre">—</pre>
           </div>
         </details>
 
         <details>
           <summary>Resolved Field Doc</summary>
-          <div class="details-body">
-            <textarea id="fieldJson" class="textarea" readonly></textarea>
+          <div class="detail-body">
+            <pre id="fieldDocDebug" class="pre">—</pre>
           </div>
         </details>
 
         <details>
           <summary>Resolved Latest Doc</summary>
-          <div class="details-body">
-            <textarea id="latestJson" class="textarea" readonly></textarea>
+          <div class="detail-body">
+            <pre id="latestDocDebug" class="pre">—</pre>
           </div>
         </details>
 
         <details>
           <summary>Resolved Weather / Forecast</summary>
-          <div class="details-body">
-            <textarea id="weatherJson" class="textarea" readonly></textarea>
+          <div class="detail-body">
+            <pre id="weatherDebug" class="pre">—</pre>
           </div>
         </details>
 
         <details>
           <summary>Model Result</summary>
-          <div class="details-body">
-            <textarea id="modelJson" class="textarea" readonly></textarea>
+          <div class="detail-body">
+            <pre id="modelDebug" class="pre">—</pre>
           </div>
         </details>
 
         <details>
           <summary>Trace (last 30 rows)</summary>
-          <div class="details-body">
+          <div class="detail-body">
             <div class="table-wrap">
               <table>
                 <thead>
                   <tr>
                     <th>Date</th>
-                    <th>Rain</th>
+                    <th class="right">Rain</th>
                     <th>Source</th>
-                    <th>Before</th>
-                    <th>After</th>
-                    <th>Surface Before</th>
-                    <th>Surface After</th>
-                    <th>Add</th>
-                    <th>Loss</th>
-                    <th>DryPwr</th>
+                    <th class="right">Before</th>
+                    <th class="right">After</th>
+                    <th class="right">Surface Before</th>
+                    <th class="right">Surface After</th>
+                    <th class="right">Loss</th>
+                    <th class="right">DryPwr</th>
                   </tr>
                 </thead>
                 <tbody id="traceRows">
-                  <tr><td colspan="10" class="muted">Run the dev test.</td></tr>
+                  <tr><td colspan="9" class="muted">No trace yet.</td></tr>
                 </tbody>
               </table>
             </div>
@@ -443,605 +417,609 @@ IMPORTANT
   </div>
 
   <script type="module">
-    import { initializeApp, getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-    import {
-      getFirestore,
-      doc,
-      getDoc,
-      collection,
-      getDocs,
-      query,
-      where,
-      limit
-    } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
-
+    import { getAPI } from '/Farm-vista/js/field-readiness/firebase.js';
     import { runField, etaToThreshold } from '/Farm-vista/js/field-readiness.model.js';
 
     const $ = (id)=> document.getElementById(id);
 
     const els = {
-      ptrOrId: $('ptrOrId'),
-      threshold: $('threshold'),
-      fieldCollections: $('fieldCollections'),
-      latestCollection: $('latestCollection'),
-      weatherCollection: $('weatherCollection'),
+      bootStatus: $('bootStatus'),
+      runStatus: $('runStatus'),
+      fieldKeyInput: $('fieldKeyInput'),
+      thresholdInput: $('thresholdInput'),
+      fieldCollectionsInput: $('fieldCollectionsInput'),
+      latestCollectionInput: $('latestCollectionInput'),
+      weatherCollectionInput: $('weatherCollectionInput'),
       runBtn: $('runBtn'),
-      copyBtn: $('copyBtn'),
-      useLatestBtn: $('useLatestBtn'),
+      copyUrlBtn: $('copyUrlBtn'),
+      useLatestIdBtn: $('useLatestIdBtn'),
 
-      fieldName: $('fieldName'),
-      fieldMeta: $('fieldMeta'),
+      fieldTitle: $('fieldTitle'),
+      fieldSub: $('fieldSub'),
       readinessValue: $('readinessValue'),
-      readinessSub: $('readinessSub'),
       etaValue: $('etaValue'),
       etaSub: $('etaSub'),
-      etaThreshold: $('etaThreshold'),
 
-      fieldDocSource: $('fieldDocSource'),
-      latestDocSource: $('latestDocSource'),
-      weatherSourceFound: $('weatherSourceFound'),
+      fieldSource: $('fieldSource'),
+      latestSource: $('latestSource'),
+      weatherSource: $('weatherSource'),
 
       histCount: $('histCount'),
       fcstCount: $('fcstCount'),
       mergedCount: $('mergedCount'),
       seedSource: $('seedSource'),
       storageFinal: $('storageFinal'),
-      surfaceFinal: $('surfaceFinal'),
+      surfaceStorageFinal: $('surfaceStorageFinal'),
 
       lookupDebug: $('lookupDebug'),
-      fieldJson: $('fieldJson'),
-      latestJson: $('latestJson'),
-      weatherJson: $('weatherJson'),
-      modelJson: $('modelJson'),
+      fieldDocDebug: $('fieldDocDebug'),
+      latestDocDebug: $('latestDocDebug'),
+      weatherDebug: $('weatherDebug'),
+      modelDebug: $('modelDebug'),
       traceRows: $('traceRows')
     };
 
-    function safeStr(v){ return String(v ?? '').trim(); }
-    function safeNum(v, d = null){
+    const state = {
+      api: null,
+      lastLatestDoc: null,
+      lastFieldDoc: null,
+      lastWeatherDoc: null
+    };
+
+    function safeStr(v){
+      return String(v == null ? '' : v).trim();
+    }
+    function safeNum(v, fallback = null){
       const n = Number(v);
-      return Number.isFinite(n) ? n : d;
+      return Number.isFinite(n) ? n : fallback;
     }
-    function pretty(x){
-      try{ return JSON.stringify(x ?? null, null, 2); }
-      catch(_){ return String(x); }
+    function setStatus(el, msg, kind = ''){
+      if (!el) return;
+      el.textContent = String(msg || '');
+      el.className = 'status' + (kind ? ' ' + kind : '');
     }
-    function parseCsv(v){
-      return String(v || '')
+    function setText(idEl, value){
+      if (!idEl) return;
+      idEl.textContent = String(value == null || value === '' ? '—' : value);
+    }
+    function pretty(obj){
+      try{
+        return JSON.stringify(obj, null, 2);
+      }catch(_){
+        return String(obj);
+      }
+    }
+    function getUrlForCopy(){
+      const url = new URL(window.location.href);
+      const key = safeStr(els.fieldKeyInput.value);
+      const thr = safeStr(els.thresholdInput.value || '85');
+
+      if (key) url.searchParams.set('id', key);
+      else url.searchParams.delete('id');
+
+      url.searchParams.set('threshold', thr);
+      return url.toString();
+    }
+    function applyUrlToInputs(){
+      const url = new URL(window.location.href);
+      const key = safeStr(url.searchParams.get('id') || url.searchParams.get('ptr') || '');
+      const thr = safeStr(url.searchParams.get('threshold') || '85');
+
+      if (key) els.fieldKeyInput.value = key;
+      if (thr) els.thresholdInput.value = thr;
+    }
+    function getCollectionList(){
+      return safeStr(els.fieldCollectionsInput.value)
         .split(',')
-        .map(s => s.trim())
+        .map(s => safeStr(s))
         .filter(Boolean);
     }
-    function setText(el, txt){
-      if (el) el.textContent = String(txt ?? '—');
-    }
-    function setArea(el, val){
-      if (el) el.value = pretty(val);
-    }
-    function qp(name){
-      return new URL(location.href).searchParams.get(name) || '';
-    }
-    function setStatusEmpty(){
-      setText(els.fieldName, '—');
-      setText(els.fieldMeta, 'No field loaded yet.');
-      setText(els.readinessValue, '—');
-      setText(els.etaValue, '—');
-      setText(els.fieldDocSource, '—');
-      setText(els.latestDocSource, '—');
-      setText(els.weatherSourceFound, '—');
-      setText(els.histCount, '0');
-      setText(els.fcstCount, '0');
-      setText(els.mergedCount, '0');
-      setText(els.seedSource, '—');
-      setText(els.storageFinal, '—');
-      setText(els.surfaceFinal, '—');
-      setArea(els.fieldJson, {});
-      setArea(els.latestJson, {});
-      setArea(els.weatherJson, {});
-      setArea(els.modelJson, {});
-      els.traceRows.innerHTML = '<tr><td colspan="10" class="muted">Run the dev test.</td></tr>';
-    }
 
-    async function getFirebaseConfig(){
-      const cfg =
-        window.FV_FIREBASE_CONFIG ||
-        window.__FV_FIREBASE_CONFIG ||
-        window.firebaseConfig ||
-        null;
+    async function getDocById(api, collectionName, docId){
+      if (!api || !collectionName || !docId) return null;
 
-      if (cfg && typeof cfg === 'object') return cfg;
-
-      try{
-        await import('/Farm-vista/js/firebase-config.js');
-      }catch(_){}
-
-      const cfg2 =
-        window.FV_FIREBASE_CONFIG ||
-        window.__FV_FIREBASE_CONFIG ||
-        window.firebaseConfig ||
-        null;
-
-      if (cfg2 && typeof cfg2 === 'object') return cfg2;
-
-      throw new Error('Firebase config not found on window after loading /Farm-vista/js/firebase-config.js');
-    }
-
-    async function getDb(){
-      const cfg = await getFirebaseConfig();
-      const app = getApps().length ? getApp() : initializeApp(cfg);
-      return getFirestore(app);
-    }
-
-    async function tryGetDoc(db, collectionName, docId, tried){
-      tried.push(\`doc:\${collectionName}/\${docId}\`);
-      try{
-        const snap = await getDoc(doc(db, collectionName, docId));
-        if (snap.exists()){
-          return {
-            id: snap.id,
-            data: snap.data() || {},
-            source: \`doc:\${collectionName}/\${docId}\`
-          };
-        }
-      }catch(_){}
-      return null;
-    }
-
-    async function tryWhereOne(db, collectionName, fieldName, value, tried){
-      tried.push(\`where:\${collectionName}.\${fieldName} == \${value}\`);
-      try{
-        const q = query(collection(db, collectionName), where(fieldName, '==', value), limit(1));
-        const snap = await getDocs(q);
-        if (!snap.empty){
-          const d = snap.docs[0];
-          return {
-            id: d.id,
-            data: d.data() || {},
-            source: \`where:\${collectionName}.\${fieldName} == \${value}\`
-          };
-        }
-      }catch(_){}
-      return null;
-    }
-
-    async function resolveLatestDoc(db, latestCollection, value, tried){
-      const lookups = [
-        ()=> tryGetDoc(db, latestCollection, value, tried),
-        ()=> tryWhereOne(db, latestCollection, 'fieldId', value, tried),
-        ()=> tryWhereOne(db, latestCollection, 'ptr', value, tried),
-        ()=> tryWhereOne(db, latestCollection, 'fieldPtr', value, tried),
-        ()=> tryWhereOne(db, latestCollection, 'id', value, tried),
-        ()=> tryWhereOne(db, latestCollection, 'docId', value, tried)
-      ];
-
-      for (const fn of lookups){
-        const hit = await fn();
-        if (hit) return hit;
-      }
-      return null;
-    }
-
-    async function resolveFieldDoc(db, value, fieldCollections, latestCollection, tried){
-      for (const c of fieldCollections){
-        const docHit = await tryGetDoc(db, c, value, tried);
-        if (docHit){
-          return {
-            collection: c,
-            field: { id: docHit.id, ...(docHit.data || {}) },
-            source: docHit.source
-          };
-        }
+      if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
+        const db = window.firebase.firestore();
+        const snap = await db.collection(collectionName).doc(docId).get();
+        if (!snap.exists) return null;
+        return { id: snap.id, data: snap.data() || {}, source: `doc:${collectionName}/${docId}` };
       }
 
-      const whereFields = ['ptr','fieldPtr','slug','shortId','fieldId','id','docId','name'];
-      for (const c of fieldCollections){
-        for (const f of whereFields){
-          const hit = await tryWhereOne(db, c, f, value, tried);
+      const db = api.getFirestore();
+      const ref = api.doc(db, collectionName, docId);
+      const snap = await api.getDoc(ref);
+      if (!snap.exists()) return null;
+      return { id: snap.id, data: snap.data() || {}, source: `doc:${collectionName}/${docId}` };
+    }
+
+    async function queryWhereEq(api, collectionName, fieldName, value){
+      if (!api || !collectionName || !fieldName) return null;
+
+      if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
+        const db = window.firebase.firestore();
+        const snap = await db.collection(collectionName).where(fieldName, '==', value).limit(1).get();
+        if (snap.empty) return null;
+        const doc = snap.docs[0];
+        return { id: doc.id, data: doc.data() || {}, source: `where:${collectionName}.${fieldName} == ${value}` };
+      }
+
+      const db = api.getFirestore();
+      const col = api.collection(db, collectionName);
+      const q = api.query(col, api.where(fieldName, '==', value), api.limit(1));
+      const snap = await api.getDocs(q);
+      if (snap.empty) return null;
+      const doc = snap.docs[0];
+      return { id: doc.id, data: doc.data() || {}, source: `where:${collectionName}.${fieldName} == ${value}` };
+    }
+
+    async function resolveLatestDoc(api, latestCollection, key, tried){
+      const direct = await getDocById(api, latestCollection, key);
+      if (direct){
+        tried.push(direct.source);
+        return direct;
+      }
+      tried.push(`doc:${latestCollection}/${key}`);
+
+      for (const fld of ['fieldId', 'ptr', 'fieldPtr', 'id']){
+        const hit = await queryWhereEq(api, latestCollection, fld, key);
+        if (hit){
+          tried.push(hit.source);
+          return hit;
+        }
+        tried.push(`where:${latestCollection}.${fld} == ${key}`);
+      }
+
+      return null;
+    }
+
+    async function resolveWeatherDoc(api, weatherCollection, key, tried){
+      const direct = await getDocById(api, weatherCollection, key);
+      if (direct){
+        tried.push(direct.source);
+        return direct;
+      }
+      tried.push(`doc:${weatherCollection}/${key}`);
+
+      for (const fld of ['fieldId', 'ptr', 'fieldPtr', 'id']){
+        const hit = await queryWhereEq(api, weatherCollection, fld, key);
+        if (hit){
+          tried.push(hit.source);
+          return hit;
+        }
+        tried.push(`where:${weatherCollection}.${fld} == ${key}`);
+      }
+
+      return null;
+    }
+
+    async function resolveFieldDoc(api, fieldCollections, key, latestDoc, weatherDoc, tried){
+      for (const collectionName of fieldCollections){
+        const direct = await getDocById(api, collectionName, key);
+        if (direct){
+          tried.push(direct.source);
+          return { ...direct, collection: collectionName };
+        }
+        tried.push(`doc:${collectionName}/${key}`);
+      }
+
+      for (const collectionName of fieldCollections){
+        for (const fld of ['ptr', 'fieldPtr', 'slug', 'shortId', 'fieldId', 'id']){
+          const hit = await queryWhereEq(api, collectionName, fld, key);
           if (hit){
-            return {
-              collection: c,
-              field: { id: hit.id, ...(hit.data || {}) },
-              source: hit.source
-            };
+            tried.push(hit.source);
+            return { ...hit, collection: collectionName };
           }
+          tried.push(`where:${collectionName}.${fld} == ${key}`);
         }
       }
 
-      const latestHit = await resolveLatestDoc(db, latestCollection, value, tried);
-      if (latestHit){
-        const d = latestHit.data || {};
-        const fid = safeStr(d.fieldId || latestHit.id);
-        const name = safeStr(d.fieldName);
+      // synthesize from latest or weather if real field doc is missing
+      const synthSource = latestDoc || weatherDoc;
+      if (synthSource){
+        const d = synthSource.data || {};
+        const fieldId = safeStr(d.fieldId || synthSource.id || key);
         return {
-          collection: '(from latest fallback)',
-          field: {
-            id: fid || latestHit.id,
-            fieldId: fid || latestHit.id,
-            name: name || 'Unknown field from latest doc',
-            farmId: safeStr(d.farmId),
-            farmName: safeStr(d.farmName),
-            county: safeStr(d.county),
-            state: safeStr(d.state),
-            location: d.location || null,
-            lat: safeNum(d?.location?.lat),
-            lng: safeNum(d?.location?.lng)
+          id: fieldId,
+          data: {
+            fieldId,
+            id: fieldId,
+            name: d.fieldName || d.name || 'Field',
+            fieldName: d.fieldName || d.name || 'Field',
+            farmId: d.farmId || '',
+            farmName: d.farmName || '',
+            county: d.county || '',
+            state: d.state || '',
+            lat: safeNum(d.lat ?? d.location?.lat ?? d.center?.lat, null),
+            lng: safeNum(d.lng ?? d.location?.lng ?? d.center?.lng, null),
+            location: {
+              lat: safeNum(d.location?.lat ?? d.lat ?? d.center?.lat, null),
+              lng: safeNum(d.location?.lng ?? d.lng ?? d.center?.lng, null)
+            }
           },
-          source: \`latest fallback -> \${latestHit.source}\`,
-          latestFallback: latestHit
+          source: `synthetic:${synthSource.source}`,
+          collection: '(synthetic)'
         };
       }
 
       return null;
     }
 
-    function normalizeDailyRow(raw, fallbackSource = 'unknown'){
-      const r = raw || {};
-      const dateISO =
-        safeStr(r.dateISO) ||
-        safeStr(r.date).slice(0,10) ||
-        safeStr(r.day).slice(0,10) ||
-        safeStr(r.timeISO).slice(0,10) ||
-        safeStr(r.timestampISO).slice(0,10);
+    function normalizeField(fieldDoc, latestDoc, weatherDoc, lookupKey){
+      const fd = (fieldDoc && fieldDoc.data) || {};
+      const ld = (latestDoc && latestDoc.data) || {};
+      const wd = (weatherDoc && weatherDoc.data) || {};
 
-      if (!dateISO) return null;
+      const id =
+        safeStr(fd.id || fd.fieldId || fieldDoc?.id || ld.fieldId || latestDoc?.id || wd.fieldId || weatherDoc?.id || lookupKey);
+
+      const lat =
+        safeNum(fd.lat ?? fd.location?.lat ?? ld.location?.lat ?? wd.location?.lat ?? wd.lat, null);
+      const lng =
+        safeNum(fd.lng ?? fd.location?.lng ?? ld.location?.lng ?? wd.location?.lng ?? wd.lng, null);
 
       return {
-        dateISO,
-        rainInAdj:
-          safeNum(r.rainInAdj,
-          safeNum(r.rainIn,
-          safeNum(r.precipIn,
-          safeNum(r.precipitationIn, 0)))),
+        id,
+        fieldId: id,
+        name: safeStr(fd.name || fd.fieldName || ld.fieldName || wd.fieldName || 'Field'),
+        fieldName: safeStr(fd.fieldName || fd.name || ld.fieldName || wd.fieldName || 'Field'),
+        farmId: safeStr(fd.farmId || ld.farmId || wd.farmId || ''),
+        farmName: safeStr(fd.farmName || ld.farmName || wd.farmName || ''),
+        county: safeStr(fd.county || ld.county || wd.county || ''),
+        state: safeStr(fd.state || ld.state || wd.state || ''),
+        lat,
+        lng,
+        location: { lat, lng }
+      };
+    }
 
-        rainMrmsIn: safeNum(r.rainMrmsIn),
-        rainSource: safeStr(r.rainSource || r.precipSource || fallbackSource || 'unknown'),
+    function normalizeFieldParams(fieldDoc, latestDoc, weatherDoc){
+      const fd = (fieldDoc && fieldDoc.data) || {};
+      const ld = (latestDoc && latestDoc.data) || {};
+      const wd = (weatherDoc && weatherDoc.data) || {};
 
-        tempF: safeNum(r.tempF, safeNum(r.avgTempF, safeNum(r.temperatureF, 0))),
-        windMph: safeNum(r.windMph, safeNum(r.windSpeedMph, 0)),
-        rh: safeNum(r.rh, safeNum(r.rhPct, safeNum(r.relativeHumidityPct, 0))),
-        solarWm2: safeNum(r.solarWm2, safeNum(r.shortwaveWm2, safeNum(r.shortwaveRadiation, 0))),
-        et0In: safeNum(r.et0In, safeNum(r.et0, safeNum(r.etIn, 0))),
-        sm010: safeNum(r.sm010, safeNum(r.soilMoisture010, safeNum(r.soilMoisture_0_10, null))),
-        st010F: safeNum(r.st010F, safeNum(r.soilTemp010F, safeNum(r.soilTempF_0_10, null))),
-        sunshineHr: safeNum(r.sunshineHr, 0),
-        daylightHr: safeNum(r.daylightHr, 0),
-        vpdKpa: safeNum(r.vpdKpa, null),
-        cloudPct: safeNum(r.cloudPct, null),
+      return {
+        soilWetness: safeNum(
+          fd.soilWetness ??
+          fd.soilWetnessPct ??
+          fd.soilWetness0_100 ??
+          ld.soilWetness ??
+          ld.soilWetnessPct ??
+          wd.soilWetness ??
+          wd.soilWetnessPct,
+          45
+        ),
+        drainageIndex: safeNum(
+          fd.drainageIndex ??
+          fd.drainage ??
+          fd.drainagePct ??
+          ld.drainageIndex ??
+          ld.drainage ??
+          wd.drainageIndex ??
+          wd.drainage,
+          45
+        )
+      };
+    }
+
+    function normalizeWxRow(raw){
+      const r = raw || {};
+      const rainInAdj =
+        safeNum(r.rainMrmsIn, null) ??
+        safeNum(r.rainInAdj, null) ??
+        safeNum(r.rainIn, null) ??
+        safeNum(r.precipIn, null) ??
+        0;
+
+      return {
+        dateISO: safeStr(r.dateISO || r.date || r.day || r.timeISO || '').slice(0, 10),
+        rainInAdj,
+        rainIn: safeNum(r.rainIn, rainInAdj),
+        rainSource: safeStr(r.rainSource || (safeNum(r.rainMrmsIn, null) != null ? 'mrms' : 'open-meteo') || 'unknown'),
+
+        tempF: safeNum(r.tempF ?? r.tempAvgF ?? r.avgTempF, 0),
+        windMph: safeNum(r.windMph ?? r.windSpeedMph, 0),
+        rh: safeNum(r.rh ?? r.rhPct ?? r.relativeHumidityPct, 0),
+        solarWm2: safeNum(r.solarWm2 ?? r.shortwaveWm2 ?? r.shortwaveRadiation, 0),
+        sunshineHr: safeNum(r.sunshineHr ?? r.sunshineHours ?? r.sunshine_duration_hr, 0),
+        daylightHr: safeNum(r.daylightHr ?? r.daylightHours ?? r.daylight_duration_hr, 0),
+        cloudPct: safeNum(r.cloudPct ?? r.cloudCoverPct ?? r.cloud_cover, null),
+        vpdKpa: safeNum(r.vpdKpa ?? r.vpd ?? r.vapour_pressure_deficit_kpa, null),
+        sm010: safeNum(r.sm010 ?? r.soilMoisture010 ?? r.soilMoisture_0_10, null),
+        et0In: safeNum(r.et0In ?? r.etIn ?? r.et0, null),
+
         rainMorningIn: safeNum(r.rainMorningIn, 0),
         rainMiddayIn: safeNum(r.rainMiddayIn, 0),
         rainEveningIn: safeNum(r.rainEveningIn, 0)
       };
     }
 
-    function dedupeDailyRows(rows){
-      const map = new Map();
-      for (const row of (Array.isArray(rows) ? rows : [])){
-        if (!row || !row.dateISO) continue;
-        map.set(String(row.dateISO), row);
-      }
-      return Array.from(map.values()).sort((a,b)=> String(a.dateISO).localeCompare(String(b.dateISO)));
-    }
+    function pickHistoryRows(latestDoc, weatherDoc){
+      const ld = (latestDoc && latestDoc.data) || {};
+      const wd = (weatherDoc && weatherDoc.data) || {};
 
-    async function resolveWeatherDocs(db, fieldId, weatherCollection, latestDoc){
-      const debug = [];
-      let weatherDoc = null;
-
-      const docHit = await tryGetDoc(db, weatherCollection, fieldId, debug);
-      if (docHit){
-        weatherDoc = { id: docHit.id, ...(docHit.data || {}), __source: docHit.source };
-      } else {
-        const alt1 = await tryWhereOne(db, weatherCollection, 'fieldId', fieldId, debug);
-        const alt2 = alt1 ? null : await tryWhereOne(db, weatherCollection, 'id', fieldId, debug);
-        const alt3 = (alt1 || alt2) ? null : await tryWhereOne(db, weatherCollection, 'docId', fieldId, debug);
-        const hit = alt1 || alt2 || alt3;
-        if (hit){
-          weatherDoc = { id: hit.id, ...(hit.data || {}), __source: hit.source };
-        }
-      }
-
-      const latestRaw = latestDoc || {};
-      const weatherRaw = weatherDoc || {};
-
-      const histCandidates = [
-        ...(Array.isArray(weatherRaw.dailySeries30d) ? weatherRaw.dailySeries30d : []),
-        ...(Array.isArray(weatherRaw.dailySeries) ? weatherRaw.dailySeries : []),
-        ...(Array.isArray(weatherRaw.weatherDailySeries) ? weatherRaw.weatherDailySeries : []),
-        ...(Array.isArray(latestRaw.dailySeries30d) ? latestRaw.dailySeries30d : []),
-        ...(Array.isArray(latestRaw.dailySeries) ? latestRaw.dailySeries : []),
-        ...(Array.isArray(latestRaw.weatherDailySeries) ? latestRaw.weatherDailySeries : [])
+      const candidates = [
+        ld.dailySeries30d,
+        ld.dailySeries,
+        ld.weatherDailySeries,
+        ld.wxDailySeries,
+        wd.dailySeries30d,
+        wd.dailySeries,
+        wd.weatherDailySeries,
+        wd.wxDailySeries,
+        wd.rows
       ];
 
-      const fcstCandidates = [
-        ...(Array.isArray(weatherRaw.dailySeriesFcst) ? weatherRaw.dailySeriesFcst : []),
-        ...(Array.isArray(weatherRaw.forecastRows) ? weatherRaw.forecastRows : []),
-        ...(Array.isArray(weatherRaw.weatherForecastRows) ? weatherRaw.weatherForecastRows : []),
-        ...(Array.isArray(weatherRaw.forecastDailyRows) ? weatherRaw.forecastDailyRows : []),
-        ...(Array.isArray(weatherRaw.openMeteoForecastRows) ? weatherRaw.openMeteoForecastRows : []),
+      for (const rows of candidates){
+        if (Array.isArray(rows) && rows.length){
+          return rows.map(normalizeWxRow).filter(r => r.dateISO);
+        }
+      }
+      return [];
+    }
 
-        ...(Array.isArray(latestRaw.dailySeriesFcst) ? latestRaw.dailySeriesFcst : []),
-        ...(Array.isArray(latestRaw.forecastRows) ? latestRaw.forecastRows : []),
-        ...(Array.isArray(latestRaw.weatherForecastRows) ? latestRaw.weatherForecastRows : []),
-        ...(Array.isArray(latestRaw.forecastDailyRows) ? latestRaw.forecastDailyRows : []),
-        ...(Array.isArray(latestRaw.openMeteoForecastRows) ? latestRaw.openMeteoForecastRows : [])
+    function pickForecastRows(latestDoc, weatherDoc){
+      const ld = (latestDoc && latestDoc.data) || {};
+      const wd = (weatherDoc && weatherDoc.data) || {};
+
+      const candidates = [
+        ld.dailySeriesFcst,
+        ld.forecastRows,
+        ld.weatherForecastRows,
+        ld.forecastDailyRows,
+        ld.openMeteoForecastRows,
+        wd.dailySeriesFcst,
+        wd.forecastRows,
+        wd.weatherForecastRows,
+        wd.forecastDailyRows,
+        wd.openMeteoForecastRows
       ];
 
-      const historyRows = dedupeDailyRows(histCandidates.map(r => normalizeDailyRow(r, 'history')).filter(Boolean));
-      const forecastRows = dedupeDailyRows(fcstCandidates.map(r => normalizeDailyRow(r, 'forecast')).filter(Boolean));
-      const mergedRows = dedupeDailyRows([...historyRows, ...forecastRows]);
-
-      let weatherSourceFound = 'none';
-      if (weatherDoc && historyRows.length && forecastRows.length) weatherSourceFound = 'weather cache + forecast';
-      else if (weatherDoc && historyRows.length) weatherSourceFound = 'weather cache history';
-      else if (forecastRows.length && historyRows.length) weatherSourceFound = 'latest doc arrays';
-      else if (forecastRows.length) weatherSourceFound = 'forecast only';
-      else if (historyRows.length) weatherSourceFound = 'history only';
-
-      return {
-        weatherDoc,
-        historyRows,
-        forecastRows,
-        mergedRows,
-        weatherSourceFound,
-        debug
-      };
-    }
-
-    function getFieldParamsFromAny(fieldDoc, latestDoc){
-      const f = fieldDoc || {};
-      const l = latestDoc || {};
-
-      return {
-        soilWetness:
-          safeNum(f.soilWetness,
-          safeNum(f.soilWetnessPct,
-          safeNum(f.soilWetness0_100,
-          safeNum(l.soilWetness, 45)))),
-
-        drainageIndex:
-          safeNum(f.drainageIndex,
-          safeNum(f.drainage,
-          safeNum(f.drainageIndex0_100,
-          safeNum(l.drainageIndex, 45))))
-      };
-    }
-
-    function buildDeps(fieldDoc, historyRows, forecastRows, mergedRows){
-      const fieldParams = getFieldParamsFromAny(fieldDoc.field || {}, fieldDoc.latestRaw || {});
-      return {
-        opKey: 'planting',
-        seedMode: 'rewind',
-        rewindDays: 10,
-        LOSS_SCALE: 0.55,
-        EXTRA: {},
-        CAL: {},
-
-        getFieldParams(fieldId){
-          if (String(fieldId || '') !== String(fieldDoc.field.id || '')) return null;
-          return { ...fieldParams };
-        },
-
-        getModelWeatherSeriesForFieldId(fieldId){
-          if (String(fieldId || '') !== String(fieldDoc.field.id || '')) return [];
-          return historyRows;
-        },
-
-        getMergedWeatherSeriesForFieldId(fieldId){
-          if (String(fieldId || '') !== String(fieldDoc.field.id || '')) return [];
-          return mergedRows;
-        },
-
-        getWeatherSeriesForFieldId(fieldId){
-          if (String(fieldId || '') !== String(fieldDoc.field.id || '')) return [];
-          return mergedRows;
-        },
-
-        getForecastSeriesForFieldId(fieldId){
-          if (String(fieldId || '') !== String(fieldDoc.field.id || '')) return [];
-          return forecastRows;
-        },
-
-        getWxSeriesWithForecastForFieldId(fieldId){
-          if (String(fieldId || '') !== String(fieldDoc.field.id || '')) return [];
-          return mergedRows;
+      for (const rows of candidates){
+        if (Array.isArray(rows) && rows.length){
+          return rows.map(normalizeWxRow).filter(r => r.dateISO);
         }
-      };
+      }
+      return [];
     }
 
-    function renderTrace(trace){
+    function mergeHistoryAndForecast(historyRows, forecastRows){
+      return [...historyRows, ...forecastRows]
+        .filter(r => r && r.dateISO)
+        .sort((a, b)=> String(a.dateISO).localeCompare(String(b.dateISO)));
+    }
+
+    function renderTraceRows(trace){
+      const tbody = els.traceRows;
+      tbody.innerHTML = '';
+
       const rows = Array.isArray(trace) ? trace.slice(-30) : [];
       if (!rows.length){
-        els.traceRows.innerHTML = '<tr><td colspan="10" class="muted">No trace rows.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="muted">No trace yet.</td></tr>';
         return;
       }
 
-      els.traceRows.innerHTML = rows.map(r => \`
-        <tr>
-          <td class="mono">\${safeStr(r.dateISO) || '—'}</td>
-          <td class="mono">\${Number(r.rain || 0).toFixed(2)}</td>
-          <td class="mono">\${safeStr(r.rainSource) || '—'}</td>
-          <td class="mono">\${Number(r.before || 0).toFixed(2)}</td>
-          <td class="mono">\${Number(r.after || 0).toFixed(2)}</td>
-          <td class="mono">\${Number(r.surfaceBefore || 0).toFixed(2)}</td>
-          <td class="mono">\${Number(r.surfaceAfter || 0).toFixed(2)}</td>
-          <td class="mono">\${Number(r.add || 0).toFixed(2)}</td>
-          <td class="mono">\${Number(r.loss || 0).toFixed(2)}</td>
-          <td class="mono">\${Number(r.dryPwr || 0).toFixed(2)}</td>
-        </tr>
-      \`).join('');
+      for (const r of rows){
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${safeStr(r.dateISO || '')}</td>
+          <td class="right mono">${Number(r.rain || 0).toFixed(2)}</td>
+          <td class="mono">${safeStr(r.rainSource || '')}</td>
+          <td class="right mono">${Number(r.before || 0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.after || 0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.surfaceBefore || 0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.surfaceAfter || 0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.loss || 0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.dryPwr || 0).toFixed(2)}</td>
+        `;
+        tbody.appendChild(tr);
+      }
     }
 
-    async function runDev(){
-      setStatusEmpty();
+    async function runDevTest(){
+      const key = safeStr(els.fieldKeyInput.value);
+      const threshold = safeNum(els.thresholdInput.value, 85);
+      const fieldCollections = getCollectionList();
+      const latestCollection = safeStr(els.latestCollectionInput.value) || 'field_readiness_latest';
+      const weatherCollection = safeStr(els.weatherCollectionInput.value) || 'field_weather_cache';
 
-      const value = safeStr(els.ptrOrId.value);
-      const threshold = Math.max(0, Math.min(100, Math.round(Number(els.threshold.value || 85))));
-      const fieldCollections = parseCsv(els.fieldCollections.value);
-      const latestCollection = safeStr(els.latestCollection.value) || 'field_readiness_latest';
-      const weatherCollection = safeStr(els.weatherCollection.value) || 'field_weather_cache';
-
-      setText(els.etaThreshold, String(threshold));
-      setText(els.readinessSub, 'Readiness');
-      setText(els.etaSub, \`Threshold \${threshold}\`);
-
-      if (!value){
-        setText(els.fieldMeta, 'Enter a field ID or ptr.');
-        setArea(els.lookupDebug, 'Missing field ID / ptr.');
+      if (!key){
+        setStatus(els.runStatus, 'Enter a field ptr or id first.', 'err');
         return;
       }
 
-      const tried = [];
-      try{
-        const db = await getDb();
+      setStatus(els.runStatus, `Running dev test for ${key}…`);
+      els.runBtn.disabled = true;
 
-        const fieldResolved = await resolveFieldDoc(db, value, fieldCollections, latestCollection, tried);
-        if (!fieldResolved){
-          setText(els.fieldMeta, 'Field not found.');
-          setArea(els.lookupDebug, \`Field not found. Tried: \${tried.join(' | ')}\`);
-          return;
+      try{
+        const api = state.api || getAPI(window.__FV_FR || {});
+        state.api = api;
+
+        if (!api){
+          throw new Error('Firebase API not available. This page cannot read Firestore yet.');
         }
 
-        const field = fieldResolved.field || {};
-        const fieldId = safeStr(field.id || field.fieldId || value);
+        const tried = [];
 
-        const latestHit = fieldResolved.latestFallback || await resolveLatestDoc(db, latestCollection, fieldId, tried);
-        const latestRaw = latestHit ? (latestHit.data || {}) : {};
+        const latestDoc = await resolveLatestDoc(api, latestCollection, key, tried);
+        const weatherDoc = await resolveWeatherDoc(api, weatherCollection, key, tried);
+        const fieldDoc = await resolveFieldDoc(api, fieldCollections, key, latestDoc, weatherDoc, tried);
 
-        const weatherResolved = await resolveWeatherDocs(db, fieldId, weatherCollection, latestRaw);
-        const historyRows = weatherResolved.historyRows || [];
-        const forecastRows = weatherResolved.forecastRows || [];
-        const mergedRows = weatherResolved.mergedRows || [];
+        state.lastLatestDoc = latestDoc;
+        state.lastFieldDoc = fieldDoc;
+        state.lastWeatherDoc = weatherDoc;
 
-        const fieldDocPack = {
-          field,
-          latestRaw
+        if (!fieldDoc && !latestDoc && !weatherDoc){
+          throw new Error('Field not found. Tried: ' + tried.join(' | '));
+        }
+
+        const field = normalizeField(fieldDoc, latestDoc, weatherDoc, key);
+        const fieldParams = normalizeFieldParams(fieldDoc, latestDoc, weatherDoc);
+
+        const historyRows = pickHistoryRows(latestDoc, weatherDoc);
+        const forecastRows = pickForecastRows(latestDoc, weatherDoc);
+        const mergedRows = mergeHistoryAndForecast(historyRows, forecastRows);
+
+        const deps = {
+          opKey: 'dev_test',
+          seedMode: 'rewind',
+          rewindDays: 10,
+          EXTRA: {},
+          CAL: {},
+
+          getFieldParams: (fieldId)=>{
+            if (String(fieldId) !== String(field.id)) return null;
+            return fieldParams;
+          },
+          getModelWeatherSeriesForFieldId: (fieldId)=>{
+            if (String(fieldId) !== String(field.id)) return [];
+            return mergedRows;
+          },
+          getMergedWeatherSeriesForFieldId: (fieldId)=>{
+            if (String(fieldId) !== String(field.id)) return [];
+            return mergedRows;
+          },
+          getWeatherSeriesForFieldId: (fieldId)=>{
+            if (String(fieldId) !== String(field.id)) return [];
+            return mergedRows;
+          },
+          getForecastSeriesForFieldId: (fieldId)=>{
+            if (String(fieldId) !== String(field.id)) return [];
+            return forecastRows;
+          },
+          getWxSeriesWithForecastForFieldId: (fieldId)=>{
+            if (String(fieldId) !== String(field.id)) return [];
+            return mergedRows;
+          }
         };
 
-        const deps = buildDeps(fieldDocPack, historyRows, forecastRows, mergedRows);
-        const modelRun = runField(field, deps);
+        const run = runField(field, deps);
         const eta = await etaToThreshold(field, deps, threshold, 168);
 
-        setText(els.fieldName, safeStr(field.name || latestRaw.fieldName || fieldId) || 'Unnamed field');
+        setText(els.fieldTitle, field.name || field.fieldName || field.id);
         setText(
-          els.fieldMeta,
+          els.fieldSub,
           [
-            safeStr(fieldId),
-            safeStr(field.farmName || latestRaw.farmName),
-            safeStr(field.county || latestRaw.county),
-            safeStr(field.state || latestRaw.state)
+            field.id ? `ID ${field.id}` : '',
+            field.county ? field.county : '',
+            field.state ? field.state : ''
           ].filter(Boolean).join(' • ') || 'Field loaded'
         );
 
-        setText(els.fieldDocSource, fieldResolved.source || '—');
-        setText(els.latestDocSource, latestHit ? latestHit.source : 'not found');
-        setText(els.weatherSourceFound, weatherResolved.weatherSourceFound || 'none');
+        setText(els.readinessValue, run ? String(run.readinessR) : '—');
+        setText(els.etaValue, eta && eta.text ? eta.text : '—');
+        setText(els.etaSub, `Threshold ${threshold}`);
 
-        setText(els.histCount, String(historyRows.length));
-        setText(els.fcstCount, String(forecastRows.length));
-        setText(els.mergedCount, String(mergedRows.length));
+        setText(els.fieldSource, fieldDoc ? (fieldDoc.source || fieldDoc.collection || '—') : '—');
+        setText(els.latestSource, latestDoc ? latestDoc.source : '—');
+        setText(
+          els.weatherSource,
+          historyRows.length || forecastRows.length
+            ? `history:${historyRows.length} forecast:${forecastRows.length}`
+            : 'none'
+        );
 
-        setArea(els.lookupDebug, {
-          lookupInput: value,
-          tried,
-          weatherLookupTried: weatherResolved.debug,
-          fieldResolvedFrom: fieldResolved.source,
-          latestResolvedFrom: latestHit ? latestHit.source : null
+        setText(els.histCount, historyRows.length);
+        setText(els.fcstCount, forecastRows.length);
+        setText(els.mergedCount, mergedRows.length);
+        setText(els.seedSource, run ? run.seedSource : '—');
+        setText(els.storageFinal, run ? Number(run.storageFinal || 0).toFixed(2) : '—');
+        setText(els.surfaceStorageFinal, run ? Number(run.surfaceStorageFinal || 0).toFixed(2) : '—');
+
+        els.lookupDebug.textContent = tried.join(' | ') || '—';
+        els.fieldDocDebug.textContent = pretty(fieldDoc);
+        els.latestDocDebug.textContent = pretty(latestDoc);
+        els.weatherDebug.textContent = pretty({
+          weatherDoc,
+          historyRowsPreview: historyRows.slice(0, 10),
+          forecastRowsPreview: forecastRows.slice(0, 10)
         });
-
-        setArea(els.fieldJson, field);
-        setArea(els.latestJson, latestRaw);
-        setArea(els.weatherJson, {
-          weatherDoc: weatherResolved.weatherDoc || null,
-          historyRows,
-          forecastRows,
-          mergedRows
-        });
-
-        if (!modelRun){
-          setText(els.readinessValue, '—');
-          setText(els.etaValue, safeStr(eta && eta.text) || 'ETA ?');
-          setText(els.seedSource, '—');
-          setText(els.storageFinal, '—');
-          setText(els.surfaceFinal, '—');
-          setArea(els.modelJson, {
-            modelRun: null,
-            eta,
-            note: 'runField returned null. Most likely no usable history rows or missing params.'
-          });
-          renderTrace([]);
-          return;
-        }
-
-        setText(els.readinessValue, String(Math.round(Number(modelRun.readinessR || 0))));
-        setText(els.etaValue, safeStr(eta && eta.text) || 'ETA ?');
-        setText(els.seedSource, safeStr(modelRun.seedSource) || '—');
-        setText(els.storageFinal, Number(modelRun.storageFinal || 0).toFixed(2));
-        setText(els.surfaceFinal, Number(modelRun.surfaceStorageFinal || 0).toFixed(2));
-
-        setArea(els.modelJson, {
-          modelRun,
+        els.modelDebug.textContent = pretty({
+          field,
+          fieldParams,
+          run,
           eta
         });
 
-        renderTrace(modelRun.trace || []);
+        renderTraceRows(run && run.trace);
+
+        setStatus(
+          els.runStatus,
+          `Run finished.\nField: ${field.name || field.id}\nHistory rows: ${historyRows.length}\nForecast rows: ${forecastRows.length}\nReadiness: ${run ? run.readinessR : '—'}\nETA: ${eta && eta.text ? eta.text : '—'}`,
+          'ok'
+        );
       }catch(err){
-        setText(els.fieldMeta, 'Dev page error.');
-        setArea(els.lookupDebug, {
-          error: String(err && err.message || err),
-          stack: String(err && err.stack || '')
-        });
+        const msg = err && err.message ? err.message : String(err || 'Unknown error');
+        setStatus(els.runStatus, msg, 'err');
+        els.lookupDebug.textContent = msg;
+        els.modelDebug.textContent = pretty({ error: msg });
+      }finally{
+        els.runBtn.disabled = false;
       }
     }
 
-    function copyUrl(){
-      const url = new URL(location.href);
-      url.searchParams.set('id', safeStr(els.ptrOrId.value));
-      url.searchParams.set('threshold', String(Math.max(0, Math.min(100, Math.round(Number(els.threshold.value || 85)))));
-      url.searchParams.set('fieldCollections', safeStr(els.fieldCollections.value));
-      url.searchParams.set('latestCollection', safeStr(els.latestCollection.value));
-      url.searchParams.set('weatherCollection', safeStr(els.weatherCollection.value));
-
-      navigator.clipboard.writeText(url.toString()).then(()=> {
-        els.copyBtn.textContent = 'Copied';
-        setTimeout(()=> els.copyBtn.textContent = 'Copy Test URL', 1200);
-      }).catch(()=>{});
-    }
-
-    function useLatestFieldId(){
+    async function copyUrl(){
+      const url = getUrlForCopy();
       try{
-        const raw = JSON.parse(els.latestJson.value || '{}');
-        const fid = safeStr(raw.fieldId || raw.id || '');
-        if (!fid) return;
-        els.ptrOrId.value = fid;
-      }catch(_){}
+        await navigator.clipboard.writeText(url);
+        setStatus(els.runStatus, 'Copied URL:\n' + url, 'ok');
+      }catch(_){
+        setStatus(els.runStatus, 'Copy failed. Use this URL:\n' + url);
+      }
     }
 
-    function bootFromQuery(){
-      const id = qp('id') || qp('ptr');
-      const threshold = qp('threshold');
-      const fieldCollections = qp('fieldCollections');
-      const latestCollection = qp('latestCollection');
-      const weatherCollection = qp('weatherCollection');
-
-      if (id) els.ptrOrId.value = id;
-      if (threshold) els.threshold.value = threshold;
-      if (fieldCollections) els.fieldCollections.value = fieldCollections;
-      if (latestCollection) els.latestCollection.value = latestCollection;
-      if (weatherCollection) els.weatherCollection.value = weatherCollection;
-
-      if (id) runDev();
+    function useLatestDocFieldId(){
+      const latest = state.lastLatestDoc && state.lastLatestDoc.data ? state.lastLatestDoc.data : null;
+      const fieldId = safeStr(latest && latest.fieldId);
+      if (!fieldId){
+        setStatus(els.runStatus, 'No latest doc fieldId is loaded yet. Run the page once first.', 'err');
+        return;
+      }
+      els.fieldKeyInput.value = fieldId;
+      setStatus(els.runStatus, 'Loaded latest doc fieldId into input:\n' + fieldId, 'ok');
     }
 
-    els.runBtn.addEventListener('click', runDev);
-    els.copyBtn.addEventListener('click', copyUrl);
-    els.useLatestBtn.addEventListener('click', useLatestFieldId);
+    function wireButtons(){
+      if (!els.runBtn) throw new Error('runBtn missing from page');
+      if (!els.copyUrlBtn) throw new Error('copyUrlBtn missing from page');
+      if (!els.useLatestIdBtn) throw new Error('useLatestIdBtn missing from page');
 
-    els.ptrOrId.addEventListener('keydown', (e)=>{
-      if (e.key === 'Enter') runDev();
-    });
-    els.threshold.addEventListener('keydown', (e)=>{
-      if (e.key === 'Enter') runDev();
-    });
+      els.runBtn.addEventListener('click', ()=>{
+        setStatus(els.runStatus, 'Run button clicked…');
+        runDevTest();
+      });
 
-    bootFromQuery();
+      els.copyUrlBtn.addEventListener('click', copyUrl);
+      els.useLatestIdBtn.addEventListener('click', useLatestDocFieldId);
+
+      els.fieldKeyInput.addEventListener('keydown', (e)=>{
+        if (e.key === 'Enter'){
+          e.preventDefault();
+          els.runBtn.click();
+        }
+      });
+    }
+
+    async function boot(){
+      try{
+        applyUrlToInputs();
+        wireButtons();
+        setStatus(els.bootStatus, 'Dev page booted. Button wiring is active.', 'ok');
+
+        const autoKey = safeStr(els.fieldKeyInput.value);
+        if (autoKey){
+          setStatus(els.runStatus, 'Auto-run from URL detected…');
+          await runDevTest();
+        } else {
+          setStatus(els.runStatus, 'Ready. Enter a field ptr or id, then tap Run Dev Test.');
+        }
+      }catch(err){
+        const msg = err && err.message ? err.message : String(err || 'Boot failed');
+        setStatus(els.bootStatus, msg, 'err');
+        setStatus(els.runStatus, msg, 'err');
+      }
+    }
+
+    boot();
   </script>
 </body>
 </html>
