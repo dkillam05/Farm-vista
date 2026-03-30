@@ -932,95 +932,134 @@ function etaMinHoursFloor(readinessNow, rainRecentIn, tune){
 ===================================================================== */
 export async function etaToThreshold(field, deps, threshold, horizonHours=168){
   try{
-    if (!field || !deps) return { ok:false, text:'ETA ?' };
+    if (!field || !deps) return { ok:false, status:'nodata', text:'ETA ?' };
 
-    const thr = Math.max(0, Math.min(100, Number(threshold||0)));
+    const thr = clamp(Number(threshold || 0), 0, 100);
     const run = runField(field, deps);
-    if (!run) return { ok:false, text:'ETA ?' };
+    if (!run) return { ok:false, status:'nodata', text:'ETA ?' };
 
-    let readiness = Number(run.readinessR || 0);
+    const readinessNow = Number(run.readinessR || 0);
 
-    // ALREADY READY
-    if (readiness >= thr){
+    if (readinessNow >= thr){
       return { ok:true, status:'dryNow', hours:0, text:'Now' };
     }
 
-    // ---------- REALISTIC FLOOR ----------
-    let minHours = 0;
-
-    if (readiness <= 70) minHours = 48;
-    else if (readiness <= 80) minHours = 24;
-    else if (readiness <= 90) minHours = 8;
-
-    const recentRain =
-      (run.trace || []).slice(-2).reduce((s,x)=>s+(x.rain||0),0);
-
-    if (recentRain > 0.1) minHours = Math.max(minHours, 24);
-    if (recentRain > 0.25) minHours = Math.max(minHours, 36);
-
-    // ---------- FORECAST ----------
-    let fcst = [];
+    let fcstDaily = [];
     if (deps.getForecastSeriesForFieldId){
-      fcst = await deps.getForecastSeriesForFieldId(field.id) || [];
+      try{
+        const got = deps.getForecastSeriesForFieldId(field.id);
+        fcstDaily = Array.isArray(got) ? got : [];
+      }catch(_){
+        fcstDaily = [];
+      }
     }
 
-    if (!fcst.length){
-      return { ok:true, text:'ETA ?' };
+    if (!fcstDaily.length && deps.getWxSeriesWithForecastForFieldId){
+      try{
+        const merged = deps.getWxSeriesWithForecastForFieldId(field.id);
+        const split = splitHistFcstFromWx(Array.isArray(merged) ? merged : []);
+        fcstDaily = Array.isArray(split.fcst) ? split.fcst : [];
+      }catch(_){
+        fcstDaily = [];
+      }
     }
 
-    const stepsPerDay = 2;
+    if (!fcstDaily.length){
+      return { ok:true, status:'noforecast', text:'ETA ?' };
+    }
+
+    const tune = getTune(deps);
+    const rate = getRateMults(deps);
+    const f = run.factors;
+
+    if (!f || !Number.isFinite(Number(f.Smax))){
+      return { ok:false, status:'badstate', text:'ETA ?' };
+    }
+
+    const steps = buildEtaForecastSteps(fcstDaily, deps, tune);
+    if (!steps.length){
+      return { ok:true, status:'noforecast', text:'ETA ?' };
+    }
+
+    const stepsPerDay = Math.max(1, Number(tune.ETA_STEPS_PER_DAY || 2));
+    const stepFrac = 1 / stepsPerDay;
     const stepHours = 24 / stepsPerDay;
 
-    let prev = readiness;
+    let state = {
+      storagePhys: clamp(Number(run.storagePhysFinal || 0), 0, f.Smax),
+      surfaceStorage: clamp(Number(run.surfaceStorageFinal || 0), 0, tune.SURFACE_CAP_IN),
+      readiness: clamp(Number(run.readinessR || 0), 0, 100),
+      wetness: clamp(Number(run.wetnessR || 0), 0, 100),
+      baseReadiness: clamp(Number(run.baseReadinessR || 0), 0, 100),
+      surfacePenalty: clamp(Number(run.surfacePenaltyR || 0), 0, 100)
+    };
+
+    const recentRainIn = (Array.isArray(run.trace) ? run.trace.slice(-2) : [])
+      .reduce((s, x) => s + Math.max(0, Number((x && x.rain) || 0)), 0);
+
+    const minHours = etaMinHoursFloor(readinessNow, recentRainIn, tune);
+    const maxDailyGain = Math.max(0, Number(tune.ETA_MAX_DAILY_GAIN || 10));
+    const maxStepGain = maxDailyGain * stepFrac;
+    const neededConsecutive = Math.max(1, Number(tune.ETA_REQUIRE_CONSECUTIVE_STEPS || 2));
+
     let hours = 0;
+    let consecutiveAtOrAbove = 0;
 
-    for (let d of fcst.slice(0,10)){
-      for (let s=0; s<stepsPerDay; s++){
+    for (let i = 0; i < steps.length; i++){
+      const next = simulateOneStep(
+        {
+          storagePhys: state.storagePhys,
+          surfaceStorage: state.surfaceStorage
+        },
+        steps[i],
+        stepFrac,
+        f,
+        deps,
+        tune,
+        rate
+      );
 
-        const temp = Number(d.tempF||0);
-        const solar = Number(d.solarWm2||0);
-        const wind = Number(d.windMph||0);
-        const rain = Number(d.rainIn||0);
+      const prevReadiness = clamp(Number(state.readiness || 0), 0, 100);
+      let nextReadiness = clamp(Number(next.readiness || 0), 0, 100);
 
-        const dryPwr =
-          Math.max(0, Math.min(1, (temp-40)/40)) * 0.4 +
-          Math.max(0, Math.min(1, solar/300)) * 0.4 +
-          Math.max(0, Math.min(1, wind/20)) * 0.2;
+      if (Number.isFinite(maxStepGain)){
+        nextReadiness = Math.min(nextReadiness, prevReadiness + maxStepGain);
+      }
 
-        let gain = dryPwr * 6;
-        gain *= 0.5;
+      state = {
+        storagePhys: clamp(Number(next.storagePhys || 0), 0, f.Smax),
+        surfaceStorage: clamp(Number(next.surfaceStorage || 0), 0, tune.SURFACE_CAP_IN),
+        readiness: nextReadiness,
+        wetness: clamp(100 - nextReadiness, 0, 100),
+        baseReadiness: clamp(Number(next.baseReadiness || 0), 0, 100),
+        surfacePenalty: clamp(Number(next.surfacePenalty || 0), 0, 100)
+      };
 
-        const maxStep = 0.18 * stepHours;
-        gain = Math.min(gain, maxStep);
+      hours += stepHours;
 
-        if (rain > 0.1){
-          gain *= 0.2;
-        }
+      if (state.readiness >= thr){
+        consecutiveAtOrAbove += 1;
+      } else {
+        consecutiveAtOrAbove = 0;
+      }
 
-        const next = Math.min(100, prev + gain);
-        hours += stepHours;
+      if (hours >= minHours && consecutiveAtOrAbove >= neededConsecutive){
+        return {
+          ok:true,
+          status:'within',
+          hours:Math.round(hours),
+          text:`~${Math.round(hours)}h`
+        };
+      }
 
-        if (next >= thr && hours >= minHours){
-          return {
-            ok:true,
-            status:'within',
-            hours:Math.round(hours),
-            text:`~${Math.round(hours)}h`
-          };
-        }
-
-        prev = next;
-
-        if (hours >= horizonHours){
-          return { ok:true, status:'beyond', text:`>${horizonHours}h` };
-        }
+      if (hours >= horizonHours){
+        return { ok:true, status:'beyond', text:`>${horizonHours}h` };
       }
     }
 
     return { ok:true, status:'beyond', text:`>${horizonHours}h` };
-
   }catch(_){
-    return { ok:false, text:'ETA ?' };
+    return { ok:false, status:'error', text:'ETA ?' };
   }
 }
 
