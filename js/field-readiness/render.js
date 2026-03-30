@@ -347,6 +347,8 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
   const readinessR = safeInt(rec.readiness);
   if (!Number.isFinite(readinessR)) return null;
 
+  const raw = safeObj(rec && rec._raw) || {};
+
   return {
     ok: true,
     source: 'field_readiness_latest',
@@ -373,8 +375,21 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
     weatherFetchedAtISO: safeStr(rec.weatherFetchedAtISO),
     county: safeStr(rec.county || f.county),
     state: safeStr(rec.state || f.state),
-    trace: [],
-    rows: [],
+
+    trace:
+      Array.isArray(raw.trace) ? raw.trace :
+      Array.isArray(raw.soilMoistureTrace) ? raw.soilMoistureTrace :
+      Array.isArray(raw.surfaceWetnessTrace) ? raw.surfaceWetnessTrace :
+      Array.isArray(raw.soilTrace) ? raw.soilTrace :
+      Array.isArray(raw.surfaceTrace) ? raw.surfaceTrace :
+      Array.isArray(raw.tankTrace) ? raw.tankTrace :
+      [],
+
+    rows:
+      Array.isArray(raw.rows) ? raw.rows :
+      Array.isArray(raw.modelRows) ? raw.modelRows :
+      [],
+
     _latest: rec
   };
 }
@@ -1972,8 +1987,11 @@ function getSoilMoistureSnapshot(runTruth, latestRec, savedRawDoc){
 
   const soilValue =
     safeNum(runTruth && runTruth.storageForReadiness) ??
+    safeNum(runTruth && runTruth.soilWetness) ??
     safeNum(rec.storageForReadiness) ??
+    safeNum(rec.soilWetness) ??
     safeNum(d.storageForReadiness) ??
+    safeNum(d.soilWetness) ??
     safeNum(runTruth && runTruth.storageFinal) ??
     safeNum(rec.storageFinal) ??
     safeNum(d.storageFinal);
@@ -1999,8 +2017,11 @@ function getSurfaceWetnessSnapshot(runTruth, latestRec, savedRawDoc){
 
   const surfaceValue =
     safeNum(runTruth && runTruth.storagePhysFinal) ??
+    safeNum(runTruth && runTruth.wetness) ??
     safeNum(rec.storagePhysFinal) ??
-    safeNum(d.storagePhysFinal);
+    safeNum(rec.wetness) ??
+    safeNum(d.storagePhysFinal) ??
+    safeNum(d.wetness);
 
   return fmtSingleMoisture(surfaceValue);
 }
@@ -3176,8 +3197,8 @@ async function _renderDetailsInternal(state){
   /* ===============================
      ✅ CURRENT MOISTURE SNAPSHOT
   =============================== */
-  setPanelText('currentSoilMoisture', getSoilMoistureSnapshot(runTruth, latest, d));
-  setPanelText('currentSurfaceWetness', getSurfaceWetnessSnapshot(runTruth, latest, d));
+  setPanelText('detailsSoilMoisture', getSoilMoistureSnapshot(runTruth, latest, d));
+  setPanelText('detailsSurfaceWetness', getSurfaceWetnessSnapshot(runTruth, latest, d));
 
   /* ===============================
      ✅ SOIL MOISTURE TRACE
