@@ -851,14 +851,14 @@ function splitHistFcstFromWx(wxSeries){
 ===================================================================== */
 export async function etaToThreshold(field, deps, threshold, horizonHours=168, stepHours=3){
   try{
-    if (!field || !deps) return { ok:false, status:'noData', hours:null, text:'' };
+    if (!field || !deps) return { ok:false, status:'noData', hours:null, text:'No ETA' };
 
-    const thr = clamp(Number(threshold||0), 0, 100);
-    const H = clamp(Number(horizonHours||168), 1, 360);
-    const stepH = clamp(Number(stepHours||3), 1, 12);
+    const thr = clamp(Number(threshold || 0), 0, 100);
+    const H = clamp(Number(horizonHours || 168), 1, 360);
+    const stepH = clamp(Number(stepHours || 3), 1, 12);
 
     const run = runField(field, deps);
-    if (!run) return { ok:false, status:'noData', hours:null, text:'' };
+    if (!run) return { ok:false, status:'noData', hours:null, text:'No ETA' };
 
     let fcstDaily = [];
     if (deps && typeof deps.getForecastSeriesForFieldId === 'function'){
@@ -873,17 +873,17 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
     }
 
     if (!fcstDaily.length){
-      return { ok:true, status:'noForecast', hours:null, text:'' };
+      return { ok:true, status:'noForecast', hours:null, text:'No fcst' };
     }
 
     const tune = getTune(deps);
     const fcst = fcstDaily
       .filter(d => d && d.dateISO)
       .slice(0, 16)
-      .map(d=> normalizeDailyRowForSim(d, deps, tune));
+      .map(d => normalizeDailyRowForSim(d, deps, tune));
 
     if (!fcst.length){
-      return { ok:true, status:'noForecast', hours:null, text:'' };
+      return { ok:true, status:'noForecast', hours:null, text:'No fcst' };
     }
 
     const f = run.factors;
@@ -905,7 +905,7 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
     const dryNowGateR = Number(nowState.readiness);
 
     if (dryNowGateR >= thr){
-      return { ok:true, status:'dryNow', hours:0, text:'' };
+      return { ok:true, status:'dryNow', hours:0, text:'Now' };
     }
 
     let prevR = Math.max(0, Math.min(thr - 1, dryNowGateR));
@@ -913,9 +913,9 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
 
     const steps = Math.ceil(H / stepH);
 
-    for (let s=1; s<=steps; s++){
+    for (let s = 1; s <= steps; s++){
       const tHours = Math.min(H, s * stepH);
-            const stepFrac = stepH / 24;
+      const stepFrac = stepH / 24;
 
       const stepInfo = buildEtaStepRow(fcst, tHours, stepH, deps, tune);
       const row = stepInfo.row;
@@ -933,7 +933,7 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
 
       const lossEt0W = Number(deps.EXTRA && deps.EXTRA.LOSS_ET0_W || 0.08);
       let lossBase =
-        Number(row.dryPwr||0) *
+        Number(row.dryPwr || 0) *
         Number(deps.LOSS_SCALE || 0.55) *
         f.dryMult *
         (1 + (lossEt0W * row.et0N));
@@ -997,7 +997,7 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
         }
 
         const hrs = Math.max(0, Math.round(eta));
-        const outHrs = (Number(dryNowGateR) < thr) ? Math.max(1, hrs) : hrs;
+        const outHrs = Number(dryNowGateR) < thr ? Math.max(1, hrs) : hrs;
 
         if (outHrs <= H) return { ok:true, status:'within', hours:outHrs, text:`~${outHrs}h` };
         return { ok:true, status:'beyond', hours:null, text:`>${Math.round(H)}h` };
@@ -1009,7 +1009,7 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
 
     return { ok:true, status:'beyond', hours:null, text:`>${Math.round(H)}h` };
   }catch(_){
-    return { ok:false, status:'error', hours:null, text:'' };
+    return { ok:false, status:'error', hours:null, text:'ETA err' };
   }
 }
 
@@ -1201,5 +1201,5 @@ export function markerLeftCSS(pct){
  * Legacy ETA function (COMPAT STUB ONLY)
  */
 export function etaFor(_run, _threshold, _ETA_MAX_HOURS){
-  return '';
+  return 'ETA n/a';
 }
