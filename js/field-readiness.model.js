@@ -1029,16 +1029,32 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, _
 
       const tHours = Math.min(H, (i + 1) * stepHours);
 
+           const crossedThisStep = (prevReadiness < thr && rNow >= thr);
+
       if (rNow >= thr){
         consecutiveHit += 1;
       }else{
         consecutiveHit = 0;
       }
 
-      if (prevReadiness < thr && rNow >= thr && consecutiveHit >= tune.ETA_REQUIRE_CONSECUTIVE_STEPS){
-        const denom = rNow - prevReadiness;
-        const fracCross = denom <= 1e-6 ? 1 : clamp((thr - prevReadiness) / denom, 0, 1);
-        const rawEta = prevHours + fracCross * (tHours - prevHours);
+      if (crossedThisStep){
+        state._etaFirstCrossHours = tHours;
+        state._etaFirstCrossPrevHours = prevHours;
+        state._etaFirstCrossPrevReadiness = prevReadiness;
+        state._etaFirstCrossReadiness = rNow;
+      }
+
+      if (
+        consecutiveHit >= tune.ETA_REQUIRE_CONSECUTIVE_STEPS &&
+        Number.isFinite(state._etaFirstCrossHours)
+      ){
+        const crossPrevHours = Number(state._etaFirstCrossPrevHours || 0);
+        const crossPrevReadiness = Number(state._etaFirstCrossPrevReadiness || 0);
+        const crossReadiness = Number(state._etaFirstCrossReadiness || 0);
+
+        const denom = crossReadiness - crossPrevReadiness;
+        const fracCross = denom <= 1e-6 ? 1 : clamp((thr - crossPrevReadiness) / denom, 0, 1);
+        const rawEta = crossPrevHours + fracCross * (state._etaFirstCrossHours - crossPrevHours);
         const eta = Math.max(minFloorHours, Math.round(rawEta));
 
         if (eta <= H) return { ok:true, status:'within', hours:eta, text:`~${eta}h` };
