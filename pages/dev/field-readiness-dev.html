@@ -391,60 +391,130 @@
       throw new Error('Firebase compat firestore not found on window.firebase.firestore()');
     }
 
-    async function getFieldByPtrOrId(db, ptrOrId){
-      const value = safeStr(ptrOrId);
-      if (!value) throw new Error('Missing ptr or id');
+async function getFieldByPtrOrId(db, ptrOrId){
+  const value = safeStr(ptrOrId);
+  if (!value) throw new Error('Missing ptr or id');
 
-      const tried = [];
+  const tried = [];
 
-      async function tryDoc(collectionName, docId){
-        tried.push(`doc:${collectionName}/${docId}`);
-        try{
-          const snap = await db.collection(collectionName).doc(docId).get();
-          if (snap.exists){
-            return {
-              field: { id: snap.id, ...(snap.data() || {}) },
-              collection: collectionName,
-              lookup: `doc id = ${docId}`
-            };
+  async function tryDoc(collectionName, docId){
+    tried.push(`doc:${collectionName}/${docId}`);
+    try{
+      const snap = await db.collection(collectionName).doc(docId).get();
+      if (snap.exists){
+        return {
+          field: { id: snap.id, ...(snap.data() || {}) },
+          collection: collectionName,
+          lookup: `doc id = ${docId}`
+        };
+      }
+    }catch(_){}
+    return null;
+  }
+
+  async function tryWhere(collectionName, fieldName, fieldValue){
+    tried.push(`where:${collectionName}.${fieldName} == ${fieldValue}`);
+    try{
+      const snap = await db.collection(collectionName).where(fieldName, '==', fieldValue).limit(1).get();
+      if (!snap.empty){
+        const doc = snap.docs[0];
+        return {
+          field: { id: doc.id, ...(doc.data() || {}) },
+          collection: collectionName,
+          lookup: `${fieldName} = ${fieldValue}`
+        };
+      }
+    }catch(_){}
+    return null;
+  }
+
+  // 🔹 1) Try main field collections
+  const fieldCollections = ['fields', 'field_boundaries', 'field_profiles'];
+
+  for (const c of fieldCollections){
+    const direct = await tryDoc(c, value);
+    if (direct) return { ...direct, tried };
+  }
+
+  const commonKeys = ['ptr', 'fieldPtr', 'slug', 'shortId', 'fieldId', 'id'];
+
+  for (const c of fieldCollections){
+    for (const k of commonKeys){
+      const hit = await tryWhere(c, k, value);
+      if (hit) return { ...hit, tried };
+    }
+  }
+
+  // 🔹 2) Fallback → field_readiness_latest
+  {
+    const c = 'field_readiness_latest';
+
+    const direct = await tryDoc(c, value);
+    if (direct){
+      return {
+        field: { id: direct.field.id, ...(direct.field || {}) },
+        collection: c,
+        lookup: direct.lookup,
+        tried
+      };
+    }
+
+    for (const k of ['fieldId', 'ptr', 'fieldPtr', 'id']){
+      const hit = await tryWhere(c, k, value);
+      if (hit){
+        const actualFieldId = safeStr(hit.field.fieldId || hit.field.id);
+        if (actualFieldId){
+          for (const baseCol of fieldCollections){
+            const base = await tryDoc(baseCol, actualFieldId);
+            if (base) return { ...base, tried };
           }
-        }catch(_){}
-        return null;
-      }
-
-      async function tryWhere(collectionName, fieldName, fieldValue){
-        tried.push(`where:${collectionName}.${fieldName} == ${fieldValue}`);
-        try{
-          const snap = await db.collection(collectionName).where(fieldName, '==', fieldValue).limit(1).get();
-          if (!snap.empty){
-            const doc = snap.docs[0];
-            return {
-              field: { id: doc.id, ...(doc.data() || {}) },
-              collection: collectionName,
-              lookup: `${fieldName} = ${fieldValue}`
-            };
-          }
-        }catch(_){}
-        return null;
-      }
-
-      const fieldCollections = ['fields', 'field_boundaries', 'field_profiles'];
-
-      for (const c of fieldCollections){
-        const direct = await tryDoc(c, value);
-        if (direct) return { ...direct, tried };
-      }
-
-      const commonKeys = ['ptr', 'fieldPtr', 'slug', 'shortId', 'fieldId'];
-      for (const c of fieldCollections){
-        for (const k of commonKeys){
-          const hit = await tryWhere(c, k, value);
-          if (hit) return { ...hit, tried };
+          return {
+            field: { id: actualFieldId, ...(hit.field || {}) },
+            collection: c,
+            lookup: `${k} = ${value}`,
+            tried
+          };
         }
       }
-
-      throw new Error(`Field not found. Tried: ${tried.join(' | ')}`);
     }
+  }
+
+  // 🔹 3) Fallback → field_weather_cache
+  {
+    const c = 'field_weather_cache';
+
+    const direct = await tryDoc(c, value);
+    if (direct){
+      return {
+        field: { id: direct.field.id, ...(direct.field || {}) },
+        collection: c,
+        lookup: direct.lookup,
+        tried
+      };
+    }
+
+    for (const k of ['fieldId', 'ptr', 'fieldPtr', 'id']){
+      const hit = await tryWhere(c, k, value);
+      if (hit){
+        const actualFieldId = safeStr(hit.field.fieldId || hit.field.id);
+        if (actualFieldId){
+          for (const baseCol of fieldCollections){
+            const base = await tryDoc(baseCol, actualFieldId);
+            if (base) return { ...base, tried };
+          }
+          return {
+            field: { id: actualFieldId, ...(hit.field || {}) },
+            collection: c,
+            lookup: `${k} = ${value}`,
+            tried
+          };
+        }
+      }
+    }
+  }
+
+  throw new Error(`Field not found. Tried: ${tried.join(' | ')}`);
+}
 
     async function getLatestDoc(db, fieldId){
       try{
