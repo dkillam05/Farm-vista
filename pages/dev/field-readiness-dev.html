@@ -1,17 +1,15 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/field-readiness-dev.html  (FULL FILE)
-Rev: 2026-03-30i-dev-page-fix-lookup-recent-docs-rerun
+Rev: 2026-03-30i-dev-page-auth-first-clean-lookup
 
 GOAL:
 ✅ Standalone single-field debug page
 ✅ No tile renderer
-✅ Self-boots Firebase on its own
-✅ Reads Firestore directly
-✅ Runs actual model math from field-readiness.model.js
-✅ Better doc-id vs field-id handling
-✅ Better recent latest-doc browser
-✅ Better nested weather/forecast extraction
-✅ Better synthetic field fallback
+✅ Uses the real field-readiness model math
+✅ Waits for app auth before querying Firestore
+✅ Cleaner lookup flow
+✅ Better recent-doc browser
+✅ Better error text when rules/auth are the real problem
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -29,8 +27,23 @@ GOAL:
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
+  <!-- Keep the same app boot files -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
   <script src="/Farm-vista/js/firebase-init.js"></script>
+
+  <!-- Optional shell boot so auth/app context has a chance to initialize -->
+  <script>
+    (function(){
+      try{
+        if (!customElements.get('fv-shell')){
+          const s = document.createElement('script');
+          s.src = '/Farm-vista/js/fv-shell.js';
+          s.defer = true;
+          document.head.appendChild(s);
+        }
+      }catch(_){}
+    })();
+  </script>
 
   <style>
     :root{
@@ -110,6 +123,8 @@ GOAL:
       padding:12px;
       outline:none;
       box-sizing:border-box;
+      -webkit-appearance:none;
+      appearance:none;
     }
     .input:focus,.select:focus{
       border-color:color-mix(in srgb, var(--accent) 45%, var(--border) 55%);
@@ -142,6 +157,7 @@ GOAL:
     .btn:disabled{
       opacity:.55;
       cursor:not-allowed;
+      transform:none;
     }
     .btn-primary{
       background:var(--accent);
@@ -297,196 +313,198 @@ GOAL:
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <section class="card">
-      <div class="head">
-        <h1>Field Readiness Dev</h1>
-        <div class="muted">Single-field debug page. No tile renderer. Direct Firestore lookup + actual model math.</div>
-      </div>
-
-      <div class="body">
-        <div id="bootStatus" class="status">Booting dev page…</div>
-
-        <div class="row">
-          <div class="field">
-            <label for="fieldKeyInput">FIELD PTR OR FIELD ID</label>
-            <input id="fieldKeyInput" class="input mono" type="text" placeholder="field id, ptr, or latest doc id" />
-          </div>
-          <div class="field">
-            <label for="thresholdInput">THRESHOLD</label>
-            <input id="thresholdInput" class="input mono" type="number" min="0" max="100" step="1" value="85" />
-          </div>
+  <fv-shell data-boot-hold-ms="3000">
+    <div class="wrap">
+      <section class="card">
+        <div class="head">
+          <h1>Field Readiness Dev</h1>
+          <div class="muted">Single-field debug page. No tile renderer. Direct Firestore lookup + actual model math.</div>
         </div>
 
-        <div class="row3">
-          <div class="field">
-            <label for="fieldCollectionsInput">FIELD COLLECTIONS</label>
-            <input id="fieldCollectionsInput" class="input mono" type="text" value="fields,field_boundaries,field_profiles" />
-          </div>
-          <div class="field">
-            <label for="latestCollectionInput">LATEST COLLECTION</label>
-            <input id="latestCollectionInput" class="input mono" type="text" value="field_readiness_latest" />
-          </div>
-          <div class="field">
-            <label for="weatherCollectionInput">WEATHER CACHE COLLECTION</label>
-            <input id="weatherCollectionInput" class="input mono" type="text" value="field_weather_cache" />
-          </div>
-        </div>
+        <div class="body">
+          <div id="bootStatus" class="status">Booting dev page…</div>
 
-        <div class="btnrow">
-          <button id="runBtn" class="btn btn-primary" type="button">Run Dev Test</button>
-          <button id="copyUrlBtn" class="btn" type="button">Copy Test URL</button>
-          <button id="useLatestIdBtn" class="btn" type="button">Use Latest Doc Field ID</button>
-          <button id="loadRecentBtn" class="btn" type="button">Load Recent Latest Docs</button>
-        </div>
-
-        <div id="runStatus" class="status">Waiting to run.</div>
-
-        <details open>
-          <summary>Recent Latest Docs</summary>
-          <div class="detail-body">
-            <div class="rowRecent">
-              <div class="field">
-                <label for="recentSelect">RECENT FIELD_READINESS_LATEST DOCS</label>
-                <select id="recentSelect" class="select">
-                  <option value="">Tap "Load Recent Latest Docs"</option>
-                </select>
-              </div>
-              <div class="field">
-                <label>&nbsp;</label>
-                <button id="useRecentBtn" class="btn btn-primary" type="button" style="width:100%;">Use Selected Recent Doc</button>
-              </div>
+          <div class="row">
+            <div class="field">
+              <label for="fieldKeyInput">FIELD PTR OR FIELD ID</label>
+              <input id="fieldKeyInput" class="input mono" type="text" placeholder="mndh2avo or 02Kq4WH8RrGXR4DAyQDz" />
             </div>
-            <div id="recentStatus" class="status">No recent docs loaded yet.</div>
-            <div id="recentList" class="recent-list"></div>
-          </div>
-        </details>
-
-        <div class="kgrid">
-          <div class="kcard">
-            <div class="klabel">Field</div>
-            <div id="fieldTitle" class="kvalue">—</div>
-            <div id="fieldSub" class="muted" style="margin-top:6px;">No field loaded yet.</div>
-          </div>
-
-          <div class="kcard">
-            <div class="klabel">Model Output</div>
-            <div id="readinessValue" class="kvalue">—</div>
-            <div class="muted" style="margin-top:6px;">Readiness</div>
-          </div>
-
-          <div class="kcard">
-            <div class="klabel">ETA</div>
-            <div id="etaValue" class="kvalue">—</div>
-            <div id="etaSub" class="muted" style="margin-top:6px;">Threshold 85</div>
-          </div>
-        </div>
-
-        <div class="kgrid">
-          <div class="kcard">
-            <div class="klabel">Field doc source</div>
-            <div id="fieldSource" class="mono">—</div>
-          </div>
-          <div class="kcard">
-            <div class="klabel">Latest doc source</div>
-            <div id="latestSource" class="mono">—</div>
-          </div>
-          <div class="kcard">
-            <div class="klabel">Weather source found</div>
-            <div id="weatherSource" class="mono">—</div>
-          </div>
-        </div>
-
-        <div class="kgrid">
-          <div class="kcard">
-            <div class="klabel">Math file</div>
-            <div class="mono">/Farm-vista/js/field-readiness.model.js</div>
-          </div>
-          <div class="kcard">
-            <div class="klabel">Model function</div>
-            <div class="mono">runField(field, deps)</div>
-          </div>
-          <div class="kcard">
-            <div class="klabel">ETA function</div>
-            <div class="mono">etaToThreshold(field, deps, threshold, 168)</div>
-          </div>
-        </div>
-
-        <div class="kgrid">
-          <div class="kcard"><div class="klabel">History rows</div><div id="histCount" class="kvalue">0</div></div>
-          <div class="kcard"><div class="klabel">Forecast rows</div><div id="fcstCount" class="kvalue">0</div></div>
-          <div class="kcard"><div class="klabel">Merged rows</div><div id="mergedCount" class="kvalue">0</div></div>
-        </div>
-
-        <div class="kgrid">
-          <div class="kcard"><div class="klabel">Seed source</div><div id="seedSource" class="mono">—</div></div>
-          <div class="kcard"><div class="klabel">Storage final</div><div id="storageFinal" class="mono">—</div></div>
-          <div class="kcard"><div class="klabel">Surface storage final</div><div id="surfaceStorageFinal" class="mono">—</div></div>
-        </div>
-
-        <details open>
-          <summary>Lookup Debug</summary>
-          <div class="detail-body">
-            <pre id="lookupDebug" class="pre">—</pre>
-          </div>
-        </details>
-
-        <details>
-          <summary>Resolved Field Doc</summary>
-          <div class="detail-body">
-            <pre id="fieldDocDebug" class="pre">—</pre>
-          </div>
-        </details>
-
-        <details>
-          <summary>Resolved Latest Doc</summary>
-          <div class="detail-body">
-            <pre id="latestDocDebug" class="pre">—</pre>
-          </div>
-        </details>
-
-        <details>
-          <summary>Resolved Weather / Forecast</summary>
-          <div class="detail-body">
-            <pre id="weatherDebug" class="pre">—</pre>
-          </div>
-        </details>
-
-        <details>
-          <summary>Model Result</summary>
-          <div class="detail-body">
-            <pre id="modelDebug" class="pre">—</pre>
-          </div>
-        </details>
-
-        <details>
-          <summary>Trace (last 30 rows)</summary>
-          <div class="detail-body">
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th class="right">Rain</th>
-                    <th>Source</th>
-                    <th class="right">Before</th>
-                    <th class="right">After</th>
-                    <th class="right">Surface Before</th>
-                    <th class="right">Surface After</th>
-                    <th class="right">Loss</th>
-                    <th class="right">DryPwr</th>
-                  </tr>
-                </thead>
-                <tbody id="traceRows">
-                  <tr><td colspan="9" class="muted">No trace yet.</td></tr>
-                </tbody>
-              </table>
+            <div class="field">
+              <label for="thresholdInput">THRESHOLD</label>
+              <input id="thresholdInput" class="input mono" type="number" min="0" max="100" step="1" value="85" />
             </div>
           </div>
-        </details>
-      </div>
-    </section>
-  </div>
+
+          <div class="row3">
+            <div class="field">
+              <label for="fieldCollectionsInput">FIELD COLLECTIONS</label>
+              <input id="fieldCollectionsInput" class="input mono" type="text" value="fields,field_boundaries,field_profiles" />
+            </div>
+            <div class="field">
+              <label for="latestCollectionInput">LATEST COLLECTION</label>
+              <input id="latestCollectionInput" class="input mono" type="text" value="field_readiness_latest" />
+            </div>
+            <div class="field">
+              <label for="weatherCollectionInput">WEATHER CACHE COLLECTION</label>
+              <input id="weatherCollectionInput" class="input mono" type="text" value="field_weather_cache" />
+            </div>
+          </div>
+
+          <div class="btnrow">
+            <button id="runBtn" class="btn btn-primary" type="button">Run Dev Test</button>
+            <button id="copyUrlBtn" class="btn" type="button">Copy Test URL</button>
+            <button id="useLatestIdBtn" class="btn" type="button">Use Latest Doc Field ID</button>
+            <button id="loadRecentBtn" class="btn" type="button">Load Recent Latest Docs</button>
+          </div>
+
+          <div id="runStatus" class="status">Waiting to run.</div>
+
+          <details open>
+            <summary>Recent Latest Docs</summary>
+            <div class="detail-body">
+              <div class="rowRecent">
+                <div class="field">
+                  <label for="recentSelect">RECENT FIELD_READINESS_LATEST DOCS</label>
+                  <select id="recentSelect" class="select">
+                    <option value="">Tap "Load Recent Latest Docs"</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>&nbsp;</label>
+                  <button id="useRecentBtn" class="btn btn-primary" type="button" style="width:100%;">Use Selected Recent Doc</button>
+                </div>
+              </div>
+              <div id="recentStatus" class="status">No recent docs loaded yet.</div>
+              <div id="recentList" class="recent-list"></div>
+            </div>
+          </details>
+
+          <div class="kgrid">
+            <div class="kcard">
+              <div class="klabel">Field</div>
+              <div id="fieldTitle" class="kvalue">—</div>
+              <div id="fieldSub" class="muted" style="margin-top:6px;">No field loaded yet.</div>
+            </div>
+
+            <div class="kcard">
+              <div class="klabel">Model Output</div>
+              <div id="readinessValue" class="kvalue">—</div>
+              <div class="muted" style="margin-top:6px;">Readiness</div>
+            </div>
+
+            <div class="kcard">
+              <div class="klabel">ETA</div>
+              <div id="etaValue" class="kvalue">—</div>
+              <div id="etaSub" class="muted" style="margin-top:6px;">Threshold 85</div>
+            </div>
+          </div>
+
+          <div class="kgrid">
+            <div class="kcard">
+              <div class="klabel">Field doc source</div>
+              <div id="fieldSource" class="mono">—</div>
+            </div>
+            <div class="kcard">
+              <div class="klabel">Latest doc source</div>
+              <div id="latestSource" class="mono">—</div>
+            </div>
+            <div class="kcard">
+              <div class="klabel">Weather source found</div>
+              <div id="weatherSource" class="mono">—</div>
+            </div>
+          </div>
+
+          <div class="kgrid">
+            <div class="kcard">
+              <div class="klabel">Math file</div>
+              <div class="mono">/Farm-vista/js/field-readiness.model.js</div>
+            </div>
+            <div class="kcard">
+              <div class="klabel">Model function</div>
+              <div class="mono">runField(field, deps)</div>
+            </div>
+            <div class="kcard">
+              <div class="klabel">ETA function</div>
+              <div class="mono">etaToThreshold(field, deps, threshold, 168)</div>
+            </div>
+          </div>
+
+          <div class="kgrid">
+            <div class="kcard"><div class="klabel">History rows</div><div id="histCount" class="kvalue">0</div></div>
+            <div class="kcard"><div class="klabel">Forecast rows</div><div id="fcstCount" class="kvalue">0</div></div>
+            <div class="kcard"><div class="klabel">Merged rows</div><div id="mergedCount" class="kvalue">0</div></div>
+          </div>
+
+          <div class="kgrid">
+            <div class="kcard"><div class="klabel">Seed source</div><div id="seedSource" class="mono">—</div></div>
+            <div class="kcard"><div class="klabel">Storage final</div><div id="storageFinal" class="mono">—</div></div>
+            <div class="kcard"><div class="klabel">Surface storage final</div><div id="surfaceStorageFinal" class="mono">—</div></div>
+          </div>
+
+          <details open>
+            <summary>Lookup Debug</summary>
+            <div class="detail-body">
+              <pre id="lookupDebug" class="pre">—</pre>
+            </div>
+          </details>
+
+          <details>
+            <summary>Resolved Field Doc</summary>
+            <div class="detail-body">
+              <pre id="fieldDocDebug" class="pre">—</pre>
+            </div>
+          </details>
+
+          <details>
+            <summary>Resolved Latest Doc</summary>
+            <div class="detail-body">
+              <pre id="latestDocDebug" class="pre">—</pre>
+            </div>
+          </details>
+
+          <details>
+            <summary>Resolved Weather / Forecast</summary>
+            <div class="detail-body">
+              <pre id="weatherDebug" class="pre">—</pre>
+            </div>
+          </details>
+
+          <details>
+            <summary>Model Result</summary>
+            <div class="detail-body">
+              <pre id="modelDebug" class="pre">—</pre>
+            </div>
+          </details>
+
+          <details>
+            <summary>Trace (last 30 rows)</summary>
+            <div class="detail-body">
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th class="right">Rain</th>
+                      <th>Source</th>
+                      <th class="right">Before</th>
+                      <th class="right">After</th>
+                      <th class="right">Surface Before</th>
+                      <th class="right">Surface After</th>
+                      <th class="right">Loss</th>
+                      <th class="right">DryPwr</th>
+                    </tr>
+                  </thead>
+                  <tbody id="traceRows">
+                    <tr><td colspan="9" class="muted">No trace yet.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </details>
+        </div>
+      </section>
+    </div>
+  </fv-shell>
 
   <script type="module">
     import { runField, etaToThreshold } from '/Farm-vista/js/field-readiness.model.js';
@@ -539,6 +557,7 @@ GOAL:
     const state = {
       db: null,
       firebaseReady: false,
+      authReady: false,
       lastLatestDoc: null,
       lastFieldDoc: null,
       lastWeatherDoc: null,
@@ -552,10 +571,6 @@ GOAL:
     function safeNum(v, fallback = null){
       const n = Number(v);
       return Number.isFinite(n) ? n : fallback;
-    }
-
-    function safeObj(v){
-      return (v && typeof v === 'object') ? v : null;
     }
 
     function setStatus(el, msg, kind = ''){
@@ -577,22 +592,6 @@ GOAL:
       }
     }
 
-    function tsToIso(v){
-      try{
-        if (!v) return '';
-        if (typeof v === 'string') return v;
-        if (v && typeof v.toDate === 'function'){
-          const d = v.toDate();
-          return Number.isFinite(d.getTime()) ? d.toISOString() : '';
-        }
-        if (v && typeof v.seconds === 'number'){
-          const d = new Date((Number(v.seconds) * 1000) + Math.round(Number(v.nanoseconds || 0) / 1e6));
-          return Number.isFinite(d.getTime()) ? d.toISOString() : '';
-        }
-      }catch(_){}
-      return '';
-    }
-
     function uniqueList(arr){
       const out = [];
       const seen = new Set();
@@ -603,6 +602,28 @@ GOAL:
         out.push(s);
       }
       return out;
+    }
+
+    function resetOutput(){
+      setText(els.fieldTitle, '—');
+      setText(els.fieldSub, 'No field loaded yet.');
+      setText(els.readinessValue, '—');
+      setText(els.etaValue, '—');
+      setText(els.etaSub, `Threshold ${safeNum(els.thresholdInput.value, 85)}`);
+      setText(els.fieldSource, '—');
+      setText(els.latestSource, '—');
+      setText(els.weatherSource, '—');
+      setText(els.histCount, '0');
+      setText(els.fcstCount, '0');
+      setText(els.mergedCount, '0');
+      setText(els.seedSource, '—');
+      setText(els.storageFinal, '—');
+      setText(els.surfaceStorageFinal, '—');
+      els.fieldDocDebug.textContent = '—';
+      els.latestDocDebug.textContent = '—';
+      els.weatherDebug.textContent = '—';
+      els.modelDebug.textContent = '—';
+      renderTraceRows([]);
     }
 
     function loadScript(src){
@@ -656,6 +677,7 @@ GOAL:
 
       await loadScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
       await loadScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js');
+      await loadScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js');
 
       if (!window.firebase || !window.firebase.initializeApp){
         throw new Error('Firebase compat library loaded, but window.firebase is still missing.');
@@ -668,6 +690,71 @@ GOAL:
       state.db = window.firebase.firestore();
       state.firebaseReady = true;
       return state.db;
+    }
+
+    async function waitForAuthReady(maxMs = 12000){
+      await ensureFirebaseCompat();
+
+      state.authReady = false;
+
+      if (!(window.firebase && window.firebase.auth)){
+        state.authReady = true;
+        return;
+      }
+
+      const auth = window.firebase.auth();
+
+      if (auth.currentUser){
+        state.authReady = true;
+        return;
+      }
+
+      await new Promise((resolve)=>{
+        let done = false;
+
+        const finish = ()=>{
+          if (done) return;
+          done = true;
+          try{ unsub && unsub(); }catch(_){}
+          resolve();
+        };
+
+        const timer = setTimeout(finish, maxMs);
+
+        const unsub = auth.onAuthStateChanged(()=>{
+          clearTimeout(timer);
+          finish();
+        }, ()=>{
+          clearTimeout(timer);
+          finish();
+        });
+      });
+
+      state.authReady = true;
+    }
+
+    function getAuthDebug(){
+      try{
+        if (!(window.firebase && window.firebase.auth)) return { available:false, signedIn:null };
+        const u = window.firebase.auth().currentUser;
+        return {
+          available:true,
+          signedIn:!!u,
+          uid:safeStr(u && u.uid),
+          email:safeStr(u && u.email)
+        };
+      }catch(_){
+        return { available:false, signedIn:null };
+      }
+    }
+
+    function updateButtonsEnabled(enabled){
+      const on = !!enabled;
+      els.runBtn.disabled = !on;
+      els.loadRecentBtn.disabled = !on;
+      els.copyUrlBtn.disabled = false;
+      els.useLatestIdBtn.disabled = false;
+      els.useRecentBtn.disabled = false;
     }
 
     function getUrlForCopy(){
@@ -698,28 +785,6 @@ GOAL:
         .filter(Boolean);
     }
 
-    function getByPath(obj, path){
-      try{
-        const parts = String(path || '').split('.');
-        let cur = obj;
-        for (const part of parts){
-          if (!cur || typeof cur !== 'object') return undefined;
-          cur = cur[part];
-        }
-        return cur;
-      }catch(_){
-        return undefined;
-      }
-    }
-
-    function firstDefinedValue(obj, paths){
-      for (const path of (Array.isArray(paths) ? paths : [])){
-        const v = getByPath(obj, path);
-        if (v !== undefined && v !== null && v !== '') return v;
-      }
-      return undefined;
-    }
-
     async function getDocById(db, collectionName, docId){
       const snap = await db.collection(collectionName).doc(docId).get();
       if (!snap.exists) return null;
@@ -743,11 +808,19 @@ GOAL:
       };
     }
 
+    function isPermissionErr(err){
+      const msg = safeStr(err && (err.message || err.code || err));
+      return /permission/i.test(msg) || /insufficient/i.test(msg) || /missing.*permission/i.test(msg);
+    }
+
     async function tryDocLookup(db, collectionName, key, tried){
       tried.push(`doc:${collectionName}/${key}`);
       try{
         return await getDocById(db, collectionName, key);
-      }catch(_){
+      }catch(err){
+        if (isPermissionErr(err)){
+          tried.push(`PERMISSION:${collectionName}`);
+        }
         return null;
       }
     }
@@ -758,7 +831,11 @@ GOAL:
         try{
           const hit = await queryWhereEq(db, collectionName, fld, key);
           if (hit) return hit;
-        }catch(_){}
+        }catch(err){
+          if (isPermissionErr(err)){
+            tried.push(`PERMISSION:${collectionName}.${fld}`);
+          }
+        }
       }
       return null;
     }
@@ -848,11 +925,11 @@ GOAL:
             farmName: d.farmName || '',
             county: d.county || '',
             state: d.state || '',
-            lat: safeNum(firstDefinedValue(d, ['location.lat','lat','latitude','center.lat']), null),
-            lng: safeNum(firstDefinedValue(d, ['location.lng','lng','longitude','lon','center.lng']), null),
+            lat: safeNum(d.lat ?? d.location?.lat ?? d.center?.lat, null),
+            lng: safeNum(d.lng ?? d.location?.lng ?? d.center?.lng, null),
             location: {
-              lat: safeNum(firstDefinedValue(d, ['location.lat','lat','latitude','center.lat']), null),
-              lng: safeNum(firstDefinedValue(d, ['location.lng','lng','longitude','lon','center.lng']), null)
+              lat: safeNum(d.location?.lat ?? d.lat ?? d.center?.lat, null),
+              lng: safeNum(d.location?.lng ?? d.lng ?? d.center?.lng, null)
             }
           }
         };
@@ -906,35 +983,29 @@ GOAL:
       const ld = (latestDoc && latestDoc.data) || {};
       const wd = (weatherDoc && weatherDoc.data) || {};
 
-      const id = safeStr(
-        firstDefinedValue(fd, ['fieldId','id']) ||
-        fieldDoc?.id ||
-        firstDefinedValue(ld, ['fieldId','id']) ||
-        latestDoc?.id ||
-        firstDefinedValue(wd, ['fieldId','id']) ||
-        weatherDoc?.id ||
-        lookupKey
-      );
+      const id =
+        safeStr(
+          fd.fieldId || fd.id || fieldDoc?.id ||
+          ld.fieldId || ld.id || latestDoc?.id ||
+          wd.fieldId || wd.id || weatherDoc?.id ||
+          lookupKey
+        );
 
-      const lat = safeNum(firstDefinedValue({
-        fd, ld, wd
-      }, []), null);
+      const lat =
+        safeNum(
+          fd.location?.lat ?? fd.lat ?? fd.latitude ?? fd.center?.lat ??
+          ld.location?.lat ?? ld.lat ?? ld.latitude ??
+          wd.location?.lat ?? wd.lat ?? wd.latitude,
+          null
+        );
 
-      const outLat = safeNum(
-        firstDefinedValue(fd, ['location.lat','lat','latitude','center.lat']) ??
-        firstDefinedValue(ld, ['location.lat','lat','latitude','center.lat']) ??
-        firstDefinedValue(wd, ['location.lat','lat','latitude','center.lat']),
-        null
-      );
-
-      const outLng = safeNum(
-        firstDefinedValue(fd, ['location.lng','lng','longitude','lon','center.lng']) ??
-        firstDefinedValue(ld, ['location.lng','lng','longitude','lon','center.lng']) ??
-        firstDefinedValue(wd, ['location.lng','lng','longitude','lon','center.lng']),
-        null
-      );
-
-      void lat;
+      const lng =
+        safeNum(
+          fd.location?.lng ?? fd.lng ?? fd.longitude ?? fd.lon ?? fd.center?.lng ??
+          ld.location?.lng ?? ld.lng ?? ld.longitude ?? ld.lon ??
+          wd.location?.lng ?? wd.lng ?? wd.longitude ?? wd.lon,
+          null
+        );
 
       return {
         id,
@@ -945,9 +1016,9 @@ GOAL:
         farmName: safeStr(fd.farmName || ld.farmName || wd.farmName || ''),
         county: safeStr(fd.county || ld.county || wd.county || ''),
         state: safeStr(fd.state || ld.state || wd.state || ''),
-        lat: outLat,
-        lng: outLng,
-        location: { lat: outLat, lng: outLng }
+        lat,
+        lng,
+        location: { lat, lng }
       };
     }
 
@@ -958,15 +1029,23 @@ GOAL:
 
       return {
         soilWetness: safeNum(
-          firstDefinedValue(fd, ['soilWetness','soilWetnessPct','soilWetness0_100']) ??
-          firstDefinedValue(ld, ['soilWetness','soilWetnessPct','soilWetness0_100']) ??
-          firstDefinedValue(wd, ['soilWetness','soilWetnessPct','soilWetness0_100']),
+          fd.soilWetness ??
+          fd.soilWetnessPct ??
+          fd.soilWetness0_100 ??
+          ld.soilWetness ??
+          ld.soilWetnessPct ??
+          wd.soilWetness ??
+          wd.soilWetnessPct,
           45
         ),
         drainageIndex: safeNum(
-          firstDefinedValue(fd, ['drainageIndex','drainage','drainagePct']) ??
-          firstDefinedValue(ld, ['drainageIndex','drainage','drainagePct']) ??
-          firstDefinedValue(wd, ['drainageIndex','drainage','drainagePct']),
+          fd.drainageIndex ??
+          fd.drainage ??
+          fd.drainagePct ??
+          ld.drainageIndex ??
+          ld.drainage ??
+          wd.drainageIndex ??
+          wd.drainage,
           45
         )
       };
@@ -975,34 +1054,42 @@ GOAL:
     function normalizeWxRow(raw){
       const r = raw || {};
       const dateISO = safeStr(
-        firstDefinedValue(r, [
-          'dateISO','date','day','timeISO','timestampISO','validDate','validTime'
-        ]) || ''
+        r.dateISO ||
+        r.date ||
+        r.day ||
+        r.timeISO ||
+        r.timestampISO ||
+        r.validDate ||
+        r.validTime ||
+        ''
       ).slice(0, 10);
 
       const rainInAdj =
-        safeNum(firstDefinedValue(r, ['rainMrmsIn']), null) ??
-        safeNum(firstDefinedValue(r, ['rainInAdj','rainIn','precipIn','precipitationIn']), null) ??
+        safeNum(r.rainMrmsIn, null) ??
+        safeNum(r.rainInAdj, null) ??
+        safeNum(r.rainIn, null) ??
+        safeNum(r.precipIn, null) ??
+        safeNum(r.precipitationIn, null) ??
         0;
 
       return {
         dateISO,
         rainInAdj,
-        rainIn: safeNum(firstDefinedValue(r, ['rainIn','precipIn','precipitationIn']), rainInAdj),
-        rainSource: safeStr(firstDefinedValue(r, ['rainSource']) || (safeNum(firstDefinedValue(r, ['rainMrmsIn']), null) != null ? 'mrms' : 'open-meteo')),
-        tempF: safeNum(firstDefinedValue(r, ['tempF','tempAvgF','avgTempF','temperatureF']), 0),
-        windMph: safeNum(firstDefinedValue(r, ['windMph','windSpeedMph','windspeedMph']), 0),
-        rh: safeNum(firstDefinedValue(r, ['rh','rhPct','relativeHumidityPct','relativeHumidity']), 0),
-        solarWm2: safeNum(firstDefinedValue(r, ['solarWm2','shortwaveWm2','shortwaveRadiation','solar']), 0),
-        sunshineHr: safeNum(firstDefinedValue(r, ['sunshineHr','sunshineHours','sunshine_duration_hr']), 0),
-        daylightHr: safeNum(firstDefinedValue(r, ['daylightHr','daylightHours','daylight_duration_hr']), 0),
-        cloudPct: safeNum(firstDefinedValue(r, ['cloudPct','cloudCoverPct','cloud_cover']), null),
-        vpdKpa: safeNum(firstDefinedValue(r, ['vpdKpa','vpd','vapour_pressure_deficit_kpa']), null),
-        sm010: safeNum(firstDefinedValue(r, ['sm010','soilMoisture010','soilMoisture_0_10']), null),
-        et0In: safeNum(firstDefinedValue(r, ['et0In','etIn','et0']), null),
-        rainMorningIn: safeNum(firstDefinedValue(r, ['rainMorningIn']), 0),
-        rainMiddayIn: safeNum(firstDefinedValue(r, ['rainMiddayIn']), 0),
-        rainEveningIn: safeNum(firstDefinedValue(r, ['rainEveningIn']), 0)
+        rainIn: safeNum(r.rainIn, rainInAdj),
+        rainSource: safeStr(r.rainSource || (safeNum(r.rainMrmsIn, null) != null ? 'mrms' : 'open-meteo') || 'unknown'),
+        tempF: safeNum(r.tempF ?? r.tempAvgF ?? r.avgTempF ?? r.temperatureF, 0),
+        windMph: safeNum(r.windMph ?? r.windSpeedMph ?? r.windspeedMph, 0),
+        rh: safeNum(r.rh ?? r.rhPct ?? r.relativeHumidityPct ?? r.relativeHumidity, 0),
+        solarWm2: safeNum(r.solarWm2 ?? r.shortwaveWm2 ?? r.shortwaveRadiation ?? r.solar, 0),
+        sunshineHr: safeNum(r.sunshineHr ?? r.sunshineHours ?? r.sunshine_duration_hr, 0),
+        daylightHr: safeNum(r.daylightHr ?? r.daylightHours ?? r.daylight_duration_hr, 0),
+        cloudPct: safeNum(r.cloudPct ?? r.cloudCoverPct ?? r.cloud_cover, null),
+        vpdKpa: safeNum(r.vpdKpa ?? r.vpd ?? r.vapour_pressure_deficit_kpa, null),
+        sm010: safeNum(r.sm010 ?? r.soilMoisture010 ?? r.soilMoisture_0_10, null),
+        et0In: safeNum(r.et0In ?? r.etIn ?? r.et0, null),
+        rainMorningIn: safeNum(r.rainMorningIn, 0),
+        rainMiddayIn: safeNum(r.rainMiddayIn, 0),
+        rainEveningIn: safeNum(r.rainEveningIn, 0)
       };
     }
 
@@ -1024,14 +1111,10 @@ GOAL:
     function firstRowArrayFromDoc(docData, candidates){
       const d = docData || {};
       for (const key of candidates){
-        const value = getByPath(d, key) ?? d[key];
-        if (Array.isArray(value) && value.length){
-          return value;
-        }
+        const value = d[key];
+        if (Array.isArray(value) && value.length) return value;
         const numericRows = extractNumericObjectRows(value);
-        if (numericRows.length){
-          return numericRows;
-        }
+        if (numericRows.length) return numericRows;
       }
       return [];
     }
@@ -1050,21 +1133,11 @@ GOAL:
       const wd = (weatherDoc && weatherDoc.data) || {};
 
       const direct = [
-        ...normalizeRowsArray(firstRowArrayFromDoc(ld, [
-          'dailySeries30d','dailySeries','weatherDailySeries','wxDailySeries','rows',
-          'debug.dailySeries30d','debug.dailySeries','debug.rows',
-          'weather.dailySeries30d','weather.dailySeries',
-          'history.rows','history.dailySeries'
-        ])),
-        ...normalizeRowsArray(firstRowArrayFromDoc(wd, [
-          'dailySeries30d','dailySeries','weatherDailySeries','wxDailySeries','rows',
-          'debug.dailySeries30d','debug.dailySeries','debug.rows',
-          'weather.dailySeries30d','weather.dailySeries',
-          'history.rows','history.dailySeries'
-        ]))
+        ...normalizeRowsArray(firstRowArrayFromDoc(ld, ['dailySeries30d', 'dailySeries', 'weatherDailySeries', 'wxDailySeries', 'rows'])),
+        ...normalizeRowsArray(firstRowArrayFromDoc(wd, ['dailySeries30d', 'dailySeries', 'weatherDailySeries', 'wxDailySeries', 'rows']))
       ];
 
-      return direct.length ? uniqueWeatherRows(direct) : [];
+      return uniqueWeatherRows(direct);
     }
 
     function pickForecastRows(latestDoc, weatherDoc){
@@ -1072,19 +1145,11 @@ GOAL:
       const wd = (weatherDoc && weatherDoc.data) || {};
 
       const direct = [
-        ...normalizeRowsArray(firstRowArrayFromDoc(ld, [
-          'dailySeriesFcst','forecastRows','weatherForecastRows','forecastDailyRows','openMeteoForecastRows',
-          'debug.dailySeriesFcst','debug.forecastRows',
-          'weather.forecastRows','forecast.rows','forecast.dailySeries'
-        ])),
-        ...normalizeRowsArray(firstRowArrayFromDoc(wd, [
-          'dailySeriesFcst','forecastRows','weatherForecastRows','forecastDailyRows','openMeteoForecastRows',
-          'debug.dailySeriesFcst','debug.forecastRows',
-          'weather.forecastRows','forecast.rows','forecast.dailySeries'
-        ]))
+        ...normalizeRowsArray(firstRowArrayFromDoc(ld, ['dailySeriesFcst', 'forecastRows', 'weatherForecastRows', 'forecastDailyRows', 'openMeteoForecastRows'])),
+        ...normalizeRowsArray(firstRowArrayFromDoc(wd, ['dailySeriesFcst', 'forecastRows', 'weatherForecastRows', 'forecastDailyRows', 'openMeteoForecastRows']))
       ];
 
-      return direct.length ? uniqueWeatherRows(direct) : [];
+      return uniqueWeatherRows(direct);
     }
 
     function mergeHistoryAndForecast(historyRows, forecastRows){
@@ -1130,17 +1195,16 @@ GOAL:
 
       els.recentSelect.innerHTML = '<option value="">Choose a recent doc</option>';
 
-      list.forEach((item, idx)=>{
+      for (const item of list){
         const opt = document.createElement('option');
-        opt.value = String(idx);
-        opt.textContent = `${safeStr(item.fieldName || item.name || 'Field')} • ${safeStr(item.fieldId || item.docId || item.id)}`;
+        opt.value = safeStr(item.fieldId || item.id);
+        opt.textContent = `${safeStr(item.fieldName || item.name || 'Field')} • ${safeStr(item.fieldId || item.id)}`;
         els.recentSelect.appendChild(opt);
-      });
+      }
 
       els.recentList.innerHTML = '';
 
-      for (let idx = 0; idx < list.length; idx++){
-        const item = list[idx];
+      for (const item of list){
         const div = document.createElement('div');
         div.className = 'recent-item';
         div.innerHTML = `
@@ -1155,8 +1219,10 @@ GOAL:
           </div>
         `;
         div.addEventListener('click', ()=>{
-          els.recentSelect.value = String(idx);
-          useRecentSelection(true);
+          const val = safeStr(item.fieldId || item.id || item.docId);
+          if (!val) return;
+          els.fieldKeyInput.value = val;
+          setStatus(els.runStatus, 'Loaded recent fieldId into input:\n' + val, 'ok');
         });
         els.recentList.appendChild(div);
       }
@@ -1166,24 +1232,23 @@ GOAL:
       els.loadRecentBtn.disabled = true;
       try{
         const db = await ensureFirebaseCompat();
+        await waitForAuthReady();
+
+        const authDebug = getAuthDebug();
         const latestCollection = safeStr(els.latestCollectionInput.value) || 'field_readiness_latest';
 
         let snap = null;
-        let mode = '';
 
         try{
           snap = await db.collection(latestCollection).orderBy('computedAt', 'desc').limit(25).get();
-          mode = 'orderBy(computedAt desc)';
-        }catch(_){
+        }catch(err1){
           try{
             snap = await db.collection(latestCollection).orderBy('weatherFetchedAt', 'desc').limit(25).get();
-            mode = 'orderBy(weatherFetchedAt desc)';
-          }catch(_){
+          }catch(err2){
             try{
               snap = await db.collection(latestCollection).limit(25).get();
-              mode = 'limit(25)';
-            }catch(err){
-              throw new Error('Could not load recent latest docs. ' + String(err && err.message ? err.message : err));
+            }catch(err3){
+              throw err3 || err2 || err1;
             }
           }
         }
@@ -1197,30 +1262,30 @@ GOAL:
             fieldId: safeStr(d.fieldId || ''),
             fieldName: safeStr(d.fieldName || d.name || ''),
             readiness: safeNum(d.readiness, null),
-            computedAt: safeStr(tsToIso(d.computedAt) || d.computedAt || ''),
-            weatherFetchedAt: safeStr(tsToIso(d.weatherFetchedAt) || d.weatherFetchedAt || ''),
+            computedAt: safeStr(d.computedAt && d.computedAt.toDate ? d.computedAt.toDate().toISOString() : d.computedAt || ''),
+            weatherFetchedAt: safeStr(d.weatherFetchedAt && d.weatherFetchedAt.toDate ? d.weatherFetchedAt.toDate().toISOString() : d.weatherFetchedAt || ''),
             raw: d
           });
-        });
-
-        rows.sort((a, b)=>{
-          const aWhen = safeStr(a.computedAt || a.weatherFetchedAt || '');
-          const bWhen = safeStr(b.computedAt || b.weatherFetchedAt || '');
-          return bWhen.localeCompare(aWhen);
         });
 
         state.recentLatestDocs = rows;
         renderRecentDocsList();
 
         if (rows.length){
-          setStatus(els.recentStatus, `Loaded ${rows.length} recent latest docs using ${mode}. Tap one or use the dropdown.`, 'ok');
+          setStatus(els.recentStatus, `Loaded ${rows.length} recent latest docs. Tap one or use the dropdown.`, 'ok');
         } else {
-          setStatus(els.recentStatus, 'No docs came back from field_readiness_latest.', 'err');
+          setStatus(els.recentStatus, `Recent-doc query worked, but no docs came back.\nAuth: ${pretty(authDebug)}`, 'err');
         }
       }catch(err){
-        setStatus(els.recentStatus, String(err && err.message ? err.message : err), 'err');
-        state.recentLatestDocs = [];
-        renderRecentDocsList();
+        const authDebug = getAuthDebug();
+        const msg = safeStr(err && (err.message || err.code || err));
+        setStatus(
+          els.recentStatus,
+          `Could not load recent latest docs.\n` +
+          `${msg || 'Unknown error'}\n\n` +
+          `Auth debug:\n${pretty(authDebug)}`,
+          'err'
+        );
       }finally{
         els.loadRecentBtn.disabled = false;
       }
@@ -1234,49 +1299,50 @@ GOAL:
       const weatherCollection = safeStr(els.weatherCollectionInput.value) || 'field_weather_cache';
 
       if (!inputKey){
-        setStatus(els.runStatus, 'Enter a field ptr, field id, or latest doc id first.', 'err');
+        setStatus(els.runStatus, 'Enter a field ptr or id first.', 'err');
         return;
       }
 
+      resetOutput();
       setStatus(els.runStatus, `Running dev test for ${inputKey}…`);
       els.runBtn.disabled = true;
 
       try{
         const db = await ensureFirebaseCompat();
+        await waitForAuthReady();
+
         const tried = [];
 
         let latestDoc = await resolveLatestDoc(db, latestCollection, [inputKey], tried);
         let weatherDoc = await resolveWeatherDoc(db, weatherCollection, buildCandidateKeys(inputKey, latestDoc, null, null), tried);
         let fieldDoc = await resolveFieldDoc(db, fieldCollections, buildCandidateKeys(inputKey, latestDoc, weatherDoc, null), latestDoc, weatherDoc, tried);
 
-        let pass = 0;
-        while (pass < 3){
-          pass += 1;
-          const keys = buildCandidateKeys(inputKey, latestDoc, weatherDoc, fieldDoc);
-
-          if (!latestDoc){
-            latestDoc = await resolveLatestDoc(db, latestCollection, keys, tried);
-          }
-          if (!weatherDoc){
-            weatherDoc = await resolveWeatherDoc(db, weatherCollection, keys, tried);
-          }
-          if (!fieldDoc){
-            fieldDoc = await resolveFieldDoc(db, fieldCollections, keys, latestDoc, weatherDoc, tried);
-          }
-
-          const expandedKeys = buildCandidateKeys(inputKey, latestDoc, weatherDoc, fieldDoc);
-          if (expandedKeys.join('|') === keys.join('|')) break;
+        if (!latestDoc){
+          latestDoc = await resolveLatestDoc(db, latestCollection, buildCandidateKeys(inputKey, null, weatherDoc, fieldDoc), tried);
+        }
+        if (!weatherDoc){
+          weatherDoc = await resolveWeatherDoc(db, weatherCollection, buildCandidateKeys(inputKey, latestDoc, null, fieldDoc), tried);
+        }
+        if (!fieldDoc){
+          fieldDoc = await resolveFieldDoc(db, fieldCollections, buildCandidateKeys(inputKey, latestDoc, weatherDoc, null), latestDoc, weatherDoc, tried);
         }
 
         state.lastLatestDoc = latestDoc;
         state.lastFieldDoc = fieldDoc;
         state.lastWeatherDoc = weatherDoc;
 
+        els.lookupDebug.textContent = tried.join(' | ') || '—';
+        els.fieldDocDebug.textContent = pretty(fieldDoc);
+        els.latestDocDebug.textContent = pretty(latestDoc);
+        els.weatherDebug.textContent = pretty({ weatherDoc });
+
         if (!fieldDoc && !latestDoc && !weatherDoc){
+          const authDebug = getAuthDebug();
           throw new Error(
-            'Nothing matched that input.\n\n' +
-            'Use "Load Recent Latest Docs", tap one, then run again.\n\n' +
-            'Tried:\n' + tried.join(' | ')
+            `Nothing matched that input.\n\n` +
+            `Auth debug:\n${pretty(authDebug)}\n\n` +
+            `Use "Load Recent Latest Docs", tap one, then run again.\n\n` +
+            `Tried:\n${tried.join(' | ')}`
           );
         }
 
@@ -1311,12 +1377,12 @@ GOAL:
             return mergedRows;
           },
           getForecastSeriesForFieldId: (fieldId)=>{
-            if (String(fieldId) !== String(field.id)) return [];
-            return forecastRows;
+            if (String(fieldId) !== String(field.id)) return forecastRows;
+            return [];
           },
           getWxSeriesWithForecastForFieldId: (fieldId)=>{
-            if (String(fieldId) !== String(field.id)) return [];
-            return mergedRows;
+            if (String(fieldId) !== String(field.id)) return mergedRows;
+            return [];
           }
         };
 
@@ -1329,8 +1395,7 @@ GOAL:
           [
             field.id ? `ID ${field.id}` : '',
             field.county || '',
-            field.state || '',
-            latestDoc && latestDoc.id ? `latestDoc ${latestDoc.id}` : ''
+            field.state || ''
           ].filter(Boolean).join(' • ') || 'Field loaded'
         );
 
@@ -1354,15 +1419,13 @@ GOAL:
         setText(els.storageFinal, run ? Number(run.storageFinal || 0).toFixed(2) : '—');
         setText(els.surfaceStorageFinal, run ? Number(run.surfaceStorageFinal || 0).toFixed(2) : '—');
 
-        els.lookupDebug.textContent = tried.join(' | ') || '—';
-        els.fieldDocDebug.textContent = pretty(fieldDoc);
-        els.latestDocDebug.textContent = pretty(latestDoc);
         els.weatherDebug.textContent = pretty({
           weatherDoc,
           historyRowsPreview: historyRows.slice(0, 12),
           forecastRowsPreview: forecastRows.slice(0, 12),
           mergedRowsPreview: mergedRows.slice(0, 20)
         });
+
         els.modelDebug.textContent = pretty({
           field,
           fieldParams,
@@ -1374,20 +1437,22 @@ GOAL:
 
         setStatus(
           els.runStatus,
-          `Run finished.
-Input: ${inputKey}
-Resolved field id: ${field.id}
-Field: ${field.name || field.id}
-History rows: ${historyRows.length}
-Forecast rows: ${forecastRows.length}
-Readiness: ${run ? run.readinessR : '—'}
-ETA: ${eta && eta.text ? eta.text : '—'}`,
+          `Run finished.\n` +
+          `Input: ${inputKey}\n` +
+          `Resolved field id: ${field.id}\n` +
+          `Field: ${field.name || field.id}\n` +
+          `History rows: ${historyRows.length}\n` +
+          `Forecast rows: ${forecastRows.length}\n` +
+          `Readiness: ${run ? run.readinessR : '—'}\n` +
+          `ETA: ${eta && eta.text ? eta.text : '—'}`,
           'ok'
         );
       }catch(err){
         const msg = err && err.message ? err.message : String(err || 'Unknown error');
         setStatus(els.runStatus, msg, 'err');
-        els.lookupDebug.textContent = msg;
+        if (!els.lookupDebug.textContent || els.lookupDebug.textContent === '—'){
+          els.lookupDebug.textContent = msg;
+        }
         els.modelDebug.textContent = pretty({ error: msg });
         renderTraceRows([]);
       }finally{
@@ -1416,31 +1481,14 @@ ETA: ${eta && eta.text ? eta.text : '—'}`,
       setStatus(els.runStatus, 'Loaded latest doc fieldId into input:\n' + fieldId, 'ok');
     }
 
-    function useRecentSelection(autoRun = false){
-      const idx = safeStr(els.recentSelect.value);
-      if (idx === ''){
+    function useRecentSelection(){
+      const val = safeStr(els.recentSelect.value);
+      if (!val){
         setStatus(els.runStatus, 'Pick a recent doc first.', 'err');
         return;
       }
-
-      const item = state.recentLatestDocs[Number(idx)];
-      if (!item){
-        setStatus(els.runStatus, 'Selected recent doc could not be read.', 'err');
-        return;
-      }
-
-      const val = safeStr(item.fieldId || item.docId || item.id);
-      if (!val){
-        setStatus(els.runStatus, 'Selected recent doc is missing both fieldId and docId.', 'err');
-        return;
-      }
-
       els.fieldKeyInput.value = val;
-      setStatus(els.runStatus, 'Loaded selected recent value into input:\n' + val, 'ok');
-
-      if (autoRun){
-        runDevTest();
-      }
+      setStatus(els.runStatus, 'Loaded selected recent fieldId into input:\n' + val, 'ok');
     }
 
     function wireButtons(){
@@ -1448,7 +1496,7 @@ ETA: ${eta && eta.text ? eta.text : '—'}`,
       els.copyUrlBtn.addEventListener('click', copyUrl);
       els.useLatestIdBtn.addEventListener('click', useLatestDocFieldId);
       els.loadRecentBtn.addEventListener('click', ()=>{ loadRecentLatestDocs(); });
-      els.useRecentBtn.addEventListener('click', ()=>{ useRecentSelection(false); });
+      els.useRecentBtn.addEventListener('click', useRecentSelection);
 
       els.fieldKeyInput.addEventListener('keydown', (e)=>{
         if (e.key === 'Enter'){
@@ -1465,9 +1513,8 @@ ETA: ${eta && eta.text ? eta.text : '—'}`,
       });
 
       els.recentSelect.addEventListener('change', ()=>{
-        const idx = safeStr(els.recentSelect.value);
-        if (idx === '') return;
-        useRecentSelection(false);
+        const val = safeStr(els.recentSelect.value);
+        if (val) els.fieldKeyInput.value = val;
       });
     }
 
@@ -1475,15 +1522,22 @@ ETA: ${eta && eta.text ? eta.text : '—'}`,
       try{
         applyUrlToInputs();
         wireButtons();
+        updateButtonsEnabled(false);
 
-        try{
-          await ensureFirebaseCompat();
-          setStatus(els.bootStatus, 'Dev page booted. Firebase is ready.', 'ok');
-        }catch(err){
-          const msg = err && err.message ? err.message : String(err);
-          setStatus(els.bootStatus, 'Dev page booted, but Firebase is not ready yet.\n' + msg, 'err');
-        }
+        setStatus(els.bootStatus, 'Dev page booted. Waiting for Firebase + auth…');
 
+        await ensureFirebaseCompat();
+        await waitForAuthReady();
+
+        const authDebug = getAuthDebug();
+
+        setStatus(
+          els.bootStatus,
+          `Dev page booted. Firebase is ready.\nAuth debug:\n${pretty(authDebug)}`,
+          'ok'
+        );
+
+        updateButtonsEnabled(true);
         await loadRecentLatestDocs();
 
         const autoKey = safeStr(els.fieldKeyInput.value);
@@ -1496,8 +1550,15 @@ ETA: ${eta && eta.text ? eta.text : '—'}`,
         const msg = err && err.message ? err.message : String(err || 'Boot failed');
         setStatus(els.bootStatus, msg, 'err');
         setStatus(els.runStatus, msg, 'err');
+        updateButtonsEnabled(false);
       }
     }
+
+    document.addEventListener('fv:user-ready', ()=>{
+      try{
+        loadRecentLatestDocs();
+      }catch(_){}
+    });
 
     boot();
   </script>
