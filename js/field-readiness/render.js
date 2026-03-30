@@ -1342,56 +1342,12 @@ function forceNonZeroEtaText(txt, readinessNow, thr){
 
   return s;
 }
-
 /*
   IMPORTANT CHANGE:
-  ~1h is now ONLY allowed when ALL of these are true:
-  1) field is still below threshold
-  2) field is within 1 point of threshold
-  3) we actually have forecast rows
-  4) model explicitly says drynow / reached / within with 0h
+  Do NOT force ~1h anymore.
+  Show the exact modeled hour count when available.
 */
-function shouldForceOneHourEta(res, txt, readinessNow, thr, forecastCount=0){
-  const ready = Number(readinessNow);
-  const threshold = Number(thr);
-
-  if (!Number.isFinite(ready) || !Number.isFinite(threshold)) return false;
-  if (ready >= threshold) return false;
-
-  const gap = threshold - ready;
-  if (!(gap > 0 && gap <= ETA_FORCE_ONE_HOUR_MAX_GAP)) return false;
-
-  const fcCount = Number(forecastCount || 0);
-  if (!Number.isFinite(fcCount) || fcCount < 1) return false;
-
-  const status = String(res && res.status || '').toLowerCase();
-  const hours = Number(res && res.hours);
-  const zeroLikeTxt = isZeroEtaLike(txt);
-
-  if (
-    status === 'noforecast' ||
-    status === 'nodata' ||
-    status === 'error' ||
-    status === 'none' ||
-    status === 'beyond' ||
-    status === 'notwithin72'
-  ){
-    return false;
-  }
-
-  if (status === 'drynow'){
-    return true;
-  }
-
-  if (
-    (status === 'ok' || status === 'reached' || status === 'within' || status === 'within72') &&
-    Number.isFinite(hours) &&
-    hours === 0 &&
-    zeroLikeTxt
-  ){
-    return true;
-  }
-
+function shouldForceOneHourEta(_res, _txt, _readinessNow, _thr, _forecastCount=0){
   return false;
 }
 
@@ -1420,6 +1376,10 @@ function buildEtaFailureText(res, readinessNow, thr){
     const compact = compactEtaForMobile(text, ETA_HORIZON_HOURS);
     if (compact) return compact;
   }
+
+  return 'ETA ?';
+}
+
 
   // IMPORTANT:
   // Do not show ETA ? on tiles anymore.
@@ -1798,18 +1758,10 @@ if (!model || typeof model.etaToThreshold !== 'function'){
       txt = `>${HORIZON_HOURS}h`;
     }
 
-    if (shouldForceOneHourEta(res, txt, authoritativeReadiness, thr, forecastCount)){
-      txt = '~1h';
-    } else {
-      txt = forceNonZeroEtaText(txt, authoritativeReadiness, thr);
-    }
+txt = forceNonZeroEtaText(txt, authoritativeReadiness, thr);
 
-    if (!txt){
-      txt = buildEtaFailureText(res, authoritativeReadiness, thr);
-    }
-
- if (!txt && authoritativeReadiness < Number(thr)){
-  txt = `>${ETA_HORIZON_HOURS}h`;
+if (!txt){
+  txt = buildEtaFailureText(res, authoritativeReadiness, thr);
 }
 
     if (txt){
