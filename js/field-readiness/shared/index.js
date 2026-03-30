@@ -1,6 +1,6 @@
 // /js/field-readiness/shared/index.js  (FULL FILE)
 // FarmVista Readiness Rebuilder (Cloud Run)
-// Rev: 2026-03-29b-clean-remove-bad-persisted-state-write
+// Rev: 2026-03-26a-preserve-readiness-score-write-weather-display-only
 //
 // PURPOSE:
 // ✅ DOES NOT fetch Open-Meteo
@@ -20,7 +20,6 @@
 // ✅ STILL iterates ALL active fields
 // ✅ STILL writes placeholder docs for new fields so they are not invisible
 // ✅ STILL ignores stale cache automatically when lat/lng changed
-// ✅ CLEAN FIX: REMOVES accidental field_readiness_state write from this display refresher
 // ❌ DOES NOT overwrite readiness score fields in field_readiness_latest
 // ❌ DOES NOT overwrite wetness/storage/readiness-derived scalar fields
 //
@@ -119,7 +118,7 @@ const FV_TUNE = {
   BYPASS_GOODDRAIN_W: Number.isFinite(Number(process.env.FV_BYPASS_GOODDRAIN_W)) ? Number(process.env.FV_BYPASS_GOODDRAIN_W) : 0.15,
 
   DRY_BYPASS_CAP_SAT: Number.isFinite(Number(process.env.FV_DRY_BYPASS_CAP_SAT)) ? Number(process.env.FV_DRY_BYPASS_CAP_SAT) : 0.15,
-  DRY_BYPASS_CAP_MAX: Number.isFinite(Number(process.env.FV_DRY_BYPASS_CAP_MAX)) ? Number(process.env.FV_DRYPASS_CAP_MAX) : 0.12,
+  DRY_BYPASS_CAP_MAX: Number.isFinite(Number(process.env.FV_DRY_BYPASS_CAP_MAX)) ? Number(process.env.FV_DRY_BYPASS_CAP_MAX) : 0.12,
 
   SAT_DRYBYPASS_FLOOR: Number.isFinite(Number(process.env.FV_SAT_DRYBYPASS_FLOOR)) ? Number(process.env.FV_SAT_DRYBYPASS_FLOOR) : 0.02,
   SAT_RUNOFF_CAP: Number.isFinite(Number(process.env.FV_SAT_RUNOFF_CAP)) ? Number(process.env.FV_SAT_RUNOFF_CAP) : 0.85,
@@ -793,7 +792,6 @@ async function writeReadinessLatest(runKey, timezone){
         }
 
         const outRef = db.collection(READINESS_LATEST_COLLECTION).doc(fieldId);
-
         const baseDoc = buildBaseLatestDoc({
           fieldId,
           fieldData: fd,
