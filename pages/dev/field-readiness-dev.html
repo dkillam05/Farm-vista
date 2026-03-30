@@ -1,15 +1,16 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/field-readiness-dev.html  (FULL FILE)
-Rev: 2026-03-30f-dev-page-self-boots-firebase
+Rev: 2026-03-30g-dev-page-lookup-rebuild-stronger-resolution
 
 GOAL:
 ✅ Standalone single-field debug page
 ✅ No tile renderer
 ✅ Self-boots Firebase on its own
-✅ Does NOT depend on field-readiness getAPI()
 ✅ Reads Firestore directly
 ✅ Runs actual model math from field-readiness.model.js
-✅ Shows lookup/debug/model/trace clearly
+✅ Stronger lookup resolution
+✅ Can recover when input is latest-doc id OR field id OR ptr
+✅ Shows clear debug for field / latest / weather / merged rows
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -27,9 +28,7 @@ GOAL:
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
-  <!-- IMPORTANT:
-       These try to populate window.FV_FIREBASE_CONFIG if your project already does that.
-       If they fail or are absent, the page still tries to continue and reports it clearly. -->
+  <!-- Existing FarmVista boot files -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
   <script src="/Farm-vista/js/firebase-init.js"></script>
 
@@ -490,6 +489,17 @@ GOAL:
         return String(obj);
       }
     }
+    function uniqueList(arr){
+      const out = [];
+      const seen = new Set();
+      for (const item of (Array.isArray(arr) ? arr : [])){
+        const s = safeStr(item);
+        if (!s || seen.has(s)) continue;
+        seen.add(s);
+        out.push(s);
+      }
+      return out;
+    }
     function loadScript(src){
       return new Promise((resolve, reject)=>{
         const existing = document.querySelector('script[data-dev-src="' + src + '"]');
@@ -514,6 +524,7 @@ GOAL:
         document.head.appendChild(s);
       });
     }
+
     async function ensureFirebaseCompat(){
       if (state.firebaseReady && state.db) return state.db;
 
@@ -553,6 +564,7 @@ GOAL:
       state.firebaseReady = true;
       return state.db;
     }
+
     function getUrlForCopy(){
       const url = new URL(window.location.href);
       const key = safeStr(els.fieldKeyInput.value);
@@ -564,6 +576,7 @@ GOAL:
       url.searchParams.set('threshold', thr);
       return url.toString();
     }
+
     function applyUrlToInputs(){
       const url = new URL(window.location.href);
       const key = safeStr(url.searchParams.get('id') || url.searchParams.get('ptr') || '');
@@ -572,6 +585,7 @@ GOAL:
       if (key) els.fieldKeyInput.value = key;
       if (thr) els.thresholdInput.value = thr;
     }
+
     function getCollectionList(){
       return safeStr(els.fieldCollectionsInput.value)
         .split(',')
@@ -582,92 +596,125 @@ GOAL:
     async function getDocById(db, collectionName, docId){
       const snap = await db.collection(collectionName).doc(docId).get();
       if (!snap.exists) return null;
-      return { id: snap.id, data: snap.data() || {}, source: `doc:${collectionName}/${docId}` };
+      return {
+        id: snap.id,
+        data: snap.data() || {},
+        source: `doc:${collectionName}/${docId}`,
+        collection: collectionName
+      };
     }
 
     async function queryWhereEq(db, collectionName, fieldName, value){
       const snap = await db.collection(collectionName).where(fieldName, '==', value).limit(1).get();
       if (snap.empty) return null;
       const doc = snap.docs[0];
-      return { id: doc.id, data: doc.data() || {}, source: `where:${collectionName}.${fieldName} == ${value}` };
+      return {
+        id: doc.id,
+        data: doc.data() || {},
+        source: `where:${collectionName}.${fieldName} == ${value}`,
+        collection: collectionName
+      };
     }
 
-    async function resolveLatestDoc(db, latestCollection, key, tried){
+    async function tryDocLookup(db, collectionName, key, tried){
+      tried.push(`doc:${collectionName}/${key}`);
       try{
-        const direct = await getDocById(db, latestCollection, key);
-        tried.push(`doc:${latestCollection}/${key}`);
-        if (direct) return direct;
+        return await getDocById(db, collectionName, key);
       }catch(_){
-        tried.push(`doc:${latestCollection}/${key}`);
+        return null;
+      }
+    }
+
+    async function tryFieldLookupSet(db, collectionName, key, tried, fieldNames){
+      for (const fld of fieldNames){
+        tried.push(`where:${collectionName}.${fld} == ${key}`);
+        try{
+          const hit = await queryWhereEq(db, collectionName, fld, key);
+          if (hit) return hit;
+        }catch(_){}
+      }
+      return null;
+    }
+
+    async function resolveLatestDoc(db, latestCollection, keys, tried){
+      const keyList = uniqueList(keys);
+
+      for (const key of keyList){
+        const direct = await tryDocLookup(db, latestCollection, key, tried);
+        if (direct) return direct;
       }
 
-      for (const fld of ['fieldId', 'ptr', 'fieldPtr', 'id']){
-        try{
-          const hit = await queryWhereEq(db, latestCollection, fld, key);
-          tried.push(`where:${latestCollection}.${fld} == ${key}`);
-          if (hit) return hit;
-        }catch(_){
-          tried.push(`where:${latestCollection}.${fld} == ${key}`);
-        }
+      for (const key of keyList){
+        const hit = await tryFieldLookupSet(
+          db,
+          latestCollection,
+          key,
+          tried,
+          ['fieldId', 'ptr', 'fieldPtr', 'id', 'name', 'fieldName']
+        );
+        if (hit) return hit;
       }
 
       return null;
     }
 
-    async function resolveWeatherDoc(db, weatherCollection, key, tried){
-      try{
-        const direct = await getDocById(db, weatherCollection, key);
-        tried.push(`doc:${weatherCollection}/${key}`);
+    async function resolveWeatherDoc(db, weatherCollection, keys, tried){
+      const keyList = uniqueList(keys);
+
+      for (const key of keyList){
+        const direct = await tryDocLookup(db, weatherCollection, key, tried);
         if (direct) return direct;
-      }catch(_){
-        tried.push(`doc:${weatherCollection}/${key}`);
       }
 
-      for (const fld of ['fieldId', 'ptr', 'fieldPtr', 'id']){
-        try{
-          const hit = await queryWhereEq(db, weatherCollection, fld, key);
-          tried.push(`where:${weatherCollection}.${fld} == ${key}`);
-          if (hit) return hit;
-        }catch(_){
-          tried.push(`where:${weatherCollection}.${fld} == ${key}`);
-        }
+      for (const key of keyList){
+        const hit = await tryFieldLookupSet(
+          db,
+          weatherCollection,
+          key,
+          tried,
+          ['fieldId', 'ptr', 'fieldPtr', 'id', 'name', 'fieldName']
+        );
+        if (hit) return hit;
       }
 
       return null;
     }
 
-    async function resolveFieldDoc(db, fieldCollections, key, latestDoc, weatherDoc, tried){
+    async function resolveFieldDoc(db, fieldCollections, keys, latestDoc, weatherDoc, tried){
+      const keyList = uniqueList(keys);
+
       for (const collectionName of fieldCollections){
-        try{
-          const direct = await getDocById(db, collectionName, key);
-          tried.push(`doc:${collectionName}/${key}`);
-          if (direct) return { ...direct, collection: collectionName };
-        }catch(_){
-          tried.push(`doc:${collectionName}/${key}`);
+        for (const key of keyList){
+          const direct = await tryDocLookup(db, collectionName, key, tried);
+          if (direct) return direct;
         }
       }
 
       for (const collectionName of fieldCollections){
-        for (const fld of ['ptr', 'fieldPtr', 'slug', 'shortId', 'fieldId', 'id']){
-          try{
-            const hit = await queryWhereEq(db, collectionName, fld, key);
-            tried.push(`where:${collectionName}.${fld} == ${key}`);
-            if (hit) return { ...hit, collection: collectionName };
-          }catch(_){
-            tried.push(`where:${collectionName}.${fld} == ${key}`);
-          }
+        for (const key of keyList){
+          const hit = await tryFieldLookupSet(
+            db,
+            collectionName,
+            key,
+            tried,
+            ['ptr', 'fieldPtr', 'slug', 'shortId', 'fieldId', 'id', 'name', 'fieldName']
+          );
+          if (hit) return hit;
         }
       }
 
       const synthSource = latestDoc || weatherDoc;
       if (synthSource){
         const d = synthSource.data || {};
-        const fieldId = safeStr(d.fieldId || synthSource.id || key);
+        const fieldId = safeStr(d.fieldId || synthSource.id || keyList[0] || '');
+
         return {
           id: fieldId,
+          collection: '(synthetic)',
+          source: `synthetic:${safeStr(synthSource.source)}`,
           data: {
-            fieldId,
             id: fieldId,
+            fieldId,
             name: d.fieldName || d.name || 'Field',
             fieldName: d.fieldName || d.name || 'Field',
             farmId: d.farmId || '',
@@ -680,13 +727,50 @@ GOAL:
               lat: safeNum(d.location?.lat ?? d.lat ?? d.center?.lat, null),
               lng: safeNum(d.location?.lng ?? d.lng ?? d.center?.lng, null)
             }
-          },
-          source: `synthetic:${synthSource.source}`,
-          collection: '(synthetic)'
+          }
         };
       }
 
       return null;
+    }
+
+    function buildCandidateKeys(inputKey, latestDoc, weatherDoc, fieldDoc){
+      const ld = latestDoc && latestDoc.data ? latestDoc.data : {};
+      const wd = weatherDoc && weatherDoc.data ? weatherDoc.data : {};
+      const fd = fieldDoc && fieldDoc.data ? fieldDoc.data : {};
+
+      return uniqueList([
+        inputKey,
+        latestDoc && latestDoc.id,
+        ld.fieldId,
+        ld.id,
+        ld.ptr,
+        ld.fieldPtr,
+        ld.shortId,
+        ld.slug,
+        ld.name,
+        ld.fieldName,
+
+        weatherDoc && weatherDoc.id,
+        wd.fieldId,
+        wd.id,
+        wd.ptr,
+        wd.fieldPtr,
+        wd.shortId,
+        wd.slug,
+        wd.name,
+        wd.fieldName,
+
+        fieldDoc && fieldDoc.id,
+        fd.fieldId,
+        fd.id,
+        fd.ptr,
+        fd.fieldPtr,
+        fd.shortId,
+        fd.slug,
+        fd.name,
+        fd.fieldName
+      ]);
     }
 
     function normalizeField(fieldDoc, latestDoc, weatherDoc, lookupKey){
@@ -695,18 +779,34 @@ GOAL:
       const wd = (weatherDoc && weatherDoc.data) || {};
 
       const id =
-        safeStr(fd.id || fd.fieldId || fieldDoc?.id || ld.fieldId || latestDoc?.id || wd.fieldId || weatherDoc?.id || lookupKey);
+        safeStr(
+          fd.fieldId || fd.id || fieldDoc?.id ||
+          ld.fieldId || ld.id || latestDoc?.id ||
+          wd.fieldId || wd.id || weatherDoc?.id ||
+          lookupKey
+        );
 
       const lat =
-        safeNum(fd.lat ?? fd.location?.lat ?? ld.location?.lat ?? wd.location?.lat ?? wd.lat, null);
+        safeNum(
+          fd.location?.lat ?? fd.lat ?? fd.latitude ?? fd.center?.lat ??
+          ld.location?.lat ?? ld.lat ?? ld.latitude ??
+          wd.location?.lat ?? wd.lat ?? wd.latitude,
+          null
+        );
+
       const lng =
-        safeNum(fd.lng ?? fd.location?.lng ?? ld.location?.lng ?? wd.location?.lng ?? wd.lng, null);
+        safeNum(
+          fd.location?.lng ?? fd.lng ?? fd.longitude ?? fd.lon ?? fd.center?.lng ??
+          ld.location?.lng ?? ld.lng ?? ld.longitude ?? ld.lon ??
+          wd.location?.lng ?? wd.lng ?? wd.longitude ?? wd.lon,
+          null
+        );
 
       return {
         id,
         fieldId: id,
-        name: safeStr(fd.name || fd.fieldName || ld.fieldName || wd.fieldName || 'Field'),
-        fieldName: safeStr(fd.fieldName || fd.name || ld.fieldName || wd.fieldName || 'Field'),
+        name: safeStr(fd.name || fd.fieldName || ld.fieldName || ld.name || wd.fieldName || wd.name || 'Field'),
+        fieldName: safeStr(fd.fieldName || fd.name || ld.fieldName || ld.name || wd.fieldName || wd.name || 'Field'),
         farmId: safeStr(fd.farmId || ld.farmId || wd.farmId || ''),
         farmName: safeStr(fd.farmName || ld.farmName || wd.farmName || ''),
         county: safeStr(fd.county || ld.county || wd.county || ''),
@@ -748,23 +848,35 @@ GOAL:
 
     function normalizeWxRow(raw){
       const r = raw || {};
+      const dateISO = safeStr(
+        r.dateISO ||
+        r.date ||
+        r.day ||
+        r.timeISO ||
+        r.timestampISO ||
+        r.validDate ||
+        r.validTime ||
+        ''
+      ).slice(0, 10);
+
       const rainInAdj =
         safeNum(r.rainMrmsIn, null) ??
         safeNum(r.rainInAdj, null) ??
         safeNum(r.rainIn, null) ??
         safeNum(r.precipIn, null) ??
+        safeNum(r.precipitationIn, null) ??
         0;
 
       return {
-        dateISO: safeStr(r.dateISO || r.date || r.day || r.timeISO || '').slice(0, 10),
+        dateISO,
         rainInAdj,
         rainIn: safeNum(r.rainIn, rainInAdj),
         rainSource: safeStr(r.rainSource || (safeNum(r.rainMrmsIn, null) != null ? 'mrms' : 'open-meteo') || 'unknown'),
 
-        tempF: safeNum(r.tempF ?? r.tempAvgF ?? r.avgTempF, 0),
-        windMph: safeNum(r.windMph ?? r.windSpeedMph, 0),
-        rh: safeNum(r.rh ?? r.rhPct ?? r.relativeHumidityPct, 0),
-        solarWm2: safeNum(r.solarWm2 ?? r.shortwaveWm2 ?? r.shortwaveRadiation, 0),
+        tempF: safeNum(r.tempF ?? r.tempAvgF ?? r.avgTempF ?? r.temperatureF, 0),
+        windMph: safeNum(r.windMph ?? r.windSpeedMph ?? r.windspeedMph, 0),
+        rh: safeNum(r.rh ?? r.rhPct ?? r.relativeHumidityPct ?? r.relativeHumidity, 0),
+        solarWm2: safeNum(r.solarWm2 ?? r.shortwaveWm2 ?? r.shortwaveRadiation ?? r.solar, 0),
         sunshineHr: safeNum(r.sunshineHr ?? r.sunshineHours ?? r.sunshine_duration_hr, 0),
         daylightHr: safeNum(r.daylightHr ?? r.daylightHours ?? r.daylight_duration_hr, 0),
         cloudPct: safeNum(r.cloudPct ?? r.cloudCoverPct ?? r.cloud_cover, null),
@@ -778,27 +890,46 @@ GOAL:
       };
     }
 
+    function normalizeRowsArray(rows){
+      return (Array.isArray(rows) ? rows : [])
+        .map(normalizeWxRow)
+        .filter(r => r && r.dateISO);
+    }
+
+    function extractNumericObjectRows(obj){
+      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return [];
+      const keys = Object.keys(obj)
+        .filter(k => /^\d+$/.test(String(k)))
+        .sort((a, b)=> Number(a) - Number(b));
+      if (!keys.length) return [];
+      return keys.map(k => obj[k]).filter(Boolean);
+    }
+
+    function firstRowArrayFromDoc(docData, candidates){
+      const d = docData || {};
+      for (const key of candidates){
+        const value = d[key];
+        if (Array.isArray(value) && value.length){
+          return value;
+        }
+        const numericRows = extractNumericObjectRows(value);
+        if (numericRows.length){
+          return numericRows;
+        }
+      }
+      return [];
+    }
+
     function pickHistoryRows(latestDoc, weatherDoc){
       const ld = (latestDoc && latestDoc.data) || {};
       const wd = (weatherDoc && weatherDoc.data) || {};
 
-      const candidates = [
-        ld.dailySeries30d,
-        ld.dailySeries,
-        ld.weatherDailySeries,
-        ld.wxDailySeries,
-        wd.dailySeries30d,
-        wd.dailySeries,
-        wd.weatherDailySeries,
-        wd.wxDailySeries,
-        wd.rows
+      const direct = [
+        ...normalizeRowsArray(firstRowArrayFromDoc(ld, ['dailySeries30d', 'dailySeries', 'weatherDailySeries', 'wxDailySeries', 'rows'])),
+        ...normalizeRowsArray(firstRowArrayFromDoc(wd, ['dailySeries30d', 'dailySeries', 'weatherDailySeries', 'wxDailySeries', 'rows']))
       ];
 
-      for (const rows of candidates){
-        if (Array.isArray(rows) && rows.length){
-          return rows.map(normalizeWxRow).filter(r => r.dateISO);
-        }
-      }
+      if (direct.length) return uniqueWeatherRows(direct);
       return [];
     }
 
@@ -806,31 +937,26 @@ GOAL:
       const ld = (latestDoc && latestDoc.data) || {};
       const wd = (weatherDoc && weatherDoc.data) || {};
 
-      const candidates = [
-        ld.dailySeriesFcst,
-        ld.forecastRows,
-        ld.weatherForecastRows,
-        ld.forecastDailyRows,
-        ld.openMeteoForecastRows,
-        wd.dailySeriesFcst,
-        wd.forecastRows,
-        wd.weatherForecastRows,
-        wd.forecastDailyRows,
-        wd.openMeteoForecastRows
+      const direct = [
+        ...normalizeRowsArray(firstRowArrayFromDoc(ld, ['dailySeriesFcst', 'forecastRows', 'weatherForecastRows', 'forecastDailyRows', 'openMeteoForecastRows'])),
+        ...normalizeRowsArray(firstRowArrayFromDoc(wd, ['dailySeriesFcst', 'forecastRows', 'weatherForecastRows', 'forecastDailyRows', 'openMeteoForecastRows']))
       ];
 
-      for (const rows of candidates){
-        if (Array.isArray(rows) && rows.length){
-          return rows.map(normalizeWxRow).filter(r => r.dateISO);
-        }
-      }
+      if (direct.length) return uniqueWeatherRows(direct);
       return [];
     }
 
+    function uniqueWeatherRows(rows){
+      const map = new Map();
+      for (const r of (Array.isArray(rows) ? rows : [])){
+        if (!r || !r.dateISO) continue;
+        map.set(String(r.dateISO), r);
+      }
+      return Array.from(map.values()).sort((a, b)=> String(a.dateISO).localeCompare(String(b.dateISO)));
+    }
+
     function mergeHistoryAndForecast(historyRows, forecastRows){
-      return [...historyRows, ...forecastRows]
-        .filter(r => r && r.dateISO)
-        .sort((a, b)=> String(a.dateISO).localeCompare(String(b.dateISO)));
+      return uniqueWeatherRows([...(historyRows || []), ...(forecastRows || [])]);
     }
 
     function renderTraceRows(trace){
@@ -861,27 +987,38 @@ GOAL:
     }
 
     async function runDevTest(){
-      const key = safeStr(els.fieldKeyInput.value);
+      const inputKey = safeStr(els.fieldKeyInput.value);
       const threshold = safeNum(els.thresholdInput.value, 85);
       const fieldCollections = getCollectionList();
       const latestCollection = safeStr(els.latestCollectionInput.value) || 'field_readiness_latest';
       const weatherCollection = safeStr(els.weatherCollectionInput.value) || 'field_weather_cache';
 
-      if (!key){
+      if (!inputKey){
         setStatus(els.runStatus, 'Enter a field ptr or id first.', 'err');
         return;
       }
 
-      setStatus(els.runStatus, `Running dev test for ${key}…`);
+      setStatus(els.runStatus, `Running dev test for ${inputKey}…`);
       els.runBtn.disabled = true;
 
       try{
         const db = await ensureFirebaseCompat();
         const tried = [];
 
-        const latestDoc = await resolveLatestDoc(db, latestCollection, key, tried);
-        const weatherDoc = await resolveWeatherDoc(db, weatherCollection, key, tried);
-        const fieldDoc = await resolveFieldDoc(db, fieldCollections, key, latestDoc, weatherDoc, tried);
+        let latestDoc = await resolveLatestDoc(db, latestCollection, [inputKey], tried);
+        let weatherDoc = await resolveWeatherDoc(db, weatherCollection, buildCandidateKeys(inputKey, latestDoc, null, null), tried);
+        let fieldDoc = await resolveFieldDoc(db, fieldCollections, buildCandidateKeys(inputKey, latestDoc, weatherDoc, null), latestDoc, weatherDoc, tried);
+
+        // second pass now that more keys may exist
+        if (!latestDoc){
+          latestDoc = await resolveLatestDoc(db, latestCollection, buildCandidateKeys(inputKey, null, weatherDoc, fieldDoc), tried);
+        }
+        if (!weatherDoc){
+          weatherDoc = await resolveWeatherDoc(db, weatherCollection, buildCandidateKeys(inputKey, latestDoc, null, fieldDoc), tried);
+        }
+        if (!fieldDoc){
+          fieldDoc = await resolveFieldDoc(db, fieldCollections, buildCandidateKeys(inputKey, latestDoc, weatherDoc, null), latestDoc, weatherDoc, tried);
+        }
 
         state.lastLatestDoc = latestDoc;
         state.lastFieldDoc = fieldDoc;
@@ -891,7 +1028,7 @@ GOAL:
           throw new Error('Field not found. Tried: ' + tried.join(' | '));
         }
 
-        const field = normalizeField(fieldDoc, latestDoc, weatherDoc, key);
+        const field = normalizeField(fieldDoc, latestDoc, weatherDoc, inputKey);
         const fieldParams = normalizeFieldParams(fieldDoc, latestDoc, weatherDoc);
 
         const historyRows = pickHistoryRows(latestDoc, weatherDoc);
@@ -922,12 +1059,12 @@ GOAL:
             return mergedRows;
           },
           getForecastSeriesForFieldId: (fieldId)=>{
-            if (String(fieldId) !== String(field.id)) return forecastRows;
-            return [];
+            if (String(fieldId) !== String(field.id)) return [];
+            return forecastRows;
           },
           getWxSeriesWithForecastForFieldId: (fieldId)=>{
-            if (String(fieldId) !== String(field.id)) return mergedRows;
-            return [];
+            if (String(fieldId) !== String(field.id)) return [];
+            return mergedRows;
           }
         };
 
@@ -939,8 +1076,8 @@ GOAL:
           els.fieldSub,
           [
             field.id ? `ID ${field.id}` : '',
-            field.county ? field.county : '',
-            field.state ? field.state : ''
+            field.county || '',
+            field.state || ''
           ].filter(Boolean).join(' • ') || 'Field loaded'
         );
 
@@ -954,7 +1091,7 @@ GOAL:
           els.weatherSource,
           historyRows.length || forecastRows.length
             ? `history:${historyRows.length} forecast:${forecastRows.length}`
-            : 'none'
+            : (weatherDoc ? (weatherDoc.source || 'doc only') : 'none')
         );
 
         setText(els.histCount, historyRows.length);
@@ -969,8 +1106,9 @@ GOAL:
         els.latestDocDebug.textContent = pretty(latestDoc);
         els.weatherDebug.textContent = pretty({
           weatherDoc,
-          historyRowsPreview: historyRows.slice(0, 10),
-          forecastRowsPreview: forecastRows.slice(0, 10)
+          historyRowsPreview: historyRows.slice(0, 12),
+          forecastRowsPreview: forecastRows.slice(0, 12),
+          mergedRowsPreview: mergedRows.slice(0, 20)
         });
         els.modelDebug.textContent = pretty({
           field,
@@ -984,6 +1122,8 @@ GOAL:
         setStatus(
           els.runStatus,
           `Run finished.
+Input: ${inputKey}
+Resolved field id: ${field.id}
 Field: ${field.name || field.id}
 History rows: ${historyRows.length}
 Forecast rows: ${forecastRows.length}
@@ -996,6 +1136,7 @@ ETA: ${eta && eta.text ? eta.text : '—'}`,
         setStatus(els.runStatus, msg, 'err');
         els.lookupDebug.textContent = msg;
         els.modelDebug.textContent = pretty({ error: msg });
+        renderTraceRows([]);
       }finally{
         els.runBtn.disabled = false;
       }
@@ -1028,6 +1169,13 @@ ETA: ${eta && eta.text ? eta.text : '—'}`,
       els.useLatestIdBtn.addEventListener('click', useLatestDocFieldId);
 
       els.fieldKeyInput.addEventListener('keydown', (e)=>{
+        if (e.key === 'Enter'){
+          e.preventDefault();
+          runDevTest();
+        }
+      });
+
+      els.thresholdInput.addEventListener('keydown', (e)=>{
         if (e.key === 'Enter'){
           e.preventDefault();
           runDevTest();
