@@ -1953,6 +1953,151 @@ function getLiveModelRowsForDetails(runTruth, savedRawDoc){
     return Array.isArray(d.modelRows) ? d.modelRows : [];
   }
 }
+function fmtMoisturePair(value, cap){
+  const v = safeNum(value);
+  const c = safeNum(cap);
+  if (v != null && c != null) return `${v.toFixed(2)} / ${c.toFixed(2)}`;
+  if (v != null) return v.toFixed(2);
+  return '—';
+}
+
+function fmtSingleMoisture(value){
+  const v = safeNum(value);
+  return v != null ? v.toFixed(2) : '—';
+}
+
+function getSoilMoistureSnapshot(runTruth, latestRec, savedRawDoc){
+  const d = safeObj(savedRawDoc) || {};
+  const rec = safeObj(latestRec && latestRec._raw ? latestRec._raw : latestRec) || {};
+
+  const soilValue =
+    safeNum(runTruth && runTruth.storageForReadiness) ??
+    safeNum(rec.storageForReadiness) ??
+    safeNum(d.storageForReadiness) ??
+    safeNum(runTruth && runTruth.storageFinal) ??
+    safeNum(rec.storageFinal) ??
+    safeNum(d.storageFinal);
+
+  const soilCap =
+    safeNum(runTruth && runTruth.storageMax) ??
+    safeNum(runTruth && runTruth.storageCapacity) ??
+    safeNum(runTruth && runTruth.storageMaxFinal) ??
+    safeNum(runTruth && runTruth.factors && runTruth.factors.Smax) ??
+    safeNum(rec.storageMax) ??
+    safeNum(rec.storageCapacity) ??
+    safeNum(rec.storageMaxFinal) ??
+    safeNum(d.storageMax) ??
+    safeNum(d.storageCapacity) ??
+    safeNum(d.storageMaxFinal);
+
+  return fmtMoisturePair(soilValue, soilCap);
+}
+
+function getSurfaceWetnessSnapshot(runTruth, latestRec, savedRawDoc){
+  const d = safeObj(savedRawDoc) || {};
+  const rec = safeObj(latestRec && latestRec._raw ? latestRec._raw : latestRec) || {};
+
+  const surfaceValue =
+    safeNum(runTruth && runTruth.storagePhysFinal) ??
+    safeNum(rec.storagePhysFinal) ??
+    safeNum(d.storagePhysFinal);
+
+  return fmtSingleMoisture(surfaceValue);
+}
+
+function getSoilTraceRowsForDetails(runTruth, savedRawDoc){
+  try{
+    const liveRows = Array.isArray(runTruth && runTruth.trace) ? runTruth.trace : [];
+    if (liveRows.length){
+      return liveRows.map((t)=>({
+        dateISO: safeStr(t.dateISO),
+        rainIn: safeNum(t.rainIn) ?? safeNum(t.rain),
+        infilMult: safeNum(t.infilMult),
+        addIn: safeNum(t.addIn) ?? safeNum(t.add),
+        dryPwr: safeNum(t.dryPwr),
+        lossIn: safeNum(t.lossIn) ?? safeNum(t.loss),
+        storageStart:
+          safeNum(t.soilStart) ??
+          safeNum(t.storageForReadinessStart) ??
+          safeNum(t.readyStart) ??
+          safeNum(t.beforeReady) ??
+          safeNum(t.before),
+        storageEnd:
+          safeNum(t.soilEnd) ??
+          safeNum(t.storageForReadinessEnd) ??
+          safeNum(t.readyEnd) ??
+          safeNum(t.afterReady) ??
+          safeNum(t.after)
+      }));
+    }
+
+    const d = safeObj(savedRawDoc) || {};
+    if (Array.isArray(d.soilMoistureTrace)) return d.soilMoistureTrace;
+    if (Array.isArray(d.soilTrace)) return d.soilTrace;
+    return [];
+  }catch(_){
+    return [];
+  }
+}
+
+function getSurfaceTraceRowsForDetails(runTruth, savedRawDoc){
+  try{
+    const liveRows = Array.isArray(runTruth && runTruth.trace) ? runTruth.trace : [];
+    if (liveRows.length){
+      return liveRows.map((t)=>({
+        dateISO: safeStr(t.dateISO),
+        rainIn: safeNum(t.rainIn) ?? safeNum(t.rain),
+        infilMult: safeNum(t.infilMult),
+        addIn: safeNum(t.addIn) ?? safeNum(t.add),
+        dryPwr: safeNum(t.dryPwr),
+        lossIn: safeNum(t.lossIn) ?? safeNum(t.loss),
+        storageStart:
+          safeNum(t.surfaceStart) ??
+          safeNum(t.storagePhysStart) ??
+          safeNum(t.beforePhys) ??
+          safeNum(t.before),
+        storageEnd:
+          safeNum(t.surfaceEnd) ??
+          safeNum(t.storagePhysEnd) ??
+          safeNum(t.afterPhys) ??
+          safeNum(t.after)
+      }));
+    }
+
+    const d = safeObj(savedRawDoc) || {};
+    if (Array.isArray(d.surfaceWetnessTrace)) return d.surfaceWetnessTrace;
+    if (Array.isArray(d.surfaceTrace)) return d.surfaceTrace;
+    if (Array.isArray(d.tankTrace)) return d.tankTrace;
+    return [];
+  }catch(_){
+    return [];
+  }
+}
+
+function renderMoistureTraceTableRows(tbodyEl, rows, emptyMsg){
+  if (!tbodyEl) return;
+
+  tbodyEl.innerHTML = '';
+
+  if (!Array.isArray(rows) || !rows.length){
+    tbodyEl.innerHTML = `<tr><td colspan="7" class="muted">${esc(emptyMsg || 'No trace data.')}</td></tr>`;
+    return;
+  }
+
+  for (const t of rows){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="mono">${esc(String(t.dateISO || ''))}</td>
+      <td class="right mono">${Number(t.rainIn ?? 0).toFixed(2)}</td>
+      <td class="right mono">${Number(t.infilMult ?? 0).toFixed(2)}</td>
+      <td class="right mono">${Number(t.addIn ?? 0).toFixed(2)}</td>
+      <td class="right mono">${Number(t.dryPwr ?? 0).toFixed(2)}</td>
+      <td class="right mono">${Number(t.lossIn ?? 0).toFixed(2)}</td>
+      <td class="right mono">${Number(t.storageStart ?? 0).toFixed(2)}→${Number(t.storageEnd ?? 0).toFixed(2)}</td>
+    `;
+    tbodyEl.appendChild(tr);
+  }
+}
 
 /* =====================================================================
    FAST helper: build runs from field_readiness_latest
@@ -3029,30 +3174,33 @@ async function _renderDetailsInternal(state){
   renderBetaInputs(state);
 
   /* ===============================
-     ✅ TANK TRACE (LIVE RUN FIRST, SAVED FALLBACK)
+     ✅ CURRENT MOISTURE SNAPSHOT
   =============================== */
-  const trb = $('traceRows');
-  if (trb){
-    trb.innerHTML = '';
-    const rows = getLiveTraceRowsForDetails(runTruth, d);
+  setPanelText('currentSoilMoisture', getSoilMoistureSnapshot(runTruth, latest, d));
+  setPanelText('currentSurfaceWetness', getSurfaceWetnessSnapshot(runTruth, latest, d));
 
-    if (!rows.length){
-      trb.innerHTML = `<tr><td colspan="7" class="muted">No tank trace data.</td></tr>`;
-    } else {
-      for (const t of rows){
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td class="mono">${esc(String(t.dateISO || ''))}</td>
-          <td class="right mono">${Number(t.rainIn ?? 0).toFixed(2)}</td>
-          <td class="right mono">${Number(t.infilMult ?? 0).toFixed(2)}</td>
-          <td class="right mono">${Number(t.addIn ?? 0).toFixed(2)}</td>
-          <td class="right mono">${Number(t.dryPwr ?? 0).toFixed(2)}</td>
-          <td class="right mono">${Number(t.lossIn ?? 0).toFixed(2)}</td>
-          <td class="right mono">${Number(t.storageStart ?? 0).toFixed(2)}→${Number(t.storageEnd ?? 0).toFixed(2)}</td>
-        `;
-        trb.appendChild(tr);
-      }
-    }
+  /* ===============================
+     ✅ SOIL MOISTURE TRACE
+  =============================== */
+  {
+    const soilRows = getSoilTraceRowsForDetails(runTruth, d);
+    renderMoistureTraceTableRows(
+      $('soilTraceRows'),
+      soilRows,
+      'Waiting for soil moisture trace.'
+    );
+  }
+
+  /* ===============================
+     ✅ SURFACE WETNESS TRACE
+  =============================== */
+  {
+    const surfaceRows = getSurfaceTraceRowsForDetails(runTruth, d);
+    renderMoistureTraceTableRows(
+      $('surfaceTraceRows'),
+      surfaceRows,
+      'Waiting for surface wetness trace.'
+    );
   }
 
   /* ===============================
