@@ -1350,39 +1350,9 @@ function buildEtaFailureText(res, readinessNow, thr){
   if (!Number.isFinite(ready) || !Number.isFinite(threshold)) return '';
   if (ready >= threshold) return '';
 
-  const status = String(res && res.status || '').toLowerCase();
+  const status = String((res && res.status) || '').toLowerCase();
   const hours = Number(res && res.hours);
-  const text = String(res && res.text || '').trim();
-
-  if (status === 'beyond' || status === 'notwithin72'){
-    return `>${ETA_HORIZON_HOURS}h`;
-  }
-
-  if (Number.isFinite(hours)){
-    return hours <= ETA_HORIZON_HOURS
-      ? `~${Math.max(1, Math.round(hours))}h`
-      : `>${ETA_HORIZON_HOURS}h`;
-  }
-
-  if (text){
-    const compact = compactEtaForMobile(text, ETA_HORIZON_HOURS);
-    if (compact) return compact;
-  }
-
-  return 'ETA ?';
-}
-
-
-function buildEtaFailureText(res, readinessNow, thr){
-  const ready = Number(readinessNow);
-  const threshold = Number(thr);
-
-  if (!Number.isFinite(ready) || !Number.isFinite(threshold)) return '';
-  if (ready >= threshold) return '';
-
-  const status = String(res && res.status || '').toLowerCase();
-  const hours = Number(res && res.hours);
-  const text = String(res && res.text || '').trim();
+  const text = String((res && res.text) || '').trim();
 
   if (status === 'beyond' || status === 'notwithin72'){
     return `>${ETA_HORIZON_HOURS}h`;
