@@ -764,6 +764,65 @@ function interpDayRow(d0, d1, frac){
   };
 }
 
+function rainFracForHourSlot(stepStartHour, stepHours, row){
+  const start = clamp(Number(stepStartHour || 0), 0, 24);
+  const end = clamp(start + Number(stepHours || 0), 0, 24);
+
+  const morningIn = Math.max(0, Number(row?.rainMorningIn || 0));
+  const middayIn = Math.max(0, Number(row?.rainMiddayIn || 0));
+  const eveningIn = Math.max(0, Number(row?.rainEveningIn || 0));
+  const timedTotal = morningIn + middayIn + eveningIn;
+
+  if (timedTotal > 0){
+    let frac = 0;
+
+    // Morning: 0-12
+    if (end > 0 && start < 12){
+      const overlap = Math.max(0, Math.min(end, 12) - Math.max(start, 0));
+      frac += (overlap / 12) * (morningIn / timedTotal);
+    }
+
+    // Midday: 12-18
+    if (end > 12 && start < 18){
+      const overlap = Math.max(0, Math.min(end, 18) - Math.max(start, 12));
+      frac += (overlap / 6) * (middayIn / timedTotal);
+    }
+
+    // Evening: 18-24
+    if (end > 18 && start < 24){
+      const overlap = Math.max(0, Math.min(end, 24) - Math.max(start, 18));
+      frac += (overlap / 6) * (eveningIn / timedTotal);
+    }
+
+    return clamp(frac, 0, 1);
+  }
+
+  // Fallback if no timing buckets exist
+  return clamp(Number(stepHours || 0) / 24, 0, 1);
+}
+
+function buildEtaStepRow(fcst, tHours, stepHours, deps, tune){
+  const dayStart = Math.floor(Math.max(0, tHours - stepHours) / 24);
+  const dayEnd = Math.floor(Math.max(0, tHours - 1e-6) / 24);
+
+  const baseDay = fcst[Math.min(dayEnd, fcst.length - 1)] || fcst[fcst.length - 1];
+  const nextDay = fcst[Math.min(dayEnd + 1, fcst.length - 1)] || baseDay;
+
+  const row = normalizeDailyRowForSim(
+    interpDayRow(baseDay, nextDay, 0),
+    deps,
+    tune
+  );
+
+  const hourInDay = ((tHours - stepHours) % 24 + 24) % 24;
+  const rainFrac = rainFracForHourSlot(hourInDay, stepHours, row);
+
+  return {
+    row,
+    stepRain: Math.max(0, Number(row.rainInAdj || 0)) * rainFrac
+  };
+}
+
 function normalizeDailyRowForSim(w, deps, tune){
   return normalizeRowForModel(w, deps, tune);
 }
@@ -856,16 +915,11 @@ export async function etaToThreshold(field, deps, threshold, horizonHours=168, s
 
     for (let s=1; s<=steps; s++){
       const tHours = Math.min(H, s * stepH);
-      const dayFloat = tHours / 24;
-      const i = Math.floor(dayFloat);
-      const frac = dayFloat - i;
+            const stepFrac = stepH / 24;
 
-      const d0 = fcst[Math.min(i, fcst.length - 1)];
-      const d1 = fcst[Math.min(i + 1, fcst.length - 1)];
-      const row = normalizeDailyRowForSim(interpDayRow(d0, d1, frac), deps, tune);
-
-      const stepFrac = stepH / 24;
-      const stepRain = Math.max(0, Number(row.rainInAdj || 0)) * stepFrac;
+      const stepInfo = buildEtaStepRow(fcst, tHours, stepH, deps, tune);
+      const row = stepInfo.row;
+      const stepRain = stepInfo.stepRain;
 
       const before = storagePhys;
       const surfaceBefore = surfaceStorage;
