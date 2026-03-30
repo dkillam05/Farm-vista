@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/formula.js  (FULL FILE)
-Rev: 2026-03-18a-fix-param-precedence-use-latest-before-defaults
+Rev: 2026-03-30b-fix-eta-forecast-fallback-from-latest-doc
 
 PURPOSE:
 ✅ Single source of truth for Field Readiness computation wiring.
@@ -31,6 +31,8 @@ THIS REV:
       2) field_readiness_latest
       3) field doc values
       4) hard defaults
+✅ REAL ETA FIX: forecast getter now falls back to field_readiness_latest._raw.dailySeriesFcst
+✅ REAL ETA FIX: merged history + forecast getter now exists for ETA/model fallback
 
 This module:
 - Ensures model/weather/forecast modules are loaded
@@ -121,6 +123,18 @@ function mmToIn(mm){
 function hasFinite(v){
   return Number.isFinite(Number(v));
 }
+function toISODateOnly(v){
+  try{
+    const s = String(v || '').trim();
+    if (!s) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const d = new Date(s);
+    if (!Number.isFinite(d.getTime())) return '';
+    return d.toISOString().slice(0, 10);
+  }catch(_){
+    return '';
+  }
+}
 
 /* =====================================================================
    Persisted truth seed helpers
@@ -147,6 +161,15 @@ export function getLatestTruthFromState(state, fieldId){
     return safeObj(rec);
   }catch(_){
     return null;
+  }
+}
+
+function getLatestRawDocFromState(state, fieldId){
+  try{
+    const rec = getLatestTruthFromState(state, fieldId);
+    return safeObj(rec && rec._raw) || {};
+  }catch(_){
+    return {};
   }
 }
 
@@ -387,11 +410,86 @@ function withRainSource(rows, source){
 }
 
 function normalizeForecastRows(rows){
-  return (Array.isArray(rows) ? rows : []).map(r => ({
-    ...r,
-    rainInAdj: num(r && r.rainInAdj, num(r && r.rainIn, 0)),
-    rainSource: String(r && (r.rainSource || r.precipSource) || 'open-meteo')
-  }));
+  return (Array.isArray(rows) ? rows : [])
+    .map(r => {
+      const row = safeObj(r) || {};
+      return {
+        ...row,
+        dateISO: toISODateOnly(
+          row.dateISO ||
+          row.date ||
+          row.day ||
+          row.timeISO ||
+          row.timestampISO ||
+          row.validDate ||
+          row.validTime ||
+          row.ds ||
+          ''
+        ),
+        rainInAdj: num(row.rainInAdj, num(row.rainIn, num(row.precipIn, num(row.precipitationIn, 0)))),
+        rainSource: String(row.rainSource || row.precipSource || 'open-meteo')
+      };
+    })
+    .filter(r => !!safeStr(r.dateISO));
+}
+
+function normalizeHistoryRows(rows){
+  return (Array.isArray(rows) ? rows : [])
+    .map(r => {
+      const row = safeObj(r) || {};
+      return {
+        ...row,
+        dateISO: toISODateOnly(
+          row.dateISO ||
+          row.date ||
+          row.day ||
+          row.timeISO ||
+          row.timestampISO ||
+          row.validDate ||
+          row.validTime ||
+          row.ds ||
+          ''
+        ),
+        rainInAdj: num(row.rainInAdj, num(row.rainIn, num(row.precipIn, num(row.precipitationIn, 0)))),
+        rainSource: String(row.rainSource || row.precipSource || 'open-meteo')
+      };
+    })
+    .filter(r => !!safeStr(r.dateISO));
+}
+
+function getLatestForecastRowsFromDoc(state, fieldId){
+  try{
+    const raw = getLatestRawDocFromState(state, fieldId);
+
+    const rows =
+      Array.isArray(raw.dailySeriesFcst) ? raw.dailySeriesFcst :
+      Array.isArray(raw.forecastRows) ? raw.forecastRows :
+      Array.isArray(raw.weatherForecastRows) ? raw.weatherForecastRows :
+      Array.isArray(raw.forecastDailyRows) ? raw.forecastDailyRows :
+      Array.isArray(raw.openMeteoForecastRows) ? raw.openMeteoForecastRows :
+      [];
+
+    return normalizeForecastRows(rows);
+  }catch(_){
+    return [];
+  }
+}
+
+function getLatestHistoryRowsFromDoc(state, fieldId){
+  try{
+    const raw = getLatestRawDocFromState(state, fieldId);
+
+    const rows =
+      Array.isArray(raw.dailySeries30d) ? raw.dailySeries30d :
+      Array.isArray(raw.dailySeries) ? raw.dailySeries :
+      Array.isArray(raw.weatherDailySeries) ? raw.weatherDailySeries :
+      Array.isArray(raw.wxDailySeries) ? raw.wxDailySeries :
+      [];
+
+    return normalizeHistoryRows(rows);
+  }catch(_){
+    return [];
+  }
 }
 
 function overlayMrmsRainOntoWeatherRows(baseRows, mrmsDoc){
@@ -465,27 +563,27 @@ async function prewarmForecastForField(state, fieldId){
 
     const fid = String(fieldId);
     const hit = state._frForecastCache.get(fid);
-    if (Array.isArray(hit)) return hit;
+    if (Array.isArray(hit) && hit.length) return hit;
 
     const fc = state && state._mods ? state._mods.forecast : null;
-    if (!fc || typeof fc.readWxSeriesFromCache !== 'function'){
-      state._frForecastCache.set(fid, []);
-      state._frForecastMetaByFieldId.set(fid, {
-        count: 0,
-        updatedAt: Date.now(),
-        source: 'unavailable'
-      });
-      return [];
+    let rows = [];
+
+    if (fc && typeof fc.readWxSeriesFromCache === 'function'){
+      const wx = await fc.readWxSeriesFromCache(fid, {});
+      rows = normalizeForecastRows((wx && Array.isArray(wx.fcst)) ? wx.fcst : []);
     }
 
-    const wx = await fc.readWxSeriesFromCache(fid, {});
-    const rows = normalizeForecastRows((wx && Array.isArray(wx.fcst)) ? wx.fcst : []);
+    // CRITICAL FIX:
+    // If forecast cache path is blank, fall back to latest Firestore doc.
+    if (!rows.length){
+      rows = getLatestForecastRowsFromDoc(state, fid);
+    }
 
     state._frForecastCache.set(fid, rows);
     state._frForecastMetaByFieldId.set(fid, {
       count: rows.length,
       updatedAt: Date.now(),
-      source: 'open-meteo'
+      source: rows.length ? 'open-meteo-or-latest-doc' : 'unavailable'
     });
 
     return rows;
@@ -494,11 +592,13 @@ async function prewarmForecastForField(state, fieldId){
     try{
       ensureForecastCaches(state);
       const fid = String(fieldId);
-      state._frForecastCache.set(fid, []);
+      const fallbackRows = getLatestForecastRowsFromDoc(state, fid);
+
+      state._frForecastCache.set(fid, fallbackRows);
       state._frForecastMetaByFieldId.set(fid, {
-        count: 0,
+        count: fallbackRows.length,
         updatedAt: Date.now(),
-        source: 'error'
+        source: fallbackRows.length ? 'latest-doc-fallback' : 'error'
       });
     }catch(_){}
     return [];
@@ -589,12 +689,59 @@ export function buildFRDeps(state, { opKey=null, wxCtx=null, persistedGetter=nul
     getPersistedState,
 
     // ETA/helper expects a synchronous getter.
+    // IMPORTANT FIX:
+    // Prefer warmed forecast cache first, but if cache is blank, fall back to
+    // field_readiness_latest._raw.dailySeriesFcst so ETA can still resolve.
     getForecastSeriesForFieldId: (id)=>{
       try{
         const fid = String(id);
         ensureForecastCaches(state);
-        const rows = state._frForecastCache.get(fid);
-        return Array.isArray(rows) ? rows : [];
+
+        const cacheRows = state._frForecastCache.get(fid);
+        if (Array.isArray(cacheRows) && cacheRows.length){
+          return normalizeForecastRows(cacheRows);
+        }
+
+        const latestRows = getLatestForecastRowsFromDoc(state, fid);
+        if (latestRows.length) return latestRows;
+
+        return [];
+      }catch(_){
+        return [];
+      }
+    },
+
+    // IMPORTANT FIX:
+    // Give ETA/model a merged history + forecast series fallback using the
+    // saved latest Firestore doc when forecast cache wiring is incomplete.
+    getWxSeriesWithForecastForFieldId: (id)=>{
+      try{
+        const fid = String(id);
+
+        const histRows = (() => {
+          try{
+            const weatherRows = state._mods.weather.getWeatherSeriesForFieldId(fid, okWxCtx);
+            if (Array.isArray(weatherRows) && weatherRows.length){
+              return withRainSource(weatherRows, 'open-meteo');
+            }
+          }catch(_){}
+          return getLatestHistoryRowsFromDoc(state, fid);
+        })();
+
+        const fcstRows = (() => {
+          try{
+            ensureForecastCaches(state);
+
+            const cacheRows = state._frForecastCache.get(fid);
+            if (Array.isArray(cacheRows) && cacheRows.length){
+              return normalizeForecastRows(cacheRows);
+            }
+          }catch(_){}
+
+          return getLatestForecastRowsFromDoc(state, fid);
+        })();
+
+        return [...histRows, ...fcstRows];
       }catch(_){
         return [];
       }
