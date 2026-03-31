@@ -1,15 +1,15 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/field-readiness-dev.html  (FULL FILE)
-Rev: 2026-03-30n-dev-page-saved-readiness-eta
+Rev: 2026-03-31a-dev-page-modular-firestore-fix
 
 GOAL:
 ✅ Standalone single-field debug page
 ✅ No tile renderer
-✅ Reads current readiness from field_readiness_latest first
-✅ Uses forecast walk-forward ETA from saved readiness
+✅ Uses modular Firebase / Firestore only
+✅ FIX: removes db.collection compat calls
 ✅ Waits for app auth before querying Firestore
-✅ Keeps sticky auth behavior
-✅ Shows ETA even if model etaToThreshold returns nodata
+✅ Uses saved readiness from field_readiness_latest first
+✅ ETA is forecast walk-forward from saved readiness
 ✅ Rain after crossing threshold does NOT block ETA
 ===================================================================== -->
 <!doctype html>
@@ -525,7 +525,20 @@ GOAL:
   </fv-shell>
 
   <script type="module">
-    import { runField, etaToThreshold } from '/Farm-vista/js/field-readiness.model.js';
+    import { runField } from '/Farm-vista/js/field-readiness.model.js';
+    import { initializeApp, getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+    import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+    import {
+      getFirestore,
+      doc,
+      getDoc,
+      collection,
+      query,
+      where,
+      limit,
+      getDocs,
+      orderBy
+    } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
     const $ = (id)=> document.getElementById(id);
 
@@ -578,7 +591,9 @@ GOAL:
     };
 
     const state = {
+      app: null,
       db: null,
+      auth: null,
       firebaseReady: false,
       authWatcherStarted: false,
       authResolved: false,
@@ -662,41 +677,8 @@ GOAL:
       renderTraceRows([]);
     }
 
-    function loadScript(src){
-      return new Promise((resolve, reject)=>{
-        const existing = document.querySelector('script[data-dev-src="' + src + '"]');
-        if (existing){
-          if (existing.dataset.loaded === '1') return resolve();
-          existing.addEventListener('load', ()=> resolve(), { once:true });
-          existing.addEventListener('error', ()=> reject(new Error('Failed to load ' + src)), { once:true });
-          return;
-        }
-
-        const s = document.createElement('script');
-        s.src = src;
-        s.async = true;
-        s.dataset.devSrc = src;
-        s.addEventListener('load', ()=>{
-          s.dataset.loaded = '1';
-          resolve();
-        }, { once:true });
-        s.addEventListener('error', ()=>{
-          reject(new Error('Failed to load ' + src));
-        }, { once:true });
-        document.head.appendChild(s);
-      });
-    }
-
-    async function ensureFirebaseCompat(){
-      if (state.firebaseReady && state.db) return state.db;
-
-      if (window.firebase && window.firebase.firestore){
-        try{
-          state.db = window.firebase.firestore();
-          state.firebaseReady = true;
-          return state.db;
-        }catch(_){}
-      }
+    async function ensureFirebase(){
+      if (state.firebaseReady && state.app && state.db && state.auth) return;
 
       const cfg =
         window.FV_FIREBASE_CONFIG ||
@@ -708,21 +690,10 @@ GOAL:
         throw new Error('Firebase config not found on window.');
       }
 
-      await loadScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
-      await loadScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js');
-      await loadScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js');
-
-      if (!window.firebase || !window.firebase.initializeApp){
-        throw new Error('Firebase compat library loaded, but window.firebase is still missing.');
-      }
-
-      if (!window.firebase.apps || !window.firebase.apps.length){
-        window.firebase.initializeApp(cfg);
-      }
-
-      state.db = window.firebase.firestore();
+      state.app = getApps().length ? getApp() : initializeApp(cfg);
+      state.db = getFirestore(state.app);
+      state.auth = getAuth(state.app);
       state.firebaseReady = true;
-      return state.db;
     }
 
     function startAuthWatcher(){
@@ -730,18 +701,9 @@ GOAL:
       state.authWatcherStarted = true;
 
       state.authReadyPromise = new Promise(async (resolve)=>{
-        await ensureFirebaseCompat();
+        await ensureFirebase();
 
-        if (!(window.firebase && window.firebase.auth)){
-          state.authResolved = true;
-          state.authSignedIn = false;
-          resolve();
-          return;
-        }
-
-        const auth = window.firebase.auth();
         let settled = false;
-
         const finish = ()=>{
           if (settled) return;
           settled = true;
@@ -750,15 +712,14 @@ GOAL:
         };
 
         try{
-          const current = auth.currentUser;
-          if (current){
-            state.authUser = current;
+          if (state.auth.currentUser){
+            state.authUser = state.auth.currentUser;
             state.authSignedIn = true;
             state.authLastSeenAt = Date.now();
           }
         }catch(_){}
 
-        auth.onAuthStateChanged((user)=>{
+        onAuthStateChanged(state.auth, (user)=>{
           if (user){
             state.authUser = user;
             state.authSignedIn = true;
@@ -792,7 +753,7 @@ GOAL:
 
     function getAuthDebug(){
       return {
-        available: !!(window.firebase && window.firebase.auth),
+        available: !!state.auth,
         signedIn: !!state.authSignedIn,
         uid: safeStr(state.authUser && state.authUser.uid),
         email: safeStr(state.authUser && state.authUser.email),
@@ -845,9 +806,9 @@ GOAL:
         .filter(Boolean);
     }
 
-    async function getDocById(db, collectionName, docId){
-      const snap = await db.collection(collectionName).doc(docId).get();
-      if (!snap.exists) return null;
+    async function getDocById(dbRef, collectionName, docId){
+      const snap = await getDoc(doc(dbRef, collectionName, docId));
+      if (!snap.exists()) return null;
       return {
         id: snap.id,
         data: snap.data() || {},
@@ -856,13 +817,14 @@ GOAL:
       };
     }
 
-    async function queryWhereEq(db, collectionName, fieldName, value){
-      const snap = await db.collection(collectionName).where(fieldName, '==', value).limit(1).get();
+    async function queryWhereEq(dbRef, collectionName, fieldName, value){
+      const qRef = query(collection(dbRef, collectionName), where(fieldName, '==', value), limit(1));
+      const snap = await getDocs(qRef);
       if (snap.empty) return null;
-      const doc = snap.docs[0];
+      const hit = snap.docs[0];
       return {
-        id: doc.id,
-        data: doc.data() || {},
+        id: hit.id,
+        data: hit.data() || {},
         source: `where:${collectionName}.${fieldName} == ${value}`,
         collection: collectionName
       };
@@ -873,21 +835,21 @@ GOAL:
       return /permission/i.test(msg) || /insufficient/i.test(msg) || /missing.*permission/i.test(msg);
     }
 
-    async function tryDocLookup(db, collectionName, key, tried){
+    async function tryDocLookup(dbRef, collectionName, key, tried){
       tried.push(`doc:${collectionName}/${key}`);
       try{
-        return await getDocById(db, collectionName, key);
+        return await getDocById(dbRef, collectionName, key);
       }catch(err){
         if (isPermissionErr(err)) tried.push(`PERMISSION:${collectionName}`);
         return null;
       }
     }
 
-    async function tryFieldLookupSet(db, collectionName, key, tried, fieldNames){
+    async function tryFieldLookupSet(dbRef, collectionName, key, tried, fieldNames){
       for (const fld of fieldNames){
         tried.push(`where:${collectionName}.${fld} == ${key}`);
         try{
-          const hit = await queryWhereEq(db, collectionName, fld, key);
+          const hit = await queryWhereEq(dbRef, collectionName, fld, key);
           if (hit) return hit;
         }catch(err){
           if (isPermissionErr(err)) tried.push(`PERMISSION:${collectionName}.${fld}`);
@@ -896,15 +858,15 @@ GOAL:
       return null;
     }
 
-    async function resolveLatestDoc(db, latestCollection, keys, tried){
+    async function resolveLatestDoc(dbRef, latestCollection, keys, tried){
       const keyList = uniqueList(keys);
       for (const key of keyList){
-        const direct = await tryDocLookup(db, latestCollection, key, tried);
+        const direct = await tryDocLookup(dbRef, latestCollection, key, tried);
         if (direct) return direct;
       }
       for (const key of keyList){
         const hit = await tryFieldLookupSet(
-          db,
+          dbRef,
           latestCollection,
           key,
           tried,
@@ -915,15 +877,15 @@ GOAL:
       return null;
     }
 
-    async function resolveWeatherDoc(db, weatherCollection, keys, tried){
+    async function resolveWeatherDoc(dbRef, weatherCollection, keys, tried){
       const keyList = uniqueList(keys);
       for (const key of keyList){
-        const direct = await tryDocLookup(db, weatherCollection, key, tried);
+        const direct = await tryDocLookup(dbRef, weatherCollection, key, tried);
         if (direct) return direct;
       }
       for (const key of keyList){
         const hit = await tryFieldLookupSet(
-          db,
+          dbRef,
           weatherCollection,
           key,
           tried,
@@ -934,12 +896,12 @@ GOAL:
       return null;
     }
 
-    async function resolveFieldDoc(db, fieldCollections, keys, latestDoc, weatherDoc, tried){
+    async function resolveFieldDoc(dbRef, fieldCollections, keys, latestDoc, weatherDoc, tried){
       const keyList = uniqueList(keys);
 
       for (const collectionName of fieldCollections){
         for (const key of keyList){
-          const direct = await tryDocLookup(db, collectionName, key, tried);
+          const direct = await tryDocLookup(dbRef, collectionName, key, tried);
           if (direct) return direct;
         }
       }
@@ -947,7 +909,7 @@ GOAL:
       for (const collectionName of fieldCollections){
         for (const key of keyList){
           const hit = await tryFieldLookupSet(
-            db,
+            dbRef,
             collectionName,
             key,
             tried,
@@ -991,6 +953,7 @@ GOAL:
       const ld = latestDoc && latestDoc.data ? latestDoc.data : {};
       const wd = weatherDoc && weatherDoc.data ? weatherDoc.data : {};
       const fd = fieldDoc && fieldDoc.data ? fieldDoc.data : {};
+
       return uniqueList([
         inputKey,
         latestDoc && latestDoc.id, ld.fieldId, ld.id, ld.ptr, ld.fieldPtr, ld.shortId, ld.slug, ld.name, ld.fieldName,
@@ -1154,130 +1117,6 @@ GOAL:
       return uniqueWeatherRows([...(historyRows || []), ...(forecastRows || [])]);
     }
 
-    function renderTraceRows(trace){
-      const tbody = els.traceRows;
-      tbody.innerHTML = '';
-
-      const rows = Array.isArray(trace) ? trace.slice(-30) : [];
-      if (!rows.length){
-        tbody.innerHTML = '<tr><td colspan="9" class="muted">No trace yet.</td></tr>';
-        return;
-      }
-
-      for (const r of rows){
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td class="mono">${safeStr(r.dateISO || '')}</td>
-          <td class="right mono">${Number(r.rain || 0).toFixed(2)}</td>
-          <td class="mono">${safeStr(r.rainSource || '')}</td>
-          <td class="right mono">${Number(r.before || 0).toFixed(2)}</td>
-          <td class="right mono">${Number(r.after || 0).toFixed(2)}</td>
-          <td class="right mono">${Number(r.surfaceBefore || 0).toFixed(2)}</td>
-          <td class="right mono">${Number(r.surfaceAfter || 0).toFixed(2)}</td>
-          <td class="right mono">${Number(r.loss || 0).toFixed(2)}</td>
-          <td class="right mono">${Number(r.dryPwr || 0).toFixed(2)}</td>
-        `;
-        tbody.appendChild(tr);
-      }
-    }
-
-    function renderRecentDocsList(){
-      const list = Array.isArray(state.recentLatestDocs) ? state.recentLatestDocs : [];
-      els.recentSelect.innerHTML = '';
-
-      if (!list.length){
-        els.recentSelect.innerHTML = '<option value="">No recent docs loaded</option>';
-        els.recentList.innerHTML = '';
-        return;
-      }
-
-      els.recentSelect.innerHTML = '<option value="">Choose a recent doc</option>';
-      for (const item of list){
-        const opt = document.createElement('option');
-        opt.value = safeStr(item.fieldId || item.id);
-        opt.textContent = `${safeStr(item.fieldName || item.name || 'Field')} • ${safeStr(item.fieldId || item.id)}`;
-        els.recentSelect.appendChild(opt);
-      }
-
-      els.recentList.innerHTML = '';
-      for (const item of list){
-        const div = document.createElement('div');
-        div.className = 'recent-item';
-        div.innerHTML = `
-          <div class="recent-top">
-            <div class="recent-title">${safeStr(item.fieldName || item.name || 'Field')}</div>
-            <div class="pill">Readiness ${safeNum(item.readiness, 0)}</div>
-          </div>
-          <div class="recent-meta mono">
-            fieldId: ${safeStr(item.fieldId || '—')}
-            ${safeStr(item.docId || '') ? '\ndocId: ' + safeStr(item.docId) : ''}
-            ${safeStr(item.computedAt || item.weatherFetchedAt || '') ? '\nwhen: ' + safeStr(item.computedAt || item.weatherFetchedAt) : ''}
-          </div>
-        `;
-        div.addEventListener('click', ()=>{
-          const val = safeStr(item.fieldId || item.id || item.docId);
-          if (!val) return;
-          els.fieldKeyInput.value = val;
-          setStatus(els.runStatus, 'Loaded recent fieldId into input:\n' + val, 'ok');
-        });
-        els.recentList.appendChild(div);
-      }
-    }
-
-    async function loadRecentLatestDocs(){
-      els.loadRecentBtn.disabled = true;
-      try{
-        const db = await ensureFirebaseCompat();
-        await waitForAuthReady();
-        requireSignedIn();
-
-        const latestCollection = safeStr(els.latestCollectionInput.value) || 'field_readiness_latest';
-        let snap = null;
-
-        try{
-          snap = await db.collection(latestCollection).orderBy('computedAt', 'desc').limit(25).get();
-        }catch(err1){
-          try{
-            snap = await db.collection(latestCollection).orderBy('weatherFetchedAt', 'desc').limit(25).get();
-          }catch(err2){
-            snap = await db.collection(latestCollection).limit(25).get();
-          }
-        }
-
-        const rows = [];
-        snap.forEach(doc=>{
-          const d = doc.data() || {};
-          rows.push({
-            id: safeStr(d.fieldId || doc.id),
-            docId: doc.id,
-            fieldId: safeStr(d.fieldId || ''),
-            fieldName: safeStr(d.fieldName || d.name || ''),
-            readiness: safeNum(d.readiness ?? d.readinessR, null),
-            computedAt: safeStr(d.computedAt && d.computedAt.toDate ? d.computedAt.toDate().toISOString() : d.computedAt || ''),
-            weatherFetchedAt: safeStr(d.weatherFetchedAt && d.weatherFetchedAt.toDate ? d.weatherFetchedAt.toDate().toISOString() : d.weatherFetchedAt || ''),
-            raw: d
-          });
-        });
-
-        state.recentLatestDocs = rows;
-        renderRecentDocsList();
-
-        if (rows.length){
-          setStatus(els.recentStatus, `Loaded ${rows.length} recent latest docs. Tap one or use the dropdown.`, 'ok');
-        } else {
-          setStatus(els.recentStatus, `Recent-doc query worked, but no docs came back.\nAuth: ${pretty(getAuthDebug())}`, 'err');
-        }
-      }catch(err){
-        setStatus(
-          els.recentStatus,
-          `Could not load recent latest docs.\n${safeStr(err && (err.message || err.code || err))}\n\nAuth debug:\n${pretty(getAuthDebug())}`,
-          'err'
-        );
-      }finally{
-        els.loadRecentBtn.disabled = false;
-      }
-    }
-
     function buildForecastDiagnostics(forecastRows){
       const rows = Array.isArray(forecastRows) ? forecastRows : [];
       const badRows = [];
@@ -1320,22 +1159,17 @@ GOAL:
       };
     }
 
-    function deriveCurrentReadiness(latestDoc, fieldDoc, weatherDoc, run){
+    function deriveSavedReadiness(latestDoc, fieldDoc, weatherDoc, run){
       const ld = latestDoc && latestDoc.data ? latestDoc.data : {};
       const fd = fieldDoc && fieldDoc.data ? fieldDoc.data : {};
       const wd = weatherDoc && weatherDoc.data ? weatherDoc.data : {};
-
       const candidates = [
-        ld.readiness,
-        ld.readinessR,
-        fd.readiness,
-        fd.readinessR,
-        wd.readiness,
-        wd.readinessR,
+        ld.readiness, ld.readinessR,
+        fd.readiness, fd.readinessR,
+        wd.readiness, wd.readinessR,
         run && run.readinessR,
         run && run.readiness
       ];
-
       for (const v of candidates){
         const n = safeNum(v, null);
         if (n != null) return clamp(Math.round(n), 0, 100);
@@ -1372,12 +1206,10 @@ GOAL:
 
       let penalty = 0;
       penalty += rain * 26;
-
       if (rain >= 0.10) penalty += 5;
       if (rain >= 0.25) penalty += 6;
       if (rain >= 0.50) penalty += 8;
       if (rain >= 1.00) penalty += 10;
-
       if (sm >= 0.34) penalty += 5;
       else if (sm >= 0.30) penalty += 2;
 
@@ -1385,14 +1217,11 @@ GOAL:
     }
 
     function estimateDailyDelta(row){
-      const gain = calcDryGain(row);
-      const penalty = calcRainPenalty(row);
-      return gain - penalty;
+      return calcDryGain(row) - calcRainPenalty(row);
     }
 
     function formatEtaHours(hours){
       if (hours == null || !Number.isFinite(hours)) return 'ETA ?';
-      if (hours <= 0) return '0h';
       if (hours <= 0.5) return '~1h';
       if (hours < 24) return `${Math.round(hours)}h`;
       const days = hours / 24;
@@ -1406,34 +1235,15 @@ GOAL:
       const thr = safeNum(threshold, null);
 
       if (start == null || thr == null){
-        return {
-          ok: false,
-          status: 'nodata',
-          text: 'ETA ?',
-          reason: 'missing-current-readiness-or-threshold'
-        };
+        return { ok:false, status:'nodata', text:'ETA ?', reason:'missing-current-readiness-or-threshold' };
       }
 
       if (start >= thr){
-        return {
-          ok: true,
-          status: 'ready',
-          hours: 0,
-          text: '0h',
-          currentReadiness: start,
-          finalProjectedReadiness: start,
-          steps: []
-        };
+        return { ok:true, status:'ready', hours:0, text:'~1h', currentReadiness:start };
       }
 
       if (!rows.length){
-        return {
-          ok: false,
-          status: 'nodata',
-          text: 'ETA ?',
-          reason: 'no-forecast-rows',
-          currentReadiness: start
-        };
+        return { ok:false, status:'nodata', text:'ETA ?', reason:'no-forecast-rows', currentReadiness:start };
       }
 
       let readiness = start;
@@ -1447,7 +1257,7 @@ GOAL:
         const nextReadiness = clamp(readiness + dailyDelta, 0, 100);
         const remainingNeeded = thr - readiness;
 
-        const step = {
+        steps.push({
           dateISO: safeStr(row.dateISO),
           readinessStart: Number(readiness.toFixed(2)),
           readinessEnd: Number(nextReadiness.toFixed(2)),
@@ -1455,8 +1265,7 @@ GOAL:
           dryGain: Number(calcDryGain(row).toFixed(2)),
           rainPenalty: Number(calcRainPenalty(row).toFixed(2)),
           rainInAdj: safeNum(row.rainInAdj ?? row.rainIn, 0)
-        };
-        steps.push(step);
+        });
 
         if (dailyDelta > 0 && nextReadiness >= thr){
           const fraction = clamp(remainingNeeded / dailyDelta, 0, 1);
@@ -1478,30 +1287,139 @@ GOAL:
       }
 
       return {
-        ok: false,
-        status: 'horizon',
-        hours: null,
-        text: 'ETA >168h',
-        currentReadiness: start,
-        finalProjectedReadiness: Number(readiness.toFixed(2)),
+        ok:false,
+        status:'horizon',
+        hours:null,
+        text:'ETA >168h',
+        currentReadiness:start,
+        finalProjectedReadiness:Number(readiness.toFixed(2)),
         steps
       };
     }
 
-    function chooseEta(modelEta, fallbackEta){
-      if (fallbackEta && fallbackEta.ok) {
-        return { source: 'fallback', result: fallbackEta };
+    function renderTraceRows(trace){
+      const tbody = els.traceRows;
+      tbody.innerHTML = '';
+
+      const rows = Array.isArray(trace) ? trace.slice(-30) : [];
+      if (!rows.length){
+        tbody.innerHTML = '<tr><td colspan="9" class="muted">No trace yet.</td></tr>';
+        return;
       }
-      if (modelEta && modelEta.ok && safeNum(modelEta.hours, null) != null) {
-        return { source: 'model', result: modelEta };
+
+      for (const r of rows){
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${safeStr(r.dateISO || '')}</td>
+          <td class="right mono">${Number(r.rain || 0).toFixed(2)}</td>
+          <td class="mono">${safeStr(r.rainSource || '')}</td>
+          <td class="right mono">${Number(r.before || 0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.after || 0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.surfaceBefore || 0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.surfaceAfter || 0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.loss || 0).toFixed(2)}</td>
+          <td class="right mono">${Number(r.dryPwr || 0).toFixed(2)}</td>
+        `;
+        tbody.appendChild(tr);
       }
-      if (fallbackEta) {
-        return { source: 'fallback', result: fallbackEta };
+    }
+
+    function renderRecentDocsList(){
+      const list = Array.isArray(state.recentLatestDocs) ? state.recentLatestDocs : [];
+      els.recentSelect.innerHTML = '';
+
+      if (!list.length){
+        els.recentSelect.innerHTML = '<option value="">No recent docs loaded</option>';
+        els.recentList.innerHTML = '';
+        return;
       }
-      return {
-        source: 'model',
-        result: modelEta || { ok:false, status:'nodata', text:'ETA ?' }
-      };
+
+      els.recentSelect.innerHTML = '<option value="">Choose a recent doc</option>';
+
+      for (const item of list){
+        const opt = document.createElement('option');
+        opt.value = safeStr(item.fieldId || item.id);
+        opt.textContent = `${safeStr(item.fieldName || item.name || 'Field')} • ${safeStr(item.fieldId || item.id)}`;
+        els.recentSelect.appendChild(opt);
+      }
+
+      els.recentList.innerHTML = '';
+      for (const item of list){
+        const div = document.createElement('div');
+        div.className = 'recent-item';
+        div.innerHTML = `
+          <div class="recent-top">
+            <div class="recent-title">${safeStr(item.fieldName || item.name || 'Field')}</div>
+            <div class="pill">Readiness ${safeNum(item.readiness, 0)}</div>
+          </div>
+          <div class="recent-meta mono">
+            fieldId: ${safeStr(item.fieldId || '—')}
+            ${safeStr(item.docId || '') ? '\ndocId: ' + safeStr(item.docId) : ''}
+            ${safeStr(item.computedAt || item.weatherFetchedAt || '') ? '\nwhen: ' + safeStr(item.computedAt || item.weatherFetchedAt) : ''}
+          </div>
+        `;
+        div.addEventListener('click', ()=>{
+          const val = safeStr(item.fieldId || item.id || item.docId);
+          if (!val) return;
+          els.fieldKeyInput.value = val;
+          setStatus(els.runStatus, 'Loaded recent fieldId into input:\n' + val, 'ok');
+        });
+        els.recentList.appendChild(div);
+      }
+    }
+
+    async function loadRecentLatestDocs(){
+      els.loadRecentBtn.disabled = true;
+      try{
+        await ensureFirebase();
+        await waitForAuthReady();
+        requireSignedIn();
+
+        const latestCollection = safeStr(els.latestCollectionInput.value) || 'field_readiness_latest';
+        let snap = null;
+
+        try{
+          snap = await getDocs(query(collection(state.db, latestCollection), orderBy('computedAt', 'desc'), limit(25)));
+        }catch(err1){
+          try{
+            snap = await getDocs(query(collection(state.db, latestCollection), orderBy('weatherFetchedAt', 'desc'), limit(25)));
+          }catch(err2){
+            snap = await getDocs(query(collection(state.db, latestCollection), limit(25)));
+          }
+        }
+
+        const rows = [];
+        snap.forEach((docSnap)=>{
+          const d = docSnap.data() || {};
+          rows.push({
+            id: safeStr(d.fieldId || docSnap.id),
+            docId: docSnap.id,
+            fieldId: safeStr(d.fieldId || ''),
+            fieldName: safeStr(d.fieldName || d.name || ''),
+            readiness: safeNum(d.readiness ?? d.readinessR, null),
+            computedAt: safeStr(d.computedAt && d.computedAt.toDate ? d.computedAt.toDate().toISOString() : d.computedAt || ''),
+            weatherFetchedAt: safeStr(d.weatherFetchedAt && d.weatherFetchedAt.toDate ? d.weatherFetchedAt.toDate().toISOString() : d.weatherFetchedAt || ''),
+            raw: d
+          });
+        });
+
+        state.recentLatestDocs = rows;
+        renderRecentDocsList();
+
+        if (rows.length){
+          setStatus(els.recentStatus, `Loaded ${rows.length} recent latest docs. Tap one or use the dropdown.`, 'ok');
+        } else {
+          setStatus(els.recentStatus, `Recent-doc query worked, but no docs came back.\nAuth: ${pretty(getAuthDebug())}`, 'err');
+        }
+      }catch(err){
+        setStatus(
+          els.recentStatus,
+          `Could not load recent latest docs.\n${safeStr(err && (err.message || err.code || err))}\n\nAuth debug:\n${pretty(getAuthDebug())}`,
+          'err'
+        );
+      }finally{
+        els.loadRecentBtn.disabled = false;
+      }
     }
 
     async function runDevTest(){
@@ -1521,24 +1439,24 @@ GOAL:
       els.runBtn.disabled = true;
 
       try{
-        const db = await ensureFirebaseCompat();
+        await ensureFirebase();
         await waitForAuthReady();
         requireSignedIn();
 
         const tried = [];
 
-        let latestDoc = await resolveLatestDoc(db, latestCollection, [inputKey], tried);
-        let weatherDoc = await resolveWeatherDoc(db, weatherCollection, buildCandidateKeys(inputKey, latestDoc, null, null), tried);
-        let fieldDoc = await resolveFieldDoc(db, fieldCollections, buildCandidateKeys(inputKey, latestDoc, weatherDoc, null), latestDoc, weatherDoc, tried);
+        let latestDoc = await resolveLatestDoc(state.db, latestCollection, [inputKey], tried);
+        let weatherDoc = await resolveWeatherDoc(state.db, weatherCollection, buildCandidateKeys(inputKey, latestDoc, null, null), tried);
+        let fieldDoc = await resolveFieldDoc(state.db, fieldCollections, buildCandidateKeys(inputKey, latestDoc, weatherDoc, null), latestDoc, weatherDoc, tried);
 
         if (!latestDoc){
-          latestDoc = await resolveLatestDoc(db, latestCollection, buildCandidateKeys(inputKey, null, weatherDoc, fieldDoc), tried);
+          latestDoc = await resolveLatestDoc(state.db, latestCollection, buildCandidateKeys(inputKey, null, weatherDoc, fieldDoc), tried);
         }
         if (!weatherDoc){
-          weatherDoc = await resolveWeatherDoc(db, weatherCollection, buildCandidateKeys(inputKey, latestDoc, null, fieldDoc), tried);
+          weatherDoc = await resolveWeatherDoc(state.db, weatherCollection, buildCandidateKeys(inputKey, latestDoc, null, fieldDoc), tried);
         }
         if (!fieldDoc){
-          fieldDoc = await resolveFieldDoc(db, fieldCollections, buildCandidateKeys(inputKey, latestDoc, weatherDoc, null), latestDoc, weatherDoc, tried);
+          fieldDoc = await resolveFieldDoc(state.db, fieldCollections, buildCandidateKeys(inputKey, latestDoc, weatherDoc, null), latestDoc, weatherDoc, tried);
         }
 
         state.lastLatestDoc = latestDoc;
@@ -1579,12 +1497,8 @@ GOAL:
         };
 
         const run = await Promise.resolve(runField(field, deps));
-        const modelEta = await Promise.resolve(etaToThreshold(field, deps, threshold, 168));
-
-        const currentReadiness = deriveCurrentReadiness(latestDoc, fieldDoc, weatherDoc, run);
-        const fallbackEta = computeFallbackEta(currentReadiness, threshold, forecastRows, 168);
-        const chosenEta = chooseEta(modelEta, fallbackEta);
-        const eta = chosenEta.result;
+        const savedReadiness = deriveSavedReadiness(latestDoc, fieldDoc, weatherDoc, run);
+        const eta = computeFallbackEta(savedReadiness, threshold, forecastRows, 168);
 
         setText(els.fieldTitle, field.name || field.fieldName || field.id);
         setText(
@@ -1592,10 +1506,10 @@ GOAL:
           [field.id ? `ID ${field.id}` : '', field.county || '', field.state || ''].filter(Boolean).join(' • ') || 'Field loaded'
         );
 
-        setText(els.readinessValue, currentReadiness != null ? String(currentReadiness) : '—');
+        setText(els.readinessValue, savedReadiness != null ? String(savedReadiness) : '—');
         setText(els.etaValue, eta && eta.text ? eta.text : 'ETA ?');
         setText(els.etaSub, `Threshold ${threshold}`);
-        setText(els.etaStatusValue, eta && eta.status ? `${eta.status} (${chosenEta.source})` : '—');
+        setText(els.etaStatusValue, eta && eta.status ? eta.status : '—');
         setText(els.etaHoursValue, eta && safeNum(eta.hours, null) != null ? String(eta.hours) : '—');
         setText(
           els.forecastUsableValue,
@@ -1628,10 +1542,8 @@ GOAL:
         els.etaDebug.textContent = pretty({
           threshold,
           authDebug: getAuthDebug(),
-          savedReadinessUsed: currentReadiness,
-          chosenEtaSource: chosenEta.source,
-          modelEta,
-          fallbackEta,
+          savedReadiness,
+          eta,
           forecastDiagnostics: forecastDiag,
           exactForecastRowsSentToEta: forecastRows
         });
@@ -1640,17 +1552,15 @@ GOAL:
           field,
           fieldParams,
           run,
-          currentReadiness,
-          modelEta,
-          fallbackEta,
-          chosenEta
+          savedReadiness,
+          eta
         });
 
         renderTraceRows(run && run.trace);
 
         setStatus(
           els.runStatus,
-          `Run finished.\nInput: ${inputKey}\nResolved field id: ${field.id}\nField: ${field.name || field.id}\nHistory rows: ${historyRows.length}\nForecast rows: ${forecastRows.length}\nReadiness: ${currentReadiness != null ? currentReadiness : '—'}\nETA: ${eta && eta.text ? eta.text : 'ETA ?'}\nETA status: ${eta && eta.status ? eta.status : '—'}\nETA source: ${chosenEta.source}`,
+          `Run finished.\nInput: ${inputKey}\nResolved field id: ${field.id}\nField: ${field.name || field.id}\nHistory rows: ${historyRows.length}\nForecast rows: ${forecastRows.length}\nReadiness: ${savedReadiness != null ? savedReadiness : '—'}\nETA: ${eta && eta.text ? eta.text : 'ETA ?'}\nETA status: ${eta && eta.status ? eta.status : '—'}`,
           'ok'
         );
       }catch(err){
@@ -1733,7 +1643,7 @@ GOAL:
 
         setStatus(els.bootStatus, 'Dev page booted. Waiting for Firebase + auth…');
 
-        await ensureFirebaseCompat();
+        await ensureFirebase();
         await waitForAuthReady();
 
         setStatus(
