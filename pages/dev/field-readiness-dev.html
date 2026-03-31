@@ -1,17 +1,16 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/field-readiness-dev.html  (FULL FILE)
-Rev: 2026-03-30j-dev-page-fix-eta-forecast-debug
+Rev: 2026-03-30k-dev-page-sticky-auth-fix
 
 GOAL:
 ✅ Standalone single-field debug page
 ✅ No tile renderer
 ✅ Uses the real field-readiness model math
 ✅ Waits for app auth before querying Firestore
+✅ FIX: sticky auth state so signed-in session does not flip false on rerun
 ✅ Cleaner lookup flow
 ✅ Better recent-doc browser
-✅ Better error text when rules/auth are the real problem
-✅ FIX: ETA forecast getters now return forecast rows for the matching field
-✅ NEW: Shows ETA status / hours / forecast diagnostics
+✅ Better ETA diagnostics
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -584,7 +583,12 @@ GOAL:
     const state = {
       db: null,
       firebaseReady: false,
-      authReady: false,
+      authWatcherStarted: false,
+      authResolved: false,
+      authReadyPromise: null,
+      authUser: null,
+      authSignedIn: false,
+      authLastSeenAt: 0,
       lastLatestDoc: null,
       lastFieldDoc: null,
       lastWeatherDoc: null,
@@ -723,61 +727,89 @@ GOAL:
       return state.db;
     }
 
-    async function waitForAuthReady(maxMs = 12000){
-      await ensureFirebaseCompat();
+    function startAuthWatcher(){
+      if (state.authWatcherStarted) return state.authReadyPromise;
+      state.authWatcherStarted = true;
 
-      state.authReady = false;
+      state.authReadyPromise = new Promise(async (resolve)=>{
+        await ensureFirebaseCompat();
 
-      if (!(window.firebase && window.firebase.auth)){
-        state.authReady = true;
-        return;
-      }
+        if (!(window.firebase && window.firebase.auth)){
+          state.authResolved = true;
+          state.authSignedIn = false;
+          resolve();
+          return;
+        }
 
-      const auth = window.firebase.auth();
-
-      if (auth.currentUser){
-        state.authReady = true;
-        return;
-      }
-
-      await new Promise((resolve)=>{
-        let done = false;
-        let unsub = null;
+        const auth = window.firebase.auth();
+        let settled = false;
 
         const finish = ()=>{
-          if (done) return;
-          done = true;
-          try{ unsub && unsub(); }catch(_){}
+          if (settled) return;
+          settled = true;
+          state.authResolved = true;
           resolve();
         };
 
-        const timer = setTimeout(finish, maxMs);
+        try{
+          const current = auth.currentUser;
+          if (current){
+            state.authUser = current;
+            state.authSignedIn = true;
+            state.authLastSeenAt = Date.now();
+          }
+        }catch(_){}
 
-        unsub = auth.onAuthStateChanged(()=>{
-          clearTimeout(timer);
+        auth.onAuthStateChanged((user)=>{
+          if (user){
+            state.authUser = user;
+            state.authSignedIn = true;
+            state.authLastSeenAt = Date.now();
+          } else {
+            const recentlySignedIn =
+              state.authSignedIn &&
+              state.authUser &&
+              (Date.now() - state.authLastSeenAt) < 10 * 60 * 1000;
+
+            if (!recentlySignedIn){
+              state.authUser = null;
+              state.authSignedIn = false;
+            }
+          }
           finish();
         }, ()=>{
-          clearTimeout(timer);
           finish();
         });
+
+        setTimeout(()=> finish(), 12000);
       });
 
-      state.authReady = true;
+      return state.authReadyPromise;
+    }
+
+    async function waitForAuthReady(){
+      await startAuthWatcher();
+      return state.authReadyPromise;
     }
 
     function getAuthDebug(){
-      try{
-        if (!(window.firebase && window.firebase.auth)) return { available:false, signedIn:null };
-        const u = window.firebase.auth().currentUser;
-        return {
-          available:true,
-          signedIn:!!u,
-          uid:safeStr(u && u.uid),
-          email:safeStr(u && u.email)
-        };
-      }catch(_){
-        return { available:false, signedIn:null };
-      }
+      return {
+        available: !!(window.firebase && window.firebase.auth),
+        signedIn: !!state.authSignedIn,
+        uid: safeStr(state.authUser && state.authUser.uid),
+        email: safeStr(state.authUser && state.authUser.email),
+        resolved: !!state.authResolved,
+        lastSeenAt: state.authLastSeenAt || 0
+      };
+    }
+
+    function requireSignedIn(){
+      if (state.authSignedIn && state.authUser) return;
+      throw new Error(
+        `You are not signed in on this page.\n\n` +
+        `Auth debug:\n${pretty(getAuthDebug())}\n\n` +
+        `Open the main FarmVista app first, let it fully load, then come back to this dev page and try again.`
+      );
     }
 
     function updateButtonsEnabled(enabled){
@@ -1265,6 +1297,7 @@ GOAL:
       try{
         const db = await ensureFirebaseCompat();
         await waitForAuthReady();
+        requireSignedIn();
 
         const authDebug = getAuthDebug();
         const latestCollection = safeStr(els.latestCollectionInput.value) || 'field_readiness_latest';
@@ -1384,6 +1417,7 @@ GOAL:
       try{
         const db = await ensureFirebaseCompat();
         await waitForAuthReady();
+        requireSignedIn();
 
         const tried = [];
 
@@ -1440,24 +1474,24 @@ GOAL:
             return fieldParams;
           },
           getModelWeatherSeriesForFieldId: (fieldId)=>{
-            if (String(fieldId) !== String(field.id)) return [];
-            return mergedRows;
+            if (String(fieldId) !== String(field.id)) return mergedRows;
+            return [];
           },
           getMergedWeatherSeriesForFieldId: (fieldId)=>{
-            if (String(fieldId) !== String(field.id)) return [];
-            return mergedRows;
+            if (String(fieldId) !== String(field.id)) return mergedRows;
+            return [];
           },
           getWeatherSeriesForFieldId: (fieldId)=>{
-            if (String(fieldId) !== String(field.id)) return [];
-            return mergedRows;
+            if (String(fieldId) !== String(field.id)) return mergedRows;
+            return [];
           },
           getForecastSeriesForFieldId: (fieldId)=>{
-            if (String(fieldId) !== String(field.id)) return [];
-            return forecastRows;
+            if (String(fieldId) !== String(field.id)) return forecastRows;
+            return [];
           },
           getWxSeriesWithForecastForFieldId: (fieldId)=>{
-            if (String(fieldId) !== String(field.id)) return [];
-            return mergedRows;
+            if (String(fieldId) !== String(field.id)) return mergedRows;
+            return [];
           }
         };
 
@@ -1509,6 +1543,7 @@ GOAL:
 
         els.etaDebug.textContent = pretty({
           threshold,
+          authDebug: getAuthDebug(),
           etaResult: eta,
           forecastDiagnostics: forecastDiag,
           exactForecastRowsSentToEta: forecastRows,
@@ -1544,7 +1579,7 @@ GOAL:
           els.lookupDebug.textContent = msg;
         }
         els.modelDebug.textContent = pretty({ error: msg });
-        els.etaDebug.textContent = pretty({ error: msg });
+        els.etaDebug.textContent = pretty({ error: msg, authDebug: getAuthDebug() });
         renderTraceRows([]);
       }finally{
         els.runBtn.disabled = false;
@@ -1620,21 +1655,28 @@ GOAL:
         await ensureFirebaseCompat();
         await waitForAuthReady();
 
-        const authDebug = getAuthDebug();
-
         setStatus(
           els.bootStatus,
-          `Dev page booted. Firebase is ready.\nAuth debug:\n${pretty(authDebug)}`,
+          `Dev page booted. Firebase is ready.\nAuth debug:\n${pretty(getAuthDebug())}`,
           'ok'
         );
 
         updateButtonsEnabled(true);
-        await loadRecentLatestDocs();
+
+        if (state.authSignedIn){
+          await loadRecentLatestDocs();
+        } else {
+          setStatus(
+            els.recentStatus,
+            `Not signed in yet on this page.\nAuth debug:\n${pretty(getAuthDebug())}`,
+            'err'
+          );
+        }
 
         const autoKey = safeStr(els.fieldKeyInput.value);
-        if (autoKey){
+        if (autoKey && state.authSignedIn){
           await runDevTest();
-        } else {
+        } else if (!autoKey) {
           setStatus(els.runStatus, 'Ready. Load recent latest docs, choose one, then run the dev test.');
         }
       }catch(err){
@@ -1647,7 +1689,9 @@ GOAL:
 
     document.addEventListener('fv:user-ready', ()=>{
       try{
-        loadRecentLatestDocs();
+        if (state.authSignedIn){
+          loadRecentLatestDocs();
+        }
       }catch(_){}
     });
 
