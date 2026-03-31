@@ -1,16 +1,15 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/field-readiness-dev.html  (FULL FILE)
-Rev: 2026-03-31a-dev-page-modular-firestore-fix
+Rev: 2026-03-31b-dev-page-model-first-saved-readiness
 
 GOAL:
 ✅ Standalone single-field debug page
 ✅ No tile renderer
 ✅ Uses modular Firebase / Firestore only
-✅ FIX: removes db.collection compat calls
-✅ Waits for app auth before querying Firestore
 ✅ Uses saved readiness from field_readiness_latest first
-✅ ETA is forecast walk-forward from saved readiness
-✅ Rain after crossing threshold does NOT block ETA
+✅ ETA is MODEL-FIRST again
+✅ Fallback ETA only used if model truly returns no answer
+✅ If saved readiness already meets threshold, show READY
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -436,7 +435,7 @@ GOAL:
             </div>
             <div class="kcard">
               <div class="klabel">ETA function</div>
-              <div class="mono">fallback forecast walk from saved readiness</div>
+              <div class="mono">model first, fallback only if needed</div>
             </div>
           </div>
 
@@ -525,7 +524,7 @@ GOAL:
   </fv-shell>
 
   <script type="module">
-    import { runField } from '/Farm-vista/js/field-readiness.model.js';
+    import { runField, etaToThreshold } from '/Farm-vista/js/field-readiness.model.js';
     import { initializeApp, getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
     import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
     import {
@@ -1222,7 +1221,7 @@ GOAL:
 
     function formatEtaHours(hours){
       if (hours == null || !Number.isFinite(hours)) return 'ETA ?';
-      if (hours <= 0.5) return '~1h';
+      if (hours <= 0.5) return 'Ready';
       if (hours < 24) return `${Math.round(hours)}h`;
       const days = hours / 24;
       if (Math.abs(days - Math.round(days)) < 0.16) return `${Math.round(days)}d`;
@@ -1239,7 +1238,7 @@ GOAL:
       }
 
       if (start >= thr){
-        return { ok:true, status:'ready', hours:0, text:'~1h', currentReadiness:start };
+        return { ok:true, status:'ready', hours:0, text:'Ready', currentReadiness:start };
       }
 
       if (!rows.length){
@@ -1294,6 +1293,68 @@ GOAL:
         currentReadiness:start,
         finalProjectedReadiness:Number(readiness.toFixed(2)),
         steps
+      };
+    }
+
+    function chooseEta(modelEta, fallbackEta, savedReadiness, threshold){
+      const saved = safeNum(savedReadiness, null);
+      const thr = safeNum(threshold, null);
+
+      if (saved != null && thr != null && saved >= thr){
+        return {
+          source: 'saved-ready',
+          result: {
+            ok: true,
+            status: 'ready',
+            hours: 0,
+            text: 'Ready',
+            currentReadiness: saved
+          }
+        };
+      }
+
+      if (modelEta && modelEta.ok){
+        const modelHours = safeNum(modelEta.hours, null);
+        const modelStatus = safeStr(modelEta.status).toLowerCase();
+
+        if (modelStatus === 'ready'){
+          return {
+            source: 'model',
+            result: {
+              ...modelEta,
+              text: 'Ready',
+              hours: 0,
+              status: 'ready'
+            }
+          };
+        }
+
+        if (modelHours != null){
+          return {
+            source: 'model',
+            result: {
+              ...modelEta,
+              text: formatEtaHours(modelHours)
+            }
+          };
+        }
+      }
+
+      if (fallbackEta && fallbackEta.ok){
+        return { source: 'fallback', result: fallbackEta };
+      }
+
+      if (modelEta){
+        return { source: 'model', result: modelEta };
+      }
+
+      if (fallbackEta){
+        return { source: 'fallback', result: fallbackEta };
+      }
+
+      return {
+        source: 'none',
+        result: { ok:false, status:'nodata', text:'ETA ?' }
       };
     }
 
@@ -1498,7 +1559,22 @@ GOAL:
 
         const run = await Promise.resolve(runField(field, deps));
         const savedReadiness = deriveSavedReadiness(latestDoc, fieldDoc, weatherDoc, run);
-        const eta = computeFallbackEta(savedReadiness, threshold, forecastRows, 168);
+
+        let modelEta = null;
+        try{
+          modelEta = await Promise.resolve(etaToThreshold(field, deps, threshold, 168));
+        }catch(err){
+          modelEta = {
+            ok: false,
+            status: 'error',
+            text: 'ETA ?',
+            error: safeStr(err && (err.message || err.code || err))
+          };
+        }
+
+        const fallbackEta = computeFallbackEta(savedReadiness, threshold, forecastRows, 168);
+        const chosenEta = chooseEta(modelEta, fallbackEta, savedReadiness, threshold);
+        const eta = chosenEta.result;
 
         setText(els.fieldTitle, field.name || field.fieldName || field.id);
         setText(
@@ -1509,7 +1585,10 @@ GOAL:
         setText(els.readinessValue, savedReadiness != null ? String(savedReadiness) : '—');
         setText(els.etaValue, eta && eta.text ? eta.text : 'ETA ?');
         setText(els.etaSub, `Threshold ${threshold}`);
-        setText(els.etaStatusValue, eta && eta.status ? eta.status : '—');
+        setText(
+          els.etaStatusValue,
+          eta && eta.status ? `${eta.status} (${chosenEta.source})` : '—'
+        );
         setText(els.etaHoursValue, eta && safeNum(eta.hours, null) != null ? String(eta.hours) : '—');
         setText(
           els.forecastUsableValue,
@@ -1543,7 +1622,9 @@ GOAL:
           threshold,
           authDebug: getAuthDebug(),
           savedReadiness,
-          eta,
+          chosenEtaSource: chosenEta.source,
+          modelEta,
+          fallbackEta,
           forecastDiagnostics: forecastDiag,
           exactForecastRowsSentToEta: forecastRows
         });
@@ -1553,14 +1634,16 @@ GOAL:
           fieldParams,
           run,
           savedReadiness,
-          eta
+          modelEta,
+          fallbackEta,
+          chosenEta
         });
 
         renderTraceRows(run && run.trace);
 
         setStatus(
           els.runStatus,
-          `Run finished.\nInput: ${inputKey}\nResolved field id: ${field.id}\nField: ${field.name || field.id}\nHistory rows: ${historyRows.length}\nForecast rows: ${forecastRows.length}\nReadiness: ${savedReadiness != null ? savedReadiness : '—'}\nETA: ${eta && eta.text ? eta.text : 'ETA ?'}\nETA status: ${eta && eta.status ? eta.status : '—'}`,
+          `Run finished.\nInput: ${inputKey}\nResolved field id: ${field.id}\nField: ${field.name || field.id}\nHistory rows: ${historyRows.length}\nForecast rows: ${forecastRows.length}\nReadiness: ${savedReadiness != null ? savedReadiness : '—'}\nETA: ${eta && eta.text ? eta.text : 'ETA ?'}\nETA status: ${eta && eta.status ? eta.status : '—'}\nETA source: ${chosenEta.source}`,
           'ok'
         );
       }catch(err){
