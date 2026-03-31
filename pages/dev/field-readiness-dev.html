@@ -1,6 +1,6 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/field-readiness-dev.html  (FULL FILE)
-Rev: 2026-03-31d-dev-page-clean-unavailable-wording
+Rev: 2026-03-31e-dev-page-eta-engine-wired
 
 GOAL:
 ✅ Standalone single-field debug page
@@ -8,10 +8,11 @@ GOAL:
 ✅ Modular Firebase / Firestore only
 ✅ Focus on ONE field only
 ✅ Saved readiness comes from field_readiness_latest first
-✅ ETA is MODEL-FIRST
-✅ Fallback ETA never shows fake numbers
+✅ ETA now reads dedicated eta-engine.js
+✅ No fake fallback ETA shown to user
 ✅ If ETA cannot be stated reliably, show "ETA temporarily unavailable"
 ✅ If saved readiness already meets threshold, show READY
+✅ ETA debug now comes from eta-engine.js so future ETA tuning only touches one JS file
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -263,7 +264,7 @@ GOAL:
       <section class="card">
         <div class="head">
           <h1>Field Readiness Dev</h1>
-          <div class="muted">Single-field debug page. Saved readiness from Firestore. Model-first ETA.</div>
+          <div class="muted">Single-field debug page. Saved readiness from Firestore. ETA powered by dedicated eta-engine.js.</div>
         </div>
 
         <div class="body">
@@ -343,12 +344,12 @@ GOAL:
               <div class="mono">/Farm-vista/js/field-readiness.model.js</div>
             </div>
             <div class="kcard">
-              <div class="klabel">Model function</div>
-              <div class="mono">runField(field, deps)</div>
+              <div class="klabel">ETA engine</div>
+              <div class="mono">/Farm-vista/js/field-readiness/eta-engine.js</div>
             </div>
             <div class="kcard">
-              <div class="klabel">ETA function</div>
-              <div class="mono">model first, fallback only if needed</div>
+              <div class="klabel">ETA mode</div>
+              <div class="mono">saved readiness + eta engine</div>
             </div>
           </div>
 
@@ -437,7 +438,11 @@ GOAL:
   </fv-shell>
 
   <script type="module">
-    import { runField, etaToThreshold } from '/Farm-vista/js/field-readiness.model.js';
+    import { runField } from '/Farm-vista/js/field-readiness.model.js';
+    import {
+      calculateEtaFromSavedReadiness,
+      ETA_UNAVAILABLE_TEXT
+    } from '/Farm-vista/js/field-readiness/eta-engine.js';
     import { initializeApp, getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
     import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
     import {
@@ -445,8 +450,6 @@ GOAL:
       doc,
       getDoc
     } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
-
-    const ETA_TEMP_UNAVAILABLE = 'ETA temporarily unavailable';
 
     const $ = (id)=> document.getElementById(id);
 
@@ -839,26 +842,6 @@ GOAL:
       return uniqueWeatherRows([...(historyRows || []), ...(forecastRows || [])]);
     }
 
-    function buildForecastDiagnostics(forecastRows){
-      const rows = Array.isArray(forecastRows) ? forecastRows : [];
-      let usable = 0;
-      for (const row of rows){
-        if (
-          safeStr(row.dateISO) &&
-          safeNum(row.tempF, null) != null &&
-          safeNum(row.windMph, null) != null &&
-          safeNum(row.rh, null) != null &&
-          safeNum(row.solarWm2, null) != null
-        ){
-          usable += 1;
-        }
-      }
-      return {
-        total: rows.length,
-        usable
-      };
-    }
-
     function deriveSavedReadiness(latestDoc, fieldDoc, weatherDoc, run){
       const ld = latestDoc && latestDoc.data ? latestDoc.data : {};
       const fd = fieldDoc && fieldDoc.data ? fieldDoc.data : {};
@@ -875,219 +858,6 @@ GOAL:
         if (n != null) return clamp(Math.round(n), 0, 100);
       }
       return null;
-    }
-
-    function calcDryGain(row){
-      const temp = safeNum(row.tempF, 50);
-      const wind = safeNum(row.windMph, 8);
-      const rh = safeNum(row.rh, 65);
-      const solar = safeNum(row.solarWm2, 120);
-      const et0 = safeNum(row.et0In, 0.08);
-      const sun = safeNum(row.sunshineHr, 6);
-      const cloud = safeNum(row.cloudPct, 60);
-      const vpd = safeNum(row.vpdKpa, 0.6);
-
-      let gain = 0;
-      gain += Math.max(0, temp - 40) * 0.18;
-      gain += wind * 0.22;
-      gain += Math.max(0, 75 - rh) * 0.06;
-      gain += solar * 0.010;
-      gain += et0 * 24;
-      gain += sun * 0.55;
-      gain += Math.max(0, 70 - cloud) * 0.035;
-      gain += vpd * 3.2;
-
-      return clamp(gain, 0, 14);
-    }
-
-    function calcRainPenalty(row){
-      const rain = safeNum(row.rainInAdj ?? row.rainIn, 0);
-      const sm = safeNum(row.sm010, 0.28);
-
-      let penalty = 0;
-      penalty += rain * 26;
-      if (rain >= 0.10) penalty += 5;
-      if (rain >= 0.25) penalty += 6;
-      if (rain >= 0.50) penalty += 8;
-      if (rain >= 1.00) penalty += 10;
-      if (sm >= 0.34) penalty += 5;
-      else if (sm >= 0.30) penalty += 2;
-
-      return clamp(penalty, 0, 45);
-    }
-
-    function estimateDailyDelta(row){
-      return calcDryGain(row) - calcRainPenalty(row);
-    }
-
-    function formatEtaHours(hours){
-      if (hours == null || !Number.isFinite(hours)) return ETA_TEMP_UNAVAILABLE;
-      if (hours <= 0.5) return 'Ready';
-      if (hours < 24) return `${Math.round(hours)}h`;
-      const days = hours / 24;
-      if (Math.abs(days - Math.round(days)) < 0.16) return `${Math.round(days)}d`;
-      return `${days.toFixed(1)}d`;
-    }
-
-    function makeUnavailableEta(reason, source, extra = {}){
-      return {
-        ok: false,
-        status: 'temporarily-unavailable',
-        hours: null,
-        text: ETA_TEMP_UNAVAILABLE,
-        reason: safeStr(reason || 'unavailable'),
-        source: safeStr(source || 'unknown'),
-        ...extra
-      };
-    }
-
-    function computeFallbackEta(currentReadiness, threshold, forecastRows, maxHours = 168){
-      const rows = Array.isArray(forecastRows) ? forecastRows : [];
-      const start = safeNum(currentReadiness, null);
-      const thr = safeNum(threshold, null);
-
-      if (start == null || thr == null){
-        return makeUnavailableEta('missing-current-readiness-or-threshold', 'fallback');
-      }
-
-      if (start >= thr){
-        return {
-          ok: true,
-          status: 'ready',
-          hours: 0,
-          text: 'Ready',
-          currentReadiness: start
-        };
-      }
-
-      if (!rows.length){
-        return makeUnavailableEta('no-forecast-rows', 'fallback', { currentReadiness: start });
-      }
-
-      let readiness = start;
-      let elapsed = 0;
-      const steps = [];
-
-      for (const row of rows){
-        if (elapsed >= maxHours) break;
-
-        const dailyDelta = estimateDailyDelta(row);
-        const nextReadiness = clamp(readiness + dailyDelta, 0, 100);
-        const remainingNeeded = thr - readiness;
-
-        steps.push({
-          dateISO: safeStr(row.dateISO),
-          readinessStart: Number(readiness.toFixed(2)),
-          readinessEnd: Number(nextReadiness.toFixed(2)),
-          dailyDelta: Number(dailyDelta.toFixed(2)),
-          dryGain: Number(calcDryGain(row).toFixed(2)),
-          rainPenalty: Number(calcRainPenalty(row).toFixed(2)),
-          rainInAdj: safeNum(row.rainInAdj ?? row.rainIn, 0)
-        });
-
-        if (dailyDelta > 0 && nextReadiness >= thr){
-          const fraction = clamp(remainingNeeded / dailyDelta, 0, 1);
-          const hoursIntoDay = fraction * 24;
-          const totalHours = clamp(elapsed + hoursIntoDay, 0, maxHours);
-
-          return {
-            ok: true,
-            status: 'fallback-estimate',
-            hours: Number(totalHours.toFixed(1)),
-            text: ETA_TEMP_UNAVAILABLE,
-            currentReadiness: start,
-            finalProjectedReadiness: Number(nextReadiness.toFixed(2)),
-            steps,
-            hiddenEstimatedHours: Number(totalHours.toFixed(1)),
-            hiddenEstimatedText: formatEtaHours(totalHours),
-            reason: 'model-did-not-return-usable-eta'
-          };
-        }
-
-        readiness = nextReadiness;
-        elapsed += 24;
-      }
-
-      return makeUnavailableEta('threshold-not-reached-in-horizon', 'fallback', {
-        currentReadiness: start,
-        finalProjectedReadiness: Number(readiness.toFixed(2)),
-        steps
-      });
-    }
-
-    function chooseEta(modelEta, fallbackEta, savedReadiness, threshold){
-      const saved = safeNum(savedReadiness, null);
-      const thr = safeNum(threshold, null);
-
-      if (saved != null && thr != null && saved >= thr){
-        return {
-          source: 'saved-ready',
-          result: {
-            ok: true,
-            status: 'ready',
-            hours: 0,
-            text: 'Ready',
-            currentReadiness: saved
-          }
-        };
-      }
-
-      if (modelEta){
-        const modelHours = safeNum(modelEta.hours, null);
-        const modelStatus = safeStr(modelEta.status).toLowerCase();
-
-        if (modelEta.ok && modelStatus === 'ready'){
-          return {
-            source: 'model',
-            result: {
-              ...modelEta,
-              text: 'Ready',
-              hours: 0,
-              status: 'ready'
-            }
-          };
-        }
-
-        if (modelEta.ok && modelHours != null){
-          return {
-            source: 'model',
-            result: {
-              ...modelEta,
-              text: formatEtaHours(modelHours)
-            }
-          };
-        }
-      }
-
-      if (fallbackEta){
-        return {
-          source: 'fallback',
-          result: fallbackEta.ok
-            ? {
-                ...fallbackEta,
-                text: ETA_TEMP_UNAVAILABLE,
-                hours: null,
-                status: 'temporarily-unavailable'
-              }
-            : fallbackEta
-        };
-      }
-
-      if (modelEta){
-        return {
-          source: 'model',
-          result: makeUnavailableEta(
-            safeStr(modelEta.reason || modelEta.error || modelEta.status || 'model-unavailable'),
-            'model',
-            { rawModelEta: modelEta }
-          )
-        };
-      }
-
-      return {
-        source: 'none',
-        result: makeUnavailableEta('no-eta-source', 'none')
-      };
     }
 
     function renderTraceRows(trace){
@@ -1177,7 +947,6 @@ GOAL:
         const historyRows = pickHistoryRows(latestDoc, weatherDoc);
         const forecastRows = pickForecastRows(latestDoc, weatherDoc);
         const mergedRows = mergeHistoryAndForecast(historyRows, forecastRows);
-        const forecastDiag = buildForecastDiagnostics(forecastRows);
 
         const deps = {
           opKey: 'dev_test',
@@ -1196,22 +965,15 @@ GOAL:
         const run = await Promise.resolve(runField(field, deps));
         const savedReadiness = deriveSavedReadiness(latestDoc, fieldDoc, weatherDoc, run);
 
-        let modelEta = null;
-        try{
-          modelEta = await Promise.resolve(etaToThreshold(field, deps, threshold, 168));
-        }catch(err){
-          modelEta = {
-            ok: false,
-            status: 'error',
-            text: ETA_TEMP_UNAVAILABLE,
-            error: safeStr(err && (err.message || err.code || err)),
-            reason: 'etaToThreshold-threw'
-          };
-        }
-
-        const fallbackEta = computeFallbackEta(savedReadiness, threshold, forecastRows, 168);
-        const chosenEta = chooseEta(modelEta, fallbackEta, savedReadiness, threshold);
-        const eta = chosenEta.result;
+        const etaResult = calculateEtaFromSavedReadiness(
+          savedReadiness,
+          threshold,
+          forecastRows,
+          {
+            maxHours: 168,
+            earlyIgnoreRainHours: 48
+          }
+        );
 
         setText(els.fieldTitle, field.name || field.fieldName || field.id);
         setText(
@@ -1220,17 +982,22 @@ GOAL:
         );
 
         setText(els.readinessValue, savedReadiness != null ? String(savedReadiness) : '—');
-        setText(els.etaValue, eta && eta.text ? eta.text : ETA_TEMP_UNAVAILABLE);
+        setText(els.etaValue, etaResult && etaResult.text ? etaResult.text : ETA_UNAVAILABLE_TEXT);
 
-        if (eta && eta.status === 'temporarily-unavailable'){
+        if (etaResult && etaResult.status === 'unavailable'){
           setText(els.etaSub, `Threshold ${threshold} • forecast confirmation needed`);
         } else {
           setText(els.etaSub, `Threshold ${threshold}`);
         }
 
-        setText(els.etaStatusValue, eta && eta.status ? `${eta.status} (${chosenEta.source})` : '—');
-        setText(els.etaHoursValue, eta && safeNum(eta.hours, null) != null ? String(eta.hours) : '—');
-        setText(els.forecastUsableValue, `${forecastDiag.usable}/${forecastDiag.total}`);
+        setText(els.etaStatusValue, etaResult && etaResult.status ? `${etaResult.status} (eta-engine)` : '—');
+        setText(els.etaHoursValue, etaResult && safeNum(etaResult.hours, null) != null ? String(etaResult.hours) : '—');
+
+        const forecastDiag = etaResult && etaResult.debug && etaResult.debug.diagnostics
+          ? etaResult.debug.diagnostics
+          : { usable: 0, total: forecastRows.length };
+
+        setText(els.forecastUsableValue, `${safeNum(forecastDiag.usable, 0)}/${safeNum(forecastDiag.total, 0)}`);
 
         setText(els.fieldSource, fieldDoc ? (fieldDoc.source || '—') : '—');
         setText(els.latestSource, latestDoc ? latestDoc.source : '—');
@@ -1259,34 +1026,22 @@ GOAL:
           threshold,
           authDebug: getAuthDebug(),
           savedReadiness,
-          chosenEtaSource: chosenEta.source,
-          modelEta,
-          fallbackEta,
-          displayedEta: eta,
-          fallbackDebug: {
-            reason: safeStr(fallbackEta && fallbackEta.reason),
-            hiddenEstimatedHours: safeNum(fallbackEta && fallbackEta.hiddenEstimatedHours, null),
-            hiddenEstimatedText: safeStr(fallbackEta && fallbackEta.hiddenEstimatedText)
-          },
-          forecastDiagnostics: forecastDiag,
-          exactForecastRowsSentToEta: forecastRows
+          etaEngineResult: etaResult,
+          exactForecastRowsSentToEtaEngine: forecastRows
         });
 
         els.modelDebug.textContent = pretty({
           field,
           fieldParams,
           run,
-          savedReadiness,
-          modelEta,
-          fallbackEta,
-          chosenEta
+          savedReadiness
         });
 
         renderTraceRows(run && run.trace);
 
         setStatus(
           els.runStatus,
-          `Run finished.\nInput: ${inputKey}\nResolved field id: ${field.id}\nField: ${field.name || field.id}\nHistory rows: ${historyRows.length}\nForecast rows: ${forecastRows.length}\nReadiness: ${savedReadiness != null ? savedReadiness : '—'}\nETA: ${eta && eta.text ? eta.text : ETA_TEMP_UNAVAILABLE}\nETA status: ${eta && eta.status ? eta.status : '—'}\nETA source: ${chosenEta.source}`,
+          `Run finished.\nInput: ${inputKey}\nResolved field id: ${field.id}\nField: ${field.name || field.id}\nHistory rows: ${historyRows.length}\nForecast rows: ${forecastRows.length}\nReadiness: ${savedReadiness != null ? savedReadiness : '—'}\nETA: ${etaResult && etaResult.text ? etaResult.text : ETA_UNAVAILABLE_TEXT}\nETA status: ${etaResult && etaResult.status ? etaResult.status : '—'}\nETA source: eta-engine`,
           'ok'
         );
       }catch(err){
