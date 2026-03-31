@@ -1,16 +1,16 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/field-readiness-dev.html  (FULL FILE)
-Rev: 2026-03-30k-dev-page-sticky-auth-fix
+Rev: 2026-03-30m-dev-page-eta-fallback-working
 
 GOAL:
 ✅ Standalone single-field debug page
 ✅ No tile renderer
-✅ Uses the real field-readiness model math
+✅ Uses the real field-readiness model math when available
 ✅ Waits for app auth before querying Firestore
-✅ FIX: sticky auth state so signed-in session does not flip false on rerun
-✅ Cleaner lookup flow
-✅ Better recent-doc browser
-✅ Better ETA diagnostics
+✅ Keeps sticky auth behavior
+✅ FIX: dev page now shows ETA even when model etaToThreshold returns nodata
+✅ Dev page fallback ETA uses current readiness + forecast walk-forward logic
+✅ Rain after crossing threshold does NOT block ETA
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -101,7 +101,7 @@ GOAL:
       align-items:end;
     }
     @media (max-width:760px){
-      .row,.row3,.rowRecent{ grid-template-columns:1fr; }
+      .row,.row3,.rowRecent,.kgrid{ grid-template-columns:1fr; }
     }
     .field label{
       display:block;
@@ -185,9 +185,6 @@ GOAL:
       display:grid;
       grid-template-columns:repeat(3,minmax(0,1fr));
       gap:10px;
-    }
-    @media (max-width:760px){
-      .kgrid{ grid-template-columns:1fr; }
     }
     .kcard{
       border:1px solid var(--border);
@@ -604,6 +601,10 @@ GOAL:
       return Number.isFinite(n) ? n : fallback;
     }
 
+    function clamp(n, min, max){
+      return Math.max(min, Math.min(max, n));
+    }
+
     function setStatus(el, msg, kind = ''){
       if (!el) return;
       el.textContent = String(msg || '');
@@ -704,10 +705,7 @@ GOAL:
         null;
 
       if (!cfg){
-        throw new Error(
-          'Firebase config not found on window. ' +
-          'This page expected /Farm-vista/js/firebase-config.js to populate FV_FIREBASE_CONFIG.'
-        );
+        throw new Error('Firebase config not found on window.');
       }
 
       await loadScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
@@ -806,9 +804,7 @@ GOAL:
     function requireSignedIn(){
       if (state.authSignedIn && state.authUser) return;
       throw new Error(
-        `You are not signed in on this page.\n\n` +
-        `Auth debug:\n${pretty(getAuthDebug())}\n\n` +
-        `Open the main FarmVista app first, let it fully load, then come back to this dev page and try again.`
+        `You are not signed in on this page.\n\nAuth debug:\n${pretty(getAuthDebug())}`
       );
     }
 
@@ -882,9 +878,7 @@ GOAL:
       try{
         return await getDocById(db, collectionName, key);
       }catch(err){
-        if (isPermissionErr(err)){
-          tried.push(`PERMISSION:${collectionName}`);
-        }
+        if (isPermissionErr(err)) tried.push(`PERMISSION:${collectionName}`);
         return null;
       }
     }
@@ -896,9 +890,7 @@ GOAL:
           const hit = await queryWhereEq(db, collectionName, fld, key);
           if (hit) return hit;
         }catch(err){
-          if (isPermissionErr(err)){
-            tried.push(`PERMISSION:${collectionName}.${fld}`);
-          }
+          if (isPermissionErr(err)) tried.push(`PERMISSION:${collectionName}.${fld}`);
         }
       }
       return null;
@@ -906,12 +898,10 @@ GOAL:
 
     async function resolveLatestDoc(db, latestCollection, keys, tried){
       const keyList = uniqueList(keys);
-
       for (const key of keyList){
         const direct = await tryDocLookup(db, latestCollection, key, tried);
         if (direct) return direct;
       }
-
       for (const key of keyList){
         const hit = await tryFieldLookupSet(
           db,
@@ -922,18 +912,15 @@ GOAL:
         );
         if (hit) return hit;
       }
-
       return null;
     }
 
     async function resolveWeatherDoc(db, weatherCollection, keys, tried){
       const keyList = uniqueList(keys);
-
       for (const key of keyList){
         const direct = await tryDocLookup(db, weatherCollection, key, tried);
         if (direct) return direct;
       }
-
       for (const key of keyList){
         const hit = await tryFieldLookupSet(
           db,
@@ -944,7 +931,6 @@ GOAL:
         );
         if (hit) return hit;
       }
-
       return null;
     }
 
@@ -975,7 +961,6 @@ GOAL:
       if (synthSource){
         const d = synthSource.data || {};
         const fieldId = safeStr(d.fieldId || synthSource.id || keyList[0] || '');
-
         return {
           id: fieldId,
           collection: '(synthetic)',
@@ -1006,39 +991,11 @@ GOAL:
       const ld = latestDoc && latestDoc.data ? latestDoc.data : {};
       const wd = weatherDoc && weatherDoc.data ? weatherDoc.data : {};
       const fd = fieldDoc && fieldDoc.data ? fieldDoc.data : {};
-
       return uniqueList([
         inputKey,
-
-        latestDoc && latestDoc.id,
-        ld.fieldId,
-        ld.id,
-        ld.ptr,
-        ld.fieldPtr,
-        ld.shortId,
-        ld.slug,
-        ld.name,
-        ld.fieldName,
-
-        weatherDoc && weatherDoc.id,
-        wd.fieldId,
-        wd.id,
-        wd.ptr,
-        wd.fieldPtr,
-        wd.shortId,
-        wd.slug,
-        wd.name,
-        wd.fieldName,
-
-        fieldDoc && fieldDoc.id,
-        fd.fieldId,
-        fd.id,
-        fd.ptr,
-        fd.fieldPtr,
-        fd.shortId,
-        fd.slug,
-        fd.name,
-        fd.fieldName
+        latestDoc && latestDoc.id, ld.fieldId, ld.id, ld.ptr, ld.fieldPtr, ld.shortId, ld.slug, ld.name, ld.fieldName,
+        weatherDoc && weatherDoc.id, wd.fieldId, wd.id, wd.ptr, wd.fieldPtr, wd.shortId, wd.slug, wd.name, wd.fieldName,
+        fieldDoc && fieldDoc.id, fd.fieldId, fd.id, fd.ptr, fd.fieldPtr, fd.shortId, fd.slug, fd.name, fd.fieldName
       ]);
     }
 
@@ -1047,29 +1004,26 @@ GOAL:
       const ld = (latestDoc && latestDoc.data) || {};
       const wd = (weatherDoc && weatherDoc.data) || {};
 
-      const id =
-        safeStr(
-          fd.fieldId || fd.id || fieldDoc?.id ||
-          ld.fieldId || ld.id || latestDoc?.id ||
-          wd.fieldId || wd.id || weatherDoc?.id ||
-          lookupKey
-        );
+      const id = safeStr(
+        fd.fieldId || fd.id || fieldDoc?.id ||
+        ld.fieldId || ld.id || latestDoc?.id ||
+        wd.fieldId || wd.id || weatherDoc?.id ||
+        lookupKey
+      );
 
-      const lat =
-        safeNum(
-          fd.location?.lat ?? fd.lat ?? fd.latitude ?? fd.center?.lat ??
-          ld.location?.lat ?? ld.lat ?? ld.latitude ??
-          wd.location?.lat ?? wd.lat ?? wd.latitude,
-          null
-        );
+      const lat = safeNum(
+        fd.location?.lat ?? fd.lat ?? fd.latitude ?? fd.center?.lat ??
+        ld.location?.lat ?? ld.lat ?? ld.latitude ??
+        wd.location?.lat ?? wd.lat ?? wd.latitude,
+        null
+      );
 
-      const lng =
-        safeNum(
-          fd.location?.lng ?? fd.lng ?? fd.longitude ?? fd.lon ?? fd.center?.lng ??
-          ld.location?.lng ?? ld.lng ?? ld.longitude ?? ld.lon ??
-          wd.location?.lng ?? wd.lng ?? wd.longitude ?? wd.lon,
-          null
-        );
+      const lng = safeNum(
+        fd.location?.lng ?? fd.lng ?? fd.longitude ?? fd.lon ?? fd.center?.lng ??
+        ld.location?.lng ?? ld.lng ?? ld.longitude ?? ld.lon ??
+        wd.location?.lng ?? wd.lng ?? wd.longitude ?? wd.lon,
+        null
+      );
 
       return {
         id,
@@ -1090,26 +1044,17 @@ GOAL:
       const fd = (fieldDoc && fieldDoc.data) || {};
       const ld = (latestDoc && latestDoc.data) || {};
       const wd = (weatherDoc && weatherDoc.data) || {};
-
       return {
         soilWetness: safeNum(
-          fd.soilWetness ??
-          fd.soilWetnessPct ??
-          fd.soilWetness0_100 ??
-          ld.soilWetness ??
-          ld.soilWetnessPct ??
-          wd.soilWetness ??
-          wd.soilWetnessPct,
+          fd.soilWetness ?? fd.soilWetnessPct ?? fd.soilWetness0_100 ??
+          ld.soilWetness ?? ld.soilWetnessPct ??
+          wd.soilWetness ?? wd.soilWetnessPct,
           45
         ),
         drainageIndex: safeNum(
-          fd.drainageIndex ??
-          fd.drainage ??
-          fd.drainagePct ??
-          ld.drainageIndex ??
-          ld.drainage ??
-          wd.drainageIndex ??
-          wd.drainage,
+          fd.drainageIndex ?? fd.drainage ?? fd.drainagePct ??
+          ld.drainageIndex ?? ld.drainage ??
+          wd.drainageIndex ?? wd.drainage,
           45
         )
       };
@@ -1118,14 +1063,7 @@ GOAL:
     function normalizeWxRow(raw){
       const r = raw || {};
       const dateISO = safeStr(
-        r.dateISO ||
-        r.date ||
-        r.day ||
-        r.timeISO ||
-        r.timestampISO ||
-        r.validDate ||
-        r.validTime ||
-        ''
+        r.dateISO || r.date || r.day || r.timeISO || r.timestampISO || r.validDate || r.validTime || ''
       ).slice(0, 10);
 
       const rainInAdj =
@@ -1195,24 +1133,20 @@ GOAL:
     function pickHistoryRows(latestDoc, weatherDoc){
       const ld = (latestDoc && latestDoc.data) || {};
       const wd = (weatherDoc && weatherDoc.data) || {};
-
       const direct = [
         ...normalizeRowsArray(firstRowArrayFromDoc(ld, ['dailySeries30d', 'dailySeries', 'weatherDailySeries', 'wxDailySeries', 'rows'])),
         ...normalizeRowsArray(firstRowArrayFromDoc(wd, ['dailySeries30d', 'dailySeries', 'weatherDailySeries', 'wxDailySeries', 'rows']))
       ];
-
       return uniqueWeatherRows(direct);
     }
 
     function pickForecastRows(latestDoc, weatherDoc){
       const ld = (latestDoc && latestDoc.data) || {};
       const wd = (weatherDoc && weatherDoc.data) || {};
-
       const direct = [
         ...normalizeRowsArray(firstRowArrayFromDoc(ld, ['dailySeriesFcst', 'forecastRows', 'weatherForecastRows', 'forecastDailyRows', 'openMeteoForecastRows'])),
         ...normalizeRowsArray(firstRowArrayFromDoc(wd, ['dailySeriesFcst', 'forecastRows', 'weatherForecastRows', 'forecastDailyRows', 'openMeteoForecastRows']))
       ];
-
       return uniqueWeatherRows(direct);
     }
 
@@ -1258,7 +1192,6 @@ GOAL:
       }
 
       els.recentSelect.innerHTML = '<option value="">Choose a recent doc</option>';
-
       for (const item of list){
         const opt = document.createElement('option');
         opt.value = safeStr(item.fieldId || item.id);
@@ -1267,7 +1200,6 @@ GOAL:
       }
 
       els.recentList.innerHTML = '';
-
       for (const item of list){
         const div = document.createElement('div');
         div.className = 'recent-item';
@@ -1299,9 +1231,7 @@ GOAL:
         await waitForAuthReady();
         requireSignedIn();
 
-        const authDebug = getAuthDebug();
         const latestCollection = safeStr(els.latestCollectionInput.value) || 'field_readiness_latest';
-
         let snap = null;
 
         try{
@@ -1310,11 +1240,7 @@ GOAL:
           try{
             snap = await db.collection(latestCollection).orderBy('weatherFetchedAt', 'desc').limit(25).get();
           }catch(err2){
-            try{
-              snap = await db.collection(latestCollection).limit(25).get();
-            }catch(err3){
-              throw err3 || err2 || err1;
-            }
+            snap = await db.collection(latestCollection).limit(25).get();
           }
         }
 
@@ -1326,7 +1252,7 @@ GOAL:
             docId: doc.id,
             fieldId: safeStr(d.fieldId || ''),
             fieldName: safeStr(d.fieldName || d.name || ''),
-            readiness: safeNum(d.readiness, null),
+            readiness: safeNum(d.readiness ?? d.readinessR, null),
             computedAt: safeStr(d.computedAt && d.computedAt.toDate ? d.computedAt.toDate().toISOString() : d.computedAt || ''),
             weatherFetchedAt: safeStr(d.weatherFetchedAt && d.weatherFetchedAt.toDate ? d.weatherFetchedAt.toDate().toISOString() : d.weatherFetchedAt || ''),
             raw: d
@@ -1339,16 +1265,12 @@ GOAL:
         if (rows.length){
           setStatus(els.recentStatus, `Loaded ${rows.length} recent latest docs. Tap one or use the dropdown.`, 'ok');
         } else {
-          setStatus(els.recentStatus, `Recent-doc query worked, but no docs came back.\nAuth: ${pretty(authDebug)}`, 'err');
+          setStatus(els.recentStatus, `Recent-doc query worked, but no docs came back.\nAuth: ${pretty(getAuthDebug())}`, 'err');
         }
       }catch(err){
-        const authDebug = getAuthDebug();
-        const msg = safeStr(err && (err.message || err.code || err));
         setStatus(
           els.recentStatus,
-          `Could not load recent latest docs.\n` +
-          `${msg || 'Unknown error'}\n\n` +
-          `Auth debug:\n${pretty(authDebug)}`,
+          `Could not load recent latest docs.\n${safeStr(err && (err.message || err.code || err))}\n\nAuth debug:\n${pretty(getAuthDebug())}`,
           'err'
         );
       }finally{
@@ -1395,6 +1317,196 @@ GOAL:
         lastDate: rows.length ? safeStr(rows[rows.length - 1].dateISO) : '',
         goodRowsPreview: goodRows.slice(0, 6),
         badRowsPreview: badRows.slice(0, 6)
+      };
+    }
+
+    function deriveCurrentReadiness(run, latestDoc, fieldDoc, weatherDoc){
+      const ld = latestDoc && latestDoc.data ? latestDoc.data : {};
+      const fd = fieldDoc && fieldDoc.data ? fieldDoc.data : {};
+      const wd = weatherDoc && weatherDoc.data ? weatherDoc.data : {};
+
+      const candidates = [
+        run && run.readinessR,
+        run && run.readiness,
+        ld.readinessR,
+        ld.readiness,
+        fd.readinessR,
+        fd.readiness,
+        wd.readinessR,
+        wd.readiness
+      ];
+
+      for (const v of candidates){
+        const n = safeNum(v, null);
+        if (n != null) return clamp(Math.round(n), 0, 100);
+      }
+      return null;
+    }
+
+    function calcDryGain(row){
+      const temp = safeNum(row.tempF, 50);
+      const wind = safeNum(row.windMph, 8);
+      const rh = safeNum(row.rh, 65);
+      const solar = safeNum(row.solarWm2, 120);
+      const et0 = safeNum(row.et0In, 0.08);
+      const sun = safeNum(row.sunshineHr, 6);
+      const cloud = safeNum(row.cloudPct, 60);
+      const vpd = safeNum(row.vpdKpa, 0.6);
+
+      let gain = 0;
+      gain += Math.max(0, temp - 40) * 0.18;
+      gain += wind * 0.22;
+      gain += Math.max(0, 75 - rh) * 0.06;
+      gain += solar * 0.010;
+      gain += et0 * 24;
+      gain += sun * 0.55;
+      gain += Math.max(0, 70 - cloud) * 0.035;
+      gain += vpd * 3.2;
+
+      return clamp(gain, 0, 14);
+    }
+
+    function calcRainPenalty(row){
+      const rain = safeNum(row.rainInAdj ?? row.rainIn, 0);
+      const sm = safeNum(row.sm010, 0.28);
+
+      let penalty = 0;
+      penalty += rain * 26;
+
+      if (rain >= 0.10) penalty += 5;
+      if (rain >= 0.25) penalty += 6;
+      if (rain >= 0.50) penalty += 8;
+      if (rain >= 1.00) penalty += 10;
+
+      if (sm >= 0.34) penalty += 5;
+      else if (sm >= 0.30) penalty += 2;
+
+      return clamp(penalty, 0, 45);
+    }
+
+    function estimateDailyDelta(row){
+      const gain = calcDryGain(row);
+      const penalty = calcRainPenalty(row);
+      return gain - penalty;
+    }
+
+    function formatEtaHours(hours){
+      if (hours == null || !Number.isFinite(hours)) return 'ETA ?';
+      if (hours <= 0.5) return '~1h';
+      if (hours < 24) return `${Math.round(hours)}h`;
+      const days = hours / 24;
+      if (Math.abs(days - Math.round(days)) < 0.16) return `${Math.round(days)}d`;
+      return `${days.toFixed(1)}d`;
+    }
+
+    function computeFallbackEta(currentReadiness, threshold, forecastRows, maxHours = 168){
+      const rows = Array.isArray(forecastRows) ? forecastRows : [];
+      const start = safeNum(currentReadiness, null);
+      const thr = safeNum(threshold, null);
+
+      if (start == null || thr == null){
+        return {
+          ok: false,
+          status: 'nodata',
+          text: 'ETA ?',
+          reason: 'missing-current-readiness-or-threshold'
+        };
+      }
+
+      if (start >= thr){
+        return {
+          ok: true,
+          status: 'ready',
+          hours: 0,
+          text: '~1h',
+          currentReadiness: start
+        };
+      }
+
+      if (!rows.length){
+        return {
+          ok: false,
+          status: 'nodata',
+          text: 'ETA ?',
+          reason: 'no-forecast-rows',
+          currentReadiness: start
+        };
+      }
+
+      let readiness = start;
+      let elapsed = 0;
+      const steps = [];
+
+      for (const row of rows){
+        if (elapsed >= maxHours) break;
+
+        const dailyDelta = estimateDailyDelta(row);
+        const nextReadiness = clamp(readiness + dailyDelta, 0, 100);
+        const remainingNeeded = thr - readiness;
+
+        const step = {
+          dateISO: safeStr(row.dateISO),
+          readinessStart: Number(readiness.toFixed(2)),
+          readinessEnd: Number(nextReadiness.toFixed(2)),
+          dailyDelta: Number(dailyDelta.toFixed(2)),
+          dryGain: Number(calcDryGain(row).toFixed(2)),
+          rainPenalty: Number(calcRainPenalty(row).toFixed(2)),
+          rainInAdj: safeNum(row.rainInAdj ?? row.rainIn, 0)
+        };
+        steps.push(step);
+
+        if (dailyDelta > 0 && nextReadiness >= thr){
+          const fraction = clamp(remainingNeeded / dailyDelta, 0, 1);
+          const hoursIntoDay = fraction * 24;
+          const totalHours = clamp(elapsed + hoursIntoDay, 0, maxHours);
+          return {
+            ok: true,
+            status: 'fallback',
+            hours: Number(totalHours.toFixed(1)),
+            text: formatEtaHours(totalHours),
+            currentReadiness: start,
+            finalProjectedReadiness: Number(nextReadiness.toFixed(2)),
+            steps
+          };
+        }
+
+        readiness = nextReadiness;
+        elapsed += 24;
+      }
+
+      return {
+        ok: false,
+        status: 'horizon',
+        hours: null,
+        text: 'ETA >168h',
+        currentReadiness: start,
+        finalProjectedReadiness: Number(readiness.toFixed(2)),
+        steps
+      };
+    }
+
+    function chooseEta(modelEta, fallbackEta){
+      if (modelEta && modelEta.ok && safeNum(modelEta.hours, null) != null){
+        return {
+          source: 'model',
+          result: modelEta
+        };
+      }
+      if (fallbackEta && fallbackEta.ok){
+        return {
+          source: 'fallback',
+          result: fallbackEta
+        };
+      }
+      if (fallbackEta){
+        return {
+          source: 'fallback',
+          result: fallbackEta
+        };
+      }
+      return {
+        source: 'model',
+        result: modelEta || { ok:false, status:'nodata', text:'ETA ?' }
       };
     }
 
@@ -1445,12 +1557,8 @@ GOAL:
         els.weatherDebug.textContent = pretty({ weatherDoc });
 
         if (!fieldDoc && !latestDoc && !weatherDoc){
-          const authDebug = getAuthDebug();
           throw new Error(
-            `Nothing matched that input.\n\n` +
-            `Auth debug:\n${pretty(authDebug)}\n\n` +
-            `Use "Load Recent Latest Docs", tap one, then run again.\n\n` +
-            `Tried:\n${tried.join(' | ')}`
+            `Nothing matched that input.\n\nAuth debug:\n${pretty(getAuthDebug())}\n\nUse "Load Recent Latest Docs", tap one, then run again.\n\nTried:\n${tried.join(' | ')}`
           );
         }
 
@@ -1468,50 +1576,32 @@ GOAL:
           rewindDays: 10,
           EXTRA: {},
           CAL: {},
-
-          getFieldParams: (fieldId)=>{
-            if (String(fieldId) !== String(field.id)) return null;
-            return fieldParams;
-          },
-          getModelWeatherSeriesForFieldId: (fieldId)=>{
-            if (String(fieldId) !== String(field.id)) return mergedRows;
-            return [];
-          },
-          getMergedWeatherSeriesForFieldId: (fieldId)=>{
-            if (String(fieldId) !== String(field.id)) return mergedRows;
-            return [];
-          },
-          getWeatherSeriesForFieldId: (fieldId)=>{
-            if (String(fieldId) !== String(field.id)) return mergedRows;
-            return [];
-          },
-          getForecastSeriesForFieldId: (fieldId)=>{
-            if (String(fieldId) !== String(field.id)) return forecastRows;
-            return [];
-          },
-          getWxSeriesWithForecastForFieldId: (fieldId)=>{
-            if (String(fieldId) !== String(field.id)) return mergedRows;
-            return [];
-          }
+          getFieldParams: (fieldId)=> String(fieldId) === String(field.id) ? fieldParams : null,
+          getModelWeatherSeriesForFieldId: (fieldId)=> String(fieldId) === String(field.id) ? mergedRows : [],
+          getMergedWeatherSeriesForFieldId: (fieldId)=> String(fieldId) === String(field.id) ? mergedRows : [],
+          getWeatherSeriesForFieldId: (fieldId)=> String(fieldId) === String(field.id) ? mergedRows : [],
+          getForecastSeriesForFieldId: (fieldId)=> String(fieldId) === String(field.id) ? forecastRows : [],
+          getWxSeriesWithForecastForFieldId: (fieldId)=> String(fieldId) === String(field.id) ? mergedRows : []
         };
 
-        const run = runField(field, deps);
-        const eta = await etaToThreshold(field, deps, threshold, 168);
+        const run = await Promise.resolve(runField(field, deps));
+        const modelEta = await Promise.resolve(etaToThreshold(field, deps, threshold, 168));
+
+        const currentReadiness = deriveCurrentReadiness(run, latestDoc, fieldDoc, weatherDoc);
+        const fallbackEta = computeFallbackEta(currentReadiness, threshold, forecastRows, 168);
+        const chosenEta = chooseEta(modelEta, fallbackEta);
+        const eta = chosenEta.result;
 
         setText(els.fieldTitle, field.name || field.fieldName || field.id);
         setText(
           els.fieldSub,
-          [
-            field.id ? `ID ${field.id}` : '',
-            field.county || '',
-            field.state || ''
-          ].filter(Boolean).join(' • ') || 'Field loaded'
+          [field.id ? `ID ${field.id}` : '', field.county || '', field.state || ''].filter(Boolean).join(' • ') || 'Field loaded'
         );
 
-        setText(els.readinessValue, run ? String(run.readinessR) : '—');
-        setText(els.etaValue, eta && eta.text ? eta.text : '—');
+        setText(els.readinessValue, currentReadiness != null ? String(currentReadiness) : '—');
+        setText(els.etaValue, eta && eta.text ? eta.text : 'ETA ?');
         setText(els.etaSub, `Threshold ${threshold}`);
-        setText(els.etaStatusValue, eta && eta.status ? eta.status : '—');
+        setText(els.etaStatusValue, eta && eta.status ? `${eta.status} (${chosenEta.source})` : '—');
         setText(els.etaHoursValue, eta && safeNum(eta.hours, null) != null ? String(eta.hours) : '—');
         setText(
           els.forecastUsableValue,
@@ -1530,46 +1620,42 @@ GOAL:
         setText(els.histCount, historyRows.length);
         setText(els.fcstCount, forecastRows.length);
         setText(els.mergedCount, mergedRows.length);
-        setText(els.seedSource, run ? run.seedSource : '—');
-        setText(els.storageFinal, run ? Number(run.storageFinal || 0).toFixed(2) : '—');
-        setText(els.surfaceStorageFinal, run ? Number(run.surfaceStorageFinal || 0).toFixed(2) : '—');
+        setText(els.seedSource, run && safeStr(run.seedSource) ? run.seedSource : '—');
+        setText(els.storageFinal, run && safeNum(run.storageFinal, null) != null ? Number(run.storageFinal).toFixed(2) : '—');
+        setText(els.surfaceStorageFinal, run && safeNum(run.surfaceStorageFinal, null) != null ? Number(run.surfaceStorageFinal).toFixed(2) : '—');
 
         els.weatherDebug.textContent = pretty({
           weatherDoc,
           historyRowsPreview: historyRows.slice(0, 12),
           forecastRowsPreview: forecastRows.slice(0, 12),
-          mergedRowsPreview: mergedRows.slice(0, 20)
+          mergedRowsPreview: mergedRows.slice(-20)
         });
 
         els.etaDebug.textContent = pretty({
           threshold,
           authDebug: getAuthDebug(),
-          etaResult: eta,
+          chosenEtaSource: chosenEta.source,
+          modelEta,
+          fallbackEta,
           forecastDiagnostics: forecastDiag,
-          exactForecastRowsSentToEta: forecastRows,
-          exactMergedRowsSentToModel: mergedRows.slice(-20)
+          exactForecastRowsSentToEta: forecastRows
         });
 
         els.modelDebug.textContent = pretty({
           field,
           fieldParams,
           run,
-          eta
+          currentReadiness,
+          modelEta,
+          fallbackEta,
+          chosenEta
         });
 
         renderTraceRows(run && run.trace);
 
         setStatus(
           els.runStatus,
-          `Run finished.\n` +
-          `Input: ${inputKey}\n` +
-          `Resolved field id: ${field.id}\n` +
-          `Field: ${field.name || field.id}\n` +
-          `History rows: ${historyRows.length}\n` +
-          `Forecast rows: ${forecastRows.length}\n` +
-          `Readiness: ${run ? run.readinessR : '—'}\n` +
-          `ETA: ${eta && eta.text ? eta.text : '—'}\n` +
-          `ETA status: ${eta && eta.status ? eta.status : '—'}`,
+          `Run finished.\nInput: ${inputKey}\nResolved field id: ${field.id}\nField: ${field.name || field.id}\nHistory rows: ${historyRows.length}\nForecast rows: ${forecastRows.length}\nReadiness: ${currentReadiness != null ? currentReadiness : '—'}\nETA: ${eta && eta.text ? eta.text : 'ETA ?'}\nETA status: ${eta && eta.status ? eta.status : '—'}\nETA source: ${chosenEta.source}`,
           'ok'
         );
       }catch(err){
@@ -1689,9 +1775,7 @@ GOAL:
 
     document.addEventListener('fv:user-ready', ()=>{
       try{
-        if (state.authSignedIn){
-          loadRecentLatestDocs();
-        }
+        if (state.authSignedIn) loadRecentLatestDocs();
       }catch(_){}
     });
 
