@@ -1,19 +1,19 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/field-readiness-dev.html  (FULL FILE)
-Rev: 2026-03-31g-dev-page-eta-engine-no-rendertrace-error
+Rev: 2026-03-31h-dev-page-ready-based-no-cache-no-fallback
 
 GOAL:
 ✅ Standalone single-field debug page
 ✅ No tile renderer
-✅ Modular Firebase / Firestore only
+✅ Uses app-standard firebase-init.js boot flow
+✅ Waits for await ready before Firestore/Auth
 ✅ Focus on ONE field only
 ✅ Saved readiness comes from field_readiness_latest first
 ✅ ETA uses dedicated /Farm-vista/js/field-readiness/eta-engine.js
-✅ Threshold reruns do NOT re-fetch Firestore when same field is already loaded
-✅ Session cache survives quick page refresh / URL threshold changes
-✅ If ETA cannot be stated reliably, show "ETA temporarily unavailable"
+✅ NO cache reuse
+✅ NO fallback ETA
+✅ If ETA cannot be calculated, show debug/error clearly
 ✅ If saved readiness already meets threshold, show READY
-✅ FIX: restore renderTraceRows function
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -31,9 +31,6 @@ GOAL:
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
-  <script src="/Farm-vista/js/firebase-config.js"></script>
-  <script src="/Farm-vista/js/firebase-init.js"></script>
-
   <script>
     (function(){
       try{
@@ -49,8 +46,9 @@ GOAL:
 
   <style>
     :root{
+      --card-max:1100px;
+      --page-bottom-gap:96px;
       --accent:#2F6C3C;
-      --card-max:1080px;
     }
     body{
       background:var(--app-bg,var(--surface));
@@ -60,26 +58,37 @@ GOAL:
     .wrap{
       max-width:var(--card-max);
       margin:0 auto;
-      padding:18px;
-      display:grid;
-      gap:14px;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap))!important;
     }
-    .card{
+    .hero{
       border:1px solid var(--border);
-      border-radius:16px;
+      border-radius:14px;
       background:var(--surface);
       box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
       overflow:hidden;
+      margin-bottom:var(--page-bottom-gap);
     }
-    .head{
+    .hero-head{
+      display:grid;
+      grid-template-columns:36px 1fr;
+      gap:12px;
+      align-items:center;
       padding:14px 16px;
       border-bottom:1px solid var(--border);
       background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
     }
-    .head h1{
-      margin:0 0 6px;
-      font-size:22px;
-      line-height:1.15;
+    .hero-head .icon{
+      width:24px;
+      height:24px;
+      color:var(--accent);
+      display:grid;
+      place-items:center;
+    }
+    .hero-head h1{
+      margin:0;
+      font-size:clamp(20px,3.2vw,26px);
+      line-height:1.2;
     }
     .muted{ color:var(--muted,#67706B); }
     .body{
@@ -96,18 +105,19 @@ GOAL:
       display:flex;
       gap:10px;
       flex-wrap:wrap;
+      align-items:center;
     }
     .kgrid{
       display:grid;
       grid-template-columns:repeat(3,minmax(0,1fr));
       gap:10px;
     }
-    @media (max-width:760px){
+    @media (max-width:880px){
       .row,.kgrid{ grid-template-columns:1fr; }
     }
     .field label{
       display:block;
-      font-weight:900;
+      font-weight:800;
       margin:0 0 6px;
       font-size:12px;
       letter-spacing:.02em;
@@ -118,9 +128,9 @@ GOAL:
       font-size:16px;
       line-height:1.2;
       color:var(--text);
-      background:var(--surface);
+      background:var(--card-surface,var(--surface));
       border:1px solid var(--border);
-      border-radius:12px;
+      border-radius:10px;
       padding:12px;
       outline:none;
       box-sizing:border-box;
@@ -135,16 +145,14 @@ GOAL:
       display:inline-flex;
       align-items:center;
       justify-content:center;
-      gap:8px;
-      font:inherit;
-      font-weight:900;
-      font-size:13px;
-      line-height:1;
-      padding:12px 14px;
+      min-width:160px;
+      padding:12px 16px;
       border-radius:12px;
       border:1px solid var(--border);
-      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
-      color:var(--text);
+      background:var(--card-surface,var(--surface));
+      font:inherit;
+      font-weight:800;
+      color:var(--text)!important;
       cursor:pointer;
       user-select:none;
       -webkit-tap-highlight-color:transparent;
@@ -156,9 +164,9 @@ GOAL:
       transform:none;
     }
     .btn-primary{
-      background:var(--accent);
       border-color:transparent;
-      color:#fff !important;
+      background:#2F6C3C;
+      color:#fff!important;
     }
     .status{
       border:1px solid var(--border);
@@ -177,10 +185,6 @@ GOAL:
     .status.err{
       border-color:rgba(176,0,32,.28);
       background:rgba(176,0,32,.06);
-    }
-    .status.warn{
-      border-color:rgba(168,120,0,.35);
-      background:rgba(168,120,0,.08);
     }
     .kcard{
       border:1px solid var(--border);
@@ -261,16 +265,21 @@ GOAL:
       background:var(--surface);
     }
     .right{ text-align:right; }
+    .error{ color:#b00020; font-weight:700; }
   </style>
 </head>
+
 <body>
-  <fv-shell data-boot-hold-ms="3000">
+  <fv-shell>
     <div class="wrap">
-      <section class="card">
-        <div class="head">
-          <h1>Field Readiness Dev</h1>
-          <div class="muted">Single-field debug page. Saved readiness from Firestore. ETA powered by dedicated eta-engine.js.</div>
-        </div>
+      <section class="hero">
+        <header class="hero-head">
+          <div class="icon" aria-hidden="true">🧭</div>
+          <div>
+            <h1>Field Readiness Dev</h1>
+            <p class="muted">Single-field debug page. Saved readiness from Firestore. ETA powered by dedicated eta-engine.js.</p>
+          </div>
+        </header>
 
         <div class="body">
           <div id="bootStatus" class="status">Booting dev page…</div>
@@ -292,6 +301,7 @@ GOAL:
           </div>
 
           <div id="runStatus" class="status">Waiting to run.</div>
+          <div id="err" class="status err" hidden></div>
 
           <div class="kgrid">
             <div class="kcard">
@@ -354,7 +364,7 @@ GOAL:
             </div>
             <div class="kcard">
               <div class="klabel">ETA mode</div>
-              <div class="mono">eta engine only</div>
+              <div class="mono">strict eta engine only</div>
             </div>
           </div>
 
@@ -443,20 +453,25 @@ GOAL:
   </fv-shell>
 
   <script type="module">
+    import {
+      ready,
+      getFirestore,
+      getAuth,
+      doc,
+      getDoc
+    } from '/Farm-vista/js/firebase-init.js';
+
     import { runField } from '/Farm-vista/js/field-readiness.model.js';
     import * as EtaEngine from '/Farm-vista/js/field-readiness/eta-engine.js';
-    import { initializeApp, getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-    import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
-    import { getFirestore, doc, getDoc } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
     const ETA_TEMP_UNAVAILABLE = 'ETA temporarily unavailable';
-    const SESSION_CACHE_KEY = 'fv_field_readiness_dev_payload_v1';
 
-    const $ = (id)=> document.getElementById(id);
+    const $ = id => document.getElementById(id);
 
     const els = {
       bootStatus: $('bootStatus'),
       runStatus: $('runStatus'),
+      err: $('err'),
       fieldKeyInput: $('fieldKeyInput'),
       thresholdInput: $('thresholdInput'),
       runBtn: $('runBtn'),
@@ -492,21 +507,9 @@ GOAL:
       traceRows: $('traceRows')
     };
 
-    const state = {
-      app: null,
-      db: null,
-      auth: null,
-      firebaseReady: false,
-      authWatcherStarted: false,
-      authResolved: false,
-      authReadyPromise: null,
-      authUser: null,
-      authSignedIn: false,
-      authLastSeenAt: 0,
-
-      lastResolvedFieldId: '',
-      lastResolvedPayload: null
-    };
+    let db = null;
+    let auth = null;
+    let readyCtx = null;
 
     function safeStr(v){
       return String(v == null ? '' : v).trim();
@@ -540,7 +543,31 @@ GOAL:
       }
     }
 
+    function getAuthDebug(){
+      const user = auth?.currentUser || null;
+      return {
+        available: !!auth,
+        signedIn: !!user,
+        uid: safeStr(user?.uid),
+        email: safeStr(user?.email),
+        resolved: !!readyCtx,
+        mode: safeStr(readyCtx?.mode || ''),
+        lastSeenAt: Date.now()
+      };
+    }
+
+    function requireSignedIn(){
+      if (auth?.currentUser) return;
+      throw new Error(
+        `You are not signed in on this page.\n\nAuth debug:\n${pretty(getAuthDebug())}`
+      );
+    }
+
     function resetOutput(){
+      if (els.err){
+        els.err.hidden = true;
+        els.err.textContent = '';
+      }
       setText(els.fieldTitle, '—');
       setText(els.fieldSub, 'No field loaded yet.');
       setText(els.readinessValue, '—');
@@ -567,98 +594,6 @@ GOAL:
       renderTraceRows([]);
     }
 
-    async function ensureFirebase(){
-      if (state.firebaseReady && state.app && state.db && state.auth) return;
-
-      const cfg =
-        window.FV_FIREBASE_CONFIG ||
-        window.__FV_FIREBASE_CONFIG ||
-        window.firebaseConfig ||
-        null;
-
-      if (!cfg){
-        throw new Error('Firebase config not found on window.');
-      }
-
-      state.app = getApps().length ? getApp() : initializeApp(cfg);
-      state.db = getFirestore(state.app);
-      state.auth = getAuth(state.app);
-      state.firebaseReady = true;
-    }
-
-    function startAuthWatcher(){
-      if (state.authWatcherStarted) return state.authReadyPromise;
-      state.authWatcherStarted = true;
-
-      state.authReadyPromise = new Promise(async (resolve)=>{
-        await ensureFirebase();
-
-        let settled = false;
-        const finish = ()=>{
-          if (settled) return;
-          settled = true;
-          state.authResolved = true;
-          resolve();
-        };
-
-        try{
-          if (state.auth.currentUser){
-            state.authUser = state.auth.currentUser;
-            state.authSignedIn = true;
-            state.authLastSeenAt = Date.now();
-          }
-        }catch(_){}
-
-        onAuthStateChanged(state.auth, (user)=>{
-          if (user){
-            state.authUser = user;
-            state.authSignedIn = true;
-            state.authLastSeenAt = Date.now();
-          } else {
-            const recentlySignedIn =
-              state.authSignedIn &&
-              state.authUser &&
-              (Date.now() - state.authLastSeenAt) < 10 * 60 * 1000;
-
-            if (!recentlySignedIn){
-              state.authUser = null;
-              state.authSignedIn = false;
-            }
-          }
-          finish();
-        }, ()=>{
-          finish();
-        });
-
-        setTimeout(()=> finish(), 12000);
-      });
-
-      return state.authReadyPromise;
-    }
-
-    async function waitForAuthReady(){
-      await startAuthWatcher();
-      return state.authReadyPromise;
-    }
-
-    function getAuthDebug(){
-      return {
-        available: !!state.auth,
-        signedIn: !!state.authSignedIn,
-        uid: safeStr(state.authUser && state.authUser.uid),
-        email: safeStr(state.authUser && state.authUser.email),
-        resolved: !!state.authResolved,
-        lastSeenAt: state.authLastSeenAt || 0
-      };
-    }
-
-    function requireSignedIn(){
-      if (state.authSignedIn && state.authUser) return;
-      throw new Error(
-        `You are not signed in on this page.\n\nAuth debug:\n${pretty(getAuthDebug())}`
-      );
-    }
-
     function getUrlForCopy(){
       const url = new URL(window.location.href);
       const key = safeStr(els.fieldKeyInput.value);
@@ -681,7 +616,7 @@ GOAL:
     }
 
     async function getDocIfExists(collectionName, docId){
-      const snap = await getDoc(doc(state.db, collectionName, docId));
+      const snap = await getDoc(doc(db, collectionName, docId));
       if (!snap.exists()) return null;
       return {
         id: snap.id,
@@ -860,10 +795,7 @@ GOAL:
           usable += 1;
         }
       }
-      return {
-        total: rows.length,
-        usable
-      };
+      return { total: rows.length, usable };
     }
 
     function deriveSavedReadiness(latestDoc, fieldDoc, weatherDoc, run){
@@ -910,27 +842,6 @@ GOAL:
           <td class="right mono">${Number(r.dryPwr || 0).toFixed(2)}</td>
         `;
         tbody.appendChild(tr);
-      }
-    }
-
-    function savePayloadToSession(payload){
-      try{
-        sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({
-          fieldId: safeStr(payload && payload.inputKey),
-          payload
-        }));
-      }catch(_){}
-    }
-
-    function readPayloadFromSession(fieldId){
-      try{
-        const raw = sessionStorage.getItem(SESSION_CACHE_KEY);
-        if (!raw) return null;
-        const parsed = JSON.parse(raw);
-        if (safeStr(parsed && parsed.fieldId) !== safeStr(fieldId)) return null;
-        return parsed.payload || null;
-      }catch(_){
-        return null;
       }
     }
 
@@ -1011,24 +922,33 @@ GOAL:
       };
     }
 
- function findEtaEngineFunction(){
-  if (typeof EtaEngine.calculateEtaFromSavedReadiness === 'function'){
-    return {
-      fn: EtaEngine.calculateEtaFromSavedReadiness,
-      name: 'calculateEtaFromSavedReadiness'
-    };
-  }
-  return null;
-}
+    function findEtaEngineFunction(){
+      if (typeof EtaEngine.calculateEtaFromSavedReadiness === 'function'){
+        return {
+          fn: EtaEngine.calculateEtaFromSavedReadiness,
+          name: 'calculateEtaFromSavedReadiness'
+        };
+      }
+      return null;
+    }
+
+    function formatHours(hours){
+      if (hours == null || !Number.isFinite(hours)) return ETA_TEMP_UNAVAILABLE;
+      if (hours <= 0.5) return 'Ready';
+      if (hours < 24) return `${Math.round(hours)}h`;
+      const days = hours / 24;
+      return Math.abs(days - Math.round(days)) < 0.16 ? `${Math.round(days)}d` : `${days.toFixed(1)}d`;
+    }
 
     function normalizeEtaEngineResult(raw, threshold){
       if (!raw || typeof raw !== 'object'){
         return {
           ok: false,
-          status: 'temporarily-unavailable',
+          status: 'error',
           text: ETA_TEMP_UNAVAILABLE,
           hours: null,
-          reason: 'eta-engine-returned-empty'
+          reason: 'eta-engine-returned-empty',
+          threshold
         };
       }
 
@@ -1038,8 +958,7 @@ GOAL:
         safeNum(raw.etaHours, null) ??
         safeNum(raw.totalHours, null);
 
-      const text =
-        safeStr(raw.text || raw.label || raw.displayText || '');
+      const text = safeStr(raw.text || raw.label || raw.displayText || '');
 
       if (String(status).toLowerCase() === 'ready'){
         return {
@@ -1052,40 +971,21 @@ GOAL:
       }
 
       if (hours != null){
-        let finalText = text;
-        if (!finalText){
-          if (hours <= 0.5) finalText = 'Ready';
-          else if (hours < 24) finalText = `${Math.round(hours)}h`;
-          else {
-            const days = hours / 24;
-            finalText = Math.abs(days - Math.round(days)) < 0.16 ? `${Math.round(days)}d` : `${days.toFixed(1)}d`;
-          }
-        }
         return {
           ...raw,
           ok: true,
           status: safeStr(raw.status || 'ok'),
           hours,
-          text: finalText
-        };
-      }
-
-      if (text){
-        return {
-          ...raw,
-          ok: !!raw.ok,
-          status: safeStr(raw.status || 'temporarily-unavailable'),
-          hours: null,
-          text
+          text: text || formatHours(hours)
         };
       }
 
       return {
         ...raw,
         ok: false,
-        status: safeStr(raw.status || 'temporarily-unavailable'),
+        status: safeStr(raw.status || 'error'),
         hours: null,
-        text: ETA_TEMP_UNAVAILABLE,
+        text: text || ETA_TEMP_UNAVAILABLE,
         threshold
       };
     }
@@ -1095,7 +995,7 @@ GOAL:
       if (!engine){
         return {
           ok: false,
-          status: 'temporarily-unavailable',
+          status: 'error',
           text: ETA_TEMP_UNAVAILABLE,
           hours: null,
           reason: 'eta-engine-export-not-found',
@@ -1125,7 +1025,7 @@ GOAL:
       }catch(err){
         return {
           ok: false,
-          status: 'temporarily-unavailable',
+          status: 'error',
           text: ETA_TEMP_UNAVAILABLE,
           hours: null,
           reason: 'eta-engine-threw',
@@ -1135,8 +1035,8 @@ GOAL:
       }
     }
 
-    function renderFromPayload(payload, run, savedReadiness, etaResult, threshold, meta = {}){
-      els.lookupDebug.textContent = Array.isArray(payload.tried) ? payload.tried.join(' | ') : 'cache:reused-last-success';
+    function renderFromPayload(payload, run, savedReadiness, etaResult, threshold){
+      els.lookupDebug.textContent = Array.isArray(payload.tried) ? payload.tried.join(' | ') : '—';
       els.fieldDocDebug.textContent = pretty(payload.fieldDoc);
       els.latestDocDebug.textContent = pretty(payload.latestDoc);
       els.weatherDebug.textContent = pretty({
@@ -1154,10 +1054,7 @@ GOAL:
 
       setText(els.readinessValue, savedReadiness != null ? String(savedReadiness) : '—');
       setText(els.etaValue, etaResult && etaResult.text ? etaResult.text : ETA_TEMP_UNAVAILABLE);
-      setText(els.etaSub, etaResult && etaResult.status === 'temporarily-unavailable'
-        ? `Threshold ${threshold} • debug below`
-        : `Threshold ${threshold}`
-      );
+      setText(els.etaSub, etaResult && etaResult.ok ? `Threshold ${threshold}` : `Threshold ${threshold} • debug below`);
       setText(els.etaStatusValue, safeStr(etaResult && etaResult.status) || '—');
       setText(els.etaHoursValue, safeNum(etaResult && etaResult.hours, null) != null ? String(etaResult.hours) : '—');
       setText(els.forecastUsableValue, `${payload.forecastDiag.usable}/${payload.forecastDiag.total}`);
@@ -1181,7 +1078,6 @@ GOAL:
       els.etaDebug.textContent = pretty({
         threshold,
         authDebug: getAuthDebug(),
-        reusedCachedDocs: !!meta.reusedCachedDocs,
         savedReadiness,
         etaEngineResult: etaResult,
         exactForecastRowsSentToEtaEngine: payload.forecastRows
@@ -1192,22 +1088,15 @@ GOAL:
         fieldParams: payload.fieldParams,
         run,
         savedReadiness,
-        etaEngineResult: etaResult,
-        meta
+        etaEngineResult: etaResult
       });
 
       renderTraceRows(run && run.trace);
 
-      const prefix = meta.reusedCachedDocs
-        ? 'Run finished using cached field data.\n'
-        : 'Run finished.\n';
-
-      const statusKind = meta.reusedCachedDocs ? 'warn' : 'ok';
-      const warningLine = meta.warning ? `\nNote: ${meta.warning}` : '';
-
+      const statusKind = etaResult && etaResult.ok ? 'ok' : 'err';
       setStatus(
         els.runStatus,
-        `${prefix}Input: ${payload.inputKey}\nResolved field id: ${payload.field.id}\nField: ${payload.field.name || payload.field.id}\nHistory rows: ${payload.historyRows.length}\nForecast rows: ${payload.forecastRows.length}\nReadiness: ${savedReadiness != null ? savedReadiness : '—'}\nETA: ${safeStr(etaResult && etaResult.text) || ETA_TEMP_UNAVAILABLE}\nETA status: ${safeStr(etaResult && etaResult.status) || '—'}${warningLine}`,
+        `Run finished.\nInput: ${payload.inputKey}\nResolved field id: ${payload.field.id}\nField: ${payload.field.name || payload.field.id}\nHistory rows: ${payload.historyRows.length}\nForecast rows: ${payload.forecastRows.length}\nReadiness: ${savedReadiness != null ? savedReadiness : '—'}\nETA: ${safeStr(etaResult && etaResult.text) || ETA_TEMP_UNAVAILABLE}\nETA status: ${safeStr(etaResult && etaResult.status) || '—'}`,
         statusKind
       );
     }
@@ -1226,43 +1115,9 @@ GOAL:
       els.runBtn.disabled = true;
 
       try{
-        await ensureFirebase();
-        await waitForAuthReady();
         requireSignedIn();
 
-        let payload = null;
-        let reusedCachedDocs = false;
-        let warning = '';
-
-        const canReuseMemory =
-          state.lastResolvedPayload &&
-          safeStr(state.lastResolvedFieldId) === inputKey;
-
-        if (canReuseMemory){
-          payload = state.lastResolvedPayload;
-          payload.tried = ['cache:memory-last-successful-docs'];
-          reusedCachedDocs = true;
-        } else {
-          try{
-            payload = await fetchResolvedPayload(inputKey);
-            state.lastResolvedFieldId = inputKey;
-            state.lastResolvedPayload = payload;
-            savePayloadToSession(payload);
-          }catch(err){
-            const sessionPayload = readPayloadFromSession(inputKey);
-            if (sessionPayload){
-              payload = sessionPayload;
-              payload.tried = ['cache:session-reused-after-fetch-failed'];
-              state.lastResolvedFieldId = inputKey;
-              state.lastResolvedPayload = payload;
-              reusedCachedDocs = true;
-              warning = safeStr(err && (err.message || err.code || err)) || 'Fresh Firestore read failed.';
-            } else {
-              throw err;
-            }
-          }
-        }
-
+        const payload = await fetchResolvedPayload(inputKey);
         const deps = getDeps(payload);
         const run = await Promise.resolve(runField(payload.field, deps));
         const savedReadiness = deriveSavedReadiness(payload.latestDoc, payload.fieldDoc, payload.weatherDoc, run);
@@ -1281,20 +1136,14 @@ GOAL:
           etaResult = await runEtaEngine(payload, threshold, savedReadiness);
         }
 
-        renderFromPayload(
-          payload,
-          run,
-          savedReadiness,
-          etaResult,
-          threshold,
-          {
-            reusedCachedDocs,
-            warning
-          }
-        );
+        renderFromPayload(payload, run, savedReadiness, etaResult, threshold);
       }catch(err){
         const msg = err && err.message ? err.message : String(err || 'Unknown error');
         setStatus(els.runStatus, msg, 'err');
+        if (els.err){
+          els.err.hidden = false;
+          els.err.textContent = msg;
+        }
         if (!els.lookupDebug.textContent || els.lookupDebug.textContent === '—'){
           els.lookupDebug.textContent = msg;
         }
@@ -1342,8 +1191,9 @@ GOAL:
 
         setStatus(els.bootStatus, 'Dev page booted. Waiting for Firebase + auth…');
 
-        await ensureFirebase();
-        await waitForAuthReady();
+        readyCtx = await ready;
+        db = getFirestore();
+        auth = getAuth();
 
         setStatus(
           els.bootStatus,
@@ -1352,15 +1202,21 @@ GOAL:
         );
 
         const autoKey = safeStr(els.fieldKeyInput.value);
-        if (autoKey && state.authSignedIn){
+        if (autoKey && auth?.currentUser){
           await runDevTest();
         } else if (!autoKey) {
           setStatus(els.runStatus, 'Ready. Enter field id and run the dev test.');
+        } else {
+          setStatus(els.runStatus, `Ready, but not signed in yet.\n\nAuth debug:\n${pretty(getAuthDebug())}`, 'err');
         }
       }catch(err){
         const msg = err && err.message ? err.message : String(err || 'Boot failed');
         setStatus(els.bootStatus, msg, 'err');
         setStatus(els.runStatus, msg, 'err');
+        if (els.err){
+          els.err.hidden = false;
+          els.err.textContent = msg;
+        }
       }
     }
 
