@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/eta-engine.js  (FULL FILE)
-Rev: 2026-03-31b-eta-engine-object-call-fix
+Rev: 2026-03-31c-eta-engine-null-default-fix
 
 GOAL:
 ✅ Dedicated ETA-only engine
@@ -14,6 +14,7 @@ GOAL:
 ✅ If threshold cannot be reached in that window, include rain normally
 ✅ If threshold already met, return READY
 ✅ FIX: support BOTH positional args and object-style args
+✅ FIX: null / blank values no longer become 0
 ===================================================================== */
 
 const ETA_UNAVAILABLE_TEXT = 'ETA temporarily unavailable';
@@ -25,6 +26,8 @@ function safeStr(v) {
 }
 
 function safeNum(v, fallback = null) {
+  if (v == null) return fallback;
+  if (typeof v === 'string' && v.trim() === '') return fallback;
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
 }
