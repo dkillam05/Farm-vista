@@ -1,6 +1,6 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/field-readiness-dev.html  (FULL FILE)
-Rev: 2026-03-31f-dev-page-eta-engine-cache-stable
+Rev: 2026-03-31g-dev-page-zero-fallbacks-eta-engine-only
 
 GOAL:
 ✅ Standalone single-field debug page
@@ -9,10 +9,10 @@ GOAL:
 ✅ Focus on ONE field only
 ✅ Saved readiness comes from field_readiness_latest first
 ✅ ETA uses dedicated /Farm-vista/js/field-readiness/eta-engine.js
-✅ Threshold reruns do NOT re-fetch Firestore when same field is already loaded
-✅ Session cache survives quick page refresh / URL threshold changes
-✅ If ETA cannot be stated reliably, show "ETA temporarily unavailable"
-✅ If saved readiness already meets threshold, show READY
+✅ ZERO fallback ETA logic
+✅ ZERO cache reuse
+✅ If ETA engine fails, throw a real debug error
+✅ Dev page is for debugging only
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -176,10 +176,6 @@ GOAL:
     .status.err{
       border-color:rgba(176,0,32,.28);
       background:rgba(176,0,32,.06);
-    }
-    .status.warn{
-      border-color:rgba(168,120,0,.35);
-      background:rgba(168,120,0,.08);
     }
     .kcard{
       border:1px solid var(--border);
@@ -353,7 +349,7 @@ GOAL:
             </div>
             <div class="kcard">
               <div class="klabel">ETA mode</div>
-              <div class="mono">saved readiness + eta engine</div>
+              <div class="mono">eta engine only</div>
             </div>
           </div>
 
@@ -448,9 +444,6 @@ GOAL:
     import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
     import { getFirestore, doc, getDoc } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
-    const ETA_TEMP_UNAVAILABLE = 'ETA temporarily unavailable';
-    const SESSION_CACHE_KEY = 'fv_field_readiness_dev_payload_v1';
-
     const $ = (id)=> document.getElementById(id);
 
     const els = {
@@ -501,10 +494,7 @@ GOAL:
       authReadyPromise: null,
       authUser: null,
       authSignedIn: false,
-      authLastSeenAt: 0,
-
-      lastResolvedFieldId: '',
-      lastResolvedPayload: null
+      authLastSeenAt: 0
     };
 
     function safeStr(v){
@@ -883,54 +873,6 @@ GOAL:
       return null;
     }
 
-    function renderTraceRows(trace){
-      const tbody = els.traceRows;
-      tbody.innerHTML = '';
-
-      const rows = Array.isArray(trace) ? trace.slice(-30) : [];
-      if (!rows.length){
-        tbody.innerHTML = '<tr><td colspan="9" class="muted">No trace yet.</td></tr>';
-        return;
-      }
-
-      for (const r of rows){
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td class="mono">${safeStr(r.dateISO || '')}</td>
-          <td class="right mono">${Number(r.rain || 0).toFixed(2)}</td>
-          <td class="mono">${safeStr(r.rainSource || '')}</td>
-          <td class="right mono">${Number(r.before || 0).toFixed(2)}</td>
-          <td class="right mono">${Number(r.after || 0).toFixed(2)}</td>
-          <td class="right mono">${Number(r.surfaceBefore || 0).toFixed(2)}</td>
-          <td class="right mono">${Number(r.surfaceAfter || 0).toFixed(2)}</td>
-          <td class="right mono">${Number(r.loss || 0).toFixed(2)}</td>
-          <td class="right mono">${Number(r.dryPwr || 0).toFixed(2)}</td>
-        `;
-        tbody.appendChild(tr);
-      }
-    }
-
-    function savePayloadToSession(payload){
-      try{
-        sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({
-          fieldId: safeStr(payload && payload.inputKey),
-          payload
-        }));
-      }catch(_){}
-    }
-
-    function readPayloadFromSession(fieldId){
-      try{
-        const raw = sessionStorage.getItem(SESSION_CACHE_KEY);
-        if (!raw) return null;
-        const parsed = JSON.parse(raw);
-        if (safeStr(parsed && parsed.fieldId) !== safeStr(fieldId)) return null;
-        return parsed.payload || null;
-      }catch(_){
-        return null;
-      }
-    }
-
     function buildResolvedPayload(inputKey, latestDoc, weatherDoc, fieldDoc){
       const field = normalizeField(fieldDoc, latestDoc, weatherDoc, inputKey);
       const fieldParams = normalizeFieldParams(fieldDoc, latestDoc, weatherDoc);
@@ -1022,30 +964,28 @@ GOAL:
       for (const key of candidates){
         if (typeof EtaEngine[key] === 'function') return { fn: EtaEngine[key], name: key };
       }
-      return null;
+      throw new Error(
+        `ETA engine export not found.\n\nAvailable exports:\n${pretty(Object.keys(EtaEngine || {}))}`
+      );
     }
 
-    function normalizeEtaEngineResult(raw, threshold){
+    function formatHours(hours){
+      const h = safeNum(hours, null);
+      if (h == null) throw new Error('ETA engine returned invalid hours.');
+      if (h <= 0.5) return 'Ready';
+      if (h < 24) return `${Math.round(h)}h`;
+      const days = h / 24;
+      return Math.abs(days - Math.round(days)) < 0.16 ? `${Math.round(days)}d` : `${days.toFixed(1)}d`;
+    }
+
+    function normalizeEtaEngineResult(raw){
       if (!raw || typeof raw !== 'object'){
-        return {
-          ok: false,
-          status: 'temporarily-unavailable',
-          text: ETA_TEMP_UNAVAILABLE,
-          hours: null,
-          reason: 'eta-engine-returned-empty'
-        };
+        throw new Error(`ETA engine returned empty result.\n\nRaw result:\n${pretty(raw)}`);
       }
 
-      const status = safeStr(raw.status || raw.code || raw.result || '');
-      const hours =
-        safeNum(raw.hours, null) ??
-        safeNum(raw.etaHours, null) ??
-        safeNum(raw.totalHours, null);
+      const status = safeStr(raw.status || raw.code || raw.result || '').toLowerCase();
 
-      const text =
-        safeStr(raw.text || raw.label || raw.displayText || '');
-
-      if (String(status).toLowerCase() === 'ready'){
+      if (status === 'ready'){
         return {
           ...raw,
           ok: true,
@@ -1055,92 +995,64 @@ GOAL:
         };
       }
 
+      const hours =
+        safeNum(raw.hours, null) ??
+        safeNum(raw.etaHours, null) ??
+        safeNum(raw.totalHours, null);
+
       if (hours != null){
-        let finalText = text;
-        if (!finalText){
-          if (hours <= 0.5) finalText = 'Ready';
-          else if (hours < 24) finalText = `${Math.round(hours)}h`;
-          else {
-            const days = hours / 24;
-            finalText = Math.abs(days - Math.round(days)) < 0.16 ? `${Math.round(days)}d` : `${days.toFixed(1)}d`;
-          }
-        }
         return {
           ...raw,
           ok: true,
           status: safeStr(raw.status || 'ok'),
           hours,
-          text: finalText
+          text: safeStr(raw.text) || formatHours(hours)
         };
       }
 
-      if (text){
-        return {
-          ...raw,
-          ok: !!raw.ok,
-          status: safeStr(raw.status || 'temporarily-unavailable'),
-          hours: null,
-          text
-        };
-      }
-
-      return {
-        ...raw,
-        ok: false,
-        status: safeStr(raw.status || 'temporarily-unavailable'),
-        hours: null,
-        text: ETA_TEMP_UNAVAILABLE,
-        threshold
-      };
+      throw new Error(
+        `ETA engine did not return a usable ETA.\n\nRaw result:\n${pretty(raw)}`
+      );
     }
 
     async function runEtaEngine(payload, threshold, savedReadiness){
+      if (savedReadiness == null){
+        throw new Error('Saved readiness could not be resolved.');
+      }
+
+      if (savedReadiness >= threshold){
+        return {
+          ok: true,
+          status: 'ready',
+          hours: 0,
+          text: 'Ready',
+          currentReadiness: savedReadiness,
+          reason: 'saved-readiness-already-meets-threshold'
+        };
+      }
+
       const engine = findEtaEngineFunction();
-      if (!engine){
-        return {
-          ok: false,
-          status: 'temporarily-unavailable',
-          text: ETA_TEMP_UNAVAILABLE,
-          hours: null,
-          reason: 'eta-engine-export-not-found',
-          availableExports: Object.keys(EtaEngine || {}),
-          engineName: null
-        };
-      }
+      const raw = await Promise.resolve(engine.fn({
+        threshold,
+        savedReadiness,
+        field: payload.field,
+        latestDoc: payload.latestDoc,
+        weatherDoc: payload.weatherDoc,
+        fieldDoc: payload.fieldDoc,
+        historyRows: payload.historyRows,
+        forecastRows: payload.forecastRows,
+        mergedRows: payload.mergedRows,
+        fieldParams: payload.fieldParams
+      }));
 
-      try{
-        const raw = await Promise.resolve(engine.fn({
-          threshold,
-          savedReadiness,
-          field: payload.field,
-          latestDoc: payload.latestDoc,
-          weatherDoc: payload.weatherDoc,
-          fieldDoc: payload.fieldDoc,
-          historyRows: payload.historyRows,
-          forecastRows: payload.forecastRows,
-          mergedRows: payload.mergedRows,
-          fieldParams: payload.fieldParams
-        }));
-
-        const normalized = normalizeEtaEngineResult(raw, threshold);
-        normalized.engineName = engine.name;
-        normalized.raw = raw;
-        return normalized;
-      }catch(err){
-        return {
-          ok: false,
-          status: 'temporarily-unavailable',
-          text: ETA_TEMP_UNAVAILABLE,
-          hours: null,
-          reason: 'eta-engine-threw',
-          error: safeStr(err && (err.message || err.code || err)),
-          engineName: engine.name
-        };
-      }
+      const normalized = normalizeEtaEngineResult(raw);
+      normalized.engineName = engine.name;
+      normalized.raw = raw;
+      return normalized;
     }
 
-    function renderFromPayload(payload, run, savedReadiness, etaResult, threshold, meta = {}){
-      els.lookupDebug.textContent = Array.isArray(payload.tried) ? payload.tried.join(' | ') : 'cache:reused-last-success';
+    function renderFromPayload(payload, run, savedReadiness, etaResult, threshold){
+      els.lookupDebug.textContent = Array.isArray(payload.tried) ? payload.tried.join(' | ') : '—';
       els.fieldDocDebug.textContent = pretty(payload.fieldDoc);
       els.latestDocDebug.textContent = pretty(payload.latestDoc);
       els.weatherDebug.textContent = pretty({
@@ -1157,11 +1069,8 @@ GOAL:
       );
 
       setText(els.readinessValue, savedReadiness != null ? String(savedReadiness) : '—');
-      setText(els.etaValue, etaResult && etaResult.text ? etaResult.text : ETA_TEMP_UNAVAILABLE);
-      setText(els.etaSub, etaResult && etaResult.status === 'temporarily-unavailable'
-        ? `Threshold ${threshold} • debug below`
-        : `Threshold ${threshold}`
-      );
+      setText(els.etaValue, safeStr(etaResult && etaResult.text) || '—');
+      setText(els.etaSub, `Threshold ${threshold}`);
       setText(els.etaStatusValue, safeStr(etaResult && etaResult.status) || '—');
       setText(els.etaHoursValue, safeNum(etaResult && etaResult.hours, null) != null ? String(etaResult.hours) : '—');
       setText(els.forecastUsableValue, `${payload.forecastDiag.usable}/${payload.forecastDiag.total}`);
@@ -1185,7 +1094,6 @@ GOAL:
       els.etaDebug.textContent = pretty({
         threshold,
         authDebug: getAuthDebug(),
-        reusedCachedDocs: !!meta.reusedCachedDocs,
         savedReadiness,
         etaEngineResult: etaResult,
         exactForecastRowsSentToEtaEngine: payload.forecastRows
@@ -1196,23 +1104,15 @@ GOAL:
         fieldParams: payload.fieldParams,
         run,
         savedReadiness,
-        etaEngineResult: etaResult,
-        meta
+        etaEngineResult: etaResult
       });
 
       renderTraceRows(run && run.trace);
 
-      const prefix = meta.reusedCachedDocs
-        ? 'Run finished using cached field data.\n'
-        : 'Run finished.\n';
-
-      const statusKind = meta.reusedCachedDocs ? 'warn' : 'ok';
-      const warningLine = meta.warning ? `\nNote: ${meta.warning}` : '';
-
       setStatus(
         els.runStatus,
-        `${prefix}Input: ${payload.inputKey}\nResolved field id: ${payload.field.id}\nField: ${payload.field.name || payload.field.id}\nHistory rows: ${payload.historyRows.length}\nForecast rows: ${payload.forecastRows.length}\nReadiness: ${savedReadiness != null ? savedReadiness : '—'}\nETA: ${safeStr(etaResult && etaResult.text) || ETA_TEMP_UNAVAILABLE}\nETA status: ${safeStr(etaResult && etaResult.status) || '—'}${warningLine}`,
-        statusKind
+        `Run finished.\nInput: ${payload.inputKey}\nResolved field id: ${payload.field.id}\nField: ${payload.field.name || payload.field.id}\nHistory rows: ${payload.historyRows.length}\nForecast rows: ${payload.forecastRows.length}\nReadiness: ${savedReadiness != null ? savedReadiness : '—'}\nETA: ${safeStr(etaResult && etaResult.text) || '—'}\nETA status: ${safeStr(etaResult && etaResult.status) || '—'}`,
+        'ok'
       );
     }
 
@@ -1234,68 +1134,13 @@ GOAL:
         await waitForAuthReady();
         requireSignedIn();
 
-        let payload = null;
-        let reusedCachedDocs = false;
-        let warning = '';
-
-        const canReuseMemory =
-          state.lastResolvedPayload &&
-          safeStr(state.lastResolvedFieldId) === inputKey;
-
-        if (canReuseMemory){
-          payload = state.lastResolvedPayload;
-          payload.tried = ['cache:memory-last-successful-docs'];
-          reusedCachedDocs = true;
-        } else {
-          try{
-            payload = await fetchResolvedPayload(inputKey);
-            state.lastResolvedFieldId = inputKey;
-            state.lastResolvedPayload = payload;
-            savePayloadToSession(payload);
-          }catch(err){
-            const sessionPayload = readPayloadFromSession(inputKey);
-            if (sessionPayload){
-              payload = sessionPayload;
-              payload.tried = ['cache:session-reused-after-fetch-failed'];
-              state.lastResolvedFieldId = inputKey;
-              state.lastResolvedPayload = payload;
-              reusedCachedDocs = true;
-              warning = safeStr(err && (err.message || err.code || err)) || 'Fresh Firestore read failed.';
-            } else {
-              throw err;
-            }
-          }
-        }
-
+        const payload = await fetchResolvedPayload(inputKey);
         const deps = getDeps(payload);
         const run = await Promise.resolve(runField(payload.field, deps));
         const savedReadiness = deriveSavedReadiness(payload.latestDoc, payload.fieldDoc, payload.weatherDoc, run);
+        const etaResult = await runEtaEngine(payload, threshold, savedReadiness);
 
-        let etaResult = null;
-        if (savedReadiness != null && savedReadiness >= threshold){
-          etaResult = {
-            ok: true,
-            status: 'ready',
-            hours: 0,
-            text: 'Ready',
-            currentReadiness: savedReadiness,
-            reason: 'saved-readiness-already-meets-threshold'
-          };
-        } else {
-          etaResult = await runEtaEngine(payload, threshold, savedReadiness);
-        }
-
-        renderFromPayload(
-          payload,
-          run,
-          savedReadiness,
-          etaResult,
-          threshold,
-          {
-            reusedCachedDocs,
-            warning
-          }
-        );
+        renderFromPayload(payload, run, savedReadiness, etaResult, threshold);
       }catch(err){
         const msg = err && err.message ? err.message : String(err || 'Unknown error');
         setStatus(els.runStatus, msg, 'err');
@@ -1303,7 +1148,11 @@ GOAL:
           els.lookupDebug.textContent = msg;
         }
         els.modelDebug.textContent = pretty({ error: msg });
-        els.etaDebug.textContent = pretty({ error: msg, authDebug: getAuthDebug() });
+        els.etaDebug.textContent = pretty({
+          error: msg,
+          authDebug: getAuthDebug(),
+          etaEngineExports: Object.keys(EtaEngine || {})
+        });
         renderTraceRows([]);
       }finally{
         els.runBtn.disabled = false;
