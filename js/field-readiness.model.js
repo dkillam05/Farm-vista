@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-03-31a-no-false-95-when-fully-dry
+Rev: 2026-03-31b-remove-artificial-baseline-wet-seed
 
 GOAL:
 ✅ Full clean replacement
@@ -14,6 +14,7 @@ GOAL:
 ✅ Maintain existing export names used elsewhere in FarmVista
 ✅ FIX: if physical storage = 0 and surface storage = 0, readiness = 100
 ✅ FIX: do not leave fully dry fields stuck at 95 from calibration/credit logic
+✅ FIX: remove artificial built-in 10% storage seed floor that was keeping dry fields from reaching 100
 
 IMPORTANT:
 - This file only does MODEL + ETA math.
@@ -148,8 +149,8 @@ const FV_TUNE = {
   SURFACE_STORAGE_FLOOR_CAP_FRAC: 0.06,
 
   // ETA
-  ETA_STEPS_PER_DAY: 8,                // 3h steps => exact hours possible
-  ETA_REQUIRE_CONSECUTIVE_STEPS: 2,    // must hold above threshold twice
+  ETA_STEPS_PER_DAY: 8,
+  ETA_REQUIRE_CONSECUTIVE_STEPS: 2,
   ETA_MIN_HOURS_ANY_WET: 6,
   ETA_MIN_HOURS_80S: 18,
   ETA_MIN_HOURS_70S: 36,
@@ -609,14 +610,29 @@ function getRewindDays(deps){
   return clamp(Math.round(n), 3, 21);
 }
 
+/*
+  ROOT-CAUSE FIX:
+  The old version always started every field with a built-in 10% of Smax:
+      (0.10 * f.Smax) + rainNudge
+  That meant even dry fields started wet before any simulation happened.
+
+  New rule:
+  - no automatic storage floor
+  - only allow a very small rain-based seed when there actually was rain
+  - if there was no meaningful antecedent rain, start at 0
+*/
 function baselineSeedFromWindow(rowsWindow, f){
   const first7 = rowsWindow.slice(0, 7);
   const rain7 = first7.reduce((s, x)=> s + Number((x && x.rainInAdj) || 0), 0);
 
-  const rainNudgeFrac = clamp(rain7 / 8.0, 0, 1);
-  const rainNudge = rainNudgeFrac * (0.10 * f.Smax);
+  if (rain7 <= 0.01){
+    return { storage0: 0 };
+  }
 
-  const storage0 = clamp((0.10 * f.Smax) + rainNudge, 0, f.Smax);
+  const rainNudgeFrac = clamp(rain7 / 8.0, 0, 1);
+  const rainNudge = rainNudgeFrac * (0.03 * f.Smax);
+
+  const storage0 = clamp(rainNudge, 0, f.Smax);
   return { storage0 };
 }
 
