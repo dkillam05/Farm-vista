@@ -1,15 +1,17 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/field-readiness-dev.html  (FULL FILE)
-Rev: 2026-03-31b-dev-page-model-first-saved-readiness
+Rev: 2026-03-31c-dev-page-single-field-clean
 
 GOAL:
 ✅ Standalone single-field debug page
 ✅ No tile renderer
-✅ Uses modular Firebase / Firestore only
-✅ Uses saved readiness from field_readiness_latest first
-✅ ETA is MODEL-FIRST again
-✅ Fallback ETA only used if model truly returns no answer
+✅ Modular Firebase / Firestore only
+✅ Focus on ONE field only
+✅ Saved readiness comes from field_readiness_latest first
+✅ ETA is MODEL-FIRST
+✅ Fallback ETA only used if model truly has no usable answer
 ✅ If saved readiness already meets threshold, show READY
+✅ Simpler page with less clutter
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -88,19 +90,18 @@ GOAL:
       gap:10px;
       grid-template-columns:1.3fr 140px;
     }
-    .row3{
-      display:grid;
+    .rowBtns{
+      display:flex;
       gap:10px;
-      grid-template-columns:1fr 1fr 1fr;
+      flex-wrap:wrap;
     }
-    .rowRecent{
+    .kgrid{
       display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));
       gap:10px;
-      grid-template-columns:1fr 180px;
-      align-items:end;
     }
     @media (max-width:760px){
-      .row,.row3,.rowRecent,.kgrid{ grid-template-columns:1fr; }
+      .row,.kgrid{ grid-template-columns:1fr; }
     }
     .field label{
       display:block;
@@ -109,7 +110,7 @@ GOAL:
       font-size:12px;
       letter-spacing:.02em;
     }
-    .input,.select{
+    .input{
       width:100%;
       font:inherit;
       font-size:16px;
@@ -124,14 +125,9 @@ GOAL:
       -webkit-appearance:none;
       appearance:none;
     }
-    .input:focus,.select:focus{
+    .input:focus{
       border-color:color-mix(in srgb, var(--accent) 45%, var(--border) 55%);
       box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent 84%);
-    }
-    .btnrow{
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
     }
     .btn{
       display:inline-flex;
@@ -179,11 +175,6 @@ GOAL:
     .status.err{
       border-color:rgba(176,0,32,.28);
       background:rgba(176,0,32,.06);
-    }
-    .kgrid{
-      display:grid;
-      grid-template-columns:repeat(3,minmax(0,1fr));
-      gap:10px;
     }
     .kcard{
       border:1px solid var(--border);
@@ -264,47 +255,6 @@ GOAL:
       background:var(--surface);
     }
     .right{ text-align:right; }
-    .recent-list{
-      display:grid;
-      gap:8px;
-    }
-    .recent-item{
-      border:1px solid var(--border);
-      border-radius:12px;
-      padding:10px;
-      background:color-mix(in srgb, var(--surface) 96%, #ffffff 4%);
-      cursor:pointer;
-    }
-    .recent-item:active{ transform:translateY(1px); }
-    .recent-top{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      flex-wrap:wrap;
-    }
-    .recent-title{
-      font-weight:900;
-      font-size:13px;
-    }
-    .recent-meta{
-      font-size:12px;
-      color:var(--muted,#67706B);
-      margin-top:4px;
-      white-space:normal;
-      word-break:break-word;
-    }
-    .pill{
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      padding:4px 8px;
-      border-radius:999px;
-      border:1px solid var(--border);
-      font-size:11px;
-      font-weight:900;
-      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
-    }
   </style>
 </head>
 <body>
@@ -313,7 +263,7 @@ GOAL:
       <section class="card">
         <div class="head">
           <h1>Field Readiness Dev</h1>
-          <div class="muted">Single-field debug page. No tile renderer. Direct Firestore lookup + actual model math.</div>
+          <div class="muted">Single-field debug page. Saved readiness from Firestore. Model-first ETA.</div>
         </div>
 
         <div class="body">
@@ -321,8 +271,8 @@ GOAL:
 
           <div class="row">
             <div class="field">
-              <label for="fieldKeyInput">FIELD PTR OR FIELD ID</label>
-              <input id="fieldKeyInput" class="input mono" type="text" placeholder="mndh2avo or 02Kq4WH8RrGXR4DAyQDz" />
+              <label for="fieldKeyInput">FIELD ID</label>
+              <input id="fieldKeyInput" class="input mono" type="text" placeholder="02Kq4WH8RrGXR4DAyQDz" />
             </div>
             <div class="field">
               <label for="thresholdInput">THRESHOLD</label>
@@ -330,49 +280,12 @@ GOAL:
             </div>
           </div>
 
-          <div class="row3">
-            <div class="field">
-              <label for="fieldCollectionsInput">FIELD COLLECTIONS</label>
-              <input id="fieldCollectionsInput" class="input mono" type="text" value="fields,field_boundaries,field_profiles" />
-            </div>
-            <div class="field">
-              <label for="latestCollectionInput">LATEST COLLECTION</label>
-              <input id="latestCollectionInput" class="input mono" type="text" value="field_readiness_latest" />
-            </div>
-            <div class="field">
-              <label for="weatherCollectionInput">WEATHER CACHE COLLECTION</label>
-              <input id="weatherCollectionInput" class="input mono" type="text" value="field_weather_cache" />
-            </div>
-          </div>
-
-          <div class="btnrow">
+          <div class="rowBtns">
             <button id="runBtn" class="btn btn-primary" type="button">Run Dev Test</button>
             <button id="copyUrlBtn" class="btn" type="button">Copy Test URL</button>
-            <button id="useLatestIdBtn" class="btn" type="button">Use Latest Doc Field ID</button>
-            <button id="loadRecentBtn" class="btn" type="button">Load Recent Latest Docs</button>
           </div>
 
           <div id="runStatus" class="status">Waiting to run.</div>
-
-          <details open>
-            <summary>Recent Latest Docs</summary>
-            <div class="detail-body">
-              <div class="rowRecent">
-                <div class="field">
-                  <label for="recentSelect">RECENT FIELD_READINESS_LATEST DOCS</label>
-                  <select id="recentSelect" class="select">
-                    <option value="">Tap "Load Recent Latest Docs"</option>
-                  </select>
-                </div>
-                <div class="field">
-                  <label>&nbsp;</label>
-                  <button id="useRecentBtn" class="btn btn-primary" type="button" style="width:100%;">Use Selected Recent Doc</button>
-                </div>
-              </div>
-              <div id="recentStatus" class="status">No recent docs loaded yet.</div>
-              <div id="recentList" class="recent-list"></div>
-            </div>
-          </details>
 
           <div class="kgrid">
             <div class="kcard">
@@ -530,13 +443,7 @@ GOAL:
     import {
       getFirestore,
       doc,
-      getDoc,
-      collection,
-      query,
-      where,
-      limit,
-      getDocs,
-      orderBy
+      getDoc
     } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
     const $ = (id)=> document.getElementById(id);
@@ -544,20 +451,10 @@ GOAL:
     const els = {
       bootStatus: $('bootStatus'),
       runStatus: $('runStatus'),
-      recentStatus: $('recentStatus'),
       fieldKeyInput: $('fieldKeyInput'),
       thresholdInput: $('thresholdInput'),
-      fieldCollectionsInput: $('fieldCollectionsInput'),
-      latestCollectionInput: $('latestCollectionInput'),
-      weatherCollectionInput: $('weatherCollectionInput'),
-      recentSelect: $('recentSelect'),
-      recentList: $('recentList'),
-
       runBtn: $('runBtn'),
       copyUrlBtn: $('copyUrlBtn'),
-      useLatestIdBtn: $('useLatestIdBtn'),
-      loadRecentBtn: $('loadRecentBtn'),
-      useRecentBtn: $('useRecentBtn'),
 
       fieldTitle: $('fieldTitle'),
       fieldSub: $('fieldSub'),
@@ -599,11 +496,7 @@ GOAL:
       authReadyPromise: null,
       authUser: null,
       authSignedIn: false,
-      authLastSeenAt: 0,
-      lastLatestDoc: null,
-      lastFieldDoc: null,
-      lastWeatherDoc: null,
-      recentLatestDocs: []
+      authLastSeenAt: 0
     };
 
     function safeStr(v){
@@ -638,18 +531,6 @@ GOAL:
       }
     }
 
-    function uniqueList(arr){
-      const out = [];
-      const seen = new Set();
-      for (const item of (Array.isArray(arr) ? arr : [])){
-        const s = safeStr(item);
-        if (!s || seen.has(s)) continue;
-        seen.add(s);
-        out.push(s);
-      }
-      return out;
-    }
-
     function resetOutput(){
       setText(els.fieldTitle, '—');
       setText(els.fieldSub, 'No field loaded yet.');
@@ -668,6 +549,7 @@ GOAL:
       setText(els.seedSource, '—');
       setText(els.storageFinal, '—');
       setText(els.surfaceStorageFinal, '—');
+      els.lookupDebug.textContent = '—';
       els.fieldDocDebug.textContent = '—';
       els.latestDocDebug.textContent = '—';
       els.weatherDebug.textContent = '—';
@@ -768,15 +650,6 @@ GOAL:
       );
     }
 
-    function updateButtonsEnabled(enabled){
-      const on = !!enabled;
-      els.runBtn.disabled = !on;
-      els.loadRecentBtn.disabled = !on;
-      els.copyUrlBtn.disabled = false;
-      els.useLatestIdBtn.disabled = false;
-      els.useRecentBtn.disabled = false;
-    }
-
     function getUrlForCopy(){
       const url = new URL(window.location.href);
       const key = safeStr(els.fieldKeyInput.value);
@@ -791,22 +664,15 @@ GOAL:
 
     function applyUrlToInputs(){
       const url = new URL(window.location.href);
-      const key = safeStr(url.searchParams.get('id') || url.searchParams.get('ptr') || '');
+      const key = safeStr(url.searchParams.get('id') || '');
       const thr = safeStr(url.searchParams.get('threshold') || '85');
 
       if (key) els.fieldKeyInput.value = key;
       if (thr) els.thresholdInput.value = thr;
     }
 
-    function getCollectionList(){
-      return safeStr(els.fieldCollectionsInput.value)
-        .split(',')
-        .map(s => safeStr(s))
-        .filter(Boolean);
-    }
-
-    async function getDocById(dbRef, collectionName, docId){
-      const snap = await getDoc(doc(dbRef, collectionName, docId));
+    async function getDocIfExists(collectionName, docId){
+      const snap = await getDoc(doc(state.db, collectionName, docId));
       if (!snap.exists()) return null;
       return {
         id: snap.id,
@@ -814,151 +680,6 @@ GOAL:
         source: `doc:${collectionName}/${docId}`,
         collection: collectionName
       };
-    }
-
-    async function queryWhereEq(dbRef, collectionName, fieldName, value){
-      const qRef = query(collection(dbRef, collectionName), where(fieldName, '==', value), limit(1));
-      const snap = await getDocs(qRef);
-      if (snap.empty) return null;
-      const hit = snap.docs[0];
-      return {
-        id: hit.id,
-        data: hit.data() || {},
-        source: `where:${collectionName}.${fieldName} == ${value}`,
-        collection: collectionName
-      };
-    }
-
-    function isPermissionErr(err){
-      const msg = safeStr(err && (err.message || err.code || err));
-      return /permission/i.test(msg) || /insufficient/i.test(msg) || /missing.*permission/i.test(msg);
-    }
-
-    async function tryDocLookup(dbRef, collectionName, key, tried){
-      tried.push(`doc:${collectionName}/${key}`);
-      try{
-        return await getDocById(dbRef, collectionName, key);
-      }catch(err){
-        if (isPermissionErr(err)) tried.push(`PERMISSION:${collectionName}`);
-        return null;
-      }
-    }
-
-    async function tryFieldLookupSet(dbRef, collectionName, key, tried, fieldNames){
-      for (const fld of fieldNames){
-        tried.push(`where:${collectionName}.${fld} == ${key}`);
-        try{
-          const hit = await queryWhereEq(dbRef, collectionName, fld, key);
-          if (hit) return hit;
-        }catch(err){
-          if (isPermissionErr(err)) tried.push(`PERMISSION:${collectionName}.${fld}`);
-        }
-      }
-      return null;
-    }
-
-    async function resolveLatestDoc(dbRef, latestCollection, keys, tried){
-      const keyList = uniqueList(keys);
-      for (const key of keyList){
-        const direct = await tryDocLookup(dbRef, latestCollection, key, tried);
-        if (direct) return direct;
-      }
-      for (const key of keyList){
-        const hit = await tryFieldLookupSet(
-          dbRef,
-          latestCollection,
-          key,
-          tried,
-          ['fieldId', 'ptr', 'fieldPtr', 'id', 'name', 'fieldName']
-        );
-        if (hit) return hit;
-      }
-      return null;
-    }
-
-    async function resolveWeatherDoc(dbRef, weatherCollection, keys, tried){
-      const keyList = uniqueList(keys);
-      for (const key of keyList){
-        const direct = await tryDocLookup(dbRef, weatherCollection, key, tried);
-        if (direct) return direct;
-      }
-      for (const key of keyList){
-        const hit = await tryFieldLookupSet(
-          dbRef,
-          weatherCollection,
-          key,
-          tried,
-          ['fieldId', 'ptr', 'fieldPtr', 'id', 'name', 'fieldName']
-        );
-        if (hit) return hit;
-      }
-      return null;
-    }
-
-    async function resolveFieldDoc(dbRef, fieldCollections, keys, latestDoc, weatherDoc, tried){
-      const keyList = uniqueList(keys);
-
-      for (const collectionName of fieldCollections){
-        for (const key of keyList){
-          const direct = await tryDocLookup(dbRef, collectionName, key, tried);
-          if (direct) return direct;
-        }
-      }
-
-      for (const collectionName of fieldCollections){
-        for (const key of keyList){
-          const hit = await tryFieldLookupSet(
-            dbRef,
-            collectionName,
-            key,
-            tried,
-            ['ptr', 'fieldPtr', 'slug', 'shortId', 'fieldId', 'id', 'name', 'fieldName']
-          );
-          if (hit) return hit;
-        }
-      }
-
-      const synthSource = latestDoc || weatherDoc;
-      if (synthSource){
-        const d = synthSource.data || {};
-        const fieldId = safeStr(d.fieldId || synthSource.id || keyList[0] || '');
-        return {
-          id: fieldId,
-          collection: '(synthetic)',
-          source: `synthetic:${safeStr(synthSource.source)}`,
-          data: {
-            id: fieldId,
-            fieldId,
-            name: d.fieldName || d.name || 'Field',
-            fieldName: d.fieldName || d.name || 'Field',
-            farmId: d.farmId || '',
-            farmName: d.farmName || '',
-            county: d.county || '',
-            state: d.state || '',
-            lat: safeNum(d.lat ?? d.location?.lat ?? d.center?.lat, null),
-            lng: safeNum(d.lng ?? d.location?.lng ?? d.center?.lng, null),
-            location: {
-              lat: safeNum(d.location?.lat ?? d.lat ?? d.center?.lat, null),
-              lng: safeNum(d.location?.lng ?? d.lng ?? d.center?.lng, null)
-            }
-          }
-        };
-      }
-
-      return null;
-    }
-
-    function buildCandidateKeys(inputKey, latestDoc, weatherDoc, fieldDoc){
-      const ld = latestDoc && latestDoc.data ? latestDoc.data : {};
-      const wd = weatherDoc && weatherDoc.data ? weatherDoc.data : {};
-      const fd = fieldDoc && fieldDoc.data ? fieldDoc.data : {};
-
-      return uniqueList([
-        inputKey,
-        latestDoc && latestDoc.id, ld.fieldId, ld.id, ld.ptr, ld.fieldPtr, ld.shortId, ld.slug, ld.name, ld.fieldName,
-        weatherDoc && weatherDoc.id, wd.fieldId, wd.id, wd.ptr, wd.fieldPtr, wd.shortId, wd.slug, wd.name, wd.fieldName,
-        fieldDoc && fieldDoc.id, fd.fieldId, fd.id, fd.ptr, fd.fieldPtr, fd.shortId, fd.slug, fd.name, fd.fieldName
-      ]);
     }
 
     function normalizeField(fieldDoc, latestDoc, weatherDoc, lookupKey){
@@ -1118,43 +839,21 @@ GOAL:
 
     function buildForecastDiagnostics(forecastRows){
       const rows = Array.isArray(forecastRows) ? forecastRows : [];
-      const badRows = [];
-      const goodRows = [];
-
+      let usable = 0;
       for (const row of rows){
-        const issues = [];
-        if (!safeStr(row.dateISO)) issues.push('dateISO');
-        if (safeNum(row.tempF, null) == null) issues.push('tempF');
-        if (safeNum(row.windMph, null) == null) issues.push('windMph');
-        if (safeNum(row.rh, null) == null) issues.push('rh');
-        if (safeNum(row.solarWm2, null) == null) issues.push('solarWm2');
-
-        const item = {
-          dateISO: safeStr(row.dateISO),
-          rainInAdj: safeNum(row.rainInAdj, null),
-          tempF: safeNum(row.tempF, null),
-          windMph: safeNum(row.windMph, null),
-          rh: safeNum(row.rh, null),
-          solarWm2: safeNum(row.solarWm2, null),
-          et0In: safeNum(row.et0In, null),
-          sm010: safeNum(row.sm010, null),
-          cloudPct: safeNum(row.cloudPct, null),
-          vpdKpa: safeNum(row.vpdKpa, null),
-          issues
-        };
-
-        if (issues.length) badRows.push(item);
-        else goodRows.push(item);
+        if (
+          safeStr(row.dateISO) &&
+          safeNum(row.tempF, null) != null &&
+          safeNum(row.windMph, null) != null &&
+          safeNum(row.rh, null) != null &&
+          safeNum(row.solarWm2, null) != null
+        ){
+          usable += 1;
+        }
       }
-
       return {
         total: rows.length,
-        usable: goodRows.length,
-        bad: badRows.length,
-        firstDate: rows.length ? safeStr(rows[0].dateISO) : '',
-        lastDate: rows.length ? safeStr(rows[rows.length - 1].dateISO) : '',
-        goodRowsPreview: goodRows.slice(0, 6),
-        badRowsPreview: badRows.slice(0, 6)
+        usable
       };
     }
 
@@ -1385,113 +1084,12 @@ GOAL:
       }
     }
 
-    function renderRecentDocsList(){
-      const list = Array.isArray(state.recentLatestDocs) ? state.recentLatestDocs : [];
-      els.recentSelect.innerHTML = '';
-
-      if (!list.length){
-        els.recentSelect.innerHTML = '<option value="">No recent docs loaded</option>';
-        els.recentList.innerHTML = '';
-        return;
-      }
-
-      els.recentSelect.innerHTML = '<option value="">Choose a recent doc</option>';
-
-      for (const item of list){
-        const opt = document.createElement('option');
-        opt.value = safeStr(item.fieldId || item.id);
-        opt.textContent = `${safeStr(item.fieldName || item.name || 'Field')} • ${safeStr(item.fieldId || item.id)}`;
-        els.recentSelect.appendChild(opt);
-      }
-
-      els.recentList.innerHTML = '';
-      for (const item of list){
-        const div = document.createElement('div');
-        div.className = 'recent-item';
-        div.innerHTML = `
-          <div class="recent-top">
-            <div class="recent-title">${safeStr(item.fieldName || item.name || 'Field')}</div>
-            <div class="pill">Readiness ${safeNum(item.readiness, 0)}</div>
-          </div>
-          <div class="recent-meta mono">
-            fieldId: ${safeStr(item.fieldId || '—')}
-            ${safeStr(item.docId || '') ? '\ndocId: ' + safeStr(item.docId) : ''}
-            ${safeStr(item.computedAt || item.weatherFetchedAt || '') ? '\nwhen: ' + safeStr(item.computedAt || item.weatherFetchedAt) : ''}
-          </div>
-        `;
-        div.addEventListener('click', ()=>{
-          const val = safeStr(item.fieldId || item.id || item.docId);
-          if (!val) return;
-          els.fieldKeyInput.value = val;
-          setStatus(els.runStatus, 'Loaded recent fieldId into input:\n' + val, 'ok');
-        });
-        els.recentList.appendChild(div);
-      }
-    }
-
-    async function loadRecentLatestDocs(){
-      els.loadRecentBtn.disabled = true;
-      try{
-        await ensureFirebase();
-        await waitForAuthReady();
-        requireSignedIn();
-
-        const latestCollection = safeStr(els.latestCollectionInput.value) || 'field_readiness_latest';
-        let snap = null;
-
-        try{
-          snap = await getDocs(query(collection(state.db, latestCollection), orderBy('computedAt', 'desc'), limit(25)));
-        }catch(err1){
-          try{
-            snap = await getDocs(query(collection(state.db, latestCollection), orderBy('weatherFetchedAt', 'desc'), limit(25)));
-          }catch(err2){
-            snap = await getDocs(query(collection(state.db, latestCollection), limit(25)));
-          }
-        }
-
-        const rows = [];
-        snap.forEach((docSnap)=>{
-          const d = docSnap.data() || {};
-          rows.push({
-            id: safeStr(d.fieldId || docSnap.id),
-            docId: docSnap.id,
-            fieldId: safeStr(d.fieldId || ''),
-            fieldName: safeStr(d.fieldName || d.name || ''),
-            readiness: safeNum(d.readiness ?? d.readinessR, null),
-            computedAt: safeStr(d.computedAt && d.computedAt.toDate ? d.computedAt.toDate().toISOString() : d.computedAt || ''),
-            weatherFetchedAt: safeStr(d.weatherFetchedAt && d.weatherFetchedAt.toDate ? d.weatherFetchedAt.toDate().toISOString() : d.weatherFetchedAt || ''),
-            raw: d
-          });
-        });
-
-        state.recentLatestDocs = rows;
-        renderRecentDocsList();
-
-        if (rows.length){
-          setStatus(els.recentStatus, `Loaded ${rows.length} recent latest docs. Tap one or use the dropdown.`, 'ok');
-        } else {
-          setStatus(els.recentStatus, `Recent-doc query worked, but no docs came back.\nAuth: ${pretty(getAuthDebug())}`, 'err');
-        }
-      }catch(err){
-        setStatus(
-          els.recentStatus,
-          `Could not load recent latest docs.\n${safeStr(err && (err.message || err.code || err))}\n\nAuth debug:\n${pretty(getAuthDebug())}`,
-          'err'
-        );
-      }finally{
-        els.loadRecentBtn.disabled = false;
-      }
-    }
-
     async function runDevTest(){
       const inputKey = safeStr(els.fieldKeyInput.value);
       const threshold = safeNum(els.thresholdInput.value, 85);
-      const fieldCollections = getCollectionList();
-      const latestCollection = safeStr(els.latestCollectionInput.value) || 'field_readiness_latest';
-      const weatherCollection = safeStr(els.weatherCollectionInput.value) || 'field_weather_cache';
 
       if (!inputKey){
-        setStatus(els.runStatus, 'Enter a field ptr or id first.', 'err');
+        setStatus(els.runStatus, 'Enter a field id first.', 'err');
         return;
       }
 
@@ -1506,23 +1104,28 @@ GOAL:
 
         const tried = [];
 
-        let latestDoc = await resolveLatestDoc(state.db, latestCollection, [inputKey], tried);
-        let weatherDoc = await resolveWeatherDoc(state.db, weatherCollection, buildCandidateKeys(inputKey, latestDoc, null, null), tried);
-        let fieldDoc = await resolveFieldDoc(state.db, fieldCollections, buildCandidateKeys(inputKey, latestDoc, weatherDoc, null), latestDoc, weatherDoc, tried);
+        let latestDoc = null;
+        let weatherDoc = null;
+        let fieldDoc = null;
 
-        if (!latestDoc){
-          latestDoc = await resolveLatestDoc(state.db, latestCollection, buildCandidateKeys(inputKey, null, weatherDoc, fieldDoc), tried);
-        }
-        if (!weatherDoc){
-          weatherDoc = await resolveWeatherDoc(state.db, weatherCollection, buildCandidateKeys(inputKey, latestDoc, null, fieldDoc), tried);
-        }
+        tried.push(`doc:field_readiness_latest/${inputKey}`);
+        latestDoc = await getDocIfExists('field_readiness_latest', inputKey);
+
+        tried.push(`doc:field_weather_cache/${inputKey}`);
+        weatherDoc = await getDocIfExists('field_weather_cache', inputKey);
+
+        tried.push(`doc:fields/${inputKey}`);
+        fieldDoc = await getDocIfExists('fields', inputKey);
+
         if (!fieldDoc){
-          fieldDoc = await resolveFieldDoc(state.db, fieldCollections, buildCandidateKeys(inputKey, latestDoc, weatherDoc, null), latestDoc, weatherDoc, tried);
+          tried.push(`doc:field_boundaries/${inputKey}`);
+          fieldDoc = await getDocIfExists('field_boundaries', inputKey);
         }
 
-        state.lastLatestDoc = latestDoc;
-        state.lastFieldDoc = fieldDoc;
-        state.lastWeatherDoc = weatherDoc;
+        if (!fieldDoc){
+          tried.push(`doc:field_profiles/${inputKey}`);
+          fieldDoc = await getDocIfExists('field_profiles', inputKey);
+        }
 
         els.lookupDebug.textContent = tried.join(' | ') || '—';
         els.fieldDocDebug.textContent = pretty(fieldDoc);
@@ -1531,7 +1134,7 @@ GOAL:
 
         if (!fieldDoc && !latestDoc && !weatherDoc){
           throw new Error(
-            `Nothing matched that input.\n\nAuth debug:\n${pretty(getAuthDebug())}\n\nUse "Load Recent Latest Docs", tap one, then run again.\n\nTried:\n${tried.join(' | ')}`
+            `Nothing matched that input.\n\nAuth debug:\n${pretty(getAuthDebug())}\n\nTried:\n${tried.join(' | ')}`
           );
         }
 
@@ -1585,17 +1188,11 @@ GOAL:
         setText(els.readinessValue, savedReadiness != null ? String(savedReadiness) : '—');
         setText(els.etaValue, eta && eta.text ? eta.text : 'ETA ?');
         setText(els.etaSub, `Threshold ${threshold}`);
-        setText(
-          els.etaStatusValue,
-          eta && eta.status ? `${eta.status} (${chosenEta.source})` : '—'
-        );
+        setText(els.etaStatusValue, eta && eta.status ? `${eta.status} (${chosenEta.source})` : '—');
         setText(els.etaHoursValue, eta && safeNum(eta.hours, null) != null ? String(eta.hours) : '—');
-        setText(
-          els.forecastUsableValue,
-          `${forecastDiag.usable}/${forecastDiag.total}` + (forecastDiag.bad ? ` (bad ${forecastDiag.bad})` : '')
-        );
+        setText(els.forecastUsableValue, `${forecastDiag.usable}/${forecastDiag.total}`);
 
-        setText(els.fieldSource, fieldDoc ? (fieldDoc.source || fieldDoc.collection || '—') : '—');
+        setText(els.fieldSource, fieldDoc ? (fieldDoc.source || '—') : '—');
         setText(els.latestSource, latestDoc ? latestDoc.source : '—');
         setText(
           els.weatherSource,
@@ -1670,33 +1267,9 @@ GOAL:
       }
     }
 
-    function useLatestDocFieldId(){
-      const latest = state.lastLatestDoc && state.lastLatestDoc.data ? state.lastLatestDoc.data : null;
-      const fieldId = safeStr(latest && latest.fieldId);
-      if (!fieldId){
-        setStatus(els.runStatus, 'No latest doc fieldId is loaded yet. Run the page once first.', 'err');
-        return;
-      }
-      els.fieldKeyInput.value = fieldId;
-      setStatus(els.runStatus, 'Loaded latest doc fieldId into input:\n' + fieldId, 'ok');
-    }
-
-    function useRecentSelection(){
-      const val = safeStr(els.recentSelect.value);
-      if (!val){
-        setStatus(els.runStatus, 'Pick a recent doc first.', 'err');
-        return;
-      }
-      els.fieldKeyInput.value = val;
-      setStatus(els.runStatus, 'Loaded selected recent fieldId into input:\n' + val, 'ok');
-    }
-
     function wireButtons(){
       els.runBtn.addEventListener('click', ()=>{ runDevTest(); });
       els.copyUrlBtn.addEventListener('click', copyUrl);
-      els.useLatestIdBtn.addEventListener('click', useLatestDocFieldId);
-      els.loadRecentBtn.addEventListener('click', ()=>{ loadRecentLatestDocs(); });
-      els.useRecentBtn.addEventListener('click', useRecentSelection);
 
       els.fieldKeyInput.addEventListener('keydown', (e)=>{
         if (e.key === 'Enter'){
@@ -1711,18 +1284,12 @@ GOAL:
           runDevTest();
         }
       });
-
-      els.recentSelect.addEventListener('change', ()=>{
-        const val = safeStr(els.recentSelect.value);
-        if (val) els.fieldKeyInput.value = val;
-      });
     }
 
     async function boot(){
       try{
         applyUrlToInputs();
         wireButtons();
-        updateButtonsEnabled(false);
 
         setStatus(els.bootStatus, 'Dev page booted. Waiting for Firebase + auth…');
 
@@ -1735,37 +1302,18 @@ GOAL:
           'ok'
         );
 
-        updateButtonsEnabled(true);
-
-        if (state.authSignedIn){
-          await loadRecentLatestDocs();
-        } else {
-          setStatus(
-            els.recentStatus,
-            `Not signed in yet on this page.\nAuth debug:\n${pretty(getAuthDebug())}`,
-            'err'
-          );
-        }
-
         const autoKey = safeStr(els.fieldKeyInput.value);
         if (autoKey && state.authSignedIn){
           await runDevTest();
         } else if (!autoKey) {
-          setStatus(els.runStatus, 'Ready. Load recent latest docs, choose one, then run the dev test.');
+          setStatus(els.runStatus, 'Ready. Enter field id and run the dev test.');
         }
       }catch(err){
         const msg = err && err.message ? err.message : String(err || 'Boot failed');
         setStatus(els.bootStatus, msg, 'err');
         setStatus(els.runStatus, msg, 'err');
-        updateButtonsEnabled(false);
       }
     }
-
-    document.addEventListener('fv:user-ready', ()=>{
-      try{
-        if (state.authSignedIn) loadRecentLatestDocs();
-      }catch(_){}
-    });
 
     boot();
   </script>
