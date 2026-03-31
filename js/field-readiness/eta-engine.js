@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/eta-engine.js  (FULL FILE)
-Rev: 2026-03-31a-eta-engine-initial
+Rev: 2026-03-31b-eta-engine-object-call-fix
 
 GOAL:
 ✅ Dedicated ETA-only engine
@@ -13,6 +13,7 @@ GOAL:
    ignore rain during that early crossing window
 ✅ If threshold cannot be reached in that window, include rain normally
 ✅ If threshold already met, return READY
+✅ FIX: support BOTH positional args and object-style args
 ===================================================================== */
 
 const ETA_UNAVAILABLE_TEXT = 'ETA temporarily unavailable';
@@ -307,16 +308,62 @@ function buildReady(savedReadiness, threshold) {
   };
 }
 
-export function calculateEtaFromSavedReadiness(savedReadiness, threshold, forecastRows, options = {}) {
-  const saved = safeNum(savedReadiness, null);
-  const thr = safeNum(threshold, null);
-  const maxHours = safeNum(options.maxHours, DEFAULT_MAX_HOURS);
+function parseEngineArgs(arg1, arg2, arg3, arg4) {
+  const isObjectStyle =
+    arg1 &&
+    typeof arg1 === 'object' &&
+    !Array.isArray(arg1);
+
+  if (isObjectStyle) {
+    const input = arg1 || {};
+    return {
+      savedReadiness: safeNum(input.savedReadiness, null),
+      threshold: safeNum(input.threshold, null),
+      forecastRows: Array.isArray(input.forecastRows)
+        ? input.forecastRows
+        : Array.isArray(input.rows)
+          ? input.rows
+          : Array.isArray(input.dailySeriesFcst)
+            ? input.dailySeriesFcst
+            : [],
+      options: {
+        maxHours: safeNum(input.maxHours, null),
+        earlyIgnoreRainHours: safeNum(input.earlyIgnoreRainHours, null),
+        field: input.field || null,
+        latestDoc: input.latestDoc || null,
+        weatherDoc: input.weatherDoc || null,
+        fieldDoc: input.fieldDoc || null,
+        historyRows: Array.isArray(input.historyRows) ? input.historyRows : [],
+        mergedRows: Array.isArray(input.mergedRows) ? input.mergedRows : [],
+        fieldParams: input.fieldParams || null,
+        callStyle: 'object'
+      }
+    };
+  }
+
+  return {
+    savedReadiness: safeNum(arg1, null),
+    threshold: safeNum(arg2, null),
+    forecastRows: Array.isArray(arg3) ? arg3 : [],
+    options: {
+      ...(arg4 || {}),
+      callStyle: 'positional'
+    }
+  };
+}
+
+export function calculateEtaFromSavedReadiness(arg1, arg2, arg3, arg4) {
+  const parsed = parseEngineArgs(arg1, arg2, arg3, arg4);
+
+  const saved = safeNum(parsed.savedReadiness, null);
+  const thr = safeNum(parsed.threshold, null);
+  const maxHours = safeNum(parsed.options.maxHours, DEFAULT_MAX_HOURS);
   const earlyIgnoreRainHours = safeNum(
-    options.earlyIgnoreRainHours,
+    parsed.options.earlyIgnoreRainHours,
     DEFAULT_EARLY_IGNORE_RAIN_HOURS
   );
 
-  const rows = normalizeForecastRows(forecastRows);
+  const rows = normalizeForecastRows(parsed.forecastRows);
   const usableRows = rows.filter(isUsableForecastRow);
   const diagnostics = buildForecastDiagnostics(rows);
 
@@ -324,7 +371,10 @@ export function calculateEtaFromSavedReadiness(savedReadiness, threshold, foreca
     return buildUnavailable('missing-saved-readiness', {
       savedReadiness: saved,
       threshold: thr,
-      debug: { diagnostics }
+      debug: {
+        diagnostics,
+        callStyle: parsed.options.callStyle
+      }
     });
   }
 
@@ -332,7 +382,10 @@ export function calculateEtaFromSavedReadiness(savedReadiness, threshold, foreca
     return buildUnavailable('missing-threshold', {
       savedReadiness: saved,
       threshold: thr,
-      debug: { diagnostics }
+      debug: {
+        diagnostics,
+        callStyle: parsed.options.callStyle
+      }
     });
   }
 
@@ -344,7 +397,10 @@ export function calculateEtaFromSavedReadiness(savedReadiness, threshold, foreca
     return buildUnavailable('no-forecast-rows', {
       savedReadiness: saved,
       threshold: thr,
-      debug: { diagnostics }
+      debug: {
+        diagnostics,
+        callStyle: parsed.options.callStyle
+      }
     });
   }
 
@@ -352,7 +408,11 @@ export function calculateEtaFromSavedReadiness(savedReadiness, threshold, foreca
     return buildUnavailable('no-usable-forecast-rows', {
       savedReadiness: saved,
       threshold: thr,
-      debug: { diagnostics, rowsPreview: rows.slice(0, 6) }
+      debug: {
+        diagnostics,
+        rowsPreview: rows.slice(0, 6),
+        callStyle: parsed.options.callStyle
+      }
     });
   }
 
@@ -392,7 +452,8 @@ export function calculateEtaFromSavedReadiness(savedReadiness, threshold, foreca
         diagnostics,
         earlyDryOnlyProjection,
         fullProjection,
-        steps: crossing.steps
+        steps: crossing.steps,
+        callStyle: parsed.options.callStyle
       }
     };
   }
@@ -412,7 +473,8 @@ export function calculateEtaFromSavedReadiness(savedReadiness, threshold, foreca
       diagnostics,
       earlyDryOnlyProjection,
       fullProjection,
-      reason: 'did-not-cross-threshold-within-horizon'
+      reason: 'did-not-cross-threshold-within-horizon',
+      callStyle: parsed.options.callStyle
     }
   };
 }
