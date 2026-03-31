@@ -1,15 +1,15 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/field-readiness-dev.html  (FULL FILE)
-Rev: 2026-03-30m-dev-page-eta-fallback-working
+Rev: 2026-03-30n-dev-page-saved-readiness-eta
 
 GOAL:
 ✅ Standalone single-field debug page
 ✅ No tile renderer
-✅ Uses the real field-readiness model math when available
+✅ Reads current readiness from field_readiness_latest first
+✅ Uses forecast walk-forward ETA from saved readiness
 ✅ Waits for app auth before querying Firestore
 ✅ Keeps sticky auth behavior
-✅ FIX: dev page now shows ETA even when model etaToThreshold returns nodata
-✅ Dev page fallback ETA uses current readiness + forecast walk-forward logic
+✅ Shows ETA even if model etaToThreshold returns nodata
 ✅ Rain after crossing threshold does NOT block ETA
 ===================================================================== -->
 <!doctype html>
@@ -383,9 +383,9 @@ GOAL:
             </div>
 
             <div class="kcard">
-              <div class="klabel">Model Output</div>
+              <div class="klabel">Current Readiness</div>
               <div id="readinessValue" class="kvalue">—</div>
-              <div class="muted" style="margin-top:6px;">Readiness</div>
+              <div class="muted" style="margin-top:6px;">From field_readiness_latest first</div>
             </div>
 
             <div class="kcard">
@@ -436,7 +436,7 @@ GOAL:
             </div>
             <div class="kcard">
               <div class="klabel">ETA function</div>
-              <div class="mono">etaToThreshold(field, deps, threshold, 168)</div>
+              <div class="mono">fallback forecast walk from saved readiness</div>
             </div>
           </div>
 
@@ -1320,20 +1320,20 @@ GOAL:
       };
     }
 
-    function deriveCurrentReadiness(run, latestDoc, fieldDoc, weatherDoc){
+    function deriveCurrentReadiness(latestDoc, fieldDoc, weatherDoc, run){
       const ld = latestDoc && latestDoc.data ? latestDoc.data : {};
       const fd = fieldDoc && fieldDoc.data ? fieldDoc.data : {};
       const wd = weatherDoc && weatherDoc.data ? weatherDoc.data : {};
 
       const candidates = [
-        run && run.readinessR,
-        run && run.readiness,
-        ld.readinessR,
         ld.readiness,
-        fd.readinessR,
+        ld.readinessR,
         fd.readiness,
+        fd.readinessR,
+        wd.readiness,
         wd.readinessR,
-        wd.readiness
+        run && run.readinessR,
+        run && run.readiness
       ];
 
       for (const v of candidates){
@@ -1392,6 +1392,7 @@ GOAL:
 
     function formatEtaHours(hours){
       if (hours == null || !Number.isFinite(hours)) return 'ETA ?';
+      if (hours <= 0) return '0h';
       if (hours <= 0.5) return '~1h';
       if (hours < 24) return `${Math.round(hours)}h`;
       const days = hours / 24;
@@ -1418,8 +1419,10 @@ GOAL:
           ok: true,
           status: 'ready',
           hours: 0,
-          text: '~1h',
-          currentReadiness: start
+          text: '0h',
+          currentReadiness: start,
+          finalProjectedReadiness: start,
+          steps: []
         };
       }
 
@@ -1486,23 +1489,14 @@ GOAL:
     }
 
     function chooseEta(modelEta, fallbackEta){
-      if (modelEta && modelEta.ok && safeNum(modelEta.hours, null) != null){
-        return {
-          source: 'model',
-          result: modelEta
-        };
+      if (fallbackEta && fallbackEta.ok) {
+        return { source: 'fallback', result: fallbackEta };
       }
-      if (fallbackEta && fallbackEta.ok){
-        return {
-          source: 'fallback',
-          result: fallbackEta
-        };
+      if (modelEta && modelEta.ok && safeNum(modelEta.hours, null) != null) {
+        return { source: 'model', result: modelEta };
       }
-      if (fallbackEta){
-        return {
-          source: 'fallback',
-          result: fallbackEta
-        };
+      if (fallbackEta) {
+        return { source: 'fallback', result: fallbackEta };
       }
       return {
         source: 'model',
@@ -1587,7 +1581,7 @@ GOAL:
         const run = await Promise.resolve(runField(field, deps));
         const modelEta = await Promise.resolve(etaToThreshold(field, deps, threshold, 168));
 
-        const currentReadiness = deriveCurrentReadiness(run, latestDoc, fieldDoc, weatherDoc);
+        const currentReadiness = deriveCurrentReadiness(latestDoc, fieldDoc, weatherDoc, run);
         const fallbackEta = computeFallbackEta(currentReadiness, threshold, forecastRows, 168);
         const chosenEta = chooseEta(modelEta, fallbackEta);
         const eta = chosenEta.result;
@@ -1634,6 +1628,7 @@ GOAL:
         els.etaDebug.textContent = pretty({
           threshold,
           authDebug: getAuthDebug(),
+          savedReadinessUsed: currentReadiness,
           chosenEtaSource: chosenEta.source,
           modelEta,
           fallbackEta,
