@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness.model.js  (FULL FILE)
-Rev: 2026-03-30d-full-rebuild-clean-eta-hourly
+Rev: 2026-03-31a-no-false-95-when-fully-dry
 
 GOAL:
 ✅ Full clean replacement
@@ -12,6 +12,8 @@ GOAL:
 ✅ Default to rewind seeding so it behaves closer to index
 ✅ ETA returns exact modeled hour counts when solvable
 ✅ Maintain existing export names used elsewhere in FarmVista
+✅ FIX: if physical storage = 0 and surface storage = 0, readiness = 100
+✅ FIX: do not leave fully dry fields stuck at 95 from calibration/credit logic
 
 IMPORTANT:
 - This file only does MODEL + ETA math.
@@ -771,7 +773,29 @@ function normalizeRowForModel(w, deps, tune){
    Readiness from state
 ===================================================================== */
 function computeReadinessFromState(storagePhys, surfaceStorage, f, deps, tune){
-  const calRes = applyCalToStorage(storagePhys, f.Smax, deps);
+  const storagePhysClamped = clamp(Number(storagePhys || 0), 0, Number(f && f.Smax ? f.Smax : 0));
+  const surfaceStorageClamped = clamp(Number(surfaceStorage || 0), 0, Number(tune && tune.SURFACE_CAP_IN ? tune.SURFACE_CAP_IN : 0.70));
+
+  if (storagePhysClamped <= 0 && surfaceStorageClamped <= 0){
+    return {
+      readiness: 100,
+      wetness: 0,
+      baseReadiness: 100,
+      surfacePenalty: 0,
+      creditIn: 0,
+      storageEff: 0,
+      storageForReadiness: 0,
+      calRes: {
+        storageEff: 0,
+        wetBiasApplied: 0,
+        readinessShiftApplied: 0,
+        wetnessDeltaApplied: 0,
+        storageDeltaApplied: 0
+      }
+    };
+  }
+
+  const calRes = applyCalToStorage(storagePhysClamped, f.Smax, deps);
   const storageEff = calRes.storageEff;
 
   const creditIn = signedCreditInchesFromSmax(f.Smax);
@@ -782,7 +806,7 @@ function computeReadinessFromState(storagePhys, surfaceStorage, f, deps, tune){
     : 0;
 
   const baseReadiness = clamp(100 - baseWetness, 0, 100);
-  const surfacePenalty = surfacePenaltyFromStorage(surfaceStorage, tune);
+  const surfacePenalty = surfacePenaltyFromStorage(surfaceStorageClamped, tune);
 
   const readiness = clamp(baseReadiness - surfacePenalty, 0, 100);
   const wetness = clamp(100 - readiness, 0, 100);
