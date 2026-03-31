@@ -1,6 +1,6 @@
 <!-- =====================================================================
 /Farm-vista/pages/dev/field-readiness-dev.html  (FULL FILE)
-Rev: 2026-03-31d-dev-page-clean-unavailable-wording
+Rev: 2026-03-31d-dev-page-threshold-rerun-cache-fix
 
 GOAL:
 ✅ Standalone single-field debug page
@@ -9,9 +9,11 @@ GOAL:
 ✅ Focus on ONE field only
 ✅ Saved readiness comes from field_readiness_latest first
 ✅ ETA is MODEL-FIRST
-✅ Fallback ETA never shows fake numbers
-✅ If ETA cannot be stated reliably, show "ETA temporarily unavailable"
+✅ Fallback ETA only used if model truly has no usable answer
 ✅ If saved readiness already meets threshold, show READY
+✅ FIX: changing only threshold reuses last successful field/docs in memory
+✅ FIX: avoids repeat Firestore reads on same field while testing ETA
+✅ Fallback text changed to "ETA temporarily unavailable"
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -175,6 +177,10 @@ GOAL:
     .status.err{
       border-color:rgba(176,0,32,.28);
       background:rgba(176,0,32,.06);
+    }
+    .status.warn{
+      border-color:rgba(168,120,0,.35);
+      background:rgba(168,120,0,.08);
     }
     .kcard{
       border:1px solid var(--border);
@@ -446,9 +452,9 @@ GOAL:
       getDoc
     } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
-    const ETA_TEMP_UNAVAILABLE = 'ETA temporarily unavailable';
-
     const $ = (id)=> document.getElementById(id);
+
+    const ETA_UNAVAILABLE_TEXT = 'ETA temporarily unavailable';
 
     const els = {
       bootStatus: $('bootStatus'),
@@ -498,7 +504,10 @@ GOAL:
       authReadyPromise: null,
       authUser: null,
       authSignedIn: false,
-      authLastSeenAt: 0
+      authLastSeenAt: 0,
+
+      lastResolvedFieldId: '',
+      lastResolvedPayload: null
     };
 
     function safeStr(v){
@@ -921,24 +930,12 @@ GOAL:
     }
 
     function formatEtaHours(hours){
-      if (hours == null || !Number.isFinite(hours)) return ETA_TEMP_UNAVAILABLE;
+      if (hours == null || !Number.isFinite(hours)) return ETA_UNAVAILABLE_TEXT;
       if (hours <= 0.5) return 'Ready';
       if (hours < 24) return `${Math.round(hours)}h`;
       const days = hours / 24;
       if (Math.abs(days - Math.round(days)) < 0.16) return `${Math.round(days)}d`;
       return `${days.toFixed(1)}d`;
-    }
-
-    function makeUnavailableEta(reason, source, extra = {}){
-      return {
-        ok: false,
-        status: 'temporarily-unavailable',
-        hours: null,
-        text: ETA_TEMP_UNAVAILABLE,
-        reason: safeStr(reason || 'unavailable'),
-        source: safeStr(source || 'unknown'),
-        ...extra
-      };
     }
 
     function computeFallbackEta(currentReadiness, threshold, forecastRows, maxHours = 168){
@@ -947,21 +944,15 @@ GOAL:
       const thr = safeNum(threshold, null);
 
       if (start == null || thr == null){
-        return makeUnavailableEta('missing-current-readiness-or-threshold', 'fallback');
+        return { ok:false, status:'unavailable', text:ETA_UNAVAILABLE_TEXT, reason:'missing-current-readiness-or-threshold' };
       }
 
       if (start >= thr){
-        return {
-          ok: true,
-          status: 'ready',
-          hours: 0,
-          text: 'Ready',
-          currentReadiness: start
-        };
+        return { ok:true, status:'ready', hours:0, text:'Ready', currentReadiness:start };
       }
 
       if (!rows.length){
-        return makeUnavailableEta('no-forecast-rows', 'fallback', { currentReadiness: start });
+        return { ok:false, status:'unavailable', text:ETA_UNAVAILABLE_TEXT, reason:'no-forecast-rows', currentReadiness:start };
       }
 
       let readiness = start;
@@ -989,18 +980,14 @@ GOAL:
           const fraction = clamp(remainingNeeded / dailyDelta, 0, 1);
           const hoursIntoDay = fraction * 24;
           const totalHours = clamp(elapsed + hoursIntoDay, 0, maxHours);
-
           return {
             ok: true,
-            status: 'fallback-estimate',
+            status: 'fallback',
             hours: Number(totalHours.toFixed(1)),
-            text: ETA_TEMP_UNAVAILABLE,
+            text: formatEtaHours(totalHours),
             currentReadiness: start,
             finalProjectedReadiness: Number(nextReadiness.toFixed(2)),
-            steps,
-            hiddenEstimatedHours: Number(totalHours.toFixed(1)),
-            hiddenEstimatedText: formatEtaHours(totalHours),
-            reason: 'model-did-not-return-usable-eta'
+            steps
           };
         }
 
@@ -1008,11 +995,15 @@ GOAL:
         elapsed += 24;
       }
 
-      return makeUnavailableEta('threshold-not-reached-in-horizon', 'fallback', {
-        currentReadiness: start,
-        finalProjectedReadiness: Number(readiness.toFixed(2)),
+      return {
+        ok:false,
+        status:'beyond',
+        hours:168,
+        text:'7d',
+        currentReadiness:start,
+        finalProjectedReadiness:Number(readiness.toFixed(2)),
         steps
-      });
+      };
     }
 
     function chooseEta(modelEta, fallbackEta, savedReadiness, threshold){
@@ -1032,11 +1023,11 @@ GOAL:
         };
       }
 
-      if (modelEta){
+      if (modelEta && modelEta.ok){
         const modelHours = safeNum(modelEta.hours, null);
         const modelStatus = safeStr(modelEta.status).toLowerCase();
 
-        if (modelEta.ok && modelStatus === 'ready'){
+        if (modelStatus === 'ready'){
           return {
             source: 'model',
             result: {
@@ -1048,7 +1039,7 @@ GOAL:
           };
         }
 
-        if (modelEta.ok && modelHours != null){
+        if (modelHours != null){
           return {
             source: 'model',
             result: {
@@ -1059,34 +1050,17 @@ GOAL:
         }
       }
 
-      if (fallbackEta){
-        return {
-          source: 'fallback',
-          result: fallbackEta.ok
-            ? {
-                ...fallbackEta,
-                text: ETA_TEMP_UNAVAILABLE,
-                hours: null,
-                status: 'temporarily-unavailable'
-              }
-            : fallbackEta
-        };
-      }
-
-      if (modelEta){
-        return {
-          source: 'model',
-          result: makeUnavailableEta(
-            safeStr(modelEta.reason || modelEta.error || modelEta.status || 'model-unavailable'),
-            'model',
-            { rawModelEta: modelEta }
-          )
-        };
+      if (fallbackEta && fallbackEta.ok){
+        return { source: 'fallback', result: fallbackEta };
       }
 
       return {
-        source: 'none',
-        result: makeUnavailableEta('no-eta-source', 'none')
+        source: 'unavailable',
+        result: {
+          ok: false,
+          status: 'unavailable',
+          text: ETA_UNAVAILABLE_TEXT
+        }
       };
     }
 
@@ -1117,6 +1091,164 @@ GOAL:
       }
     }
 
+    function buildResolvedPayload(inputKey, latestDoc, weatherDoc, fieldDoc){
+      const field = normalizeField(fieldDoc, latestDoc, weatherDoc, inputKey);
+      const fieldParams = normalizeFieldParams(fieldDoc, latestDoc, weatherDoc);
+      const historyRows = pickHistoryRows(latestDoc, weatherDoc);
+      const forecastRows = pickForecastRows(latestDoc, weatherDoc);
+      const mergedRows = mergeHistoryAndForecast(historyRows, forecastRows);
+      const forecastDiag = buildForecastDiagnostics(forecastRows);
+
+      return {
+        inputKey,
+        latestDoc,
+        weatherDoc,
+        fieldDoc,
+        field,
+        fieldParams,
+        historyRows,
+        forecastRows,
+        mergedRows,
+        forecastDiag
+      };
+    }
+
+    async function fetchResolvedPayload(inputKey){
+      const tried = [];
+
+      let latestDoc = null;
+      let weatherDoc = null;
+      let fieldDoc = null;
+
+      tried.push(`doc:field_readiness_latest/${inputKey}`);
+      latestDoc = await getDocIfExists('field_readiness_latest', inputKey);
+
+      tried.push(`doc:field_weather_cache/${inputKey}`);
+      weatherDoc = await getDocIfExists('field_weather_cache', inputKey);
+
+      tried.push(`doc:fields/${inputKey}`);
+      fieldDoc = await getDocIfExists('fields', inputKey);
+
+      if (!fieldDoc){
+        tried.push(`doc:field_boundaries/${inputKey}`);
+        fieldDoc = await getDocIfExists('field_boundaries', inputKey);
+      }
+
+      if (!fieldDoc){
+        tried.push(`doc:field_profiles/${inputKey}`);
+        fieldDoc = await getDocIfExists('field_profiles', inputKey);
+      }
+
+      if (!fieldDoc && !latestDoc && !weatherDoc){
+        const err = new Error(
+          `Nothing matched that input.\n\nAuth debug:\n${pretty(getAuthDebug())}\n\nTried:\n${tried.join(' | ')}`
+        );
+        err.tried = tried;
+        throw err;
+      }
+
+      const payload = buildResolvedPayload(inputKey, latestDoc, weatherDoc, fieldDoc);
+      payload.tried = tried;
+      return payload;
+    }
+
+    function getDeps(payload){
+      return {
+        opKey: 'dev_test',
+        seedMode: 'rewind',
+        rewindDays: 10,
+        EXTRA: {},
+        CAL: {},
+        getFieldParams: (fieldId)=> String(fieldId) === String(payload.field.id) ? payload.fieldParams : null,
+        getModelWeatherSeriesForFieldId: (fieldId)=> String(fieldId) === String(payload.field.id) ? payload.mergedRows : [],
+        getMergedWeatherSeriesForFieldId: (fieldId)=> String(fieldId) === String(payload.field.id) ? payload.mergedRows : [],
+        getWeatherSeriesForFieldId: (fieldId)=> String(fieldId) === String(payload.field.id) ? payload.mergedRows : [],
+        getForecastSeriesForFieldId: (fieldId)=> String(fieldId) === String(payload.field.id) ? payload.forecastRows : [],
+        getWxSeriesWithForecastForFieldId: (fieldId)=> String(fieldId) === String(payload.field.id) ? payload.mergedRows : []
+      };
+    }
+
+    function renderFromPayload(payload, run, savedReadiness, modelEta, fallbackEta, chosenEta, threshold, meta = {}){
+      const eta = chosenEta.result;
+
+      els.lookupDebug.textContent = Array.isArray(payload.tried) ? payload.tried.join(' | ') : 'cache:reused-last-success';
+      els.fieldDocDebug.textContent = pretty(payload.fieldDoc);
+      els.latestDocDebug.textContent = pretty(payload.latestDoc);
+      els.weatherDebug.textContent = pretty({
+        weatherDoc: payload.weatherDoc,
+        historyRowsPreview: payload.historyRows.slice(0, 12),
+        forecastRowsPreview: payload.forecastRows.slice(0, 12),
+        mergedRowsPreview: payload.mergedRows.slice(-20)
+      });
+
+      setText(els.fieldTitle, payload.field.name || payload.field.fieldName || payload.field.id);
+      setText(
+        els.fieldSub,
+        [payload.field.id ? `ID ${payload.field.id}` : '', payload.field.county || '', payload.field.state || ''].filter(Boolean).join(' • ') || 'Field loaded'
+      );
+
+      setText(els.readinessValue, savedReadiness != null ? String(savedReadiness) : '—');
+      setText(els.etaValue, eta && eta.text ? eta.text : ETA_UNAVAILABLE_TEXT);
+      setText(els.etaSub, `Threshold ${threshold}`);
+      setText(els.etaStatusValue, eta && eta.status ? `${eta.status} (${chosenEta.source})` : '—');
+      setText(els.etaHoursValue, eta && safeNum(eta.hours, null) != null ? String(eta.hours) : '—');
+      setText(els.forecastUsableValue, `${payload.forecastDiag.usable}/${payload.forecastDiag.total}`);
+
+      setText(els.fieldSource, payload.fieldDoc ? (payload.fieldDoc.source || '—') : '—');
+      setText(els.latestSource, payload.latestDoc ? payload.latestDoc.source : '—');
+      setText(
+        els.weatherSource,
+        payload.historyRows.length || payload.forecastRows.length
+          ? `history:${payload.historyRows.length} forecast:${payload.forecastRows.length}`
+          : (payload.weatherDoc ? (payload.weatherDoc.source || 'doc only') : 'none')
+      );
+
+      setText(els.histCount, payload.historyRows.length);
+      setText(els.fcstCount, payload.forecastRows.length);
+      setText(els.mergedCount, payload.mergedRows.length);
+      setText(els.seedSource, run && safeStr(run.seedSource) ? run.seedSource : '—');
+      setText(els.storageFinal, run && safeNum(run.storageFinal, null) != null ? Number(run.storageFinal).toFixed(2) : '—');
+      setText(els.surfaceStorageFinal, run && safeNum(run.surfaceStorageFinal, null) != null ? Number(run.surfaceStorageFinal).toFixed(2) : '—');
+
+      els.etaDebug.textContent = pretty({
+        threshold,
+        authDebug: getAuthDebug(),
+        reusedCachedDocs: !!meta.reusedCachedDocs,
+        savedReadiness,
+        chosenEtaSource: chosenEta.source,
+        modelEta,
+        fallbackEta,
+        forecastDiagnostics: payload.forecastDiag,
+        exactForecastRowsSentToEta: payload.forecastRows
+      });
+
+      els.modelDebug.textContent = pretty({
+        field: payload.field,
+        fieldParams: payload.fieldParams,
+        run,
+        savedReadiness,
+        modelEta,
+        fallbackEta,
+        chosenEta,
+        meta
+      });
+
+      renderTraceRows(run && run.trace);
+
+      const prefix = meta.reusedCachedDocs
+        ? 'Run finished using cached field data.\n'
+        : 'Run finished.\n';
+
+      const statusKind = meta.reusedCachedDocs ? 'warn' : 'ok';
+      const warningLine = meta.warning ? `\nNote: ${meta.warning}` : '';
+
+      setStatus(
+        els.runStatus,
+        `${prefix}Input: ${payload.inputKey}\nResolved field id: ${payload.field.id}\nField: ${payload.field.name || payload.field.id}\nHistory rows: ${payload.historyRows.length}\nForecast rows: ${payload.forecastRows.length}\nReadiness: ${savedReadiness != null ? savedReadiness : '—'}\nETA: ${eta && eta.text ? eta.text : ETA_UNAVAILABLE_TEXT}\nETA status: ${eta && eta.status ? eta.status : '—'}\nETA source: ${chosenEta.source}${warningLine}`,
+        statusKind
+      );
+    }
+
     async function runDevTest(){
       const inputKey = safeStr(els.fieldKeyInput.value);
       const threshold = safeNum(els.thresholdInput.value, 85);
@@ -1135,159 +1267,66 @@ GOAL:
         await waitForAuthReady();
         requireSignedIn();
 
-        const tried = [];
+        let payload = null;
+        let reusedCachedDocs = false;
+        let warning = '';
 
-        let latestDoc = null;
-        let weatherDoc = null;
-        let fieldDoc = null;
+        const canReuseCache =
+          state.lastResolvedPayload &&
+          safeStr(state.lastResolvedFieldId) === inputKey;
 
-        tried.push(`doc:field_readiness_latest/${inputKey}`);
-        latestDoc = await getDocIfExists('field_readiness_latest', inputKey);
-
-        tried.push(`doc:field_weather_cache/${inputKey}`);
-        weatherDoc = await getDocIfExists('field_weather_cache', inputKey);
-
-        tried.push(`doc:fields/${inputKey}`);
-        fieldDoc = await getDocIfExists('fields', inputKey);
-
-        if (!fieldDoc){
-          tried.push(`doc:field_boundaries/${inputKey}`);
-          fieldDoc = await getDocIfExists('field_boundaries', inputKey);
+        if (canReuseCache){
+          payload = state.lastResolvedPayload;
+          payload.tried = ['cache:reused-last-successful-docs'];
+          reusedCachedDocs = true;
+        } else {
+          try{
+            payload = await fetchResolvedPayload(inputKey);
+            state.lastResolvedFieldId = inputKey;
+            state.lastResolvedPayload = payload;
+          }catch(err){
+            if (canReuseCache){
+              payload = state.lastResolvedPayload;
+              payload.tried = ['cache:reused-after-fetch-failed'];
+              reusedCachedDocs = true;
+              warning = safeStr(err && (err.message || err.code || err)) || 'Fresh Firestore read failed.';
+            } else {
+              throw err;
+            }
+          }
         }
 
-        if (!fieldDoc){
-          tried.push(`doc:field_profiles/${inputKey}`);
-          fieldDoc = await getDocIfExists('field_profiles', inputKey);
-        }
-
-        els.lookupDebug.textContent = tried.join(' | ') || '—';
-        els.fieldDocDebug.textContent = pretty(fieldDoc);
-        els.latestDocDebug.textContent = pretty(latestDoc);
-        els.weatherDebug.textContent = pretty({ weatherDoc });
-
-        if (!fieldDoc && !latestDoc && !weatherDoc){
-          throw new Error(
-            `Nothing matched that input.\n\nAuth debug:\n${pretty(getAuthDebug())}\n\nTried:\n${tried.join(' | ')}`
-          );
-        }
-
-        const field = normalizeField(fieldDoc, latestDoc, weatherDoc, inputKey);
-        const fieldParams = normalizeFieldParams(fieldDoc, latestDoc, weatherDoc);
-
-        const historyRows = pickHistoryRows(latestDoc, weatherDoc);
-        const forecastRows = pickForecastRows(latestDoc, weatherDoc);
-        const mergedRows = mergeHistoryAndForecast(historyRows, forecastRows);
-        const forecastDiag = buildForecastDiagnostics(forecastRows);
-
-        const deps = {
-          opKey: 'dev_test',
-          seedMode: 'rewind',
-          rewindDays: 10,
-          EXTRA: {},
-          CAL: {},
-          getFieldParams: (fieldId)=> String(fieldId) === String(field.id) ? fieldParams : null,
-          getModelWeatherSeriesForFieldId: (fieldId)=> String(fieldId) === String(field.id) ? mergedRows : [],
-          getMergedWeatherSeriesForFieldId: (fieldId)=> String(fieldId) === String(field.id) ? mergedRows : [],
-          getWeatherSeriesForFieldId: (fieldId)=> String(fieldId) === String(field.id) ? mergedRows : [],
-          getForecastSeriesForFieldId: (fieldId)=> String(fieldId) === String(field.id) ? forecastRows : [],
-          getWxSeriesWithForecastForFieldId: (fieldId)=> String(fieldId) === String(field.id) ? mergedRows : []
-        };
-
-        const run = await Promise.resolve(runField(field, deps));
-        const savedReadiness = deriveSavedReadiness(latestDoc, fieldDoc, weatherDoc, run);
+        const deps = getDeps(payload);
+        const run = await Promise.resolve(runField(payload.field, deps));
+        const savedReadiness = deriveSavedReadiness(payload.latestDoc, payload.fieldDoc, payload.weatherDoc, run);
 
         let modelEta = null;
         try{
-          modelEta = await Promise.resolve(etaToThreshold(field, deps, threshold, 168));
+          modelEta = await Promise.resolve(etaToThreshold(payload.field, deps, threshold, 168));
         }catch(err){
           modelEta = {
             ok: false,
-            status: 'error',
-            text: ETA_TEMP_UNAVAILABLE,
-            error: safeStr(err && (err.message || err.code || err)),
-            reason: 'etaToThreshold-threw'
+            status: 'unavailable',
+            text: ETA_UNAVAILABLE_TEXT,
+            error: safeStr(err && (err.message || err.code || err))
           };
         }
 
-        const fallbackEta = computeFallbackEta(savedReadiness, threshold, forecastRows, 168);
+        const fallbackEta = computeFallbackEta(savedReadiness, threshold, payload.forecastRows, 168);
         const chosenEta = chooseEta(modelEta, fallbackEta, savedReadiness, threshold);
-        const eta = chosenEta.result;
 
-        setText(els.fieldTitle, field.name || field.fieldName || field.id);
-        setText(
-          els.fieldSub,
-          [field.id ? `ID ${field.id}` : '', field.county || '', field.state || ''].filter(Boolean).join(' • ') || 'Field loaded'
-        );
-
-        setText(els.readinessValue, savedReadiness != null ? String(savedReadiness) : '—');
-        setText(els.etaValue, eta && eta.text ? eta.text : ETA_TEMP_UNAVAILABLE);
-
-        if (eta && eta.status === 'temporarily-unavailable'){
-          setText(els.etaSub, `Threshold ${threshold} • forecast confirmation needed`);
-        } else {
-          setText(els.etaSub, `Threshold ${threshold}`);
-        }
-
-        setText(els.etaStatusValue, eta && eta.status ? `${eta.status} (${chosenEta.source})` : '—');
-        setText(els.etaHoursValue, eta && safeNum(eta.hours, null) != null ? String(eta.hours) : '—');
-        setText(els.forecastUsableValue, `${forecastDiag.usable}/${forecastDiag.total}`);
-
-        setText(els.fieldSource, fieldDoc ? (fieldDoc.source || '—') : '—');
-        setText(els.latestSource, latestDoc ? latestDoc.source : '—');
-        setText(
-          els.weatherSource,
-          historyRows.length || forecastRows.length
-            ? `history:${historyRows.length} forecast:${forecastRows.length}`
-            : (weatherDoc ? (weatherDoc.source || 'doc only') : 'none')
-        );
-
-        setText(els.histCount, historyRows.length);
-        setText(els.fcstCount, forecastRows.length);
-        setText(els.mergedCount, mergedRows.length);
-        setText(els.seedSource, run && safeStr(run.seedSource) ? run.seedSource : '—');
-        setText(els.storageFinal, run && safeNum(run.storageFinal, null) != null ? Number(run.storageFinal).toFixed(2) : '—');
-        setText(els.surfaceStorageFinal, run && safeNum(run.surfaceStorageFinal, null) != null ? Number(run.surfaceStorageFinal).toFixed(2) : '—');
-
-        els.weatherDebug.textContent = pretty({
-          weatherDoc,
-          historyRowsPreview: historyRows.slice(0, 12),
-          forecastRowsPreview: forecastRows.slice(0, 12),
-          mergedRowsPreview: mergedRows.slice(-20)
-        });
-
-        els.etaDebug.textContent = pretty({
-          threshold,
-          authDebug: getAuthDebug(),
-          savedReadiness,
-          chosenEtaSource: chosenEta.source,
-          modelEta,
-          fallbackEta,
-          displayedEta: eta,
-          fallbackDebug: {
-            reason: safeStr(fallbackEta && fallbackEta.reason),
-            hiddenEstimatedHours: safeNum(fallbackEta && fallbackEta.hiddenEstimatedHours, null),
-            hiddenEstimatedText: safeStr(fallbackEta && fallbackEta.hiddenEstimatedText)
-          },
-          forecastDiagnostics: forecastDiag,
-          exactForecastRowsSentToEta: forecastRows
-        });
-
-        els.modelDebug.textContent = pretty({
-          field,
-          fieldParams,
+        renderFromPayload(
+          payload,
           run,
           savedReadiness,
           modelEta,
           fallbackEta,
-          chosenEta
-        });
-
-        renderTraceRows(run && run.trace);
-
-        setStatus(
-          els.runStatus,
-          `Run finished.\nInput: ${inputKey}\nResolved field id: ${field.id}\nField: ${field.name || field.id}\nHistory rows: ${historyRows.length}\nForecast rows: ${forecastRows.length}\nReadiness: ${savedReadiness != null ? savedReadiness : '—'}\nETA: ${eta && eta.text ? eta.text : ETA_TEMP_UNAVAILABLE}\nETA status: ${eta && eta.status ? eta.status : '—'}\nETA source: ${chosenEta.source}`,
-          'ok'
+          chosenEta,
+          threshold,
+          {
+            reusedCachedDocs,
+            warning
+          }
         );
       }catch(err){
         const msg = err && err.message ? err.message : String(err || 'Unknown error');
