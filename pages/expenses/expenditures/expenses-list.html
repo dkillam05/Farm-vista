@@ -465,7 +465,7 @@
           <div class="chip-row">
             <span class="chip">Only my records</span>
             <span class="chip">3-year history</span>
-            <span class="chip">Edit or soft delete</span>
+            <span class="chip">Edit or permanently delete</span>
           </div>
         </div>
       </section>
@@ -1137,42 +1137,34 @@
           alert('Save failed. Check console for details.');
         }
       }
+async function handleDelete(){
+  const id = editIdInput.value;
+  if(!id) return;
+  if(!confirm('Delete this expenditure? This will permanently delete it from Firestore.')) return;
 
-      async function handleDelete(){
-        const id = editIdInput.value;
-        if(!id) return;
-        if(!confirm('Delete this expenditure? This will hide it from your list.')) return;
+  const idx = allExpenditures.findIndex(d => d.id === id);
+  if(idx === -1){
+    console.warn('Expenditure not found in local state for delete');
+    return;
+  }
 
-        const idx = allExpenditures.findIndex(d=>d.id===id);
-        if(idx === -1){
-          console.warn('Expenditure not found in local state for delete');
-          return;
-        }
+  try{
+    await ready;
+    const db = getFirestore();
 
-        try{
-  await ready;
-  const db = getFirestore();
+    await deleteDoc(doc(db, 'expenditures', id));
 
-  await deleteDoc(doc(db, 'expenditures', id));
+    allExpenditures = allExpenditures.filter(d => d.id !== id);
 
-  // Remove from local state
-  allExpenditures = allExpenditures.filter(d => d.id !== id);
-
-  buildFilterOptions();
-  applyFilters();
-  closeEdit();
+    buildFilterOptions();
+    applyFilters();
+    closeEdit();
+  }catch(err){
+    console.error('Delete failed:', err);
+    alert('Delete failed. Check console for details.');
+  }
 }
-
-          allExpenditures[idx] = { ...allExpenditures[idx], ...patch };
-          allExpenditures = filterToUserAndWindow(allExpenditures);
-          buildFilterOptions();
-          applyFilters();
-          closeEdit();
-        }catch(err){
-          console.error('Delete failed:', err);
-          alert('Delete failed. Check console for details.');
-        }
-      }
+      
 
       function attachEvents(){
         yearSelect.addEventListener('change',applyFilters);
