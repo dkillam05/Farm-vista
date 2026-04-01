@@ -1,0 +1,1410 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Weather / Readiness Map • Dev Radar</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+
+  <script>
+    window.FV_DATE_RANGE_PICKER_CONFIG = {
+      disallowFuture: true,
+      maxLookbackDays: 30
+    };
+  </script>
+  <script src="/Farm-vista/js/fv-date-range-picker.js"></script>
+
+  <script>
+    (function(){
+      if(!customElements.get('fv-shell')){
+        const s = document.createElement('script');
+        s.src = '/Farm-vista/js/fv-shell.js';
+        s.defer = true;
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
+
+  <style>
+    :root{
+      --glass: rgba(255,255,255,.84);
+      --glass-border: rgba(255,255,255,.18);
+      --glass-shadow: 0 14px 36px rgba(0,0,0,.18);
+      --text-dark: #18211b;
+      --blur: blur(14px);
+      --menu-w: min(400px, calc(100vw - 18px));
+    }
+
+    html.dark{
+      --glass: rgba(22,28,24,.80);
+      --glass-border: rgba(255,255,255,.08);
+      --glass-shadow: 0 16px 44px rgba(0,0,0,.38);
+      --text-dark: #f3f7f2;
+    }
+
+    html, body{
+      margin:0;
+      padding:0;
+      width:100%;
+      height:100%;
+      overflow:hidden;
+      background:#253327;
+    }
+
+    body{
+      color:var(--text-dark);
+    }
+
+    fv-shell{
+      display:block;
+      width:100%;
+      height:100%;
+    }
+
+    .rain-page{
+      position:fixed;
+      left:0;
+      right:0;
+      top:calc(var(--hdr-h, 74px) + env(safe-area-inset-top, 0px));
+      bottom:calc(var(--ftr-h, 42px));
+      overflow:hidden;
+      overflow-x:hidden;
+      background:#233125;
+    }
+
+    .map-stage,
+    #rainMap{
+      position:absolute;
+      inset:0;
+      width:100%;
+      height:100%;
+    }
+
+    #rainMap{
+      background:#dfe5dd;
+    }
+
+    .glass{
+      background:rgba(255,255,255,.96);
+      border:1px solid rgba(0,0,0,.08);
+      box-shadow:0 14px 36px rgba(0,0,0,.18);
+      backdrop-filter:none;
+      -webkit-backdrop-filter:none;
+    }
+
+    html.dark .glass{
+      background:rgba(22,28,24,.96);
+      border:1px solid rgba(255,255,255,.08);
+      box-shadow:0 16px 44px rgba(0,0,0,.38);
+      backdrop-filter:none;
+      -webkit-backdrop-filter:none;
+    }
+
+    .top-left-tools{
+      position:absolute;
+      top:10px;
+      left:10px;
+      z-index:35;
+      pointer-events:none;
+    }
+
+    .top-left-tools > *{
+      pointer-events:auto;
+    }
+
+    .top-tools{
+      position:absolute;
+      top:10px;
+      right:10px;
+      z-index:35;
+      pointer-events:auto;
+    }
+
+    .icon-btn{
+      width:48px;
+      height:48px;
+      border:none;
+      border-radius:999px;
+      display:grid;
+      place-items:center;
+      cursor:pointer;
+      color:var(--text-dark);
+      background:var(--glass);
+      border:1px solid var(--glass-border);
+      box-shadow:var(--glass-shadow);
+      backdrop-filter:var(--blur);
+      -webkit-backdrop-filter:var(--blur);
+      padding:0;
+      text-decoration:none;
+    }
+
+    .icon-btn svg{
+      width:22px;
+      height:22px;
+      display:block;
+      flex:0 0 auto;
+    }
+
+    .icon-btn:active{
+      transform:translateY(1px);
+    }
+
+    .panel-menu{
+      position:absolute;
+      top:58px;
+      right:0;
+      z-index:36;
+      width:var(--menu-w);
+      max-width:calc(100vw - 12px);
+      padding:14px;
+      border-radius:18px;
+      display:none;
+      pointer-events:auto;
+      max-height:min(78vh, 760px);
+      overflow-y:auto;
+      overflow-x:hidden;
+      box-sizing:border-box;
+      overscroll-behavior:contain;
+      -ms-overflow-style:none;
+      scrollbar-width:none;
+    }
+
+    .panel-menu::-webkit-scrollbar{
+      width:0;
+      height:0;
+      display:none;
+    }
+
+    .panel-menu *{
+      box-sizing:border-box;
+      min-width:0;
+    }
+
+    .panel-menu.open{
+      display:block;
+    }
+
+    .menu-field{
+      margin-bottom:12px;
+      position:relative;
+      min-width:0;
+      overflow:visible;
+    }
+
+    .menu-field:last-child{
+      margin-bottom:0;
+    }
+
+    .menu-field label{
+      display:block;
+      margin:0 0 6px;
+      font-size:10px;
+      font-weight:900;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      color:var(--text-dark);
+      opacity:.84;
+    }
+
+    .menu-select{
+      width:100%;
+      max-width:100%;
+      appearance:none;
+      -webkit-appearance:none;
+      border:1px solid rgba(0,0,0,.08);
+      border-radius:14px;
+      background:
+        linear-gradient(45deg, transparent 50%, rgba(0,0,0,.42) 50%),
+        linear-gradient(135deg, rgba(0,0,0,.42) 50%, transparent 50%),
+        color-mix(in srgb, var(--surface) 90%, #ffffff 10%);
+      background-position:
+        calc(100% - 21px) calc(50% - 3px),
+        calc(100% - 13px) calc(50% - 3px),
+        0 0;
+      background-size:8px 8px, 8px 8px, 100% 100%;
+      background-repeat:no-repeat;
+      color:var(--text-dark);
+      font:inherit;
+      font-size:15px;
+      font-weight:800;
+      padding:12px 38px 12px 12px;
+      outline:none;
+      box-sizing:border-box;
+    }
+
+    .menu-input{
+      width:100%;
+      max-width:100%;
+      border:1px solid rgba(0,0,0,.08);
+      border-radius:14px;
+      background:color-mix(in srgb, var(--surface) 90%, #ffffff 10%);
+      color:var(--text-dark);
+      font:inherit;
+      font-size:15px;
+      font-weight:800;
+      padding:12px 14px;
+      outline:none;
+      box-sizing:border-box;
+      cursor:pointer;
+      min-height:46px;
+      line-height:1.2;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+
+    .menu-input::placeholder{
+      color:color-mix(in srgb, var(--text-dark) 72%, transparent 28%);
+      opacity:1;
+    }
+
+    .menu-btn{
+      width:100%;
+      max-width:100%;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+      min-height:44px;
+      border:none;
+      border-radius:14px;
+      background:color-mix(in srgb, #2F6C3C 88%, #ffffff 12%);
+      color:#fff;
+      font:inherit;
+      font-size:15px;
+      font-weight:900;
+      cursor:pointer;
+      box-shadow:0 10px 24px rgba(47,108,60,.28);
+      text-align:center;
+      white-space:normal;
+    }
+
+    .menu-btn:active{
+      transform:translateY(1px);
+    }
+
+    .menu-inline{
+      display:grid;
+      gap:8px;
+      margin-top:2px;
+      min-width:0;
+      overflow:hidden;
+    }
+
+    .menu-pill{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      border:1px solid rgba(0,0,0,.06);
+      border-radius:12px;
+      padding:10px 12px;
+      background:color-mix(in srgb, var(--surface) 94%, #ffffff 6%);
+      font-size:13px;
+      font-weight:900;
+      color:var(--text-dark);
+      min-width:0;
+      overflow:hidden;
+    }
+
+    .menu-pill > span{
+      min-width:0;
+    }
+
+    .menu-pill .mutedish{
+      opacity:.72;
+      font-weight:800;
+      flex:0 0 auto;
+    }
+
+    .menu-debug{
+      font-size:11px;
+      color:var(--text-dark);
+      opacity:.78;
+      line-height:1.25;
+      margin-top:2px;
+      word-break:break-word;
+      overflow-wrap:anywhere;
+      min-width:0;
+    }
+
+    .mode-section[hidden]{
+      display:none !important;
+    }
+
+    #calendarPopover{
+      position:absolute;
+      top:calc(100% + 8px);
+      right:0;
+      left:auto;
+      width:100%;
+      max-width:100%;
+      background:var(--glass);
+      border:1px solid var(--glass-border);
+      border-radius:16px;
+      box-shadow:0 14px 45px rgba(0,0,0,.25);
+      padding:12px;
+      display:none;
+      z-index:100000;
+      backdrop-filter:var(--blur);
+      -webkit-backdrop-filter:var(--blur);
+      box-sizing:border-box;
+      overflow-x:hidden;
+    }
+
+    .cal-top{
+      display:grid;
+      grid-template-columns:minmax(0, 1fr) minmax(0, 1fr) 36px;
+      gap:8px;
+      align-items:center;
+      margin-bottom:10px;
+      min-width:0;
+    }
+
+    .cal-xbtn{
+      width:34px;
+      height:34px;
+      border-radius:12px;
+      border:1px solid rgba(0,0,0,.08);
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      color:var(--text-dark);
+      display:grid;
+      place-items:center;
+      cursor:pointer;
+      user-select:none;
+      -webkit-tap-highlight-color: transparent;
+      padding:0;
+    }
+
+    .cal-xbtn svg{
+      width:18px;
+      height:18px;
+      display:block;
+    }
+
+    .cal-xbtn:active{
+      transform:translateY(1px);
+    }
+
+    #calDays{
+      display:grid;
+      grid-template-columns:repeat(7, minmax(0, 1fr));
+      gap:6px;
+      min-width:0;
+      width:100%;
+    }
+
+    .cal-day{
+      border:1px solid rgba(0,0,0,.08);
+      border-radius:10px;
+      min-height:40px;
+      padding:8px 0;
+      text-align:center;
+      font-size:12px;
+      cursor:pointer;
+      background:color-mix(in srgb, var(--surface) 94%, #ffffff 6%);
+      user-select:none;
+      color:var(--text-dark);
+      font-weight:800;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+
+    .cal-day.other-month{
+      opacity:.45;
+    }
+
+    .cal-day.in-range{
+      background:color-mix(in srgb, #2F6C3C 14%, var(--surface) 86%);
+    }
+
+    .cal-day.range-start,
+    .cal-day.range-end,
+    .cal-day.single-day,
+    .cal-day.start-selected{
+      background:#2F6C3C;
+      color:#fff;
+      border-color:transparent;
+    }
+
+    .cal-footer{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:10px;
+      margin-top:10px;
+      min-width:0;
+    }
+
+    .cal-actions{
+      display:flex;
+      gap:8px;
+      min-width:0;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+      flex:0 0 auto;
+    }
+
+    .cal-btn{
+      min-width:auto;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+      min-height:38px;
+      border-radius:12px;
+      font:inherit;
+      font-size:13px;
+      font-weight:900;
+      padding:0 12px;
+      cursor:pointer;
+      white-space:nowrap;
+    }
+
+    .cal-btn-neutral{
+      border:1px solid rgba(0,0,0,.08);
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      color:var(--text-dark);
+    }
+
+    .cal-btn-primary{
+      border:none;
+      background:#2F6C3C;
+      color:#fff;
+    }
+
+    #rangeSummary{
+      display:block;
+      min-width:0;
+      flex:1 1 auto;
+      font-size:12px;
+      line-height:1.35;
+      opacity:.86;
+      overflow-wrap:anywhere;
+    }
+
+    .left-legend{
+      position:absolute;
+      left:8px;
+      top:50%;
+      transform:translateY(-50%);
+      z-index:20;
+      width:40px;
+      pointer-events:none;
+    }
+
+    .legend-wrap{
+      position:relative;
+      width:100%;
+      height:min(46vh, 380px);
+      min-height:230px;
+      border-radius:14px;
+      overflow:visible;
+    }
+
+    .legend-bar{
+      position:absolute;
+      left:0;
+      top:0;
+      width:12px;
+      height:100%;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.35);
+      box-shadow:0 8px 18px rgba(0,0,0,.18);
+      background:
+        linear-gradient(
+          to top,
+          #58a8ff 0%,
+          #6cc7ff 12%,
+          #55d79a 24%,
+          #46d14d 38%,
+          #d7df49 54%,
+          #f0b843 72%,
+          #ef6b46 88%,
+          #d92cc6 100%
+        );
+    }
+
+    .legend-bar.readiness{
+      background:
+        linear-gradient(
+          to top,
+          #c83b3b 0%,
+          #e16b43 14%,
+          #f0b843 32%,
+          #d7df49 50%,
+          #88c14d 68%,
+          #53b85d 84%,
+          #2f8f4b 100%
+        );
+    }
+
+    .legend-label{
+      position:absolute;
+      left:18px;
+      transform:translateY(50%);
+      font-size:10px;
+      font-weight:900;
+      color:#fff;
+      line-height:1;
+      text-shadow:0 1px 4px rgba(0,0,0,.55);
+      white-space:nowrap;
+    }
+
+    .legend-label.l1{ bottom:100%; transform:translateY(0); }
+    .legend-label.l2{ bottom:83%; }
+    .legend-label.l3{ bottom:68%; }
+    .legend-label.l4{ bottom:50%; }
+    .legend-label.l5{ bottom:34%; }
+    .legend-label.l6{ bottom:18%; }
+    .legend-label.l7{ bottom:0; transform:translateY(0); }
+
+    .map-chip{
+      position:absolute;
+      left:50%;
+      bottom:12px;
+      transform:translateX(-50%);
+      z-index:24;
+      pointer-events:none;
+      background:var(--glass);
+      border:1px solid var(--glass-border);
+      box-shadow:var(--glass-shadow);
+      backdrop-filter:var(--blur);
+      -webkit-backdrop-filter:var(--blur);
+      color:var(--text-dark);
+      border-radius:999px;
+      padding:10px 14px;
+      font-size:12px;
+      font-weight:900;
+      letter-spacing:.02em;
+      white-space:nowrap;
+      max-width:min(90vw, 640px);
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
+    .popup-card{
+      max-width:260px;
+      font-size:13px;
+      line-height:1.28;
+      color:#18211b;
+    }
+
+    .popup-card .name{
+      font-weight:900;
+      margin:0 0 4px;
+    }
+
+    .popup-card .muted{
+      opacity:.76;
+    }
+
+    .mono{
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+      font-weight:800;
+    }
+
+    .radar-dock{
+      position:absolute;
+      left:50%;
+      top:10px;
+      transform:translateX(-50%);
+      z-index:34;
+      display:flex;
+      align-items:center;
+      gap:8px;
+      pointer-events:auto;
+      padding:8px 10px;
+      border-radius:18px;
+      background:var(--glass);
+      border:1px solid var(--glass-border);
+      box-shadow:var(--glass-shadow);
+      backdrop-filter:var(--blur);
+      -webkit-backdrop-filter:var(--blur);
+      color:var(--text-dark);
+      max-width:min(94vw, 920px);
+      flex-wrap:wrap;
+      justify-content:center;
+    }
+
+    .radar-btn{
+      min-width:38px;
+      height:38px;
+      border:none;
+      border-radius:12px;
+      background:color-mix(in srgb, var(--surface) 88%, #ffffff 12%);
+      color:var(--text-dark);
+      font:inherit;
+      font-size:14px;
+      font-weight:900;
+      padding:0 12px;
+      cursor:pointer;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:6px;
+    }
+
+    .radar-btn.active{
+      background:#2F6C3C;
+      color:#fff;
+    }
+
+    .radar-btn:disabled{
+      opacity:.45;
+      cursor:not-allowed;
+    }
+
+    .radar-time{
+      min-width:180px;
+      text-align:center;
+      font-size:12px;
+      font-weight:900;
+      letter-spacing:.01em;
+      padding:0 4px;
+    }
+
+    .radar-group{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+
+    .radar-label{
+      font-size:11px;
+      font-weight:900;
+      opacity:.82;
+      text-transform:uppercase;
+      letter-spacing:.06em;
+    }
+
+    .radar-range{
+      width:120px;
+      accent-color:#2F6C3C;
+      cursor:pointer;
+    }
+
+    .radar-badge{
+      font-size:11px;
+      font-weight:900;
+      padding:8px 10px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--surface) 88%, #ffffff 12%);
+      white-space:nowrap;
+    }
+
+    @media (max-width:860px){
+      :root{
+        --menu-w: min(360px, calc(100vw - 16px));
+      }
+    }
+
+    @media (max-width:680px){
+      :root{
+        --menu-w: min(350px, calc(100vw - 12px));
+      }
+
+      .icon-btn{
+        width:44px;
+        height:44px;
+      }
+
+      .panel-menu{
+        top:52px;
+        width:var(--menu-w);
+        max-width:calc(100vw - 12px);
+        padding:10px;
+        border-radius:16px;
+      }
+
+      .menu-field{
+        margin-bottom:10px;
+      }
+
+      .menu-select,
+      .menu-input{
+        font-size:16px;
+      }
+
+      #calendarPopover{
+        width:100%;
+        max-width:100%;
+        right:0;
+        left:auto;
+        padding:9px;
+        border-radius:14px;
+      }
+
+      .cal-top{
+        grid-template-columns:minmax(0, 1fr) minmax(0, 1fr) 32px;
+        gap:6px;
+        margin-bottom:8px;
+      }
+
+      .cal-top .menu-select{
+        padding:10px 32px 10px 10px !important;
+        font-size:14px;
+      }
+
+      .cal-xbtn{
+        width:32px;
+        height:32px;
+        border-radius:10px;
+      }
+
+      #calDays{
+        gap:4px;
+      }
+
+      .cal-day{
+        min-height:32px;
+        padding:6px 0;
+        font-size:10px;
+        border-radius:8px;
+      }
+
+      .cal-footer{
+        flex-direction:column;
+        align-items:stretch;
+        gap:8px;
+      }
+
+      #rangeSummary{
+        order:1;
+        font-size:11px;
+      }
+
+      .cal-actions{
+        order:2;
+        width:100%;
+        justify-content:stretch;
+      }
+
+      .cal-actions .cal-btn{
+        flex:1 1 0;
+      }
+
+      .cal-btn{
+        min-height:36px;
+        font-size:12px;
+        padding:0 10px;
+      }
+
+      .left-legend{
+        left:4px;
+        width:30px;
+      }
+
+      .legend-wrap{
+        height:min(38vh, 280px);
+        min-height:180px;
+      }
+
+      .legend-bar{
+        width:10px;
+      }
+
+      .legend-label{
+        left:15px;
+        font-size:9px;
+      }
+
+      .map-chip{
+        bottom:8px;
+        font-size:11px;
+        padding:8px 12px;
+      }
+
+      .radar-dock{
+        top:8px;
+        gap:6px;
+        padding:8px;
+        max-width:calc(100vw - 14px);
+      }
+
+      .radar-btn{
+        height:36px;
+        min-width:36px;
+        padding:0 10px;
+      }
+
+      .radar-time{
+        min-width:140px;
+        font-size:11px;
+      }
+
+      .radar-range{
+        width:92px;
+      }
+    }
+
+    @media (max-width:420px){
+      :root{
+        --menu-w: calc(100vw - 10px);
+      }
+
+      .panel-menu{
+        width:var(--menu-w);
+        max-width:var(--menu-w);
+        right:0;
+        padding:9px;
+      }
+
+      #calendarPopover{
+        padding:8px;
+      }
+
+      .cal-top .menu-select{
+        font-size:13px;
+      }
+
+      .cal-day{
+        min-height:30px;
+        font-size:10px;
+      }
+
+      .cal-btn{
+        min-height:38px;
+      }
+
+      .radar-time{
+        min-width:100%;
+        order:10;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <fv-shell data-boot-hold-ms="3000">
+    <div class="rain-page">
+      <div class="map-stage">
+        <div id="rainMap" aria-label="Weather and readiness map"></div>
+
+        <div class="top-left-tools">
+          <a
+            id="btnBack"
+            class="icon-btn"
+            href="/Farm-vista/pages/crop-production/field-weather.html"
+            aria-label="Back to Field Weather"
+            title="Back to Field Weather"
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M15 5L8 12L15 19" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </a>
+        </div>
+
+        <div class="radar-dock" aria-label="Radar controls">
+          <button id="radarToggleBtn" class="radar-btn active" type="button">Radar On</button>
+          <button id="radarPrevBtn" class="radar-btn" type="button" aria-label="Previous frame">◀</button>
+          <button id="radarPlayBtn" class="radar-btn" type="button" aria-label="Pause animation">Pause</button>
+          <button id="radarNextBtn" class="radar-btn" type="button" aria-label="Next frame">▶</button>
+          <div id="radarTimeText" class="radar-time">Radar loading…</div>
+          <div class="radar-group">
+            <span class="radar-label">Opacity</span>
+            <input id="radarOpacity" class="radar-range" type="range" min="0" max="100" step="1" value="55"/>
+            <span id="radarOpacityText" class="radar-badge">55%</span>
+          </div>
+        </div>
+
+        <div class="left-legend" aria-label="Map legend">
+          <div class="legend-wrap">
+            <div id="legendBar" class="legend-bar"></div>
+            <span class="legend-label l1" id="legendTop">Max</span>
+            <span class="legend-label l2" id="legendQ5"></span>
+            <span class="legend-label l3" id="legendQ4"></span>
+            <span class="legend-label l4" id="legendMid"></span>
+            <span class="legend-label l5" id="legendQ2"></span>
+            <span class="legend-label l6" id="legendQ1"></span>
+            <span class="legend-label l7" id="legendBottom">Min</span>
+          </div>
+        </div>
+
+        <div id="mapModeChip" class="map-chip">Rainfall Map • Dev Radar Overlay</div>
+
+        <div class="top-tools">
+          <button id="btnMenu" class="icon-btn" type="button" aria-label="Map options">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M4 7H20M4 12H20M4 17H20" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+            </svg>
+          </button>
+
+          <div id="menuPanel" class="glass panel-menu" aria-label="Map controls">
+            <div class="menu-field">
+              <label for="mapModeSel">Map data</label>
+              <select id="mapModeSel" class="menu-select">
+                <option value="rainfall" selected>Rainfall</option>
+                <option value="readiness">Readiness</option>
+              </select>
+            </div>
+
+            <div class="menu-field">
+              <label for="viewSel">Map style</label>
+              <select id="viewSel" class="menu-select">
+                <option value="hybrid" selected>Satellite Hybrid</option>
+                <option value="roadmap">Road Map</option>
+                <option value="terrain">Terrain</option>
+              </select>
+            </div>
+
+            <div id="rainModeSection" class="mode-section">
+              <div class="menu-field">
+                <label for="radiusSel">Blend radius</label>
+                <select id="radiusSel" class="menu-select">
+                  <option value="900">Tight</option>
+                  <option value="1300">Medium</option>
+                  <option value="1800" selected>Blended</option>
+                  <option value="2400">Broad</option>
+                  <option value="3200">Extra Broad</option>
+                </select>
+              </div>
+
+              <div class="menu-field">
+                <label for="jobRangeInput">Time frame</label>
+                <input id="jobRangeInput" class="menu-input" type="text" readonly placeholder="Choose date range"/>
+
+                <div id="calendarPopover" aria-label="Date range picker">
+                  <div class="cal-top">
+                    <select id="monthSelect" class="menu-select" style="padding:10px"></select>
+                    <select id="yearSelect" class="menu-select" style="padding:10px"></select>
+
+                    <button id="closeCalBtn" class="cal-xbtn" type="button" aria-label="Close">
+                      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+                      </svg>
+                    </button>
+                  </div>
+
+                  <div id="calDays"></div>
+
+                  <div class="cal-footer">
+                    <span id="rangeSummary">No dates selected</span>
+                    <div class="cal-actions">
+                      <button id="clearRangeBtn" class="cal-btn cal-btn-neutral" type="button">Clear</button>
+                      <button id="applyRangeBtn" class="cal-btn cal-btn-primary" type="button">Apply</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="menu-field">
+                <label>Refresh</label>
+                <button id="btnRefreshRain" class="menu-btn" type="button">Reload Rainfall</button>
+              </div>
+            </div>
+
+            <div id="readinessModeSection" class="mode-section" hidden>
+              <div class="menu-field">
+                <label>Refresh</label>
+                <button id="btnRefreshReadiness" class="menu-btn" type="button">Reload Readiness</button>
+              </div>
+            </div>
+
+            <div class="menu-field">
+              <label>Radar</label>
+              <div class="menu-inline">
+                <div class="menu-pill">
+                  <span class="mutedish">Overlay</span>
+                  <span id="radarStatusText">waiting…</span>
+                </div>
+                <div class="menu-pill">
+                  <span class="mutedish">Frame</span>
+                  <span><span id="radarFrameIndex" class="mono">0</span> / <span id="radarFrameCount" class="mono">0</span></span>
+                </div>
+                <div class="menu-pill">
+                  <span class="mutedish">Opacity</span>
+                  <span id="radarOpacityMenuText" class="mono">55%</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="menu-field">
+              <label>Map status</label>
+              <div class="menu-inline">
+                <div class="menu-pill">
+                  <span class="mutedish">Status</span>
+                  <span id="statusText">Loading…</span>
+                </div>
+                <div class="menu-pill">
+                  <span class="mutedish">Fields / Points</span>
+                  <span><span id="fieldsText" class="mono">0</span> / <span id="pointsText" class="mono">0</span></span>
+                </div>
+                <div class="menu-pill">
+                  <span class="mutedish">Mode</span>
+                  <span id="modeText">Rainfall</span>
+                </div>
+                <div id="debugText" class="menu-debug">waiting…</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </fv-shell>
+
+  <script type="module">
+    import { startWeatherMap } from '/Farm-vista/js/rainfallmap/app.js';
+
+    window.startWeatherMap = startWeatherMap;
+
+    (() => {
+      const RADAR_API_URL = 'https://api.rainviewer.com/public/weather-maps.json';
+      const RADAR_TILE_SIZE = 256;
+      const DEFAULT_OPACITY = 0.55;
+      const DEFAULT_FRAME_MS = 700;
+
+      const state = {
+        map: null,
+        overlay: null,
+        frames: [],
+        frameIndex: 0,
+        enabled: true,
+        playing: true,
+        opacity: DEFAULT_OPACITY,
+        timer: null,
+        lastHost: '',
+        loading: false
+      };
+
+      const el = {};
+      const mapCtorObserver = {
+        installed: false,
+        originalMap: null
+      };
+
+      function grabEls(){
+        el.toggle = document.getElementById('radarToggleBtn');
+        el.prev = document.getElementById('radarPrevBtn');
+        el.play = document.getElementById('radarPlayBtn');
+        el.next = document.getElementById('radarNextBtn');
+        el.time = document.getElementById('radarTimeText');
+        el.opacity = document.getElementById('radarOpacity');
+        el.opacityText = document.getElementById('radarOpacityText');
+        el.opacityMenuText = document.getElementById('radarOpacityMenuText');
+        el.radarStatusText = document.getElementById('radarStatusText');
+        el.frameIndex = document.getElementById('radarFrameIndex');
+        el.frameCount = document.getElementById('radarFrameCount');
+      }
+
+      function setRadarStatus(text){
+        if (el.radarStatusText) el.radarStatusText.textContent = text;
+      }
+
+      function setFrameMeta(){
+        const count = state.frames.length;
+        if (el.frameCount) el.frameCount.textContent = String(count || 0);
+        if (el.frameIndex) el.frameIndex.textContent = count ? String(state.frameIndex + 1) : '0';
+
+        if (!count){
+          if (el.time) el.time.textContent = 'No radar frames';
+          return;
+        }
+
+        const frame = state.frames[state.frameIndex];
+        const dt = new Date(frame.time * 1000);
+        const fmt = new Intl.DateTimeFormat(undefined, {
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit'
+        });
+        if (el.time) el.time.textContent = `Radar: ${fmt.format(dt)}`;
+      }
+
+      function setOpacityDisplay(){
+        const pct = Math.round(state.opacity * 100);
+        if (el.opacityText) el.opacityText.textContent = `${pct}%`;
+        if (el.opacityMenuText) el.opacityMenuText.textContent = `${pct}%`;
+      }
+
+      function buildRadarTileUrl(frame, x, y, z){
+        const path = frame.path || '';
+        const host = state.lastHost || '';
+        return `${host}${path}/${RADAR_TILE_SIZE}/${z}/${x}/${y}/2/1_1.png`;
+      }
+
+      function makeOverlayForFrame(frame){
+        return new google.maps.ImageMapType({
+          tileSize: new google.maps.Size(RADAR_TILE_SIZE, RADAR_TILE_SIZE),
+          opacity: state.opacity,
+          name: 'Radar',
+          getTileUrl(coord, zoom){
+            return buildRadarTileUrl(frame, coord.x, coord.y, zoom);
+          }
+        });
+      }
+
+      function removeOverlay(){
+        if (!state.map || !state.overlay) return;
+        const arr = state.map.overlayMapTypes;
+        for (let i = 0; i < arr.getLength(); i += 1){
+          if (arr.getAt(i) === state.overlay){
+            arr.removeAt(i);
+            break;
+          }
+        }
+        state.overlay = null;
+      }
+
+      function applyOverlay(){
+        if (!state.map) return;
+        removeOverlay();
+
+        if (!state.enabled || !state.frames.length){
+          setFrameMeta();
+          return;
+        }
+
+        const frame = state.frames[state.frameIndex];
+        state.overlay = makeOverlayForFrame(frame);
+        state.map.overlayMapTypes.push(state.overlay);
+        setFrameMeta();
+      }
+
+      function updateOverlayOpacity(){
+        if (state.overlay && typeof state.overlay.setOpacity === 'function'){
+          state.overlay.setOpacity(state.opacity);
+        }
+        setOpacityDisplay();
+      }
+
+      function stopAnimation(){
+        if (state.timer){
+          clearInterval(state.timer);
+          state.timer = null;
+        }
+      }
+
+      function startAnimation(){
+        stopAnimation();
+        if (!state.playing || !state.enabled || state.frames.length < 2) return;
+
+        state.timer = setInterval(() => {
+          state.frameIndex = (state.frameIndex + 1) % state.frames.length;
+          applyOverlay();
+        }, DEFAULT_FRAME_MS);
+      }
+
+      function syncPlaybackUi(){
+        if (el.play){
+          el.play.textContent = state.playing ? 'Pause' : 'Play';
+          el.play.setAttribute('aria-label', state.playing ? 'Pause animation' : 'Play animation');
+        }
+        if (el.toggle){
+          el.toggle.textContent = state.enabled ? 'Radar On' : 'Radar Off';
+          el.toggle.classList.toggle('active', state.enabled);
+        }
+      }
+
+      function refreshAllUi(){
+        setFrameMeta();
+        setOpacityDisplay();
+        syncPlaybackUi();
+      }
+
+      async function loadRadarFrames(){
+        if (state.loading) return;
+        state.loading = true;
+        setRadarStatus('loading…');
+
+        try {
+          const res = await fetch(RADAR_API_URL, { cache: 'no-store' });
+          if (!res.ok) throw new Error(`Radar API ${res.status}`);
+          const json = await res.json();
+
+          state.lastHost = json.host || '';
+          const rawFrames = Array.isArray(json?.radar?.past) ? json.radar.past : [];
+          state.frames = rawFrames
+            .filter(f => f && typeof f.time === 'number' && typeof f.path === 'string');
+
+          if (!state.frames.length){
+            throw new Error('No radar frames returned');
+          }
+
+          state.frameIndex = state.frames.length - 1;
+          setRadarStatus('ready');
+          applyOverlay();
+          refreshAllUi();
+          startAnimation();
+        } catch (err){
+          console.warn('[RadarOverlay] frame load failed:', err);
+          setRadarStatus('failed');
+          if (el.time) el.time.textContent = 'Radar unavailable';
+        } finally {
+          state.loading = false;
+        }
+      }
+
+      function bindUi(){
+        if (!el.toggle) return;
+
+        el.toggle.addEventListener('click', () => {
+          state.enabled = !state.enabled;
+          syncPlaybackUi();
+          if (!state.enabled){
+            removeOverlay();
+            stopAnimation();
+            setRadarStatus('off');
+          } else {
+            setRadarStatus('ready');
+            applyOverlay();
+            startAnimation();
+          }
+        });
+
+        el.play.addEventListener('click', () => {
+          state.playing = !state.playing;
+          syncPlaybackUi();
+          if (state.playing){
+            startAnimation();
+          } else {
+            stopAnimation();
+          }
+        });
+
+        el.prev.addEventListener('click', () => {
+          if (!state.frames.length) return;
+          state.playing = false;
+          syncPlaybackUi();
+          stopAnimation();
+          state.frameIndex = (state.frameIndex - 1 + state.frames.length) % state.frames.length;
+          applyOverlay();
+        });
+
+        el.next.addEventListener('click', () => {
+          if (!state.frames.length) return;
+          state.playing = false;
+          syncPlaybackUi();
+          stopAnimation();
+          state.frameIndex = (state.frameIndex + 1) % state.frames.length;
+          applyOverlay();
+        });
+
+        el.opacity.addEventListener('input', () => {
+          state.opacity = Number(el.opacity.value || 55) / 100;
+          updateOverlayOpacity();
+        });
+      }
+
+      function whenMapReady(timeoutMs = 20000){
+        const start = Date.now();
+
+        return new Promise((resolve, reject) => {
+          const tick = () => {
+            if (state.map){
+              resolve(state.map);
+              return;
+            }
+            if (Date.now() - start > timeoutMs){
+              reject(new Error('Timed out waiting for Google Map instance'));
+              return;
+            }
+            setTimeout(tick, 150);
+          };
+          tick();
+        });
+      }
+
+      function installMapCtorHook(){
+        if (mapCtorObserver.installed) return;
+        mapCtorObserver.installed = true;
+
+        const waitForGoogle = () => {
+          if (!(window.google && google.maps && google.maps.Map)){
+            setTimeout(waitForGoogle, 100);
+            return;
+          }
+
+          if (google.maps.Map.__fvRadarWrapped) return;
+
+          mapCtorObserver.originalMap = google.maps.Map;
+          const OriginalMap = google.maps.Map;
+
+          function WrappedMap(...args){
+            const map = new OriginalMap(...args);
+            state.map = map;
+            window.__fvRainMapInstance = map;
+            return map;
+          }
+
+          WrappedMap.prototype = OriginalMap.prototype;
+          Object.setPrototypeOf(WrappedMap, OriginalMap);
+          WrappedMap.__fvRadarWrapped = true;
+
+          google.maps.Map = WrappedMap;
+        };
+
+        waitForGoogle();
+      }
+
+      async function bootRadar(){
+        grabEls();
+        bindUi();
+        refreshAllUi();
+        installMapCtorHook();
+
+        try {
+          await whenMapReady();
+          setRadarStatus('map ready');
+          await loadRadarFrames();
+        } catch (err){
+          console.warn('[RadarOverlay] boot failed:', err);
+          setRadarStatus('map not found');
+          if (el.time) el.time.textContent = 'Map not ready for radar';
+        }
+      }
+
+      window.__fvRadarDev = {
+        reload: loadRadarFrames
+      };
+
+      window.addEventListener('load', () => {
+        setTimeout(() => {
+          bootRadar().catch(err => {
+            console.warn('[RadarOverlay] delayed boot failed:', err);
+          });
+        }, 900);
+      });
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible'){
+          if (state.enabled && state.playing){
+            startAnimation();
+          }
+        } else {
+          stopAnimation();
+        }
+      });
+    })();
+
+    window.addEventListener('load', ()=>{
+      setTimeout(()=>{
+        startWeatherMap().catch(err=>{
+          console.warn('[WeatherMap] delayed boot failed:', err);
+        });
+      }, 250);
+    });
+
+    document.addEventListener('visibilitychange', ()=>{
+      if (document.visibilityState === 'visible'){
+        startWeatherMap().catch(()=>{});
+      }
+    });
+  </script>
+
+  <script async src="https://maps.googleapis.com/maps/api/js?loading=async&key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY"></script>
+</body>
+</html>
