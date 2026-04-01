@@ -469,7 +469,7 @@ export function calculateEtaFromSavedReadiness(arg1, arg2, arg3, arg4) {
   return {
     ok: true,
     status: 'beyond',
-    text: '>168h'
+    text: '>168h',
     hours: maxHours,
     savedReadiness: saved,
     threshold: thr,
