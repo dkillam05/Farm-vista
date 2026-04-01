@@ -1715,7 +1715,7 @@ if (!EtaEngine || typeof EtaEngine.calculateEtaFromSavedReadiness !== 'function'
         : [];
     const forecastCount = Array.isArray(forecastRows) ? forecastRows.length : 0;
 
-    const res = await EtaEngine.calculateEtaFromSavedReadiness({
+const res = await EtaEngine.calculateEtaFromSavedReadiness({
   threshold: Number(thr),
   savedReadiness: authoritativeReadiness,
   field: fieldObj,
@@ -1727,7 +1727,26 @@ if (!EtaEngine || typeof EtaEngine.calculateEtaFromSavedReadiness !== 'function'
       }
     : null,
   weatherDoc: null,
-  fieldDoc: null
+  fieldDoc: null,
+  historyRows:
+    Array.isArray(etaDeps?.getWxSeriesWithForecastForFieldId?.(fid))
+      ? (etaDeps.getWxSeriesWithForecastForFieldId(fid) || []).filter(r => {
+          const iso = String(r?.dateISO || '');
+          return iso && !String(iso).startsWith('Forecast');
+        })
+      : [],
+  forecastRows:
+    Array.isArray(etaDeps?.getForecastSeriesForFieldId?.(fid))
+      ? (etaDeps.getForecastSeriesForFieldId(fid) || [])
+      : [],
+  mergedRows:
+    Array.isArray(etaDeps?.getWxSeriesWithForecastForFieldId?.(fid))
+      ? (etaDeps.getWxSeriesWithForecastForFieldId(fid) || [])
+      : [],
+  fieldParams: {
+    soilWetness: safeNum(latest?.soilWetness, 45),
+    drainageIndex: safeNum(latest?.drainageIndex, 45)
+  }
 });
 
   let txt = '';
