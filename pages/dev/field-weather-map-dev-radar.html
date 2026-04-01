@@ -958,27 +958,33 @@
   }
 
   function buildFrames(){
-    const frames = [];
-    for (let minutesAgo = 50; minutesAgo >= 5; minutesAgo -= 5){
-      frames.push({
-        key: `m${pad2(minutesAgo)}`,
-        label: buildFrameLabel(minutesAgo),
-        path: `nexrad-n0q-900913-m${pad2(minutesAgo)}`
-      });
-    }
+  const frames = [];
+  const now = new Date();
+
+  for (let i = 10; i >= 0; i--){
+    const d = new Date(now.getTime() - i * 5 * 60 * 1000);
+
+    const yyyy = d.getUTCFullYear();
+    const mm = String(d.getUTCMonth() + 1).padStart(2,'0');
+    const dd = String(d.getUTCDate()).padStart(2,'0');
+    const hh = String(d.getUTCHours()).padStart(2,'0');
+    const mi = String(Math.floor(d.getUTCMinutes() / 5) * 5).padStart(2,'0');
+
+    const ts = `${yyyy}${mm}${dd}${hh}${mi}`;
+
     frames.push({
-      key: 'now',
-      label: 'Now',
-      path: 'nexrad-n0q-900913'
+      key: ts,
+      label: i === 0 ? 'Now' : `-${i*5}m`,
+      url: `https://mesonet.agron.iastate.edu/archive/data/${yyyy}/${mm}/${dd}/GIS/uscomp/n0q_${ts}.png`
     });
-    return frames;
   }
 
-  function buildRadarTileUrl(x, y, z){
-    const frame = radarState.frames[radarState.frameIndex];
-    if (!frame) return '';
-    return `https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/${frame.path}/${z}/${x}/${y}.png`;
-  }
+  return frames;
+}
+
+ function buildRadarTileUrl(x, y, z){
+  return ''; // not used anymore
+} 
 
   function makeOverlay(opacity){
     return new google.maps.ImageMapType({
@@ -1080,8 +1086,15 @@
       return;
     }
 
-    radarState.overlay = makeOverlay(effectiveOpacity(radarState.opacity));
-    map.overlayMapTypes.insertAt(0, radarState.overlay);
+const frame = radarState.frames[radarState.frameIndex];
+if (!frame) return;
+
+radarState.overlay = new google.maps.GroundOverlay(
+  frame.url,
+  map.getBounds(),
+  { opacity: effectiveOpacity(radarState.opacity) }
+);
+radarState.overlay.setMap(map);
     setRadarStatus('ready');
     updateTimelineUi();
 
