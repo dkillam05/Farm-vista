@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/rainfallmap/app.js   (FULL FILE)
-Rev: 2026-03-31a-expose-live-map-instance-for-dev-radar
+Rev: 2026-03-17b-rerender-on-return
 
 PURPOSE
 ✔ Starts the Weather / Readiness map
@@ -14,8 +14,6 @@ FIX IN THIS REV
 ✔ Keeps saved mode/date-range restore behavior
 ✔ Prevents return-to-page state where dropdown/scale are right but blobs do not draw
 ✔ Forces active mode redraw on return/visibility re-entry
-✔ EXPOSES the live Google Map instance at window.__fvRainMapInstance
-  so the dev radar overlay page can attach to the real map correctly
 ===================================================================== */
 
 import { appState } from './store.js';
@@ -37,17 +35,6 @@ function normalizeMapMode(mode){
   return String(mode || '').toLowerCase() === 'readiness' ? 'readiness' : 'rainfall';
 }
 
-function exposeLiveMapInstance(){
-  try{
-    const map = appState?.map || null;
-    if (map){
-      window.__fvRainMapInstance = map;
-    }
-  }catch(e){
-    console.warn('[WeatherMap] exposeLiveMapInstance failed:', e);
-  }
-}
-
 export async function startWeatherMap(){
   // If startup already completed, this is a return-to-page / re-entry case.
   // Re-sync UI + state and force a redraw instead of exiting.
@@ -55,7 +42,6 @@ export async function startWeatherMap(){
     try{
       detectLayoutMode();
       ensureMap();
-      exposeLiveMapInstance();
 
       restoreCurrentRangeFromLocal();
       applyDefault72HourRangeToPicker({ silent:true });
@@ -68,7 +54,6 @@ export async function startWeatherMap(){
       applyMapModeUi();
       await renderActiveMode(true);
       applyMapModeUi();
-      exposeLiveMapInstance();
     }catch(e){
       console.warn('[WeatherMap] return render failed:', e);
       setStatus('Reload failed');
@@ -87,7 +72,6 @@ export async function startWeatherMap(){
     await initFirebase();
     await waitForGoogleMaps();
     ensureMap();
-    exposeLiveMapInstance();
 
     appState.currentMapMode = normalizeMapMode(
       restoreCurrentMapModeFromLocal()
@@ -102,7 +86,6 @@ export async function startWeatherMap(){
     applyMapModeUi();
     await renderActiveMode(false);
     applyMapModeUi();
-    exposeLiveMapInstance();
 
     appState.startFinished = true;
   }catch(e){
