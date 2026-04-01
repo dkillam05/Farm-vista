@@ -46,13 +46,18 @@ function round2(n) {
 
 function formatEtaText(hours) {
   const h = safeNum(hours, null);
-  if (h == null) return ETA_UNAVAILABLE_TEXT;
-  if (h <= 0.5) return 'Ready';
-  if (h < 24) return `${Math.round(h)}h`;
 
-  const days = h / 24;
-  if (Math.abs(days - Math.round(days)) < 0.16) return `${Math.round(days)}d`;
-  return `${days.toFixed(1)}d`;
+  if (h == null) return ETA_UNAVAILABLE_TEXT;
+
+  if (h <= 0.5) return 'Ready';
+
+  // ALWAYS show hours with ~ prefix
+  if (h <= 168) {
+    return `~${Math.round(h)}h`;
+  }
+
+  // Beyond horizon
+  return `>168h`;
 }
 
 function normalizeForecastRow(raw) {
@@ -464,7 +469,7 @@ export function calculateEtaFromSavedReadiness(arg1, arg2, arg3, arg4) {
   return {
     ok: true,
     status: 'beyond',
-    text: '7d',
+    text: '>168h'
     hours: maxHours,
     savedReadiness: saved,
     threshold: thr,
