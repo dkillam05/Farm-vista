@@ -931,20 +931,53 @@
  (() => {
   const RADAR_TILE_SIZE = 256;
   const DEFAULT_OPACITY = 0.72;
+  const PLAY_DELAY_MS = 550;
 
   const radarState = {
     overlay: null,
     enabled: true,
     opacity: DEFAULT_OPACITY,
-    uiBuilt: false
+    uiBuilt: false,
+    frames: [],
+    frameIndex: 0,
+    playing: false,
+    playTimer: null
   };
 
   function effectiveOpacity(value){
     return Math.max(0.05, Math.min(1, Number(value || 0)));
   }
 
+  function pad2(v){
+    return String(v).padStart(2, '0');
+  }
+
+  function buildFrameLabel(minutesAgo){
+    if (minutesAgo <= 0) return 'Now';
+    return `-${minutesAgo}m`;
+  }
+
+  function buildFrames(){
+    const frames = [];
+    for (let minutesAgo = 50; minutesAgo >= 5; minutesAgo -= 5){
+      frames.push({
+        key: `m${pad2(minutesAgo)}`,
+        label: buildFrameLabel(minutesAgo),
+        path: `nexrad-n0q-900913-m${pad2(minutesAgo)}`
+      });
+    }
+    frames.push({
+      key: 'now',
+      label: 'Now',
+      path: 'nexrad-n0q-900913'
+    });
+    return frames;
+  }
+
   function buildRadarTileUrl(x, y, z){
-    return `https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/${z}/${x}/${y}.png`;
+    const frame = radarState.frames[radarState.frameIndex];
+    if (!frame) return '';
+    return `https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/${frame.path}/${z}/${x}/${y}.png`;
   }
 
   function makeOverlay(opacity){
@@ -987,16 +1020,53 @@
     if (el) el.textContent = `${Math.round(radarState.opacity * 100)}%`;
   }
 
-  function setRadarTimeNow(){
-    const el = document.getElementById('radarTimeText');
-    if (!el) return;
-    const now = new Date();
-    el.textContent = new Intl.DateTimeFormat(undefined, {
-      month: 'numeric',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit'
-    }).format(now);
+  function setPlayButtonText(){
+    const btn = document.getElementById('btnRadarPlayPause');
+    if (btn) btn.textContent = radarState.playing ? 'Pause' : 'Play';
+  }
+
+  function updateTimelineUi(){
+    const slider = document.getElementById('radarTimelineSlider');
+    const nowEl = document.getElementById('radarTimelineNow');
+    const startEl = document.getElementById('radarTimelineStart');
+    const endEl = document.getElementById('radarTimelineEnd');
+
+    if (!radarState.frames.length) return;
+
+    if (slider){
+      slider.min = '0';
+      slider.max = String(radarState.frames.length - 1);
+      slider.value = String(radarState.frameIndex);
+    }
+
+    if (startEl) startEl.textContent = radarState.frames[0].label;
+    if (endEl) endEl.textContent = radarState.frames[radarState.frames.length - 1].label;
+    if (nowEl) nowEl.textContent = radarState.frames[radarState.frameIndex].label;
+
+    setRadarTimeText(radarState.frames[radarState.frameIndex].label);
+  }
+
+  function stopPlayback(){
+    radarState.playing = false;
+    if (radarState.playTimer){
+      clearTimeout(radarState.playTimer);
+      radarState.playTimer = null;
+    }
+    setPlayButtonText();
+  }
+
+  function scheduleNextFrame(){
+    if (!radarState.playing) return;
+
+    if (radarState.playTimer){
+      clearTimeout(radarState.playTimer);
+      radarState.playTimer = null;
+    }
+
+    radarState.playTimer = setTimeout(() => {
+      const nextIndex = (radarState.frameIndex + 1) % radarState.frames.length;
+      showFrame(nextIndex, { keepPlaying: true });
+    }, PLAY_DELAY_MS);
   }
 
   function applyRadarOverlay(){
@@ -1013,7 +1083,42 @@
     radarState.overlay = makeOverlay(effectiveOpacity(radarState.opacity));
     map.overlayMapTypes.insertAt(0, radarState.overlay);
     setRadarStatus('ready');
-    setRadarTimeNow();
+    updateTimelineUi();
+
+    if (radarState.playing){
+      scheduleNextFrame();
+    }
+  }
+
+  function showFrame(index, opts = {}){
+    const keepPlaying = !!opts.keepPlaying;
+
+    if (!radarState.enabled || !radarState.frames.length) return;
+
+    if (!keepPlaying){
+      stopPlayback();
+    } else if (radarState.playTimer){
+      clearTimeout(radarState.playTimer);
+      radarState.playTimer = null;
+    }
+
+    radarState.frameIndex = Math.max(0, Math.min(index, radarState.frames.length - 1));
+    applyRadarOverlay();
+  }
+
+  function playRadar(){
+    if (!radarState.frames.length) return;
+    radarState.playing = true;
+    setPlayButtonText();
+    scheduleNextFrame();
+  }
+
+  function togglePlayPause(){
+    if (radarState.playing){
+      stopPlayback();
+    } else {
+      playRadar();
+    }
   }
 
   function updateRadarOpacity(){
@@ -1024,6 +1129,62 @@
       applyRadarOverlay();
     }
     setRadarOpacityText();
+  }
+
+  function refreshRadarFrames(){
+    radarState.frames = buildFrames();
+    if (radarState.frameIndex > radarState.frames.length - 1){
+      radarState.frameIndex = radarState.frames.length - 1;
+    }
+    applyRadarOverlay();
+  }
+
+  function buildBottomTimelineUi(){
+    if (document.getElementById('radarTimelineBar')) return;
+
+    const stage = document.querySelector('.map-stage');
+    if (!stage) return;
+
+    const wrap = document.createElement('div');
+    wrap.id = 'radarTimelineBar';
+    wrap.className = 'glass';
+    wrap.style.position = 'absolute';
+    wrap.style.left = '50%';
+    wrap.style.bottom = '56px';
+    wrap.style.transform = 'translateX(-50%)';
+    wrap.style.zIndex = '35';
+    wrap.style.width = 'min(94vw, 780px)';
+    wrap.style.padding = '10px 12px';
+    wrap.style.borderRadius = '18px';
+    wrap.style.display = 'flex';
+    wrap.style.flexDirection = 'column';
+    wrap.style.gap = '8px';
+    wrap.style.pointerEvents = 'auto';
+
+    wrap.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+        <button id="btnRadarPlayPause" type="button" class="menu-btn" style="width:auto;min-width:88px;padding:0 14px;min-height:40px;flex:0 0 auto;">Play</button>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;flex:1 1 auto;font-size:12px;font-weight:900;">
+          <span id="radarTimelineStart" class="mono" style="opacity:.72;white-space:nowrap;">--</span>
+          <span id="radarTimelineNow" class="mono" style="white-space:nowrap;">--</span>
+          <span id="radarTimelineEnd" class="mono" style="opacity:.72;white-space:nowrap;">--</span>
+        </div>
+      </div>
+      <input id="radarTimelineSlider" type="range" min="0" max="0" step="1" value="0" style="width:100%;cursor:pointer;" />
+    `;
+
+    stage.appendChild(wrap);
+
+    const btn = document.getElementById('btnRadarPlayPause');
+    const slider = document.getElementById('radarTimelineSlider');
+
+    btn.addEventListener('click', () => {
+      togglePlayPause();
+    });
+
+    slider.addEventListener('input', () => {
+      showFrame(Number(slider.value || 0));
+    });
   }
 
   function buildRadarMenuUi(){
@@ -1078,8 +1239,8 @@
             <span>IEM</span>
           </div>
           <div class="menu-pill">
-            <span class="mutedish">Layer</span>
-            <span>Live radar</span>
+            <span class="mutedish">Loop</span>
+            <span>Past 50m</span>
           </div>
         </div>
       </div>
@@ -1098,7 +1259,13 @@
 
     enabledSel.addEventListener('change', () => {
       radarState.enabled = String(enabledSel.value || 'on') === 'on';
-      applyRadarOverlay();
+      if (!radarState.enabled){
+        stopPlayback();
+        removeRadarOverlay();
+        setRadarStatus('off');
+      } else {
+        refreshRadarFrames();
+      }
     });
 
     opacityInput.addEventListener('input', () => {
@@ -1107,7 +1274,8 @@
     });
 
     refreshBtn.addEventListener('click', () => {
-      applyRadarOverlay();
+      stopPlayback();
+      refreshRadarFrames();
     });
 
     setRadarOpacityText();
@@ -1151,6 +1319,9 @@
     try{
       await waitForMap();
       buildRadarMenuUi();
+      buildBottomTimelineUi();
+      radarState.frames = buildFrames();
+      radarState.frameIndex = radarState.frames.length - 1;
       applyRadarOverlay();
       hideLowerRightControlAgain();
       setTimeout(hideLowerRightControlAgain, 1200);
@@ -1178,7 +1349,8 @@
       startWeatherMap().catch(()=>{});
       setTimeout(()=>{
         buildRadarMenuUi();
-        applyRadarOverlay();
+        buildBottomTimelineUi();
+        refreshRadarFrames();
         hideLowerRightControlAgain();
       }, 500);
     }
