@@ -928,88 +928,60 @@
 
     window.startWeatherMap = startWeatherMap;
 
-   (() => {
-  const RADAR_TILE_SIZE = 256;
-  const DEFAULT_OPACITY = 0.75;
-  const RAINVIEWER_API_URL = 'https://api.rainviewer.com/public/weather-maps.json';
-  const RAINVIEWER_COLOR = 6;
-  const RAINVIEWER_OPTIONS = '1_1';
+ (() => {
+  const DEFAULT_OPACITY = 0.72;
+  const FRAME_STEP_MINUTES = 10;
+  const LOOKBACK_MINUTES = 180; // 3 hours
+  const PLAY_DELAY_MS = 550;
+  const RADMAP_API = 'https://mesonet.agron.iastate.edu/GIS/radmap.php';
 
   const radarState = {
-    overlay: null,
     enabled: true,
     opacity: DEFAULT_OPACITY,
     uiBuilt: false,
-    host: '',
-    framePath: '',
-    frameTime: 0,
+    overlay: null,
+    frames: [],
+    frameIndex: 0,
+    playing: false,
+    playTimer: null,
+    mapIdleTimer: null,
+    lastBoundsKey: '',
     loading: false
   };
 
   function effectiveOpacity(value){
-    return Math.max(0.02, Math.min(1, Number(value || 0)));
+    return Math.max(0.05, Math.min(1, Number(value || 0)));
   }
 
-  async function loadLatestRainViewerFrame(){
-    radarState.loading = true;
-    setRadarStatus('loading…');
-
-    const res = await fetch(RAINVIEWER_API_URL, { cache: 'no-store' });
-    if (!res.ok) throw new Error(`RainViewer API failed: ${res.status}`);
-
-    const data = await res.json();
-    const host = String(data?.host || '').trim();
-    const past = Array.isArray(data?.radar?.past) ? data.radar.past : [];
-    const latest = past[past.length - 1];
-
-    if (!host || !latest?.path){
-      throw new Error('RainViewer frame data missing');
-    }
-
-    radarState.host = host.replace(/\/+$/, '');
-    radarState.framePath = String(latest.path);
-    radarState.frameTime = Number(latest.time || 0);
-    radarState.loading = false;
+  function pad2(v){
+    return String(v).padStart(2, '0');
   }
 
-  function formatRadarTime(unixSeconds){
-    if (!unixSeconds) return '--:--';
-    const d = new Date(unixSeconds * 1000);
+  function toTsUtc(date){
+    return [
+      date.getUTCFullYear(),
+      pad2(date.getUTCMonth() + 1),
+      pad2(date.getUTCDate()),
+      pad2(date.getUTCHours()),
+      pad2(date.getUTCMinutes())
+    ].join('');
+  }
+
+  function floorDateToStepUtc(date, stepMinutes){
+    const d = new Date(date.getTime());
+    d.setUTCSeconds(0, 0);
+    const mins = d.getUTCMinutes();
+    d.setUTCMinutes(mins - (mins % stepMinutes));
+    return d;
+  }
+
+  function formatFrameLabel(date){
     return new Intl.DateTimeFormat(undefined, {
       month: 'numeric',
       day: 'numeric',
       hour: 'numeric',
       minute: '2-digit'
-    }).format(d);
-  }
-
-  function buildRadarTileUrl(x, y, z){
-  return `https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/${z}/${x}/${y}.png`;
-}
-
-  function makeOverlay(opacity){
-    return new google.maps.ImageMapType({
-      tileSize: new google.maps.Size(RADAR_TILE_SIZE, RADAR_TILE_SIZE),
-      opacity,
-      name: 'Radar',
-      getTileUrl(coord, zoom){
-        return buildRadarTileUrl(coord.x, coord.y, zoom);
-      }
-    });
-  }
-
-  function removeRadarOverlay(){
-    const map = appState.map;
-    if (!map || !radarState.overlay) return;
-
-    const arr = map.overlayMapTypes;
-    for (let i = arr.getLength() - 1; i >= 0; i -= 1){
-      if (arr.getAt(i) === radarState.overlay){
-        arr.removeAt(i);
-        break;
-      }
-    }
-    radarState.overlay = null;
+    }).format(date);
   }
 
   function setRadarStatus(text){
@@ -1027,47 +999,262 @@
     if (el) el.textContent = `${Math.round(radarState.opacity * 100)}%`;
   }
 
-  async function applyRadarOverlay(){
+  function setPlayButtonText(){
+    const btn = document.getElementById('btnRadarPlayPause');
+    if (btn) btn.textContent = radarState.playing ? 'Pause' : 'Play';
+  }
+
+  function setSliderMeta(){
+    const slider = document.getElementById('radarTimelineSlider');
+    const nowEl = document.getElementById('radarTimelineNow');
+    const startEl = document.getElementById('radarTimelineStart');
+    const endEl = document.getElementById('radarTimelineEnd');
+
+    if (!slider || !radarState.frames.length) return;
+
+    slider.max = String(radarState.frames.length - 1);
+    slider.value = String(radarState.frameIndex);
+
+    if (startEl) startEl.textContent = radarState.frames[0].label;
+    if (endEl) endEl.textContent = radarState.frames[radarState.frames.length - 1].label;
+    if (nowEl) nowEl.textContent = radarState.frames[radarState.frameIndex].label;
+  }
+
+  function getMapBoundsInfo(){
     const map = appState.map;
-    if (!map) return;
+    if (!map) return null;
+    const bounds = map.getBounds();
+    if (!bounds) return null;
+
+    const ne = bounds.getNorthEast();
+    const sw = bounds.getSouthWest();
+
+    const west = sw.lng();
+    const south = sw.lat();
+    const east = ne.lng();
+    const north = ne.lat();
+
+    const bbox = `${west.toFixed(4)},${south.toFixed(4)},${east.toFixed(4)},${north.toFixed(4)}`;
+    const boundsObj = { north, south, east, west };
+
+    const mapEl = document.getElementById('rainMap');
+    const rect = mapEl ? mapEl.getBoundingClientRect() : { width: 1200, height: 800 };
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const width = Math.max(640, Math.min(1600, Math.round(rect.width * dpr)));
+    const height = Math.max(480, Math.min(1200, Math.round(rect.height * dpr)));
+
+    const key = `${bbox}|${width}|${height}`;
+
+    return { bbox, boundsObj, width, height, key };
+  }
+
+  function buildRadmapUrl(frameTs, boundsInfo){
+    const params = new URLSearchParams();
+    params.append('width', String(boundsInfo.width));
+    params.append('height', String(boundsInfo.height));
+    params.append('bbox', boundsInfo.bbox);
+    params.append('ts', frameTs);
+    params.append('layers[]', 'nexrad');
+    params.append('title', '');
+    params.append('tz', 'CDT');
+    return `${RADMAP_API}?${params.toString()}`;
+  }
+
+  function buildFrames(boundsInfo){
+    const end = floorDateToStepUtc(new Date(), FRAME_STEP_MINUTES);
+    const start = new Date(end.getTime() - LOOKBACK_MINUTES * 60 * 1000);
+
+    const frames = [];
+    for (let t = start.getTime(); t <= end.getTime(); t += FRAME_STEP_MINUTES * 60 * 1000){
+      const dt = new Date(t);
+      const ts = toTsUtc(dt);
+      frames.push({
+        ts,
+        date: dt,
+        label: formatFrameLabel(dt),
+        url: buildRadmapUrl(ts, boundsInfo)
+      });
+    }
+    return frames;
+  }
+
+  function removeRadarOverlay(){
+    if (radarState.overlay){
+      radarState.overlay.setMap(null);
+      radarState.overlay = null;
+    }
+  }
+
+  function stopPlayback(){
+    radarState.playing = false;
+    if (radarState.playTimer){
+      clearTimeout(radarState.playTimer);
+      radarState.playTimer = null;
+    }
+    setPlayButtonText();
+  }
+
+  function scheduleNextFrame(){
+    if (!radarState.playing) return;
+    radarState.playTimer = setTimeout(() => {
+      const next = (radarState.frameIndex + 1) % radarState.frames.length;
+      showFrame(next);
+    }, PLAY_DELAY_MS);
+  }
+
+  function showFrame(index){
+    if (!radarState.enabled || !radarState.frames.length) return;
+
+    const map = appState.map;
+    const boundsInfo = getMapBoundsInfo();
+    if (!map || !boundsInfo) return;
+
+    radarState.frameIndex = Math.max(0, Math.min(index, radarState.frames.length - 1));
+    const frame = radarState.frames[radarState.frameIndex];
+
+    stopPlayback();
+    removeRadarOverlay();
+
+    radarState.overlay = new google.maps.GroundOverlay(
+      frame.url,
+      boundsInfo.boundsObj,
+      { opacity: effectiveOpacity(radarState.opacity) }
+    );
+    radarState.overlay.setMap(map);
+
+    setRadarStatus('ready');
+    setRadarTimeText(frame.label);
+    setSliderMeta();
+
+    if (radarState.playing){
+      scheduleNextFrame();
+    }
+  }
+
+  function showFrameKeepPlay(index){
+    if (!radarState.enabled || !radarState.frames.length) return;
+
+    const wasPlaying = radarState.playing;
+    if (radarState.playTimer){
+      clearTimeout(radarState.playTimer);
+      radarState.playTimer = null;
+    }
+
+    const map = appState.map;
+    const boundsInfo = getMapBoundsInfo();
+    if (!map || !boundsInfo) return;
+
+    radarState.frameIndex = Math.max(0, Math.min(index, radarState.frames.length - 1));
+    const frame = radarState.frames[radarState.frameIndex];
 
     removeRadarOverlay();
 
-    if (!radarState.enabled){
-      setRadarStatus('off');
-      return;
-    }
+    radarState.overlay = new google.maps.GroundOverlay(
+      frame.url,
+      boundsInfo.boundsObj,
+      { opacity: effectiveOpacity(radarState.opacity) }
+    );
+    radarState.overlay.setMap(map);
 
-    try{
-      if (!radarState.framePath){
-        await loadLatestRainViewerFrame();
-      }
+    setRadarStatus('ready');
+    setRadarTimeText(frame.label);
+    setSliderMeta();
 
-      radarState.overlay = makeOverlay(effectiveOpacity(radarState.opacity));
-      map.overlayMapTypes.insertAt(0, radarState.overlay);
-      setRadarStatus('ready');
-      setRadarTimeText(formatRadarTime(radarState.frameTime));
-    }catch(err){
-      console.warn('[DevRadar] RainViewer load failed:', err);
-      setRadarStatus('error');
-      setRadarTimeText('--:--');
+    if (wasPlaying){
+      radarState.playing = true;
+      setPlayButtonText();
+      scheduleNextFrame();
     }
   }
 
   function updateRadarOpacity(){
-    const nextOpacity = effectiveOpacity(radarState.opacity);
-    if (radarState.overlay && typeof radarState.overlay.setOpacity === 'function'){
-      radarState.overlay.setOpacity(nextOpacity);
-    } else {
-      applyRadarOverlay();
-    }
     setRadarOpacityText();
+    if (radarState.overlay){
+      radarState.overlay.setOpacity(effectiveOpacity(radarState.opacity));
+    }
   }
 
-  async function refreshRadarFrame(){
-    radarState.framePath = '';
-    radarState.frameTime = 0;
-    await applyRadarOverlay();
+  function rebuildFramesAndRefresh(){
+    const boundsInfo = getMapBoundsInfo();
+    if (!boundsInfo) return;
+
+    radarState.lastBoundsKey = boundsInfo.key;
+    radarState.frames = buildFrames(boundsInfo);
+    radarState.frameIndex = radarState.frames.length - 1;
+
+    setSliderMeta();
+
+    if (radarState.enabled){
+      showFrame(radarState.frameIndex);
+    }
+  }
+
+  function refreshRadarLoop(){
+    rebuildFramesAndRefresh();
+  }
+
+  function playRadar(){
+    if (!radarState.frames.length) return;
+    radarState.playing = true;
+    setPlayButtonText();
+    scheduleNextFrame();
+  }
+
+  function togglePlayPause(){
+    if (radarState.playing){
+      stopPlayback();
+    } else {
+      playRadar();
+    }
+  }
+
+  function buildBottomTimelineUi(){
+    if (document.getElementById('radarTimelineBar')) return;
+
+    const stage = document.querySelector('.map-stage');
+    if (!stage) return;
+
+    const wrap = document.createElement('div');
+    wrap.id = 'radarTimelineBar';
+    wrap.className = 'glass';
+    wrap.style.position = 'absolute';
+    wrap.style.left = '50%';
+    wrap.style.bottom = '56px';
+    wrap.style.transform = 'translateX(-50%)';
+    wrap.style.zIndex = '35';
+    wrap.style.width = 'min(94vw, 780px)';
+    wrap.style.padding = '10px 12px';
+    wrap.style.borderRadius = '18px';
+    wrap.style.display = 'flex';
+    wrap.style.flexDirection = 'column';
+    wrap.style.gap = '8px';
+    wrap.style.pointerEvents = 'auto';
+
+    wrap.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+        <button id="btnRadarPlayPause" type="button" class="menu-btn" style="width:auto;min-width:88px;padding:0 14px;min-height:40px;flex:0 0 auto;">Play</button>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;flex:1 1 auto;font-size:12px;font-weight:900;">
+          <span id="radarTimelineStart" class="mono" style="opacity:.72;white-space:nowrap;">--</span>
+          <span id="radarTimelineNow" class="mono" style="white-space:nowrap;">--</span>
+          <span id="radarTimelineEnd" class="mono" style="opacity:.72;white-space:nowrap;">--</span>
+        </div>
+      </div>
+      <input id="radarTimelineSlider" type="range" min="0" max="0" step="1" value="0" style="width:100%;cursor:pointer;" />
+    `;
+
+    stage.appendChild(wrap);
+
+    const btn = document.getElementById('btnRadarPlayPause');
+    const slider = document.getElementById('radarTimelineSlider');
+
+    btn.addEventListener('click', () => {
+      togglePlayPause();
+    });
+
+    slider.addEventListener('input', () => {
+      stopPlayback();
+      showFrame(Number(slider.value || 0));
+    });
   }
 
   function buildRadarMenuUi(){
@@ -1096,7 +1283,7 @@
           </div>
           <div class="menu-pill">
             <span class="mutedish">Opacity</span>
-            <span id="radarOpacityMenuText" class="mono">75%</span>
+            <span id="radarOpacityMenuText" class="mono">72%</span>
           </div>
         </div>
       </div>
@@ -1111,7 +1298,7 @@
 
       <div class="menu-field">
         <label for="radarOpacity">Radar opacity</label>
-        <input id="radarOpacity" class="menu-input" type="range" min="0" max="100" step="1" value="75" style="cursor:pointer;padding:12px 0;background:transparent;border:none"/>
+        <input id="radarOpacity" class="menu-input" type="range" min="5" max="100" step="1" value="72" style="cursor:pointer;padding:12px 0;background:transparent;border:none"/>
       </div>
 
       <div class="menu-field">
@@ -1119,18 +1306,18 @@
         <div class="menu-inline">
           <div class="menu-pill">
             <span class="mutedish">Provider</span>
-            <span>RainViewer</span>
+            <span>IEM</span>
           </div>
           <div class="menu-pill">
-            <span class="mutedish">Layer</span>
-            <span>Live radar</span>
+            <span class="mutedish">Loop</span>
+            <span>Past 3h / 10m</span>
           </div>
         </div>
       </div>
 
       <div class="menu-field">
         <label>Radar refresh</label>
-        <button id="btnRefreshRadar" class="menu-btn" type="button">Reload Radar</button>
+        <button id="btnRefreshRadar" class="menu-btn" type="button">Reload Radar Loop</button>
       </div>
     `;
 
@@ -1142,18 +1329,23 @@
 
     enabledSel.addEventListener('change', () => {
       radarState.enabled = String(enabledSel.value || 'on') === 'on';
-      applyRadarOverlay();
+      if (!radarState.enabled){
+        stopPlayback();
+        removeRadarOverlay();
+        setRadarStatus('off');
+      } else {
+        refreshRadarLoop();
+      }
     });
 
     opacityInput.addEventListener('input', () => {
-      radarState.opacity = Number(opacityInput.value || 75) / 100;
+      radarState.opacity = Number(opacityInput.value || 72) / 100;
       updateRadarOpacity();
     });
 
     refreshBtn.addEventListener('click', () => {
-      refreshRadarFrame().catch(err => {
-        console.warn('[DevRadar] manual refresh failed:', err);
-      });
+      stopPlayback();
+      refreshRadarLoop();
     });
 
     setRadarOpacityText();
@@ -1193,11 +1385,39 @@
     });
   }
 
+  function attachMapIdleRefresh(){
+    const map = appState.map;
+    if (!map || map.__fvRadarLoopAttached) return;
+    map.__fvRadarLoopAttached = true;
+
+    map.addListener('idle', () => {
+      if (!radarState.enabled) return;
+
+      if (radarState.mapIdleTimer){
+        clearTimeout(radarState.mapIdleTimer);
+      }
+
+      radarState.mapIdleTimer = setTimeout(() => {
+        const boundsInfo = getMapBoundsInfo();
+        if (!boundsInfo) return;
+        if (boundsInfo.key === radarState.lastBoundsKey) return;
+
+        const keepIndex = radarState.frameIndex;
+        radarState.frames = buildFrames(boundsInfo);
+        radarState.lastBoundsKey = boundsInfo.key;
+        radarState.frameIndex = Math.min(keepIndex, radarState.frames.length - 1);
+        showFrame(radarState.frameIndex);
+      }, 250);
+    });
+  }
+
   async function bootDevRadar(){
     try{
       await waitForMap();
       buildRadarMenuUi();
-      await applyRadarOverlay();
+      buildBottomTimelineUi();
+      attachMapIdleRefresh();
+      refreshRadarLoop();
       hideLowerRightControlAgain();
       setTimeout(hideLowerRightControlAgain, 1200);
     }catch(err){
@@ -1205,31 +1425,33 @@
     }
   }
 
-  window.addEventListener('load', ()=>{
-    setTimeout(()=>{
-      startWeatherMap().catch(err=>{
+  window.addEventListener('load', () => {
+    setTimeout(() => {
+      startWeatherMap().catch(err => {
         console.warn('[WeatherMap] delayed boot failed:', err);
       });
     }, 250);
 
-    setTimeout(()=>{
-      bootDevRadar().catch(err=>{
+    setTimeout(() => {
+      bootDevRadar().catch(err => {
         console.warn('[DevRadar] delayed boot failed:', err);
       });
     }, 1200);
   });
 
-  document.addEventListener('visibilitychange', ()=>{
+  document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible'){
-      startWeatherMap().catch(()=>{});
-      setTimeout(()=>{
+      startWeatherMap().catch(() => {});
+      setTimeout(() => {
         buildRadarMenuUi();
-        applyRadarOverlay();
+        buildBottomTimelineUi();
+        attachMapIdleRefresh();
+        refreshRadarLoop();
         hideLowerRightControlAgain();
       }, 500);
     }
   });
-})(); 
+})();
   </script>
 
   <script async src="https://maps.googleapis.com/maps/api/js?loading=async&key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY"></script>
