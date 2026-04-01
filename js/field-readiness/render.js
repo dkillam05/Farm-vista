@@ -59,6 +59,7 @@ import { getAPI } from './firebase.js';
 // Tile rendering path no longer depends on them for readiness numbers,
 // but ETA helper can lazily use them after tile render.
 import { ensureFRModules, buildFRDeps, runFieldReadiness } from './formula.js';
+import * as EtaEngine from './eta-engine.js';
 
 /* =====================================================================
    Centralized readiness latest collection
@@ -80,6 +81,7 @@ const ETA_HELP_EVENT = 'fr:eta-help';
 const ETA_HORIZON_HOURS = 168;
 const ETA_CACHE_TTL_MS = 10 * 60 * 1000;
 const ETA_DEBUG_ENABLED = true;
+const ETA_UNAVAILABLE_TEXT = 'ETA can not be calculated at this time';
 
 /* =====================================================================
    Search config
@@ -1369,7 +1371,7 @@ function buildEtaFailureText(res, readinessNow, thr){
     if (compact) return compact;
   }
 
-  return 'ETA ?';
+  return 'ETA can not be calculated at this time';
 }
 
 function getEtaCacheKey(fieldObj, opKey, thr, latestRec){
@@ -1398,7 +1400,7 @@ function getEtaCacheValue(state, key, { readinessNow=null, threshold=null } = {}
     const thr = Number(threshold);
 
     // Never trust cached fake-short or unresolved ETA.
-    if (txt === '~1h' || txt === 'ETA ?') return null;
+    if (txt === '~1h' || txt === ETA_UNAVAILABLE_TEXT) return null;
 
     if (Number.isFinite(ready) && Number.isFinite(thr) && ready < thr && isZeroEtaLike(txt)){
       return null;
@@ -1415,7 +1417,7 @@ function setEtaCacheValue(state, key, text){
     const txt = safeStr(text);
 
     // Do not cache unresolved or suspiciously short fallback ETA.
-    if (!txt || txt === '~1h' || txt === 'ETA ?') return;
+    if (!txt || txt === '~1h' || txt === ETA_UNAVAILABLE_TEXT) return;
 
     if (!state._etaTileCache) state._etaTileCache = {};
     state._etaTileCache[key] = {
@@ -1696,15 +1698,14 @@ async function getTileEtaText(state, fieldObj, deps, run0, thr, latestRec){
       }catch(_){}
     }
 
-const model = state && state._mods ? state._mods.model : null;
-if (!model || typeof model.etaToThreshold !== 'function'){
+if (!EtaEngine || typeof EtaEngine.calculateEtaFromSavedReadiness !== 'function'){
   setEtaDebug(state, fid, {
-    phase: 'model-missing',
+    phase: 'eta-engine-missing',
     readinessNow,
     authoritativeReadiness,
     threshold: Number(thr)
   });
-  return `>${ETA_HORIZON_HOURS}h`;
+  return 'ETA can not be calculated at this time';
 }
 
     const etaDeps = buildEtaDepsForField(state, fieldObj, opKey, latest);
@@ -1714,29 +1715,43 @@ if (!model || typeof model.etaToThreshold !== 'function'){
         : [];
     const forecastCount = Array.isArray(forecastRows) ? forecastRows.length : 0;
 
-    const res = await model.etaToThreshold(fieldObj, etaDeps || deps, Number(thr), HORIZON_HOURS, 3);
+    const res = await EtaEngine.calculateEtaFromSavedReadiness({
+  threshold: Number(thr),
+  savedReadiness: authoritativeReadiness,
+  field: fieldObj,
+  latestDoc: latest
+    ? {
+        id: latest.fieldId || fid,
+        data: safeObj(latest._raw) || {},
+        source: 'field_readiness_latest'
+      }
+    : null,
+  weatherDoc: null,
+  fieldDoc: null
+});
 
-    let txt = normalizeEtaResult(res, HORIZON_HOURS);
+  let txt = '';
 
-    const status = String(res && res.status || '').toLowerCase();
-    if (
-      !txt &&
-      (
-        status === 'beyond' ||
-        status === 'notwithin72' ||
-        res?.exceedsHorizon === true ||
-        res?.withinHorizon === false ||
-        res?.reached === false
-      )
-    ){
-      txt = `>${HORIZON_HOURS}h`;
+if (res && typeof res === 'object'){
+  if (typeof res.text === 'string' && res.text.trim()){
+    txt = res.text.trim();
+  } else if (typeof res.label === 'string' && res.label.trim()){
+    txt = res.label.trim();
+  } else if (Number.isFinite(Number(res.hours))){
+    const hrs = Number(res.hours);
+    if (hrs <= 0){
+      txt = 'Ready';
+    } else if (hrs < 24){
+      txt = `~${Math.round(hrs)}h`;
+    } else {
+      txt = `~${(hrs / 24).toFixed(1)}d`;
     }
-
-txt = forceNonZeroEtaText(txt, authoritativeReadiness, thr);
+  }
+}
 
 if (!txt){
-  txt = buildEtaFailureText(res, authoritativeReadiness, thr);
-}
+  txt = 'ETA can not be calculated at this time';
+}  
 
     if (txt){
       setEtaCacheValue(state, cacheKey, txt);
@@ -1769,7 +1784,7 @@ if (!txt){
     threshold: Number(thr),
     error: safeStr(err && err.message || err)
   });
-  return `>${ETA_HORIZON_HOURS}h`;
+  return 'ETA can not be calculated at this time';
 }
 }
 
@@ -2374,10 +2389,14 @@ async function updateTileForField(state, fieldId){
       badge.textContent = `Field Readiness ${readiness}`;
     }
 
-      let etaText = '';
+          let etaText = '';
     try{
-      const deps = buildDepsForState(state, opKey);
-      etaText = await getTileEtaText(state, f, deps, run0, thr, latest);
+      if (Number(readiness) >= Number(thr)){
+  etaText = '';
+} else {
+        const deps = buildDepsForState(state, opKey);
+        etaText = await getTileEtaText(state, f, deps, run0, thr, latest);
+      }
     }catch(err){
       setEtaDebug(state, fid, {
         phase: 'tile-update-exception',
@@ -2385,7 +2404,7 @@ async function updateTileForField(state, fieldId){
         threshold: Number(thr),
         error: safeStr(err && err.message || err)
       });
-      etaText = `>${ETA_HORIZON_HOURS}h`;
+      etaText = 'ETA can not be calculated at this time';
     }
 
     upsertEtaHelp(state, tile, {
