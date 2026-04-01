@@ -661,11 +661,6 @@
       color:#fff;
     }
 
-    .radar-btn:disabled{
-      opacity:.45;
-      cursor:not-allowed;
-    }
-
     .radar-time{
       min-width:180px;
       text-align:center;
@@ -703,6 +698,40 @@
       border-radius:999px;
       background:color-mix(in srgb, var(--surface) 88%, #ffffff 12%);
       white-space:nowrap;
+    }
+
+    .timeline-dock{
+      position:absolute;
+      left:50%;
+      bottom:18px;
+      transform:translateX(-50%);
+      z-index:34;
+      width:min(92vw, 780px);
+      padding:10px 12px;
+      border-radius:18px;
+      background:var(--glass);
+      border:1px solid var(--glass-border);
+      box-shadow:var(--glass-shadow);
+      backdrop-filter:var(--blur);
+      -webkit-backdrop-filter:var(--blur);
+      color:var(--text-dark);
+      pointer-events:auto;
+    }
+
+    .timeline-top{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:8px;
+      font-size:12px;
+      font-weight:900;
+    }
+
+    .timeline-slider{
+      width:100%;
+      accent-color:#2F6C3C;
+      cursor:pointer;
     }
 
     @media (max-width:860px){
@@ -822,7 +851,7 @@
       }
 
       .map-chip{
-        bottom:8px;
+        bottom:84px;
         font-size:11px;
         padding:8px 12px;
       }
@@ -847,6 +876,11 @@
 
       .radar-range{
         width:92px;
+      }
+
+      .timeline-dock{
+        width:calc(100vw - 16px);
+        bottom:10px;
       }
     }
 
@@ -915,9 +949,18 @@
           <div id="radarTimeText" class="radar-time">Radar loading…</div>
           <div class="radar-group">
             <span class="radar-label">Opacity</span>
-            <input id="radarOpacity" class="radar-range" type="range" min="0" max="100" step="1" value="55"/>
-            <span id="radarOpacityText" class="radar-badge">55%</span>
+            <input id="radarOpacity" class="radar-range" type="range" min="0" max="100" step="1" value="45"/>
+            <span id="radarOpacityText" class="radar-badge">45%</span>
           </div>
+        </div>
+
+        <div class="timeline-dock" aria-label="Radar timeline">
+          <div class="timeline-top">
+            <span id="timelineStartText">Start</span>
+            <span id="timelineCurrentText">Current Frame</span>
+            <span id="timelineEndText">End</span>
+          </div>
+          <input id="radarTimeline" class="timeline-slider" type="range" min="0" max="0" step="1" value="0"/>
         </div>
 
         <div class="left-legend" aria-label="Map legend">
@@ -1026,7 +1069,7 @@
                 </div>
                 <div class="menu-pill">
                   <span class="mutedish">Opacity</span>
-                  <span id="radarOpacityMenuText" class="mono">55%</span>
+                  <span id="radarOpacityMenuText" class="mono">45%</span>
                 </div>
               </div>
             </div>
@@ -1063,12 +1106,11 @@
     (() => {
       const RADAR_API_URL = 'https://api.rainviewer.com/public/weather-maps.json';
       const RADAR_TILE_SIZE = 256;
-      const DEFAULT_OPACITY = 0.55;
+      const DEFAULT_OPACITY = 0.45;
       const DEFAULT_FRAME_MS = 700;
 
       const state = {
         map: null,
-        overlayIndex: 0,
         overlay: null,
         frames: [],
         frameIndex: 0,
@@ -1078,7 +1120,8 @@
         timer: null,
         lastHost: '',
         loading: false,
-        hookReady: false
+        hookReady: false,
+        didZoomNudge: false
       };
 
       const el = {};
@@ -1095,10 +1138,45 @@
         el.radarStatusText = document.getElementById('radarStatusText');
         el.frameIndex = document.getElementById('radarFrameIndex');
         el.frameCount = document.getElementById('radarFrameCount');
+        el.timeline = document.getElementById('radarTimeline');
+        el.timelineStart = document.getElementById('timelineStartText');
+        el.timelineCurrent = document.getElementById('timelineCurrentText');
+        el.timelineEnd = document.getElementById('timelineEndText');
       }
 
       function setRadarStatus(text){
         if (el.radarStatusText) el.radarStatusText.textContent = text;
+      }
+
+      function formatFrameTime(unixSec){
+        const dt = new Date(unixSec * 1000);
+        return new Intl.DateTimeFormat(undefined, {
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit'
+        }).format(dt);
+      }
+
+      function syncTimeline(){
+        const count = state.frames.length;
+        if (!el.timeline) return;
+
+        el.timeline.max = String(Math.max(0, count - 1));
+        el.timeline.value = String(Math.max(0, state.frameIndex));
+
+        if (!count){
+          el.timeline.disabled = true;
+          if (el.timelineStart) el.timelineStart.textContent = 'Start';
+          if (el.timelineCurrent) el.timelineCurrent.textContent = 'Current Frame';
+          if (el.timelineEnd) el.timelineEnd.textContent = 'End';
+          return;
+        }
+
+        el.timeline.disabled = false;
+        if (el.timelineStart) el.timelineStart.textContent = formatFrameTime(state.frames[0].time);
+        if (el.timelineCurrent) el.timelineCurrent.textContent = formatFrameTime(state.frames[state.frameIndex].time);
+        if (el.timelineEnd) el.timelineEnd.textContent = formatFrameTime(state.frames[count - 1].time);
       }
 
       function setFrameMeta(){
@@ -1108,18 +1186,12 @@
 
         if (!count){
           if (el.time) el.time.textContent = 'No radar frames';
+          syncTimeline();
           return;
         }
 
-        const frame = state.frames[state.frameIndex];
-        const dt = new Date(frame.time * 1000);
-        const fmt = new Intl.DateTimeFormat(undefined, {
-          month: 'short',
-          day: 'numeric',
-          hour: 'numeric',
-          minute: '2-digit'
-        });
-        if (el.time) el.time.textContent = `Radar: ${fmt.format(dt)}`;
+        if (el.time) el.time.textContent = `Radar: ${formatFrameTime(state.frames[state.frameIndex].time)}`;
+        syncTimeline();
       }
 
       function setOpacityDisplay(){
@@ -1146,17 +1218,12 @@
       }
 
       function removeOverlay(){
-        if (!state.map) return;
+        if (!state.map || !state.overlay) return;
         const arr = state.map.overlayMapTypes;
-        if (typeof state.overlayIndex === 'number' && arr.getAt(state.overlayIndex)){
-          arr.removeAt(state.overlayIndex);
-        }else{
-          for (let i = arr.getLength() - 1; i >= 0; i -= 1){
-            const item = arr.getAt(i);
-            if (item === state.overlay){
-              arr.removeAt(i);
-              break;
-            }
+        for (let i = arr.getLength() - 1; i >= 0; i -= 1){
+          if (arr.getAt(i) === state.overlay){
+            arr.removeAt(i);
+            break;
           }
         }
         state.overlay = null;
@@ -1173,15 +1240,17 @@
 
         const frame = state.frames[state.frameIndex];
         state.overlay = makeOverlayForFrame(frame);
-        state.map.overlayMapTypes.push(state.overlay);
-        state.overlayIndex = state.map.overlayMapTypes.getLength() - 1;
+
+        // Put radar UNDER the other overlay types so field blobs can still show.
+        state.map.overlayMapTypes.insertAt(0, state.overlay);
+
         setFrameMeta();
       }
 
       function updateOverlayOpacity(){
         if (state.overlay && typeof state.overlay.setOpacity === 'function'){
           state.overlay.setOpacity(state.opacity);
-        }else if (state.map && state.frames.length && state.enabled){
+        } else if (state.map && state.frames.length && state.enabled){
           applyOverlay();
         }
         setOpacityDisplay();
@@ -1248,6 +1317,7 @@
           console.warn('[RadarOverlay] frame load failed:', err);
           setRadarStatus('failed');
           if (el.time) el.time.textContent = 'Radar unavailable';
+          syncTimeline();
         } finally {
           state.loading = false;
         }
@@ -1300,8 +1370,17 @@
         });
 
         el.opacity.addEventListener('input', () => {
-          state.opacity = Number(el.opacity.value || 55) / 100;
+          state.opacity = Number(el.opacity.value || 45) / 100;
           updateOverlayOpacity();
+        });
+
+        el.timeline.addEventListener('input', () => {
+          if (!state.frames.length) return;
+          state.playing = false;
+          syncPlaybackUi();
+          stopAnimation();
+          state.frameIndex = Number(el.timeline.value || 0);
+          applyOverlay();
         });
       }
 
@@ -1358,6 +1437,22 @@
         });
       }
 
+      function nudgeZoomInOnce(){
+        if (!state.map || state.didZoomNudge) return;
+        state.didZoomNudge = true;
+
+        setTimeout(() => {
+          try{
+            const z = Number(state.map.getZoom?.() || 0);
+            if (z > 0){
+              state.map.setZoom(Math.min(z + 1, 15));
+            }
+          }catch(err){
+            console.warn('[RadarOverlay] zoom nudge failed:', err);
+          }
+        }, 1200);
+      }
+
       async function bootRadar(){
         grabEls();
         bindUi();
@@ -1365,12 +1460,14 @@
 
         try {
           await whenMapReady();
+          nudgeZoomInOnce();
           setRadarStatus('map ready');
           await loadRadarFrames();
         } catch (err){
           console.warn('[RadarOverlay] boot failed:', err);
           setRadarStatus('map not found');
           if (el.time) el.time.textContent = 'Map not ready for radar';
+          syncTimeline();
         }
       }
 
