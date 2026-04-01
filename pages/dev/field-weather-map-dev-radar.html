@@ -615,14 +615,48 @@
       font-weight:800;
     }
 
-    /* radar fields added into existing live menu */
     .radar-sep{
       height:1px;
       margin:12px 0;
       background:rgba(0,0,0,.08);
     }
 
-    /* hide lower-right google bundle on this dev page */
+    .menu-btn-row{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:8px;
+    }
+
+    .menu-btn-secondary{
+      width:100%;
+      max-width:100%;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+      min-height:44px;
+      border:1px solid rgba(0,0,0,.08);
+      border-radius:14px;
+      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
+      color:var(--text-dark);
+      font:inherit;
+      font-size:15px;
+      font-weight:900;
+      cursor:pointer;
+      text-align:center;
+      white-space:normal;
+    }
+
+    .menu-btn-secondary:active{
+      transform:translateY(1px);
+    }
+
+    .menu-range{
+      width:100%;
+      accent-color:#2F6C3C;
+      cursor:pointer;
+    }
+
     #rainMap .gm-bundled-control,
     #rainMap .gm-bundled-control-on-bottom,
     #rainMap .gmnoprint[style*="bottom"][style*="right"]{
@@ -921,269 +955,433 @@
     </div>
   </fv-shell>
 
-
   <script type="module">
     import { startWeatherMap } from '/Farm-vista/js/rainfallmap/app.js';
     import { appState } from '/Farm-vista/js/rainfallmap/store.js';
 
     window.startWeatherMap = startWeatherMap;
 
- (() => {
-  const RADAR_TILE_SIZE = 256;
-  const DEFAULT_OPACITY = 0.72;
+    (() => {
+      const RADAR_MANIFEST_URL = 'https://farmvista-radar-service-300398089669.us-central1.run.app/api/radar/manifest?region=MIDWEST';
 
-  const radarState = {
-    overlay: null,
-    enabled: true,
-    opacity: DEFAULT_OPACITY,
-    uiBuilt: false
-  };
+      const DEFAULT_OPACITY = 0.50;
+      const DEFAULT_SPEED_MS = 500;
 
-  function effectiveOpacity(value){
-    return Math.max(0.05, Math.min(1, Number(value || 0)));
-  }
-
-  function buildRadarTileUrl(x, y, z){
-    return `https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/${z}/${x}/${y}.png`;
-  }
-
-  function makeOverlay(opacity){
-    return new google.maps.ImageMapType({
-      tileSize: new google.maps.Size(RADAR_TILE_SIZE, RADAR_TILE_SIZE),
-      opacity,
-      name: 'Radar',
-      getTileUrl(coord, zoom){
-        return buildRadarTileUrl(coord.x, coord.y, zoom);
-      }
-    });
-  }
-
-  function removeRadarOverlay(){
-    const map = appState.map;
-    if (!map || !radarState.overlay) return;
-
-    const arr = map.overlayMapTypes;
-    for (let i = arr.getLength() - 1; i >= 0; i -= 1){
-      if (arr.getAt(i) === radarState.overlay){
-        arr.removeAt(i);
-        break;
-      }
-    }
-    radarState.overlay = null;
-  }
-
-  function setRadarStatus(text){
-    const el = document.getElementById('radarStatusText');
-    if (el) el.textContent = text;
-  }
-
-  function setRadarTimeText(text){
-    const el = document.getElementById('radarTimeText');
-    if (el) el.textContent = text;
-  }
-
-  function setRadarOpacityText(){
-    const el = document.getElementById('radarOpacityMenuText');
-    if (el) el.textContent = `${Math.round(radarState.opacity * 100)}%`;
-  }
-
-  function setRadarTimeNow(){
-    const el = document.getElementById('radarTimeText');
-    if (!el) return;
-    const now = new Date();
-    el.textContent = new Intl.DateTimeFormat(undefined, {
-      month: 'numeric',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit'
-    }).format(now);
-  }
-
-  function applyRadarOverlay(){
-    const map = appState.map;
-    if (!map) return;
-
-    removeRadarOverlay();
-
-    if (!radarState.enabled){
-      setRadarStatus('off');
-      return;
-    }
-
-    radarState.overlay = makeOverlay(effectiveOpacity(radarState.opacity));
-    map.overlayMapTypes.insertAt(0, radarState.overlay);
-    setRadarStatus('ready');
-    setRadarTimeNow();
-  }
-
-  function updateRadarOpacity(){
-    const nextOpacity = effectiveOpacity(radarState.opacity);
-    if (radarState.overlay && typeof radarState.overlay.setOpacity === 'function'){
-      radarState.overlay.setOpacity(nextOpacity);
-    } else {
-      applyRadarOverlay();
-    }
-    setRadarOpacityText();
-  }
-
-  function buildRadarMenuUi(){
-    if (radarState.uiBuilt) return;
-    const menuPanel = document.getElementById('menuPanel');
-    if (!menuPanel) return;
-
-    const anchor = menuPanel.querySelector('.menu-field:last-child');
-    if (!anchor) return;
-
-    const wrap = document.createElement('div');
-    wrap.id = 'radarSettingsBlock';
-    wrap.innerHTML = `
-      <div class="radar-sep"></div>
-
-      <div class="menu-field">
-        <label>Radar</label>
-        <div class="menu-inline">
-          <div class="menu-pill">
-            <span class="mutedish">Overlay</span>
-            <span id="radarStatusText">waiting…</span>
-          </div>
-          <div class="menu-pill">
-            <span class="mutedish">Frame</span>
-            <span id="radarTimeText">--:--</span>
-          </div>
-          <div class="menu-pill">
-            <span class="mutedish">Opacity</span>
-            <span id="radarOpacityMenuText" class="mono">72%</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="menu-field">
-        <label for="radarEnabledSel">Radar overlay</label>
-        <select id="radarEnabledSel" class="menu-select">
-          <option value="on" selected>On</option>
-          <option value="off">Off</option>
-        </select>
-      </div>
-
-      <div class="menu-field">
-        <label for="radarOpacity">Radar opacity</label>
-        <input id="radarOpacity" class="menu-input" type="range" min="5" max="100" step="1" value="72" style="cursor:pointer;padding:12px 0;background:transparent;border:none"/>
-      </div>
-
-      <div class="menu-field">
-        <label>Radar source</label>
-        <div class="menu-inline">
-          <div class="menu-pill">
-            <span class="mutedish">Provider</span>
-            <span>IEM</span>
-          </div>
-          <div class="menu-pill">
-            <span class="mutedish">Layer</span>
-            <span>Live radar</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="menu-field">
-        <label>Radar refresh</label>
-        <button id="btnRefreshRadar" class="menu-btn" type="button">Reload Radar</button>
-      </div>
-    `;
-
-    anchor.parentNode.insertBefore(wrap, anchor);
-
-    const enabledSel = document.getElementById('radarEnabledSel');
-    const opacityInput = document.getElementById('radarOpacity');
-    const refreshBtn = document.getElementById('btnRefreshRadar');
-
-    enabledSel.addEventListener('change', () => {
-      radarState.enabled = String(enabledSel.value || 'on') === 'on';
-      applyRadarOverlay();
-    });
-
-    opacityInput.addEventListener('input', () => {
-      radarState.opacity = Number(opacityInput.value || 72) / 100;
-      updateRadarOpacity();
-    });
-
-    refreshBtn.addEventListener('click', () => {
-      applyRadarOverlay();
-    });
-
-    setRadarOpacityText();
-    radarState.uiBuilt = true;
-  }
-
-  function hideLowerRightControlAgain(){
-    try{
-      const root = document.getElementById('rainMap');
-      if (!root) return;
-      root.querySelectorAll('.gm-bundled-control, .gm-bundled-control-on-bottom, .gmnoprint').forEach(node => {
-        const style = window.getComputedStyle(node);
-        const right = style.right || '';
-        const bottom = style.bottom || '';
-        if (node.classList.contains('gm-bundled-control') || node.classList.contains('gm-bundled-control-on-bottom') || (right !== 'auto' && bottom !== 'auto')){
-          node.style.display = 'none';
-        }
-      });
-    }catch(_){}
-  }
-
-  function waitForMap(timeoutMs = 30000){
-    const start = Date.now();
-    return new Promise((resolve, reject) => {
-      const tick = () => {
-        if (appState.map){
-          resolve(appState.map);
-          return;
-        }
-        if (Date.now() - start > timeoutMs){
-          reject(new Error('Timed out waiting for map'));
-          return;
-        }
-        setTimeout(tick, 100);
+      // Approximate display bounds for NOAA RIDGE CENTGRLAKES regional GIF.
+      // If you later want tighter alignment, this is the one section to tune.
+      const RADAR_BOUNDS = {
+        north: 49.9,
+        south: 35.2,
+        west: -99.4,
+        east: -74.6
       };
-      tick();
-    });
-  }
 
-  async function bootDevRadar(){
-    try{
-      await waitForMap();
-      buildRadarMenuUi();
-      applyRadarOverlay();
-      hideLowerRightControlAgain();
-      setTimeout(hideLowerRightControlAgain, 1200);
-    }catch(err){
-      console.warn('[DevRadar] boot failed:', err);
-    }
-  }
+      const radarState = {
+        map: null,
+        overlay: null,
+        enabled: true,
+        playing: true,
+        opacity: DEFAULT_OPACITY,
+        speedMs: DEFAULT_SPEED_MS,
+        uiBuilt: false,
+        manifest: null,
+        frames: [],
+        frameIndex: 0,
+        timer: null,
+        loading: false,
+        lastGoodLoadIso: null
+      };
 
-  window.addEventListener('load', ()=>{
-    setTimeout(()=>{
-      startWeatherMap().catch(err=>{
-        console.warn('[WeatherMap] delayed boot failed:', err);
+      function clamp(value, min, max){
+        return Math.max(min, Math.min(max, Number(value || 0)));
+      }
+
+      function effectiveOpacity(value){
+        return clamp(value, 0.05, 1);
+      }
+
+      function setRadarStatus(text){
+        const el = document.getElementById('radarStatusText');
+        if (el) el.textContent = text;
+      }
+
+      function setRadarTimeText(text){
+        const el = document.getElementById('radarTimeText');
+        if (el) el.textContent = text;
+      }
+
+      function setRadarOpacityText(){
+        const el = document.getElementById('radarOpacityMenuText');
+        if (el) el.textContent = `${Math.round(radarState.opacity * 100)}%`;
+      }
+
+      function setRadarPlayText(){
+        const el = document.getElementById('btnRadarPlay');
+        if (el) el.textContent = radarState.playing ? 'Pause Radar' : 'Play Radar';
+      }
+
+      function setRadarToggleText(){
+        const el = document.getElementById('btnRadarToggle');
+        if (el) el.textContent = radarState.enabled ? 'Radar On' : 'Radar Off';
+      }
+
+      function formatRadarTime(iso){
+        if (!iso) return '--:--';
+        try{
+          return new Intl.DateTimeFormat('en-US', {
+            month: 'numeric',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+            timeZone: 'America/Chicago'
+          }).format(new Date(iso));
+        }catch(_){
+          return iso;
+        }
+      }
+
+      function stopRadarTimer(){
+        if (radarState.timer){
+          clearInterval(radarState.timer);
+          radarState.timer = null;
+        }
+      }
+
+      function removeRadarOverlay(){
+        if (radarState.overlay){
+          radarState.overlay.setMap(null);
+          radarState.overlay = null;
+        }
+      }
+
+      function preloadRadarFrames(frames){
+        frames.forEach((frame) => {
+          if (!frame || !frame.imageUrl) return;
+          const img = new Image();
+          img.src = frame.imageUrl;
+        });
+      }
+
+      function currentFrame(){
+        if (!radarState.frames.length) return null;
+        const safeIndex = clamp(radarState.frameIndex, 0, radarState.frames.length - 1);
+        return radarState.frames[safeIndex] || null;
+      }
+
+      function renderRadarFrame(){
+        const map = radarState.map || appState.map;
+        if (!map){
+          setRadarStatus('waiting on map');
+          return;
+        }
+
+        removeRadarOverlay();
+
+        if (!radarState.enabled){
+          setRadarStatus('off');
+          setRadarTimeText('--:--');
+          return;
+        }
+
+        const frame = currentFrame();
+        if (!frame || !frame.imageUrl){
+          setRadarStatus('no frames');
+          setRadarTimeText('--:--');
+          return;
+        }
+
+        radarState.overlay = new google.maps.GroundOverlay(
+          frame.imageUrl,
+          RADAR_BOUNDS,
+          {
+            opacity: effectiveOpacity(radarState.opacity)
+          }
+        );
+
+        radarState.overlay.setMap(map);
+        setRadarStatus(radarState.playing ? 'animating' : 'paused');
+        setRadarTimeText(formatRadarTime(frame.time));
+      }
+
+      function nextRadarFrame(){
+        if (!radarState.frames.length) return;
+        radarState.frameIndex = (radarState.frameIndex + 1) % radarState.frames.length;
+        renderRadarFrame();
+      }
+
+      function startRadarTimer(){
+        stopRadarTimer();
+
+        if (!radarState.enabled || !radarState.playing || radarState.frames.length <= 1){
+          return;
+        }
+
+        radarState.timer = setInterval(() => {
+          nextRadarFrame();
+        }, clamp(radarState.speedMs, 200, 2000));
+      }
+
+      async function loadRadarManifest(force = false){
+        if (radarState.loading) return;
+        radarState.loading = true;
+        setRadarStatus(force ? 'reloading…' : 'loading…');
+
+        try{
+          const url = force
+            ? `${RADAR_MANIFEST_URL}&_=${Date.now()}`
+            : RADAR_MANIFEST_URL;
+
+          const resp = await fetch(url, { cache: 'no-store' });
+          if (!resp.ok) throw new Error(`manifest ${resp.status}`);
+
+          const manifest = await resp.json();
+          const frames = Array.isArray(manifest?.frames) ? manifest.frames.slice() : [];
+
+          radarState.manifest = manifest;
+          radarState.frames = frames;
+          radarState.frameIndex = 0;
+          radarState.speedMs = Number(manifest?.defaultSpeedMs || radarState.speedMs || DEFAULT_SPEED_MS);
+          radarState.lastGoodLoadIso = new Date().toISOString();
+
+          preloadRadarFrames(frames);
+          renderRadarFrame();
+          startRadarTimer();
+        }catch(err){
+          console.warn('[DevRadar] manifest load failed:', err);
+          setRadarStatus('load failed');
+        }finally{
+          radarState.loading = false;
+        }
+      }
+
+      function updateRadarOpacity(){
+        radarState.opacity = effectiveOpacity(radarState.opacity);
+        setRadarOpacityText();
+
+        if (radarState.overlay && typeof radarState.overlay.setOpacity === 'function'){
+          radarState.overlay.setOpacity(radarState.opacity);
+        }else{
+          renderRadarFrame();
+        }
+      }
+
+      function buildRadarMenuUi(){
+        if (radarState.uiBuilt) return;
+
+        const menuPanel = document.getElementById('menuPanel');
+        if (!menuPanel) return;
+
+        const anchor = menuPanel.querySelector('.menu-field:last-child');
+        if (!anchor) return;
+
+        const wrap = document.createElement('div');
+        wrap.id = 'radarSettingsBlock';
+        wrap.innerHTML = `
+          <div class="radar-sep"></div>
+
+          <div class="menu-field">
+            <label>Radar</label>
+            <div class="menu-inline">
+              <div class="menu-pill">
+                <span class="mutedish">Overlay</span>
+                <span id="radarStatusText">waiting…</span>
+              </div>
+              <div class="menu-pill">
+                <span class="mutedish">Frame</span>
+                <span id="radarTimeText">--:--</span>
+              </div>
+              <div class="menu-pill">
+                <span class="mutedish">Opacity</span>
+                <span id="radarOpacityMenuText" class="mono">50%</span>
+              </div>
+              <div class="menu-pill">
+                <span class="mutedish">Frames</span>
+                <span id="radarFrameCountText" class="mono">0</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="menu-field">
+            <label>Radar controls</label>
+            <div class="menu-btn-row">
+              <button id="btnRadarToggle" class="menu-btn" type="button">Radar On</button>
+              <button id="btnRadarPlay" class="menu-btn-secondary" type="button">Pause Radar</button>
+            </div>
+          </div>
+
+          <div class="menu-field">
+            <label for="radarOpacity">Radar opacity</label>
+            <input id="radarOpacity" class="menu-range" type="range" min="5" max="100" step="1" value="50"/>
+          </div>
+
+          <div class="menu-field">
+            <label for="radarSpeedSel">Radar speed</label>
+            <select id="radarSpeedSel" class="menu-select">
+              <option value="300">Fast</option>
+              <option value="500" selected>Normal</option>
+              <option value="800">Slow</option>
+              <option value="1200">Very Slow</option>
+            </select>
+          </div>
+
+          <div class="menu-field">
+            <label>Radar source</label>
+            <div class="menu-inline">
+              <div class="menu-pill">
+                <span class="mutedish">Provider</span>
+                <span>NOAA RIDGE</span>
+              </div>
+              <div class="menu-pill">
+                <span class="mutedish">Region</span>
+                <span>CENTGRLAKES</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="menu-field">
+            <label>Radar refresh</label>
+            <button id="btnRefreshRadar" class="menu-btn" type="button">Reload Radar</button>
+          </div>
+        `;
+
+        anchor.parentNode.insertBefore(wrap, anchor);
+
+        const toggleBtn = document.getElementById('btnRadarToggle');
+        const playBtn = document.getElementById('btnRadarPlay');
+        const opacityInput = document.getElementById('radarOpacity');
+        const speedSel = document.getElementById('radarSpeedSel');
+        const refreshBtn = document.getElementById('btnRefreshRadar');
+
+        toggleBtn.addEventListener('click', () => {
+          radarState.enabled = !radarState.enabled;
+          setRadarToggleText();
+          renderRadarFrame();
+          startRadarTimer();
+        });
+
+        playBtn.addEventListener('click', () => {
+          radarState.playing = !radarState.playing;
+          setRadarPlayText();
+          renderRadarFrame();
+          startRadarTimer();
+        });
+
+        opacityInput.addEventListener('input', () => {
+          radarState.opacity = Number(opacityInput.value || 50) / 100;
+          updateRadarOpacity();
+        });
+
+        speedSel.addEventListener('change', () => {
+          radarState.speedMs = Number(speedSel.value || DEFAULT_SPEED_MS);
+          startRadarTimer();
+        });
+
+        refreshBtn.addEventListener('click', async () => {
+          await loadRadarManifest(true);
+          const frameCountEl = document.getElementById('radarFrameCountText');
+          if (frameCountEl) frameCountEl.textContent = String(radarState.frames.length || 0);
+        });
+
+        setRadarOpacityText();
+        setRadarPlayText();
+        setRadarToggleText();
+        radarState.uiBuilt = true;
+      }
+
+      function syncRadarUi(){
+        const frameCountEl = document.getElementById('radarFrameCountText');
+        if (frameCountEl) frameCountEl.textContent = String(radarState.frames.length || 0);
+
+        const opacityInput = document.getElementById('radarOpacity');
+        if (opacityInput) opacityInput.value = String(Math.round(radarState.opacity * 100));
+
+        const speedSel = document.getElementById('radarSpeedSel');
+        if (speedSel) speedSel.value = String(radarState.speedMs || DEFAULT_SPEED_MS);
+
+        setRadarOpacityText();
+        setRadarPlayText();
+        setRadarToggleText();
+      }
+
+      function hideLowerRightControlAgain(){
+        try{
+          const root = document.getElementById('rainMap');
+          if (!root) return;
+          root.querySelectorAll('.gm-bundled-control, .gm-bundled-control-on-bottom, .gmnoprint').forEach(node => {
+            const style = window.getComputedStyle(node);
+            const right = style.right || '';
+            const bottom = style.bottom || '';
+            if (
+              node.classList.contains('gm-bundled-control') ||
+              node.classList.contains('gm-bundled-control-on-bottom') ||
+              (right !== 'auto' && bottom !== 'auto')
+            ){
+              node.style.display = 'none';
+            }
+          });
+        }catch(_){}
+      }
+
+      function waitForMap(timeoutMs = 30000){
+        const start = Date.now();
+        return new Promise((resolve, reject) => {
+          const tick = () => {
+            if (appState.map){
+              resolve(appState.map);
+              return;
+            }
+            if (Date.now() - start > timeoutMs){
+              reject(new Error('Timed out waiting for map'));
+              return;
+            }
+            setTimeout(tick, 100);
+          };
+          tick();
+        });
+      }
+
+      async function bootDevRadar(){
+        try{
+          radarState.map = await waitForMap();
+          buildRadarMenuUi();
+          syncRadarUi();
+          await loadRadarManifest(false);
+          syncRadarUi();
+          hideLowerRightControlAgain();
+          setTimeout(hideLowerRightControlAgain, 1200);
+        }catch(err){
+          console.warn('[DevRadar] boot failed:', err);
+        }
+      }
+
+      window.addEventListener('load', () => {
+        setTimeout(() => {
+          startWeatherMap().catch(err => {
+            console.warn('[WeatherMap] delayed boot failed:', err);
+          });
+        }, 250);
+
+        setTimeout(() => {
+          bootDevRadar().catch(err => {
+            console.warn('[DevRadar] delayed boot failed:', err);
+          });
+        }, 1200);
       });
-    }, 250);
 
-    setTimeout(()=>{
-      bootDevRadar().catch(err=>{
-        console.warn('[DevRadar] delayed boot failed:', err);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible'){
+          startWeatherMap().catch(() => {});
+          setTimeout(async () => {
+            buildRadarMenuUi();
+            syncRadarUi();
+            await loadRadarManifest(true);
+            hideLowerRightControlAgain();
+          }, 500);
+        }else{
+          stopRadarTimer();
+        }
       });
-    }, 1200);
-  });
-
-  document.addEventListener('visibilitychange', ()=>{
-    if (document.visibilityState === 'visible'){
-      startWeatherMap().catch(()=>{});
-      setTimeout(()=>{
-        buildRadarMenuUi();
-        applyRadarOverlay();
-        hideLowerRightControlAgain();
-      }, 500);
-    }
-  });
-})();
+    })();
   </script>
 
   <script async src="https://maps.googleapis.com/maps/api/js?loading=async&key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY"></script>
