@@ -1068,6 +1068,7 @@
 
       const state = {
         map: null,
+        overlayIndex: 0,
         overlay: null,
         frames: [],
         frameIndex: 0,
@@ -1076,14 +1077,11 @@
         opacity: DEFAULT_OPACITY,
         timer: null,
         lastHost: '',
-        loading: false
+        loading: false,
+        hookReady: false
       };
 
       const el = {};
-      const mapCtorObserver = {
-        installed: false,
-        originalMap: null
-      };
 
       function grabEls(){
         el.toggle = document.getElementById('radarToggleBtn');
@@ -1133,7 +1131,7 @@
       function buildRadarTileUrl(frame, x, y, z){
         const path = frame.path || '';
         const host = state.lastHost || '';
-        return `${host}${path}/${RADAR_TILE_SIZE}/${z}/${x}/${y}/2/1_1.png`;
+        return `${host}${path}/256/${z}/${x}/${y}/6/1_1.png`;
       }
 
       function makeOverlayForFrame(frame){
@@ -1148,12 +1146,17 @@
       }
 
       function removeOverlay(){
-        if (!state.map || !state.overlay) return;
+        if (!state.map) return;
         const arr = state.map.overlayMapTypes;
-        for (let i = 0; i < arr.getLength(); i += 1){
-          if (arr.getAt(i) === state.overlay){
-            arr.removeAt(i);
-            break;
+        if (typeof state.overlayIndex === 'number' && arr.getAt(state.overlayIndex)){
+          arr.removeAt(state.overlayIndex);
+        }else{
+          for (let i = arr.getLength() - 1; i >= 0; i -= 1){
+            const item = arr.getAt(i);
+            if (item === state.overlay){
+              arr.removeAt(i);
+              break;
+            }
           }
         }
         state.overlay = null;
@@ -1171,12 +1174,15 @@
         const frame = state.frames[state.frameIndex];
         state.overlay = makeOverlayForFrame(frame);
         state.map.overlayMapTypes.push(state.overlay);
+        state.overlayIndex = state.map.overlayMapTypes.getLength() - 1;
         setFrameMeta();
       }
 
       function updateOverlayOpacity(){
         if (state.overlay && typeof state.overlay.setOpacity === 'function'){
           state.overlay.setOpacity(state.opacity);
+        }else if (state.map && state.frames.length && state.enabled){
+          applyOverlay();
         }
         setOpacityDisplay();
       }
@@ -1227,8 +1233,7 @@
 
           state.lastHost = json.host || '';
           const rawFrames = Array.isArray(json?.radar?.past) ? json.radar.past : [];
-          state.frames = rawFrames
-            .filter(f => f && typeof f.time === 'number' && typeof f.path === 'string');
+          state.frames = rawFrames.filter(f => f && typeof f.time === 'number' && typeof f.path === 'string');
 
           if (!state.frames.length){
             throw new Error('No radar frames returned');
@@ -1254,6 +1259,7 @@
         el.toggle.addEventListener('click', () => {
           state.enabled = !state.enabled;
           syncPlaybackUi();
+
           if (!state.enabled){
             removeOverlay();
             stopAnimation();
@@ -1299,62 +1305,63 @@
         });
       }
 
-      function whenMapReady(timeoutMs = 20000){
-        const start = Date.now();
+      function installMapCtorHookNow(){
+        if (state.hookReady) return;
+        state.hookReady = true;
 
-        return new Promise((resolve, reject) => {
-          const tick = () => {
-            if (state.map){
-              resolve(state.map);
-              return;
-            }
-            if (Date.now() - start > timeoutMs){
-              reject(new Error('Timed out waiting for Google Map instance'));
-              return;
-            }
-            setTimeout(tick, 150);
-          };
-          tick();
-        });
-      }
-
-      function installMapCtorHook(){
-        if (mapCtorObserver.installed) return;
-        mapCtorObserver.installed = true;
-
-        const waitForGoogle = () => {
+        const wrap = () => {
           if (!(window.google && google.maps && google.maps.Map)){
-            setTimeout(waitForGoogle, 100);
+            setTimeout(wrap, 25);
             return;
           }
 
           if (google.maps.Map.__fvRadarWrapped) return;
 
-          mapCtorObserver.originalMap = google.maps.Map;
           const OriginalMap = google.maps.Map;
 
           function WrappedMap(...args){
             const map = new OriginalMap(...args);
             state.map = map;
-            window.__fvRainMapInstance = map;
+            window.__fvRadarMapInstance = map;
             return map;
           }
 
           WrappedMap.prototype = OriginalMap.prototype;
           Object.setPrototypeOf(WrappedMap, OriginalMap);
           WrappedMap.__fvRadarWrapped = true;
-
           google.maps.Map = WrappedMap;
         };
 
-        waitForGoogle();
+        wrap();
+      }
+
+      function whenMapReady(timeoutMs = 30000){
+        const start = Date.now();
+
+        return new Promise((resolve, reject) => {
+          const tick = () => {
+            if (state.map || window.__fvRadarMapInstance){
+              state.map = state.map || window.__fvRadarMapInstance;
+              resolve(state.map);
+              return;
+            }
+
+            if (Date.now() - start > timeoutMs){
+              reject(new Error('Timed out waiting for Google Map instance'));
+              return;
+            }
+
+            setTimeout(tick, 100);
+          };
+
+          tick();
+        });
       }
 
       async function bootRadar(){
         grabEls();
         bindUi();
         refreshAllUi();
-        installMapCtorHook();
 
         try {
           await whenMapReady();
@@ -1371,16 +1378,25 @@
         reload: loadRadarFrames
       };
 
+      installMapCtorHookNow();
+
       window.addEventListener('load', () => {
+        setTimeout(() => {
+          startWeatherMap().catch(err => {
+            console.warn('[WeatherMap] delayed boot failed:', err);
+          });
+        }, 250);
+
         setTimeout(() => {
           bootRadar().catch(err => {
             console.warn('[RadarOverlay] delayed boot failed:', err);
           });
-        }, 900);
+        }, 1200);
       });
 
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible'){
+          startWeatherMap().catch(()=>{});
           if (state.enabled && state.playing){
             startAnimation();
           }
@@ -1389,20 +1405,6 @@
         }
       });
     })();
-
-    window.addEventListener('load', ()=>{
-      setTimeout(()=>{
-        startWeatherMap().catch(err=>{
-          console.warn('[WeatherMap] delayed boot failed:', err);
-        });
-      }, 250);
-    });
-
-    document.addEventListener('visibilitychange', ()=>{
-      if (document.visibilityState === 'visible'){
-        startWeatherMap().catch(()=>{});
-      }
-    });
   </script>
 
   <script async src="https://maps.googleapis.com/maps/api/js?loading=async&key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY"></script>
