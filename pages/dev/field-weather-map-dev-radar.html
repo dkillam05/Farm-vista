@@ -875,7 +875,7 @@
                 </div>
                 <div class="menu-pill">
                   <span class="mutedish">Opacity</span>
-                  <span id="radarOpacityMenuText" class="mono">45%</span>
+                  <span id="radarOpacityMenuText" class="mono">18%</span>
                 </div>
               </div>
             </div>
@@ -890,7 +890,7 @@
 
             <div class="menu-field">
               <label for="radarOpacity">Radar opacity</label>
-              <input id="radarOpacity" class="menu-input" type="range" min="0" max="100" step="1" value="45" style="cursor:pointer;padding:12px 0;background:transparent;border:none"/>
+              <input id="radarOpacity" class="menu-input" type="range" min="0" max="100" step="1" value="18" style="cursor:pointer;padding:12px 0;background:transparent;border:none"/>
             </div>
 
             <div class="menu-field">
@@ -930,10 +930,10 @@
       </div>
     </div>
   </fv-shell>
-  
+
   <script>
-  window.__OWM_KEY__ = prompt('Paste OpenWeather API key');
-</script>
+    window.__OWM_KEY__ = prompt('Paste OpenWeather API key') || '';
+  </script>
 
   <script type="module">
     import { startWeatherMap } from '/Farm-vista/js/rainfallmap/app.js';
@@ -943,7 +943,7 @@
     (() => {
       const OPENWEATHER_API_KEY = window.__OWM_KEY__ || '';
       const RADAR_TILE_SIZE = 256;
-      const DEFAULT_OPACITY = 0.45;
+      const DEFAULT_OPACITY = 0.18;
 
       const state = {
         map: null,
@@ -1016,6 +1016,10 @@
         state.activeOverlay = null;
       }
 
+      function effectiveOpacity(value){
+        return Math.max(0.02, Math.min(0.45, Number(value || 0)));
+      }
+
       function applyOverlay(){
         if (!state.map) return;
 
@@ -1026,18 +1030,27 @@
           return;
         }
 
-        state.activeOverlay = makeOverlay(state.opacity);
+        if (!OPENWEATHER_API_KEY){
+          setRadarStatus('missing key');
+          if (el.radarTimeText) el.radarTimeText.textContent = '--:--';
+          return;
+        }
+
+        state.activeOverlay = makeOverlay(effectiveOpacity(state.opacity));
         state.map.overlayMapTypes.insertAt(0, state.activeOverlay);
         setRadarStatus('ready');
         setRadarTimeNow();
       }
 
       function updateOverlayOpacity(){
+        const nextOpacity = effectiveOpacity(state.opacity);
+
         if (state.activeOverlay && typeof state.activeOverlay.setOpacity === 'function'){
-          state.activeOverlay.setOpacity(state.opacity);
+          state.activeOverlay.setOpacity(nextOpacity);
         } else if (state.map && state.enabled){
           applyOverlay();
         }
+
         setOpacityDisplay();
       }
 
@@ -1061,7 +1074,7 @@
         });
 
         el.radarOpacity.addEventListener('input', () => {
-          state.opacity = Number(el.radarOpacity.value || 45) / 100;
+          state.opacity = Number(el.radarOpacity.value || 18) / 100;
           updateOverlayOpacity();
         });
       }
