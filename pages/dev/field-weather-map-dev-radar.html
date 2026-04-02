@@ -633,10 +633,10 @@
       cursor:pointer;
     }
 
-       .radar-timeline{
+    .radar-timeline{
       position:absolute;
       left:50%;
-      bottom:calc(var(--ftr-h, 42px) + env(safe-area-inset-bottom, 0px) + 10px);
+      bottom:80px;
       transform:translateX(-50%);
       z-index:26;
       width:min(92vw, 760px);
@@ -839,7 +839,7 @@
 
       .radar-timeline{
         width:min(94vw, 760px);
-        bottom:calc(var(--ftr-h, 42px) + env(safe-area-inset-bottom, 0px) + 8px);
+        bottom:80px;
         gap:6px;
         padding:7px 8px;
       }
@@ -1140,17 +1140,16 @@
       }
     }
 
-function updateRadarTimelineVisibility(){
-  const wrap = document.getElementById('radarTimeline');
-  if (!wrap) return;
+    function updateRadarTimelineVisibility(){
+      const wrap = document.getElementById('radarTimeline');
+      if (!wrap) return;
 
-  // Force show if radar is enabled AND frames exist
-  if (radarState.enabled && radarState.frames.length > 0){
-    wrap.hidden = false;
-  } else {
-    wrap.hidden = true;
-  }
-}
+      if (radarState.enabled && radarState.frames.length > 0){
+        wrap.hidden = false;
+      } else {
+        wrap.hidden = true;
+      }
+    }
 
     function updateRadarTimelineSlider(){
       const slider = document.getElementById('radarTimelineSlider');
@@ -1465,6 +1464,7 @@ function updateRadarTimelineVisibility(){
         setRadarStatus('no frames');
         setRadarTimeText('--:--');
         updateRadarTimelineSlider();
+        updateRadarTimelineVisibility();
         return;
       }
 
@@ -1517,8 +1517,11 @@ function updateRadarTimelineVisibility(){
 
         radarState.manifest = manifest;
         radarState.frames = frames;
-        radarState.frameIndex = 0;
+        radarState.frameIndex = Math.max(0, frames.length - 1);
         radarState.speedMs = Number(manifest?.defaultSpeedMs || DEFAULT_SPEED_MS);
+        
+        const newestFrame = frames[radarState.frameIndex];
+        setRadarTimeText(formatRadarTime(newestFrame?.time));
 
         const speedSel = document.getElementById('radarSpeedSel');
         if (speedSel){
@@ -1529,12 +1532,12 @@ function updateRadarTimelineVisibility(){
           }
         }
 
-      setRadarFrameCountText();
-updateRadarTimelineVisibility();
-renderRadarFrame();
-scheduleRadarTimer();
+        setRadarFrameCountText();
+        updateRadarTimelineVisibility();
+        renderRadarFrame();
+        scheduleRadarTimer();
       }catch(err){
-        console.warn('[DevRadar] manifest load failed:', err);
+        console.warn('[WeatherReadinessRadar] manifest load failed:', err);
         setRadarStatus('load failed');
       }finally{
         radarState.loading = false;
@@ -1722,24 +1725,13 @@ scheduleRadarTimer();
         timelineSlider.addEventListener('mouseup', endScrub);
       }
 
-       setRadarOpacityText();
+      setRadarOpacityText();
       setRadarToggleText();
       setRadarPlayText();
       setRadarFrameCountText();
       updateRadarTimelineVisibility();
-
-      const timelineTest = document.getElementById('radarTimeline');
-      if (timelineTest){
-        timelineTest.hidden = false;
-        timelineTest.style.display = 'flex';
-        timelineTest.style.visibility = 'visible';
-        timelineTest.style.opacity = '1';
-        timelineTest.style.zIndex = '999999';
-        timelineTest.style.bottom = '120px';
-        timelineTest.style.border = '3px solid red';
-      }
-
       radarState.uiBuilt = true;
+    }
 
     function hideLowerRightControlAgain(){
       try{
@@ -1825,7 +1817,7 @@ scheduleRadarTimer();
         hideLowerRightControlAgain();
         setTimeout(hideLowerRightControlAgain, 1200);
       }catch(err){
-        console.warn('[DevRadar] boot failed:', err);
+        console.warn('[WeatherReadinessRadar] boot failed:', err);
       }
     }
 
@@ -1839,7 +1831,7 @@ scheduleRadarTimer();
 
         await bootDevRadar();
       }catch(err){
-        console.warn('[DevRadar] page boot failed:', err);
+        console.warn('[WeatherReadinessRadar] page boot failed:', err);
       }
     }
 
@@ -1865,7 +1857,7 @@ scheduleRadarTimer();
             scheduleRadarTimer();
             hideLowerRightControlAgain();
           }catch(err){
-            console.warn('[DevRadar] visibility boot failed:', err);
+            console.warn('[WeatherReadinessRadar] visibility boot failed:', err);
           }
         }, 300);
       } else {
