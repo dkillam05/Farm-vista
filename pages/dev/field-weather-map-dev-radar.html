@@ -1135,162 +1135,165 @@
       }
     }
 
-    class RadarImageOverlay extends google.maps.OverlayView {
-      constructor(map){
-        super();
-        this.map = map;
-        this.div = null;
-        this.bounds = null;
-        this.currentImg = null;
-        this.lastUrl = '';
-        this.visible = true;
-        this.opacity = effectiveOpacity(DEFAULT_OPACITY);
-        this.loadToken = 0;
-        this.setMap(map);
-      }
+   function createRadarImageOverlayClass(){
+  return class RadarImageOverlay extends google.maps.OverlayView {
+    constructor(map){
+      super();
+      this.map = map;
+      this.div = null;
+      this.bounds = null;
+      this.currentImg = null;
+      this.lastUrl = '';
+      this.visible = true;
+      this.opacity = effectiveOpacity(DEFAULT_OPACITY);
+      this.loadToken = 0;
+      this.setMap(map);
+    }
 
-      onAdd(){
-        this.div = document.createElement('div');
-        this.div.style.position = 'absolute';
-        this.div.style.pointerEvents = 'none';
-        this.div.style.overflow = 'hidden';
-        this.div.style.zIndex = '20';
+    onAdd(){
+      this.div = document.createElement('div');
+      this.div.style.position = 'absolute';
+      this.div.style.pointerEvents = 'none';
+      this.div.style.overflow = 'hidden';
+      this.div.style.zIndex = '20';
+      this.div.style.display = this.visible ? 'block' : 'none';
+
+      const panes = this.getPanes();
+      panes.overlayLayer.appendChild(this.div);
+    }
+
+    draw(){
+      if (!this.div || !this.bounds) return;
+      const projection = this.getProjection();
+      if (!projection) return;
+
+      const sw = projection.fromLatLngToDivPixel(this.bounds.getSouthWest());
+      const ne = projection.fromLatLngToDivPixel(this.bounds.getNorthEast());
+      if (!sw || !ne) return;
+
+      const left = Math.min(sw.x, ne.x);
+      const top = Math.min(ne.y, sw.y);
+      const width = Math.max(1, Math.abs(ne.x - sw.x));
+      const height = Math.max(1, Math.abs(sw.y - ne.y));
+
+      this.div.style.left = `${left}px`;
+      this.div.style.top = `${top}px`;
+      this.div.style.width = `${width}px`;
+      this.div.style.height = `${height}px`;
+
+      Array.from(this.div.children).forEach((node) => {
+        node.style.width = '100%';
+        node.style.height = '100%';
+      });
+    }
+
+    onRemove(){
+      if (this.div && this.div.parentNode){
+        this.div.parentNode.removeChild(this.div);
+      }
+      this.div = null;
+      this.currentImg = null;
+      this.lastUrl = '';
+    }
+
+    setVisible(flag){
+      this.visible = !!flag;
+      if (this.div){
         this.div.style.display = this.visible ? 'block' : 'none';
+      }
+    }
 
-        const panes = this.getPanes();
-        panes.overlayLayer.appendChild(this.div);
+    setOpacity(value){
+      this.opacity = effectiveOpacity(value);
+      if (this.currentImg){
+        this.currentImg.style.opacity = String(this.opacity);
+      }
+    }
+
+    clear(){
+      this.lastUrl = '';
+      this.loadToken++;
+      if (!this.div) return;
+      this.div.innerHTML = '';
+      this.currentImg = null;
+    }
+
+    setFrame(url, bounds){
+      if (!url || !bounds){
+        return;
       }
 
-      draw(){
-        if (!this.div || !this.bounds) return;
-        const projection = this.getProjection();
-        if (!projection) return;
+      this.bounds = bounds;
+      this.draw();
 
-        const sw = projection.fromLatLngToDivPixel(this.bounds.getSouthWest());
-        const ne = projection.fromLatLngToDivPixel(this.bounds.getNorthEast());
-        if (!sw || !ne) return;
-
-        const left = Math.min(sw.x, ne.x);
-        const top = Math.min(ne.y, sw.y);
-        const width = Math.max(1, Math.abs(ne.x - sw.x));
-        const height = Math.max(1, Math.abs(sw.y - ne.y));
-
-        this.div.style.left = `${left}px`;
-        this.div.style.top = `${top}px`;
-        this.div.style.width = `${width}px`;
-        this.div.style.height = `${height}px`;
-
-        Array.from(this.div.children).forEach((node) => {
-          node.style.width = '100%';
-          node.style.height = '100%';
-        });
+      if (url === this.lastUrl && this.currentImg){
+        return;
       }
 
-      onRemove(){
-        if (this.div && this.div.parentNode){
-          this.div.parentNode.removeChild(this.div);
-        }
-        this.div = null;
-        this.currentImg = null;
-        this.lastUrl = '';
-      }
+      this.lastUrl = url;
+      const token = ++this.loadToken;
 
-      setVisible(flag){
-        this.visible = !!flag;
-        if (this.div){
-          this.div.style.display = this.visible ? 'block' : 'none';
-        }
-      }
+      const img = new Image();
+      img.decoding = 'async';
+      img.loading = 'eager';
+      img.alt = '';
+      img.draggable = false;
+      img.style.position = 'absolute';
+      img.style.left = '0';
+      img.style.top = '0';
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.userSelect = 'none';
+      img.style.pointerEvents = 'none';
+      img.style.opacity = '0';
+      img.style.transition = `opacity ${FRAME_FADE_MS}ms linear`;
+      img.src = url;
 
-      setOpacity(value){
-        this.opacity = effectiveOpacity(value);
-        if (this.currentImg){
-          this.currentImg.style.opacity = String(this.opacity);
-        }
-      }
+      img.onload = () => {
+        if (token !== this.loadToken || !this.div) return;
 
-      clear(){
-        this.lastUrl = '';
-        this.loadToken++;
-        if (!this.div) return;
-        this.div.innerHTML = '';
-        this.currentImg = null;
-      }
-
-      setFrame(url, bounds){
-        if (!url || !bounds){
-          return;
-        }
-
+        const prev = this.currentImg;
+        this.div.appendChild(img);
+        this.currentImg = img;
         this.bounds = bounds;
         this.draw();
 
-        if (url === this.lastUrl && this.currentImg){
-          return;
-        }
-
-        this.lastUrl = url;
-        const token = ++this.loadToken;
-
-        const img = new Image();
-        img.decoding = 'async';
-        img.loading = 'eager';
-        img.alt = '';
-        img.draggable = false;
-        img.style.position = 'absolute';
-        img.style.left = '0';
-        img.style.top = '0';
-        img.style.width = '100%';
-        img.style.height = '100%';
-        img.style.userSelect = 'none';
-        img.style.pointerEvents = 'none';
-        img.style.opacity = '0';
-        img.style.transition = `opacity ${FRAME_FADE_MS}ms linear`;
-        img.src = url;
-
-        img.onload = () => {
-          if (token !== this.loadToken || !this.div) return;
-
-          const prev = this.currentImg;
-          this.div.appendChild(img);
-          this.currentImg = img;
-          this.bounds = bounds;
-          this.draw();
-
-          requestAnimationFrame(() => {
-            img.style.opacity = String(this.opacity);
-            if (prev){
-              prev.style.opacity = '0';
-            }
-          });
-
+        requestAnimationFrame(() => {
+          img.style.opacity = String(this.opacity);
           if (prev){
-            window.setTimeout(() => {
-              if (prev.parentNode){
-                prev.parentNode.removeChild(prev);
-              }
-            }, FRAME_FADE_MS + 80);
+            prev.style.opacity = '0';
           }
-        };
+        });
 
-        img.onerror = () => {
-          if (token !== this.loadToken) return;
-          setRadarStatus('frame load failed');
-        };
-      }
+        if (prev){
+          window.setTimeout(() => {
+            if (prev.parentNode){
+              prev.parentNode.removeChild(prev);
+            }
+          }, FRAME_FADE_MS + 80);
+        }
+      };
+
+      img.onerror = () => {
+        if (token !== this.loadToken) return;
+        setRadarStatus('frame load failed');
+      };
     }
+  };
+}
 
-    function ensureRadarOverlay(){
-      const map = appState.map;
-      if (!map) return null;
+function ensureRadarOverlay(){
+  const map = appState.map;
+  if (!map || !window.google || !google.maps || !google.maps.OverlayView) return null;
 
-      if (!radarState.overlay){
-        radarState.overlay = new RadarImageOverlay(map);
-        radarState.overlay.setOpacity(radarState.opacity);
-      }
+  if (!radarState.overlay){
+    const RadarImageOverlay = createRadarImageOverlayClass();
+    radarState.overlay = new RadarImageOverlay(map);
+    radarState.overlay.setOpacity(radarState.opacity);
+  }
 
-      return radarState.overlay;
-    }
+  return radarState.overlay;
+}
 
     function renderRadarFrame(){
       const map = appState.map;
