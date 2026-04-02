@@ -962,8 +962,7 @@
     window.startWeatherMap = startWeatherMap;
 
     (() => {
-         const RADAR_TILE_SIZE = 256;
-      const RADAR_MANIFEST_URL = 'https://farmvista-radar-service-300398089669.us-central1.run.app/api/radar/manifest?minutes=300';
+            const RADAR_MANIFEST_URL = 'https://farmvista-radar-service-300398089669.us-central1.run.app/api/radar/manifest?minutes=300';
       const DEFAULT_OPACITY = 0.50;
       const DEFAULT_SPEED_MS = 400;
 
@@ -1038,42 +1037,43 @@
       }
 
       function removeRadarOverlay(){
-        const map = appState.map;
-        if (!map || !radarState.overlay) return;
-
-        const arr = map.overlayMapTypes;
-        for (let i = arr.getLength() - 1; i >= 0; i -= 1){
-          if (arr.getAt(i) === radarState.overlay){
-            arr.removeAt(i);
-            break;
-          }
+        if (radarState.overlay){
+          radarState.overlay.setMap(null);
+          radarState.overlay = null;
         }
-        radarState.overlay = null;
       }
 
-      function tileToMercatorBounds(x, y, z){
-  const worldExtent = 20037508.342789244;
+      function currentFrame(){
+        if (!radarState.frames.length) return null;
+        const idx = Math.max(0, Math.min(radarState.frames.length - 1, radarState.frameIndex));
+        return radarState.frames[idx] || null;
+      }
 
-  // 🔥 FIX: flip Y (Google XYZ → WMS TMS)
-  const yFlipped = (Math.pow(2, z) - 1) - y;
+      function lngLatToMercator(lng, lat){
+        const originShift = 20037508.342789244;
+        const mx = (lng * originShift) / 180.0;
+        let my = Math.log(Math.tan((90 + lat) * Math.PI / 360.0)) / (Math.PI / 180.0);
+        my = (my * originShift) / 180.0;
+        return { x: mx, y: my };
+      }
 
-  const worldSize = RADAR_TILE_SIZE * Math.pow(2, z);
+      function buildViewportWmsUrl(frame, map){
+        if (!frame?.wms || !map) return '';
 
-  const minx = (x * RADAR_TILE_SIZE / worldSize) * (worldExtent * 2) - worldExtent;
-  const maxx = ((x + 1) * RADAR_TILE_SIZE / worldSize) * (worldExtent * 2) - worldExtent;
+        const bounds = map.getBounds();
+        const div = map.getDiv();
+        if (!bounds || !div) return '';
 
-  const miny = worldExtent - ((yFlipped + 1) * RADAR_TILE_SIZE / worldSize) * (worldExtent * 2);
-  const maxy = worldExtent - (yFlipped * RADAR_TILE_SIZE / worldSize) * (worldExtent * 2);
+        const ne = bounds.getNorthEast();
+        const sw = bounds.getSouthWest();
 
-  return { minx, miny, maxx, maxy };
-}
+        const topLeft = lngLatToMercator(sw.lng(), ne.lat());
+        const bottomRight = lngLatToMercator(ne.lng(), sw.lat());
 
-      function buildWmsTileUrl(frame, x, y, z){
-        if (!frame || !frame.wms) return '';
+        const width = Math.max(256, Math.round(div.clientWidth || 256));
+        const height = Math.max(256, Math.round(div.clientHeight || 256));
 
         const cfg = frame.wms;
-        const b = tileToMercatorBounds(x, y, z);
-
         const params = new URLSearchParams({
           SERVICE: 'WMS',
           REQUEST: 'GetMap',
@@ -1083,30 +1083,13 @@
           FORMAT: cfg.format || 'image/png',
           TRANSPARENT: String(cfg.transparent !== false).toUpperCase(),
           SRS: cfg.srs || 'EPSG:3857',
-          WIDTH: String(RADAR_TILE_SIZE),
-          HEIGHT: String(RADAR_TILE_SIZE),
-          BBOX: `${b.minx},${b.miny},${b.maxx},${b.maxy}`,
+          WIDTH: String(width),
+          HEIGHT: String(height),
+          BBOX: `${topLeft.x},${bottomRight.y},${bottomRight.x},${topLeft.y}`,
           TIME: cfg.time
         });
 
         return `${cfg.baseUrl}?${params.toString()}`;
-      }
-
-      function currentFrame(){
-        if (!radarState.frames.length) return null;
-        const idx = Math.max(0, Math.min(radarState.frames.length - 1, radarState.frameIndex));
-        return radarState.frames[idx] || null;
-      }
-
-      function makeOverlay(frame, opacity){
-        return new google.maps.ImageMapType({
-          tileSize: new google.maps.Size(RADAR_TILE_SIZE, RADAR_TILE_SIZE),
-          opacity,
-          name: 'Radar',
-          getTileUrl(coord, zoom){
-            return buildWmsTileUrl(frame, coord.x, coord.y, zoom);
-          }
-        });
       }
 
       function renderRadarFrame(){
@@ -1131,8 +1114,25 @@
           return;
         }
 
-        radarState.overlay = makeOverlay(frame, effectiveOpacity(radarState.opacity));
-        map.overlayMapTypes.insertAt(0, radarState.overlay);
+        const bounds = map.getBounds();
+        if (!bounds){
+          setRadarStatus('waiting on bounds');
+          return;
+        }
+
+        const imageUrl = buildViewportWmsUrl(frame, map);
+        if (!imageUrl){
+          setRadarStatus('no image url');
+          return;
+        }
+
+        radarState.overlay = new google.maps.GroundOverlay(
+          imageUrl,
+          bounds,
+          { opacity: effectiveOpacity(radarState.opacity) }
+        );
+
+        radarState.overlay.setMap(map);
 
         setRadarStatus(radarState.playing ? 'animating' : 'paused');
         setRadarTimeText(formatRadarTime(frame.time));
@@ -1381,11 +1381,16 @@
         });
       }
 
-      async function bootDevRadar(){
+            async function bootDevRadar(){
         try{
           await waitForMap();
+          google.maps.event.addListener(appState.map, 'idle', () => {
+            if (radarState.enabled && radarState.frames.length){
+              renderRadarFrame();
+            }
+          });
           buildRadarMenuUi();
-          applyRadarOverlay();
+          await loadRadarManifest(false);
           hideLowerRightControlAgain();
           setTimeout(hideLowerRightControlAgain, 1200);
         }catch(err){
