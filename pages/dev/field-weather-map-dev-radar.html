@@ -851,7 +851,7 @@
           </div>
         </div>
 
-        <div id="mapModeChip" class="map-chip">Rainfall Map • Live Radar Tiles</div>
+        <div id="mapModeChip" class="map-chip">Rainfall Map • Backend Radar Animation</div>
 
         <div class="top-tools">
           <button id="btnMenu" class="icon-btn" type="button" aria-label="Map options">
@@ -962,7 +962,8 @@
     window.startWeatherMap = startWeatherMap;
 
     (() => {
-            const RADAR_MANIFEST_URL = 'https://farmvista-radar-service-300398089669.us-central1.run.app/api/radar/manifest?minutes=300';
+      const RADAR_MANIFEST_URL = 'https://farmvista-radar-service-300398089669.us-central1.run.app/api/radar/manifest?minutes=30';
+      const RADAR_TILE_SIZE = 256;
       const DEFAULT_OPACITY = 0.50;
       const DEFAULT_SPEED_MS = 900;
 
@@ -977,7 +978,9 @@
         playing: false,
         speedMs: DEFAULT_SPEED_MS,
         timer: null,
-        loading: false
+        loadingManifest: false,
+        loadingFrame: false,
+        mapIdleListenerBound: false
       };
 
       function effectiveOpacity(value){
@@ -1036,60 +1039,39 @@
         }
       }
 
-      function removeRadarOverlay(){
-        if (radarState.overlay){
-          radarState.overlay.setMap(null);
-          radarState.overlay = null;
-        }
-      }
-
       function currentFrame(){
         if (!radarState.frames.length) return null;
         const idx = Math.max(0, Math.min(radarState.frames.length - 1, radarState.frameIndex));
         return radarState.frames[idx] || null;
       }
 
-      function lngLatToMercator(lng, lat){
-        const originShift = 20037508.342789244;
-        const mx = (lng * originShift) / 180.0;
-        let my = Math.log(Math.tan((90 + lat) * Math.PI / 360.0)) / (Math.PI / 180.0);
-        my = (my * originShift) / 180.0;
-        return { x: mx, y: my };
+      function removeRadarOverlay(){
+        const map = appState.map;
+        if (!map || !radarState.overlay) return;
+
+        const arr = map.overlayMapTypes;
+        for (let i = arr.getLength() - 1; i >= 0; i -= 1){
+          if (arr.getAt(i) === radarState.overlay){
+            arr.removeAt(i);
+            break;
+          }
+        }
+        radarState.overlay = null;
       }
 
-      function buildViewportWmsUrl(frame, map){
-        if (!frame?.wms || !map) return '';
-
-        const bounds = map.getBounds();
-        const div = map.getDiv();
-        if (!bounds || !div) return '';
-
-        const ne = bounds.getNorthEast();
-        const sw = bounds.getSouthWest();
-
-        const topLeft = lngLatToMercator(sw.lng(), ne.lat());
-        const bottomRight = lngLatToMercator(ne.lng(), sw.lat());
-
-        const width = Math.max(256, Math.round(div.clientWidth || 256));
-        const height = Math.max(256, Math.round(div.clientHeight || 256));
-
-        const cfg = frame.wms;
-        const params = new URLSearchParams({
-          SERVICE: 'WMS',
-          REQUEST: 'GetMap',
-          VERSION: cfg.version || '1.1.1',
-          LAYERS: cfg.layers,
-          STYLES: '',
-          FORMAT: cfg.format || 'image/png',
-          TRANSPARENT: String(cfg.transparent !== false).toUpperCase(),
-          SRS: cfg.srs || 'EPSG:3857',
-          WIDTH: String(width),
-          HEIGHT: String(height),
-          BBOX: `${topLeft.x},${bottomRight.y},${bottomRight.x},${topLeft.y}`,
-          TIME: cfg.time
+      function makeTileOverlay(frame, opacity){
+        return new google.maps.ImageMapType({
+          tileSize: new google.maps.Size(RADAR_TILE_SIZE, RADAR_TILE_SIZE),
+          opacity,
+          name: 'Radar',
+          getTileUrl(coord, zoom){
+            if (!frame?.tileTemplate) return '';
+            return frame.tileTemplate
+              .replace('{z}', String(zoom))
+              .replace('{x}', String(coord.x))
+              .replace('{y}', String(coord.y));
+          }
         });
-
-        return `${cfg.baseUrl}?${params.toString()}`;
       }
 
       function renderRadarFrame(){
@@ -1114,41 +1096,69 @@
           return;
         }
 
-        const bounds = map.getBounds();
-        if (!bounds){
-          setRadarStatus('waiting on bounds');
+        if (frame.source !== 'tms' || !frame.tileTemplate){
+          setRadarStatus('non-tile frame');
+          setRadarTimeText(formatRadarTime(frame.time));
           return;
         }
 
-        const imageUrl = buildViewportWmsUrl(frame, map);
-        if (!imageUrl){
-          setRadarStatus('no image url');
-          return;
-        }
-
-                const nextOverlay = new google.maps.GroundOverlay(
-          imageUrl,
-          bounds,
-          { opacity: effectiveOpacity(radarState.opacity) }
-        );
-
-        nextOverlay.setMap(map);
-
-        const prevOverlay = radarState.overlay;
-        radarState.overlay = nextOverlay;
-
-        setTimeout(() => {
-          if (prevOverlay) prevOverlay.setMap(null);
-        }, 250);
+        radarState.overlay = makeTileOverlay(frame, effectiveOpacity(radarState.opacity));
+        map.overlayMapTypes.insertAt(0, radarState.overlay);
 
         setRadarStatus(radarState.playing ? 'animating' : 'paused');
         setRadarTimeText(formatRadarTime(frame.time));
       }
 
+      function preloadNextFrame(){
+        const map = appState.map;
+        if (!map || !radarState.frames.length) return;
+
+        const nextIndex = (radarState.frameIndex + 1) % radarState.frames.length;
+        const nextFrame = radarState.frames[nextIndex];
+        if (!nextFrame || nextFrame.source !== 'tms' || !nextFrame.tileTemplate) return;
+
+        const bounds = map.getBounds();
+        const zoom = map.getZoom();
+        if (!bounds || typeof zoom !== 'number') return;
+
+        const proj = map.getProjection?.();
+        if (!proj) return;
+
+        const ne = bounds.getNorthEast();
+        const sw = bounds.getSouthWest();
+
+        const northWest = proj.fromLatLngToPoint(new google.maps.LatLng(ne.lat(), sw.lng()));
+        const southEast = proj.fromLatLngToPoint(new google.maps.LatLng(sw.lat(), ne.lng()));
+        if (!northWest || !southEast) return;
+
+        const scale = Math.pow(2, zoom);
+        const xMin = Math.floor(northWest.x * scale);
+        const xMax = Math.floor(southEast.x * scale);
+        const yMin = Math.floor(northWest.y * scale);
+        const yMax = Math.floor(southEast.y * scale);
+
+        for (let x = xMin; x <= xMax; x += 1){
+          for (let y = yMin; y <= yMax; y += 1){
+            const img = new Image();
+            img.src = nextFrame.tileTemplate
+              .replace('{z}', String(zoom))
+              .replace('{x}', String(x))
+              .replace('{y}', String(y));
+          }
+        }
+      }
+
       function nextRadarFrame(){
-        if (!radarState.frames.length) return;
+        if (!radarState.frames.length || radarState.loadingFrame) return;
+
+        radarState.loadingFrame = true;
         radarState.frameIndex = (radarState.frameIndex + 1) % radarState.frames.length;
         renderRadarFrame();
+        preloadNextFrame();
+
+        setTimeout(() => {
+          radarState.loadingFrame = false;
+        }, 120);
       }
 
       function startRadarTimer(){
@@ -1160,12 +1170,12 @@
 
         radarState.timer = setInterval(() => {
           nextRadarFrame();
-        }, Math.max(200, Math.min(2000, Number(radarState.speedMs || DEFAULT_SPEED_MS))));
+        }, Math.max(500, Math.min(2500, Number(radarState.speedMs || DEFAULT_SPEED_MS))));
       }
 
       async function loadRadarManifest(force = false){
-        if (radarState.loading) return;
-        radarState.loading = true;
+        if (radarState.loadingManifest) return;
+        radarState.loadingManifest = true;
         setRadarStatus(force ? 'reloading…' : 'loading…');
 
         try{
@@ -1177,7 +1187,9 @@
           if (!resp.ok) throw new Error(`manifest ${resp.status}`);
 
           const manifest = await resp.json();
-          const frames = Array.isArray(manifest?.frames) ? manifest.frames : [];
+          const frames = Array.isArray(manifest?.frames)
+            ? manifest.frames.filter(frame => frame && frame.source === 'tms' && frame.tileTemplate)
+            : [];
 
           radarState.manifest = manifest;
           radarState.frames = frames;
@@ -1186,23 +1198,38 @@
 
           setRadarFrameCountText();
           renderRadarFrame();
+          preloadNextFrame();
           startRadarTimer();
         }catch(err){
           console.warn('[DevRadar] manifest load failed:', err);
           setRadarStatus('load failed');
         }finally{
-          radarState.loading = false;
+          radarState.loadingManifest = false;
         }
       }
 
       function updateRadarOpacity(){
         const nextOpacity = effectiveOpacity(radarState.opacity);
+
         if (radarState.overlay && typeof radarState.overlay.setOpacity === 'function'){
           radarState.overlay.setOpacity(nextOpacity);
-        }else{
-          renderRadarFrame();
+          setRadarOpacityText();
+          return;
         }
+
+        renderRadarFrame();
         setRadarOpacityText();
+      }
+
+      function bindMapIdleRefresh(){
+        if (radarState.mapIdleListenerBound || !appState.map) return;
+        radarState.mapIdleListenerBound = true;
+
+        google.maps.event.addListener(appState.map, 'idle', () => {
+          if (!radarState.enabled || !radarState.frames.length) return;
+          renderRadarFrame();
+          preloadNextFrame();
+        });
       }
 
       function buildRadarMenuUi(){
@@ -1280,7 +1307,7 @@
               </div>
               <div class="menu-pill">
                 <span class="mutedish">Feed</span>
-                <span>IEM WMS-T History</span>
+                <span>IEM Cached Tile Frames</span>
               </div>
             </div>
           </div>
@@ -1388,14 +1415,10 @@
         });
       }
 
-            async function bootDevRadar(){
+      async function bootDevRadar(){
         try{
           await waitForMap();
-          google.maps.event.addListener(appState.map, 'idle', () => {
-            if (radarState.enabled && radarState.frames.length){
-              renderRadarFrame();
-            }
-          });
+          bindMapIdleRefresh();
           buildRadarMenuUi();
           await loadRadarManifest(false);
           hideLowerRightControlAgain();
@@ -1428,12 +1451,15 @@
               await waitForGoogleMaps();
               await startWeatherMap();
               buildRadarMenuUi();
-              applyRadarOverlay();
+              bindMapIdleRefresh();
+              await loadRadarManifest(true);
               hideLowerRightControlAgain();
             }catch(err){
               console.warn('[DevRadar] visibility boot failed:', err);
             }
           }, 500);
+        } else {
+          stopRadarTimer();
         }
       });
     })();
