@@ -1034,7 +1034,7 @@
       manifest: null,
       frames: [],
       frameIndex: 0,
-      playing: true,
+      playing: false,
       speedMs: DEFAULT_SPEED_MS,
       timer: null,
       loading: false,
@@ -1447,27 +1447,6 @@ function renderRadarFrame(){
   return true;
 }
 
-function startRadarPlaybackWhenReady(attempt = 0){
-  const rendered = renderRadarFrame();
-
-  if (rendered){
-    stopRadarTimer();
-    setTimeout(() => {
-      if (radarState.enabled && radarState.playing && radarState.frames.length > 1){
-        scheduleRadarTimer();
-      }
-    }, 2000);
-    return;
-  }
-
-  if (attempt >= 40){
-    return;
-  }
-
-  setTimeout(() => {
-    startRadarPlaybackWhenReady(attempt + 1);
-  }, 150);
-}
 
     function nextRadarFrame(){
       if (!radarState.frames.length) return;
@@ -1509,7 +1488,8 @@ if (speedSel){
 
 updateRadarTimelineVisibility();
 stopRadarTimer();
-startRadarPlaybackWhenReady();
+renderRadarFrame();
+setRadarPlayButtonState();
       }catch(err){
         console.warn('[WeatherReadinessRadar] manifest load failed:', err);
         setRadarStatus('load failed');
@@ -1720,11 +1700,6 @@ startRadarPlaybackWhenReady();
               clearTimeout(radarState.idleTimer);
             }
 
-            radarState.idleTimer = setTimeout(() => {
-              if (radarState.enabled && radarState.frames.length && !radarState.scrubbing){
-                renderRadarFrame();
-              }
-            }, 120);
           });
 
           radarState.booted = true;
