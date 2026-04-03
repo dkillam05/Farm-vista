@@ -1361,67 +1361,72 @@
           this.currentImg = null;
         }
 
-        setFrame(url, bounds){
-          if (!url || !bounds){
-            return;
-          }
+       setFrame(url, bounds, timeText = ''){
+  if (!url || !bounds){
+    return;
+  }
 
-          this.bounds = bounds;
-          this.draw();
+  this.bounds = bounds;
+  this.draw();
 
-          if (url === this.lastUrl && this.currentImg){
-            return;
-          }
+  if (url === this.lastUrl && this.currentImg){
+    if (timeText) setRadarTimeText(timeText);
+    return;
+  }
 
-          this.lastUrl = url;
-          const token = ++this.loadToken;
+  this.lastUrl = url;
+  const token = ++this.loadToken;
 
-          const img = new Image();
-          img.decoding = 'async';
-          img.loading = 'eager';
-          img.alt = '';
-          img.draggable = false;
-          img.style.position = 'absolute';
-          img.style.left = '0';
-          img.style.top = '0';
-          img.style.width = '100%';
-          img.style.height = '100%';
-          img.style.userSelect = 'none';
-          img.style.pointerEvents = 'none';
-          img.style.opacity = '0';
-          img.style.transition = `opacity ${FRAME_FADE_MS}ms linear`;
-          img.src = url;
+  const img = new Image();
+  img.decoding = 'async';
+  img.loading = 'eager';
+  img.alt = '';
+  img.draggable = false;
+  img.style.position = 'absolute';
+  img.style.left = '0';
+  img.style.top = '0';
+  img.style.width = '100%';
+  img.style.height = '100%';
+  img.style.userSelect = 'none';
+  img.style.pointerEvents = 'none';
+  img.style.opacity = '0';
+  img.style.transition = `opacity ${FRAME_FADE_MS}ms linear`;
+  img.src = url;
 
-          img.onload = () => {
-            if (token !== this.loadToken || !this.div) return;
+  img.onload = () => {
+    if (token !== this.loadToken || !this.div) return;
 
-            const prev = this.currentImg;
-            this.div.appendChild(img);
-            this.currentImg = img;
-            this.bounds = bounds;
-            this.draw();
+    const prev = this.currentImg;
+    this.div.appendChild(img);
+    this.currentImg = img;
+    this.bounds = bounds;
+    this.draw();
 
-            requestAnimationFrame(() => {
-              img.style.opacity = String(this.opacity);
-              if (prev){
-                prev.style.opacity = '0';
-              }
-            });
+    requestAnimationFrame(() => {
+      img.style.opacity = String(this.opacity);
+      if (prev){
+        prev.style.opacity = '0';
+      }
+    });
 
-            if (prev){
-              window.setTimeout(() => {
-                if (prev.parentNode){
-                  prev.parentNode.removeChild(prev);
-                }
-              }, FRAME_FADE_MS + 80);
-            }
-          };
+    if (timeText){
+      setRadarTimeText(timeText);
+    }
 
-          img.onerror = () => {
-            if (token !== this.loadToken) return;
-            setRadarStatus('frame load failed');
-          };
+    if (prev){
+      window.setTimeout(() => {
+        if (prev.parentNode){
+          prev.parentNode.removeChild(prev);
         }
+      }, FRAME_FADE_MS + 80);
+    }
+  };
+
+  img.onerror = () => {
+    if (token !== this.loadToken) return;
+    setRadarStatus('frame load failed');
+  };
+}
       };
     }
 
@@ -1483,12 +1488,11 @@
 
       overlay.setVisible(true);
       overlay.setOpacity(radarState.opacity);
-      overlay.setFrame(imageUrl, safeBounds);
+      overlay.setFrame(imageUrl, safeBounds, formatRadarTime(frame.time));
 
       warmNextRadarFrames(map, safeBounds);
 
       setRadarStatus(radarState.playing ? 'animating' : 'paused');
-      setRadarTimeText(formatRadarTime(frame.time));
       updateRadarTimelineSlider();
       updateRadarTimelineVisibility();
     }
@@ -1525,7 +1529,6 @@ async function loadRadarManifest(force = false){
     radarState.speedMs = Number(manifest?.defaultSpeedMs || DEFAULT_SPEED_MS);
 
     const lastFrame = frames[radarState.frameIndex];
-    setRadarTimeText(formatRadarTime(lastFrame?.time));
 
     const speedSel = document.getElementById('radarSpeedSel');
     if (speedSel){
