@@ -603,30 +603,6 @@
       gap:8px;
     }
 
-    .menu-btn-secondary{
-      width:100%;
-      max-width:100%;
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      gap:8px;
-      min-height:44px;
-      border:1px solid rgba(0,0,0,.08);
-      border-radius:14px;
-      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
-      color:var(--text-dark);
-      font:inherit;
-      font-size:15px;
-      font-weight:900;
-      cursor:pointer;
-      text-align:center;
-      white-space:normal;
-    }
-
-    .menu-btn-secondary:active{
-      transform:translateY(1px);
-    }
-
     .menu-range{
       width:100%;
       accent-color:#2F6C3C;
@@ -669,13 +645,6 @@
       background:color-mix(in srgb, #2F6C3C 88%, #ffffff 12%);
       color:#fff;
       box-shadow:0 8px 20px rgba(47,108,60,.22);
-    }
-
-    .radar-mini-btn.secondary{
-      background:color-mix(in srgb, var(--surface) 92%, #ffffff 8%);
-      color:var(--text-dark);
-      border:1px solid rgba(0,0,0,.08);
-      box-shadow:none;
     }
 
     .radar-mini-btn svg{
@@ -925,14 +894,8 @@
         </div>
 
         <div id="radarTimeline" class="radar-timeline" hidden>
-          <button id="btnTimelinePlay" class="radar-mini-btn" type="button" aria-label="Play radar" title="Play radar">
-            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M8 6.5V17.5L17 12L8 6.5Z"></path>
-            </svg>
-          </button>
-
-          <button id="btnTimelinePause" class="radar-mini-btn secondary" type="button" aria-label="Pause radar" title="Pause radar">
-            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <button id="btnTimelinePlayToggle" class="radar-mini-btn" type="button" aria-label="Pause radar" title="Pause radar">
+            <svg id="radarTimelinePlayIcon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M7 6H10V18H7V6ZM14 6H17V18H14V6Z"></path>
             </svg>
           </button>
@@ -1034,10 +997,6 @@
               <label>Map status</label>
               <div class="menu-inline">
                 <div class="menu-pill">
-                  <span class="mutedish">Status</span>
-                  <span id="statusText">Loading…</span>
-                </div>
-                <div class="menu-pill">
                   <span class="mutedish">Fields / Points</span>
                   <span><span id="fieldsText" class="mono">0</span> / <span id="pointsText" class="mono">0</span></span>
                 </div>
@@ -1102,41 +1061,26 @@
       if (timelineLabel) timelineLabel.textContent = text || '--:--';
     }
 
-    function setRadarOpacityText(){
-      const el = document.getElementById('radarOpacityMenuText');
-      if (el) el.textContent = `${Math.round(radarState.opacity * 100)}%`;
-    }
-
     function setRadarToggleText(){
       const el = document.getElementById('btnRadarToggle');
       if (el) el.textContent = radarState.enabled ? 'Radar On' : 'Radar Off';
       updateRadarTimelineVisibility();
     }
 
-    function setRadarPlayText(){
-      const el = document.getElementById('btnRadarPlay');
-      if (el) el.textContent = radarState.playing ? 'Pause Radar' : 'Play Radar';
+    function setRadarPlayButtonState(){
+      const toggleBtn = document.getElementById('btnTimelinePlayToggle');
+      const icon = document.getElementById('radarTimelinePlayIcon');
 
-      const playBtn = document.getElementById('btnTimelinePlay');
-      const pauseBtn = document.getElementById('btnTimelinePause');
+      if (!toggleBtn || !icon) return;
 
-      if (playBtn){
-        playBtn.style.opacity = radarState.playing ? '.55' : '1';
-      }
-      if (pauseBtn){
-        pauseBtn.style.opacity = radarState.playing ? '1' : '.55';
-      }
-    }
-
-    function setRadarFrameCountText(){
-      const count = radarState.frames.length || 0;
-      const el = document.getElementById('radarFrameCountText');
-      if (el) el.textContent = String(count);
-
-      const slider = document.getElementById('radarTimelineSlider');
-      if (slider){
-        slider.max = String(Math.max(0, count - 1));
-        slider.value = String(Math.max(0, Math.min(count - 1, radarState.frameIndex)));
+      if (radarState.playing){
+        toggleBtn.setAttribute('aria-label', 'Pause radar');
+        toggleBtn.setAttribute('title', 'Pause radar');
+        icon.innerHTML = '<path d="M7 6H10V18H7V6ZM14 6H17V18H14V6Z"></path>';
+      } else {
+        toggleBtn.setAttribute('aria-label', 'Play radar');
+        toggleBtn.setAttribute('title', 'Play radar');
+        icon.innerHTML = '<path d="M8 6.5V17.5L17 12L8 6.5Z"></path>';
       }
     }
 
@@ -1491,6 +1435,7 @@
       setRadarTimeText(formatRadarTime(frame.time));
       updateRadarTimelineSlider();
       updateRadarTimelineVisibility();
+      setRadarPlayButtonState();
     }
 
     function nextRadarFrame(){
@@ -1529,7 +1474,6 @@
           }
         }
 
-        setRadarFrameCountText();
         updateRadarTimelineVisibility();
         renderRadarFrame();
         scheduleRadarTimer();
@@ -1547,12 +1491,11 @@
       if (overlay){
         overlay.setOpacity(radarState.opacity);
       }
-      setRadarOpacityText();
     }
 
     function setRadarPlaying(flag){
       radarState.playing = !!flag;
-      setRadarPlayText();
+      setRadarPlayButtonState();
       renderRadarFrame();
       scheduleRadarTimer();
     }
@@ -1572,32 +1515,10 @@
         <div class="radar-sep"></div>
 
         <div class="menu-field">
-          <label>Radar</label>
-          <div class="menu-inline">
-            <div class="menu-pill">
-              <span class="mutedish">Overlay</span>
-              <span id="radarStatusText">waiting…</span>
-            </div>
-            <div class="menu-pill">
-              <span class="mutedish">Frame</span>
-              <span id="radarTimeText">--:--</span>
-            </div>
-            <div class="menu-pill">
-              <span class="mutedish">Opacity</span>
-              <span id="radarOpacityMenuText" class="mono">50%</span>
-            </div>
-            <div class="menu-pill">
-              <span class="mutedish">Frames</span>
-              <span id="radarFrameCountText" class="mono">0</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="menu-field">
           <label>Radar controls</label>
           <div class="menu-btn-row">
             <button id="btnRadarToggle" class="menu-btn" type="button">Radar On</button>
-            <button id="btnRadarPlay" class="menu-btn-secondary" type="button">Play Radar</button>
+            <button id="btnRefreshRadar" class="menu-btn" type="button">Reload Radar</button>
           </div>
         </div>
 
@@ -1623,37 +1544,16 @@
             <option value="1500">Very Slow</option>
           </select>
         </div>
-
-        <div class="menu-field">
-          <label>Radar source</label>
-          <div class="menu-inline">
-            <div class="menu-pill">
-              <span class="mutedish">Provider</span>
-              <span>FarmVista Backend</span>
-            </div>
-            <div class="menu-pill">
-              <span class="mutedish">Feed</span>
-              <span>IEM WMS-T History</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="menu-field">
-          <label>Radar refresh</label>
-          <button id="btnRefreshRadar" class="menu-btn" type="button">Reload Radar</button>
-        </div>
       `;
 
       anchor.parentNode.insertBefore(wrap, anchor);
 
       const toggleBtn = document.getElementById('btnRadarToggle');
-      const playBtn = document.getElementById('btnRadarPlay');
       const opacityInput = document.getElementById('radarOpacity');
       const speedSel = document.getElementById('radarSpeedSel');
       const refreshBtn = document.getElementById('btnRefreshRadar');
 
-      const timelinePlayBtn = document.getElementById('btnTimelinePlay');
-      const timelinePauseBtn = document.getElementById('btnTimelinePause');
+      const timelinePlayToggleBtn = document.getElementById('btnTimelinePlayToggle');
       const timelineSlider = document.getElementById('radarTimelineSlider');
 
       toggleBtn.addEventListener('click', () => {
@@ -1661,10 +1561,6 @@
         setRadarToggleText();
         renderRadarFrame();
         scheduleRadarTimer();
-      });
-
-      playBtn.addEventListener('click', () => {
-        setRadarPlaying(!radarState.playing);
       });
 
       opacityInput.addEventListener('input', () => {
@@ -1681,15 +1577,9 @@
         await loadRadarManifest(true);
       });
 
-      if (timelinePlayBtn){
-        timelinePlayBtn.addEventListener('click', () => {
-          setRadarPlaying(true);
-        });
-      }
-
-      if (timelinePauseBtn){
-        timelinePauseBtn.addEventListener('click', () => {
-          setRadarPlaying(false);
+      if (timelinePlayToggleBtn){
+        timelinePlayToggleBtn.addEventListener('click', () => {
+          setRadarPlaying(!radarState.playing);
         });
       }
 
@@ -1722,10 +1612,8 @@
         timelineSlider.addEventListener('mouseup', endScrub);
       }
 
-      setRadarOpacityText();
       setRadarToggleText();
-      setRadarPlayText();
-      setRadarFrameCountText();
+      setRadarPlayButtonState();
       updateRadarTimelineVisibility();
       radarState.uiBuilt = true;
     }
