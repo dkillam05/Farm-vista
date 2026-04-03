@@ -1498,65 +1498,101 @@
       radarState.frameIndex = (radarState.frameIndex + 1) % radarState.frames.length;
       renderRadarFrame();
     }
+    
+    async function findBestStartingFrameIndex(frames){
+  if (!Array.isArray(frames) || !frames.length) return 0;
 
-    async function loadRadarManifest(force = false){
-      if (radarState.loading) return;
-      radarState.loading = true;
-      setRadarStatus(force ? 'reloading…' : 'loading…');
+  const map = appState.map;
+  if (!map) return Math.max(0, frames.length - 1);
 
-      try{
-        const url = force
-          ? `${RADAR_MANIFEST_URL}&_=${Date.now()}`
-          : RADAR_MANIFEST_URL;
+  const bounds = map.getBounds();
+  if (!bounds) return Math.max(0, frames.length - 1);
 
-        const resp = await fetch(url, { cache: 'no-store' });
-        if (!resp.ok) throw new Error(`manifest ${resp.status}`);
+  const safeBounds = cloneBounds(bounds);
 
-        const manifest = await resp.json();
-        const frames = Array.isArray(manifest?.frames) ? manifest.frames : [];
+  // Check newest -> older, and use the first frame whose image actually loads
+  // with likely radar content. Cap search so it stays fast.
+  const start = frames.length - 1;
+  const stop = Math.max(0, frames.length - 8);
 
-        radarState.manifest = manifest;
-        radarState.frames = frames;
-        radarState.frameIndex = Math.max(0, frames.length - 1);
-        radarState.speedMs = Number(manifest?.defaultSpeedMs || DEFAULT_SPEED_MS);
+  for (let i = start; i >= stop; i--){
+    const frame = frames[i];
+    const url = buildViewportWmsUrl(frame, map, safeBounds);
+    if (!url) continue;
 
-        const newestFrame = frames[radarState.frameIndex];
-        setRadarTimeText(formatRadarTime(newestFrame?.time));
+    const ok = await new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(true);
+      img.onerror = () => resolve(false);
+      img.src = url;
+    });
 
-        const speedSel = document.getElementById('radarSpeedSel');
-        if (speedSel){
-          speedSel.value = String(radarState.speedMs);
-          if (!speedSel.querySelector(`option[value="${radarState.speedMs}"]`)){
-            speedSel.value = String(DEFAULT_SPEED_MS);
-            radarState.speedMs = DEFAULT_SPEED_MS;
-          }
-        }
+    if (ok){
+      return i;
+    }
+  }
 
-        setRadarFrameCountText();
-        updateRadarTimelineVisibility();
+  return Math.max(0, frames.length - 1);
+}
 
-        const waitForBoundsAndRender = () => {
-          const map = appState.map;
-          if (!map) return;
+async function loadRadarManifest(force = false){
+  if (radarState.loading) return;
+  radarState.loading = true;
+  setRadarStatus(force ? 'reloading…' : 'loading…');
 
-          const bounds = map.getBounds();
-          if (!bounds){
-            setTimeout(waitForBoundsAndRender, 120);
-            return;
-          }
+  try{
+    const url = force
+      ? `${RADAR_MANIFEST_URL}&_=${Date.now()}`
+      : RADAR_MANIFEST_URL;
 
-          renderRadarFrame();
-          scheduleRadarTimer();
-        };
+    const resp = await fetch(url, { cache: 'no-store' });
+    if (!resp.ok) throw new Error(`manifest ${resp.status}`);
 
-        waitForBoundsAndRender();
-      }catch(err){
-        console.warn('[WeatherReadinessRadar] manifest load failed:', err);
-        setRadarStatus('load failed');
-      }finally{
-        radarState.loading = false;
+    const manifest = await resp.json();
+    const frames = Array.isArray(manifest?.frames) ? manifest.frames : [];
+
+    radarState.manifest = manifest;
+    radarState.frames = frames;
+    radarState.frameIndex = await findBestStartingFrameIndex(frames);
+    radarState.speedMs = Number(manifest?.defaultSpeedMs || DEFAULT_SPEED_MS);
+
+    const newestFrame = frames[radarState.frameIndex];
+    setRadarTimeText(formatRadarTime(newestFrame?.time));
+
+    const speedSel = document.getElementById('radarSpeedSel');
+    if (speedSel){
+      speedSel.value = String(radarState.speedMs);
+      if (!speedSel.querySelector(`option[value="${radarState.speedMs}"]`)){
+        speedSel.value = String(DEFAULT_SPEED_MS);
+        radarState.speedMs = DEFAULT_SPEED_MS;
       }
     }
+
+    setRadarFrameCountText();
+    updateRadarTimelineVisibility();
+
+    const waitForBoundsAndRender = () => {
+      const map = appState.map;
+      if (!map) return;
+
+      const bounds = map.getBounds();
+      if (!bounds){
+        setTimeout(waitForBoundsAndRender, 120);
+        return;
+      }
+
+      renderRadarFrame();
+      scheduleRadarTimer();
+    };
+
+    waitForBoundsAndRender();
+  }catch(err){
+    console.warn('[WeatherReadinessRadar] manifest load failed:', err);
+    setRadarStatus('load failed');
+  }finally{
+    radarState.loading = false;
+  }
+}
 
     function updateRadarOpacity(){
       radarState.opacity = effectiveOpacity(radarState.opacity);
