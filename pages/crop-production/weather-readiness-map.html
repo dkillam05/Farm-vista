@@ -1382,61 +1382,85 @@
       return radarState.overlay;
     }
 
-    function renderRadarFrame(){
-      const map = appState.map;
-      if (!map){
-        setRadarStatus('waiting on map');
-        return;
+function renderRadarFrame(){
+  const map = appState.map;
+  if (!map){
+    setRadarStatus('waiting on map');
+    return false;
+  }
+
+  const overlay = ensureRadarOverlay();
+  if (!overlay){
+    setRadarStatus('overlay unavailable');
+    return false;
+  }
+
+  if (!radarState.enabled){
+    overlay.setVisible(false);
+    setRadarStatus('off');
+    setRadarTimeText('--:--');
+    updateRadarTimelineVisibility();
+    return false;
+  }
+
+  const frame = currentFrame();
+  if (!frame){
+    setRadarStatus('no frames');
+    setRadarTimeText('--:--');
+    updateRadarTimelineSlider();
+    updateRadarTimelineVisibility();
+    return false;
+  }
+
+  const bounds = map.getBounds();
+  if (!bounds){
+    setRadarStatus('waiting on bounds');
+    return false;
+  }
+
+  const safeBounds = cloneBounds(bounds);
+  const imageUrl = buildViewportWmsUrl(frame, map, safeBounds);
+  if (!imageUrl){
+    setRadarStatus('no image url');
+    return false;
+  }
+
+  overlay.setVisible(true);
+  overlay.setOpacity(radarState.opacity);
+  overlay.setFrame(imageUrl, safeBounds);
+
+  warmNextRadarFrames(map, safeBounds);
+
+  setRadarStatus(radarState.playing ? 'animating' : 'paused');
+  setRadarTimeText(formatRadarTime(frame.time));
+  updateRadarTimelineSlider();
+  updateRadarTimelineVisibility();
+  setRadarPlayButtonState();
+
+  return true;
+}
+
+function startRadarPlaybackWhenReady(attempt = 0){
+  const rendered = renderRadarFrame();
+
+  if (rendered){
+    stopRadarTimer();
+    setTimeout(() => {
+      if (radarState.enabled && radarState.playing && radarState.frames.length > 1){
+        scheduleRadarTimer();
       }
+    }, 2000);
+    return;
+  }
 
-      const overlay = ensureRadarOverlay();
-      if (!overlay){
-        setRadarStatus('overlay unavailable');
-        return;
-      }
+  if (attempt >= 40){
+    return;
+  }
 
-      if (!radarState.enabled){
-        overlay.setVisible(false);
-        setRadarStatus('off');
-        setRadarTimeText('--:--');
-        updateRadarTimelineVisibility();
-        return;
-      }
-
-      const frame = currentFrame();
-      if (!frame){
-        setRadarStatus('no frames');
-        setRadarTimeText('--:--');
-        updateRadarTimelineSlider();
-        updateRadarTimelineVisibility();
-        return;
-      }
-
-      const bounds = map.getBounds();
-      if (!bounds){
-        setRadarStatus('waiting on bounds');
-        return;
-      }
-
-      const safeBounds = cloneBounds(bounds);
-      const imageUrl = buildViewportWmsUrl(frame, map, safeBounds);
-      if (!imageUrl){
-        setRadarStatus('no image url');
-        return;
-      }
-
-      overlay.setVisible(true);
-      overlay.setOpacity(radarState.opacity);
-      overlay.setFrame(imageUrl, safeBounds);
-
-      warmNextRadarFrames(map, safeBounds);
-
-      setRadarStatus(radarState.playing ? 'animating' : 'paused');
-      setRadarTimeText(formatRadarTime(frame.time));
-      updateRadarTimelineSlider();
-      updateRadarTimelineVisibility();
-      setRadarPlayButtonState();
-    }
+  setTimeout(() => {
+    startRadarPlaybackWhenReady(attempt + 1);
+  }, 150);
+}
 
     function nextRadarFrame(){
       if (!radarState.frames.length) return;
@@ -1464,11 +1488,7 @@
 
 radarState.manifest = manifest;
 radarState.frames = frames;
-
-// start a few frames back from the newest so first paint is stable
-const START_OFFSET_FROM_LATEST = 3;
-radarState.frameIndex = Math.max(0, frames.length - 1 - START_OFFSET_FROM_LATEST);
-
+radarState.frameIndex = Math.max(0, frames.length - 1);
 radarState.speedMs = Number(manifest?.defaultSpeedMs || DEFAULT_SPEED_MS);
 
 const speedSel = document.getElementById('radarSpeedSel');
@@ -1481,20 +1501,8 @@ if (speedSel){
 }
 
 updateRadarTimelineVisibility();
-renderRadarFrame();
 stopRadarTimer();
-
-setTimeout(() => {
-  if (radarState.enabled && radarState.playing && radarState.frames.length > 1){
-    scheduleRadarTimer();
-  }
-}, 2000);
-
-setTimeout(() => {
-  if (radarState.enabled && radarState.playing && radarState.frames.length > 1){
-    scheduleRadarTimer();
-  }
-}, 1200);
+startRadarPlaybackWhenReady();
       }catch(err){
         console.warn('[WeatherReadinessRadar] manifest load failed:', err);
         setRadarStatus('load failed');
