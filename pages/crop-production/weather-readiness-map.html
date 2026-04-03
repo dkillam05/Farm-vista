@@ -1024,7 +1024,7 @@
     const DEFAULT_OPACITY = 0.50;
     const DEFAULT_SPEED_MS = 780;
     const FRAME_FADE_MS = 180;
-    const LAST_FRAME_DELAY_MS = 2200;
+    const LAST_FRAME_DELAY_MS = 140;
 
     const radarState = {
       overlay: null,
@@ -1034,7 +1034,7 @@
       manifest: null,
       frames: [],
       frameIndex: 0,
-      playing: false,
+      playing: true,
       speedMs: DEFAULT_SPEED_MS,
       timer: null,
       loading: false,
@@ -1305,68 +1305,61 @@
           this.currentImg = null;
         }
 
-setFrame(url, bounds){
-  if (!url || !bounds){
-    return;
-  }
+        setFrame(url, bounds){
+          if (!url || !bounds){
+            return;
+          }
 
-  this.bounds = bounds;
-  this.draw();
+          this.bounds = bounds;
+          this.draw();
 
-  if (url === this.lastUrl && this.currentImg){
-    if (typeof window.__fvRadarOnFirstFrameReady === 'function'){
-      window.__fvRadarOnFirstFrameReady();
-    }
-    return;
-  }
+          if (url === this.lastUrl && this.currentImg){
+            return;
+          }
 
-  this.lastUrl = url;
-  const token = ++this.loadToken;
+          this.lastUrl = url;
+          const token = ++this.loadToken;
 
-  const img = new Image();
-  img.decoding = 'async';
-  img.loading = 'eager';
-  img.alt = '';
-  img.draggable = false;
-  img.style.position = 'absolute';
-  img.style.left = '0';
-  img.style.top = '0';
-  img.style.width = '100%';
-  img.style.height = '100%';
-  img.style.userSelect = 'none';
-  img.style.pointerEvents = 'none';
-  img.style.opacity = '0';
-  img.style.transition = `opacity ${FRAME_FADE_MS}ms linear`;
-  img.src = url;
+          const img = new Image();
+          img.decoding = 'async';
+          img.loading = 'eager';
+          img.alt = '';
+          img.draggable = false;
+          img.style.position = 'absolute';
+          img.style.left = '0';
+          img.style.top = '0';
+          img.style.width = '100%';
+          img.style.height = '100%';
+          img.style.userSelect = 'none';
+          img.style.pointerEvents = 'none';
+          img.style.opacity = '0';
+          img.style.transition = `opacity ${FRAME_FADE_MS}ms linear`;
+          img.src = url;
 
-  img.onload = () => {
-    if (token !== this.loadToken || !this.div) return;
+          img.onload = () => {
+            if (token !== this.loadToken || !this.div) return;
 
-    const prev = this.currentImg;
-    this.div.appendChild(img);
-    this.currentImg = img;
-    this.bounds = bounds;
-    this.draw();
+            const prev = this.currentImg;
+            this.div.appendChild(img);
+            this.currentImg = img;
+            this.bounds = bounds;
+            this.draw();
 
-    requestAnimationFrame(() => {
-      img.style.opacity = String(this.opacity);
-      if (prev){
-        prev.style.opacity = '0';
-      }
-    });
+            requestAnimationFrame(() => {
+              img.style.opacity = String(this.opacity);
+              if (prev){
+                prev.style.opacity = '0';
+              }
+            });
 
-    if (prev){
-      window.setTimeout(() => {
-        if (prev.parentNode){
-          prev.parentNode.removeChild(prev);
-        }
-      }, FRAME_FADE_MS + 80);
-    }
-
-    if (typeof window.__fvRadarOnFirstFrameReady === 'function'){
-      window.__fvRadarOnFirstFrameReady();
-    }
-  };
+            if (prev){
+              window.setTimeout(() => {
+                if (prev.parentNode){
+                  prev.parentNode.removeChild(prev);
+                }
+              }, FRAME_FADE_MS + 80);
+            }
+          };
 
           img.onerror = () => {
             if (token !== this.loadToken) return;
@@ -1389,64 +1382,61 @@ setFrame(url, bounds){
       return radarState.overlay;
     }
 
-function renderRadarFrame(){
-  const map = appState.map;
-  if (!map){
-    setRadarStatus('waiting on map');
-    return false;
-  }
+    function renderRadarFrame(){
+      const map = appState.map;
+      if (!map){
+        setRadarStatus('waiting on map');
+        return;
+      }
 
-  const overlay = ensureRadarOverlay();
-  if (!overlay){
-    setRadarStatus('overlay unavailable');
-    return false;
-  }
+      const overlay = ensureRadarOverlay();
+      if (!overlay){
+        setRadarStatus('overlay unavailable');
+        return;
+      }
 
-  if (!radarState.enabled){
-    overlay.setVisible(false);
-    setRadarStatus('off');
-    setRadarTimeText('--:--');
-    updateRadarTimelineVisibility();
-    return false;
-  }
+      if (!radarState.enabled){
+        overlay.setVisible(false);
+        setRadarStatus('off');
+        setRadarTimeText('--:--');
+        updateRadarTimelineVisibility();
+        return;
+      }
 
-  const frame = currentFrame();
-  if (!frame){
-    setRadarStatus('no frames');
-    setRadarTimeText('--:--');
-    updateRadarTimelineSlider();
-    updateRadarTimelineVisibility();
-    return false;
-  }
+      const frame = currentFrame();
+      if (!frame){
+        setRadarStatus('no frames');
+        setRadarTimeText('--:--');
+        updateRadarTimelineSlider();
+        updateRadarTimelineVisibility();
+        return;
+      }
 
-  const bounds = map.getBounds();
-  if (!bounds){
-    setRadarStatus('waiting on bounds');
-    return false;
-  }
+      const bounds = map.getBounds();
+      if (!bounds){
+        setRadarStatus('waiting on bounds');
+        return;
+      }
 
-  const safeBounds = cloneBounds(bounds);
-  const imageUrl = buildViewportWmsUrl(frame, map, safeBounds);
-  if (!imageUrl){
-    setRadarStatus('no image url');
-    return false;
-  }
+      const safeBounds = cloneBounds(bounds);
+      const imageUrl = buildViewportWmsUrl(frame, map, safeBounds);
+      if (!imageUrl){
+        setRadarStatus('no image url');
+        return;
+      }
 
-  overlay.setVisible(true);
-  overlay.setOpacity(radarState.opacity);
-  overlay.setFrame(imageUrl, safeBounds);
+      overlay.setVisible(true);
+      overlay.setOpacity(radarState.opacity);
+      overlay.setFrame(imageUrl, safeBounds);
 
-  warmNextRadarFrames(map, safeBounds);
+      warmNextRadarFrames(map, safeBounds);
 
-  setRadarStatus(radarState.playing ? 'animating' : 'paused');
-  setRadarTimeText(formatRadarTime(frame.time));
-  updateRadarTimelineSlider();
-  updateRadarTimelineVisibility();
-  setRadarPlayButtonState();
-
-  return true;
-}
-
+      setRadarStatus(radarState.playing ? 'animating' : 'paused');
+      setRadarTimeText(formatRadarTime(frame.time));
+      updateRadarTimelineSlider();
+      updateRadarTimelineVisibility();
+      setRadarPlayButtonState();
+    }
 
     function nextRadarFrame(){
       if (!radarState.frames.length) return;
@@ -1469,27 +1459,24 @@ function renderRadarFrame(){
 
         const manifest = await resp.json();
         const frames = Array.isArray(manifest?.frames) ? manifest.frames : [];
-        console.log('first frame', frames[0]?.time);
-        console.log('last frame', frames[frames.length - 1]?.time);
 
-radarState.manifest = manifest;
-radarState.frames = frames;
-radarState.frameIndex = Math.max(0, frames.length - 1);
-radarState.speedMs = Number(manifest?.defaultSpeedMs || DEFAULT_SPEED_MS);
+        radarState.manifest = manifest;
+        radarState.frames = frames;
+        radarState.frameIndex = Math.max(0, frames.length - 1);
+        radarState.speedMs = Number(manifest?.defaultSpeedMs || DEFAULT_SPEED_MS);
 
-const speedSel = document.getElementById('radarSpeedSel');
-if (speedSel){
-  speedSel.value = String(radarState.speedMs);
-  if (!speedSel.querySelector(`option[value="${radarState.speedMs}"]`)){
-    speedSel.value = String(DEFAULT_SPEED_MS);
-    radarState.speedMs = DEFAULT_SPEED_MS;
-  }
-}
+        const speedSel = document.getElementById('radarSpeedSel');
+        if (speedSel){
+          speedSel.value = String(radarState.speedMs);
+          if (!speedSel.querySelector(`option[value="${radarState.speedMs}"]`)){
+            speedSel.value = String(DEFAULT_SPEED_MS);
+            radarState.speedMs = DEFAULT_SPEED_MS;
+          }
+        }
 
-updateRadarTimelineVisibility();
-stopRadarTimer();
-renderRadarFrame();
-setRadarPlayButtonState();
+        updateRadarTimelineVisibility();
+        renderRadarFrame();
+        scheduleRadarTimer();
       }catch(err){
         console.warn('[WeatherReadinessRadar] manifest load failed:', err);
         setRadarStatus('load failed');
@@ -1700,6 +1687,11 @@ setRadarPlayButtonState();
               clearTimeout(radarState.idleTimer);
             }
 
+            radarState.idleTimer = setTimeout(() => {
+              if (radarState.enabled && radarState.frames.length && !radarState.scrubbing){
+                renderRadarFrame();
+              }
+            }, 120);
           });
 
           radarState.booted = true;
