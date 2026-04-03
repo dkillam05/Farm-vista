@@ -1499,41 +1499,6 @@
       renderRadarFrame();
     }
     
-    async function findBestStartingFrameIndex(frames){
-  if (!Array.isArray(frames) || !frames.length) return 0;
-
-  const map = appState.map;
-  if (!map) return Math.max(0, frames.length - 1);
-
-  const bounds = map.getBounds();
-  if (!bounds) return Math.max(0, frames.length - 1);
-
-  const safeBounds = cloneBounds(bounds);
-
-  // Check newest -> older, and use the first frame whose image actually loads
-  // with likely radar content. Cap search so it stays fast.
-  const start = frames.length - 1;
-  const stop = Math.max(0, frames.length - 8);
-
-  for (let i = start; i >= stop; i--){
-    const frame = frames[i];
-    const url = buildViewportWmsUrl(frame, map, safeBounds);
-    if (!url) continue;
-
-    const ok = await new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => resolve(true);
-      img.onerror = () => resolve(false);
-      img.src = url;
-    });
-
-    if (ok){
-      return i;
-    }
-  }
-
-  return Math.max(0, frames.length - 1);
-}
 
 async function loadRadarManifest(force = false){
   if (radarState.loading) return;
@@ -1553,11 +1518,14 @@ async function loadRadarManifest(force = false){
 
     radarState.manifest = manifest;
     radarState.frames = frames;
-    radarState.frameIndex = await findBestStartingFrameIndex(frames);
+
+    // always start on the very last frame returned
+    radarState.frameIndex = Math.max(0, frames.length - 1);
+
     radarState.speedMs = Number(manifest?.defaultSpeedMs || DEFAULT_SPEED_MS);
 
-    const newestFrame = frames[radarState.frameIndex];
-    setRadarTimeText(formatRadarTime(newestFrame?.time));
+    const lastFrame = frames[radarState.frameIndex];
+    setRadarTimeText(formatRadarTime(lastFrame?.time));
 
     const speedSel = document.getElementById('radarSpeedSel');
     if (speedSel){
@@ -1594,21 +1562,21 @@ async function loadRadarManifest(force = false){
   }
 }
 
-    function updateRadarOpacity(){
-      radarState.opacity = effectiveOpacity(radarState.opacity);
-      const overlay = ensureRadarOverlay();
-      if (overlay){
-        overlay.setOpacity(radarState.opacity);
-      }
-      setRadarOpacityText();
-    }
+function updateRadarOpacity(){
+  radarState.opacity = effectiveOpacity(radarState.opacity);
+  const overlay = ensureRadarOverlay();
+  if (overlay){
+    overlay.setOpacity(radarState.opacity);
+  }
+  setRadarOpacityText();
+}
 
-    function setRadarPlaying(flag){
-      radarState.playing = !!flag;
-      setRadarPlayText();
-      renderRadarFrame();
-      scheduleRadarTimer();
-    }
+function setRadarPlaying(flag){
+  radarState.playing = !!flag;
+  setRadarPlayText();
+  renderRadarFrame();
+  scheduleRadarTimer();
+}
 
     function buildRadarMenuUi(){
       if (radarState.uiBuilt) return;
@@ -1891,29 +1859,28 @@ async function loadRadarManifest(force = false){
       }, 250);
     });
 
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible'){
-        setTimeout(async () => {
-          try{
-            await waitForGoogleMaps();
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible'){
+    setTimeout(async () => {
+      try{
+        await waitForGoogleMaps();
 
-            if (!appState.map){
-              await startWeatherMap();
-            }
+        if (!appState.map){
+          await startWeatherMap();
+        }
 
-            buildRadarMenuUi();
-            ensureRadarOverlay();
-            renderRadarFrame();
-            scheduleRadarTimer();
-            hideLowerRightControlAgain();
-          }catch(err){
-            console.warn('[WeatherReadinessRadar] visibility boot failed:', err);
-          }
-        }, 300);
-      } else {
-        stopRadarTimer();
+        buildRadarMenuUi();
+        ensureRadarOverlay();
+        await loadRadarManifest(true);
+        hideLowerRightControlAgain();
+      }catch(err){
+        console.warn('[WeatherReadinessRadar] visibility boot failed:', err);
       }
-    });
+    }, 300);
+  } else {
+    stopRadarTimer();
+  }
+});
   })();
 </script>
 
