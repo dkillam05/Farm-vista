@@ -1519,7 +1519,7 @@
         radarState.frames = frames;
         radarState.frameIndex = Math.max(0, frames.length - 1);
         radarState.speedMs = Number(manifest?.defaultSpeedMs || DEFAULT_SPEED_MS);
-        
+
         const newestFrame = frames[radarState.frameIndex];
         setRadarTimeText(formatRadarTime(newestFrame?.time));
 
@@ -1534,8 +1534,22 @@
 
         setRadarFrameCountText();
         updateRadarTimelineVisibility();
-        renderRadarFrame();
-        scheduleRadarTimer();
+
+        const waitForBoundsAndRender = () => {
+          const map = appState.map;
+          if (!map) return;
+
+          const bounds = map.getBounds();
+          if (!bounds){
+            setTimeout(waitForBoundsAndRender, 120);
+            return;
+          }
+
+          renderRadarFrame();
+          scheduleRadarTimer();
+        };
+
+        waitForBoundsAndRender();
       }catch(err){
         console.warn('[WeatherReadinessRadar] manifest load failed:', err);
         setRadarStatus('load failed');
