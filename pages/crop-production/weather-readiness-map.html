@@ -1305,61 +1305,68 @@
           this.currentImg = null;
         }
 
-        setFrame(url, bounds){
-          if (!url || !bounds){
-            return;
-          }
+setFrame(url, bounds){
+  if (!url || !bounds){
+    return;
+  }
 
-          this.bounds = bounds;
-          this.draw();
+  this.bounds = bounds;
+  this.draw();
 
-          if (url === this.lastUrl && this.currentImg){
-            return;
-          }
+  if (url === this.lastUrl && this.currentImg){
+    if (typeof window.__fvRadarOnFirstFrameReady === 'function'){
+      window.__fvRadarOnFirstFrameReady();
+    }
+    return;
+  }
 
-          this.lastUrl = url;
-          const token = ++this.loadToken;
+  this.lastUrl = url;
+  const token = ++this.loadToken;
 
-          const img = new Image();
-          img.decoding = 'async';
-          img.loading = 'eager';
-          img.alt = '';
-          img.draggable = false;
-          img.style.position = 'absolute';
-          img.style.left = '0';
-          img.style.top = '0';
-          img.style.width = '100%';
-          img.style.height = '100%';
-          img.style.userSelect = 'none';
-          img.style.pointerEvents = 'none';
-          img.style.opacity = '0';
-          img.style.transition = `opacity ${FRAME_FADE_MS}ms linear`;
-          img.src = url;
+  const img = new Image();
+  img.decoding = 'async';
+  img.loading = 'eager';
+  img.alt = '';
+  img.draggable = false;
+  img.style.position = 'absolute';
+  img.style.left = '0';
+  img.style.top = '0';
+  img.style.width = '100%';
+  img.style.height = '100%';
+  img.style.userSelect = 'none';
+  img.style.pointerEvents = 'none';
+  img.style.opacity = '0';
+  img.style.transition = `opacity ${FRAME_FADE_MS}ms linear`;
+  img.src = url;
 
-          img.onload = () => {
-            if (token !== this.loadToken || !this.div) return;
+  img.onload = () => {
+    if (token !== this.loadToken || !this.div) return;
 
-            const prev = this.currentImg;
-            this.div.appendChild(img);
-            this.currentImg = img;
-            this.bounds = bounds;
-            this.draw();
+    const prev = this.currentImg;
+    this.div.appendChild(img);
+    this.currentImg = img;
+    this.bounds = bounds;
+    this.draw();
 
-            requestAnimationFrame(() => {
-              img.style.opacity = String(this.opacity);
-              if (prev){
-                prev.style.opacity = '0';
-              }
-            });
+    requestAnimationFrame(() => {
+      img.style.opacity = String(this.opacity);
+      if (prev){
+        prev.style.opacity = '0';
+      }
+    });
 
-            if (prev){
-              window.setTimeout(() => {
-                if (prev.parentNode){
-                  prev.parentNode.removeChild(prev);
-                }
-              }, FRAME_FADE_MS + 80);
-            }
-          };
+    if (prev){
+      window.setTimeout(() => {
+        if (prev.parentNode){
+          prev.parentNode.removeChild(prev);
+        }
+      }, FRAME_FADE_MS + 80);
+    }
+
+    if (typeof window.__fvRadarOnFirstFrameReady === 'function'){
+      window.__fvRadarOnFirstFrameReady();
+    }
+  };
 
           img.onerror = () => {
             if (token !== this.loadToken) return;
