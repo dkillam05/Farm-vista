@@ -1,3 +1,5 @@
+
+
 <!doctype html>
 <html lang="en">
 <head>
@@ -1120,8 +1122,12 @@
       const playBtn = document.getElementById('btnTimelinePlay');
       const pauseBtn = document.getElementById('btnTimelinePause');
 
-      if (playBtn) playBtn.style.opacity = radarState.playing ? '.55' : '1';
-      if (pauseBtn) pauseBtn.style.opacity = radarState.playing ? '1' : '.55';
+      if (playBtn){
+        playBtn.style.opacity = radarState.playing ? '.55' : '1';
+      }
+      if (pauseBtn){
+        pauseBtn.style.opacity = radarState.playing ? '1' : '.55';
+      }
     }
 
     function setRadarFrameCountText(){
@@ -1139,7 +1145,12 @@
     function updateRadarTimelineVisibility(){
       const wrap = document.getElementById('radarTimeline');
       if (!wrap) return;
-      wrap.hidden = !(radarState.enabled && radarState.frames.length > 0);
+
+      if (radarState.enabled && radarState.frames.length > 0){
+        wrap.hidden = false;
+      } else {
+        wrap.hidden = true;
+      }
     }
 
     function updateRadarTimelineSlider(){
@@ -1352,14 +1363,15 @@
           this.currentImg = null;
         }
 
-        setFrame(url, bounds, timeText = ''){
-          if (!url || !bounds) return;
+        setFrame(url, bounds){
+          if (!url || !bounds){
+            return;
+          }
 
           this.bounds = bounds;
           this.draw();
 
           if (url === this.lastUrl && this.currentImg){
-            if (timeText) setRadarTimeText(timeText);
             return;
           }
 
@@ -1393,12 +1405,10 @@
 
             requestAnimationFrame(() => {
               img.style.opacity = String(this.opacity);
-              if (prev) prev.style.opacity = '0';
+              if (prev){
+                prev.style.opacity = '0';
+              }
             });
-
-            if (timeText){
-              setRadarTimeText(timeText);
-            }
 
             if (prev){
               window.setTimeout(() => {
@@ -1475,11 +1485,12 @@
 
       overlay.setVisible(true);
       overlay.setOpacity(radarState.opacity);
-      overlay.setFrame(imageUrl, safeBounds, formatRadarTime(frame.time));
+      overlay.setFrame(imageUrl, safeBounds);
 
       warmNextRadarFrames(map, safeBounds);
 
       setRadarStatus(radarState.playing ? 'animating' : 'paused');
+      setRadarTimeText(formatRadarTime(frame.time));
       updateRadarTimelineSlider();
       updateRadarTimelineVisibility();
     }
@@ -1508,8 +1519,6 @@
 
         radarState.manifest = manifest;
         radarState.frames = frames;
-
-        /* always start on the very last radar frame returned */
         radarState.frameIndex = Math.max(0, frames.length - 1);
         radarState.speedMs = Number(manifest?.defaultSpeedMs || DEFAULT_SPEED_MS);
 
@@ -1524,22 +1533,8 @@
 
         setRadarFrameCountText();
         updateRadarTimelineVisibility();
-
-        const waitForBoundsAndRender = () => {
-          const map = appState.map;
-          if (!map) return;
-
-          const bounds = map.getBounds();
-          if (!bounds){
-            setTimeout(waitForBoundsAndRender, 120);
-            return;
-          }
-
-          renderRadarFrame();
-          scheduleRadarTimer();
-        };
-
-        waitForBoundsAndRender();
+        renderRadarFrame();
+        scheduleRadarTimer();
       }catch(err){
         console.warn('[WeatherReadinessRadar] manifest load failed:', err);
         setRadarStatus('load failed');
@@ -1857,7 +1852,8 @@
 
             buildRadarMenuUi();
             ensureRadarOverlay();
-            await loadRadarManifest(true);
+            renderRadarFrame();
+            scheduleRadarTimer();
             hideLowerRightControlAgain();
           }catch(err){
             console.warn('[WeatherReadinessRadar] visibility boot failed:', err);
