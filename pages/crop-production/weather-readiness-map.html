@@ -743,7 +743,6 @@
       height:var(--timeline-thumb-size);
       display:flex;
       align-items:center;
-      padding:0 calc(var(--timeline-thumb-size) / 2);
       box-sizing:border-box;
     }
 
@@ -765,7 +764,7 @@
       left:0;
       top:0;
       bottom:0;
-      width:0%;
+      width:0px;
       border-radius:999px;
       background:#2F6C3C;
     }
@@ -784,15 +783,18 @@
     }
 
     .radar-slider{
-      position:relative;
+      position:absolute;
       z-index:2;
-      width:calc(100% - var(--timeline-thumb-size));
+      left:calc(var(--timeline-thumb-size) / 2);
+      right:calc(var(--timeline-thumb-size) / 2);
+      top:0;
+      bottom:0;
+      width:auto;
       min-width:0;
-      margin:0 auto;
+      margin:0;
       cursor:pointer;
       -webkit-appearance:none;
       appearance:none;
-      height:var(--timeline-thumb-size);
       background:transparent !important;
       border:none;
       outline:none;
@@ -1314,17 +1316,22 @@
       const slider = document.getElementById('radarTimelineSlider');
       const fill = document.getElementById('radarTimelineFill');
       const thumb = document.getElementById('radarTimelineThumb');
-      if (!slider || !fill || !thumb) return;
+      const track = document.querySelector('.radar-progress-track');
+
+      if (!slider || !fill || !thumb || !track) return;
 
       const max = Math.max(0, radarState.frames.length - 1);
       const value = Math.max(0, Math.min(max, radarState.frameIndex));
-      const percent = max <= 0 ? 0 : (value / max) * 100;
+      const percent = max <= 0 ? 0 : (value / max);
 
       slider.max = String(max);
       slider.value = String(value);
 
-      fill.style.width = `${percent}%`;
-      thumb.style.left = `calc((var(--timeline-thumb-size) / 2) + (${percent}% * (100% - var(--timeline-thumb-size))) / 100)`;
+      const trackWidth = track.clientWidth || 0;
+      const thumbCenterX = trackWidth * percent;
+
+      fill.style.width = `${thumbCenterX}px`;
+      thumb.style.left = `${track.offsetLeft + thumbCenterX}px`;
     }
 
     function formatRadarTime(iso){
@@ -1810,6 +1817,10 @@
       updateRadarTimelineVisibility();
       updateRadarTimelineSlider();
       setRadarTimeText('--:--');
+
+      window.addEventListener('resize', () => {
+        updateRadarTimelineSlider();
+      });
     }
 
     function hideLowerRightControlAgain(){
