@@ -1496,11 +1496,18 @@
         if (!resp.ok) throw new Error(`manifest ${resp.status}`);
 
         const manifest = await resp.json();
-        const frames = Array.isArray(manifest?.frames) ? manifest.frames : [];
+
+        const frames = Array.isArray(manifest?.frames)
+          ? [...manifest.frames].sort((a, b) => {
+              const at = new Date(a?.time || 0).getTime();
+              const bt = new Date(b?.time || 0).getTime();
+              return at - bt; // oldest -> newest
+            })
+          : [];
 
         radarState.manifest = manifest;
         radarState.frames = frames;
-        radarState.frameIndex = 0;
+        radarState.frameIndex = frames.length ? frames.length - 1 : 0; // start on newest frame at far right
         radarState.speedMs = Number(manifest?.defaultSpeedMs || DEFAULT_SPEED_MS);
 
         const speedSel = document.getElementById('radarSpeedSel');
