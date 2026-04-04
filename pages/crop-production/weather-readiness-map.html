@@ -746,7 +746,8 @@
         #2F6C3C var(--track-fill),
         rgba(255,255,255,.82) var(--track-fill),
         rgba(255,255,255,.82) 100%
-      );
+      ) !important;
+  }
   }
 
   .radar-slider::-webkit-slider-runnable-track{
@@ -1261,7 +1262,7 @@
       wrap.hidden = !(radarState.enabled && radarState.frames.length > 0);
     }
 
-      function updateRadarTimelineSlider(){
+       function updateRadarTimelineSlider(){
       const slider = document.getElementById('radarTimelineSlider');
       if (!slider) return;
 
@@ -1271,8 +1272,23 @@
       slider.max = String(max);
       slider.value = String(value);
 
-      const percent = max <= 0 ? 100 : (value / max) * 100;
-      slider.style.setProperty('--track-fill', `${percent}%`);
+      if (max <= 0){
+        slider.style.setProperty('--track-fill', '100%');
+        return;
+      }
+
+      const rawPercent = value / max;
+      const thumbPx = 22; // must match CSS thumb width
+      const trackPx = Math.max(1, slider.clientWidth || 1);
+
+      const thumbPercent = (thumbPx / trackPx) * 100;
+      let visualPercent = (rawPercent * 100) + ((rawPercent - 0.5) * thumbPercent);
+
+      if (value === 0) visualPercent = 0;
+      if (value === max) visualPercent = 100;
+
+      visualPercent = Math.max(0, Math.min(100, visualPercent));
+      slider.style.setProperty('--track-fill', `${visualPercent}%`);
     }
 
     function formatRadarTime(iso){
