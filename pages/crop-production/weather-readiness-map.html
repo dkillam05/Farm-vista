@@ -709,6 +709,17 @@
       cursor:pointer;
     }
 
+    .radar-time-label{
+      flex:0 0 auto;
+      min-width:56px;
+      text-align:right;
+      font-size:11px;
+      font-weight:900;
+      color:var(--text-dark);
+      opacity:.86;
+      white-space:nowrap;
+    }
+
     #rainMap .gm-bundled-control,
     #rainMap .gm-bundled-control-on-bottom,
     #rainMap .gmnoprint[style*="bottom"][style*="right"]{
@@ -845,6 +856,11 @@
         width:32px;
         height:32px;
       }
+
+      .radar-time-label{
+        min-width:48px;
+        font-size:10px;
+      }
     }
 
     @media (max-width:420px){
@@ -878,6 +894,11 @@
 
       .cal-btn{
         min-height:38px;
+      }
+
+      .radar-time-label{
+        min-width:44px;
+        font-size:10px;
       }
     }
   </style>
@@ -934,6 +955,7 @@
               value="0"
               aria-label="Radar frame slider"
             />
+            <span id="radarTimelineLabel" class="radar-time-label">--:--</span>
           </div>
         </div>
 
@@ -979,8 +1001,8 @@
               <div class="menu-field">
                 <label for="radarSpeedSel">Radar speed</label>
                 <select id="radarSpeedSel" class="menu-select">
-                  <option value="500">Fast</option>
-                  <option value="780" selected>Normal</option>
+                  <option value="500" selected>Fast</option>
+                  <option value="780">Normal</option>
                   <option value="1100">Slow</option>
                   <option value="1500">Very Slow</option>
                 </select>
@@ -1130,6 +1152,9 @@
     function setRadarTimeText(text){
       const hiddenEl = document.getElementById('radarTimeText');
       if (hiddenEl) hiddenEl.textContent = text || '';
+
+      const timelineLabel = document.getElementById('radarTimelineLabel');
+      if (timelineLabel) timelineLabel.textContent = text || '--:--';
     }
 
     function setRadarToggleText(){
@@ -1171,8 +1196,6 @@
       if (!iso) return '--:--';
       try{
         return new Intl.DateTimeFormat('en-US', {
-          month: 'numeric',
-          day: 'numeric',
           hour: 'numeric',
           minute: '2-digit',
           timeZone: 'America/Chicago'
@@ -1526,24 +1549,20 @@
         if (!resp.ok) throw new Error(`manifest ${resp.status}`);
 
         const manifest = await resp.json();
-const frames = Array.isArray(manifest?.frames)
-  ? [...manifest.frames]
-      .filter(f => f && f.source === 'wms' && f.wms)
-      .sort((a, b) => {
-        const at = new Date(a?.time || 0).getTime();
-        const bt = new Date(b?.time || 0).getTime();
-        return at - bt;
-      })
-  : [];
+        const frames = Array.isArray(manifest?.frames)
+          ? [...manifest.frames]
+              .filter(f => f && f.source === 'wms' && f.wms)
+              .sort((a, b) => {
+                const at = new Date(a?.time || 0).getTime();
+                const bt = new Date(b?.time || 0).getTime();
+                return at - bt;
+              })
+          : [];
 
         radarState.manifest = manifest;
         radarState.frames = frames;
         radarState.frameIndex = Math.max(0, frames.length - 1);
-
-        const manifestSpeed = Number(manifest?.defaultSpeedMs || DEFAULT_SPEED_MS);
-        if ([500, 780, 1100, 1500].includes(manifestSpeed) && !localStorage.getItem(RADAR_SPEED_STORAGE_KEY)){
-          radarState.speedMs = manifestSpeed;
-        }
+        radarState.speedMs = readSavedRadarSpeed();
 
         const speedSel = document.getElementById('radarSpeedSel');
         if (speedSel){
@@ -1611,7 +1630,7 @@ const frames = Array.isArray(manifest?.frames)
       }
 
       if (speedSel){
-        speedSel.value = String(radarState.speedMs);
+        speedSel.value = String(DEFAULT_SPEED_MS);
         speedSel.addEventListener('change', () => {
           radarState.speedMs = Number(speedSel.value || DEFAULT_SPEED_MS);
           saveRadarSpeed(radarState.speedMs);
