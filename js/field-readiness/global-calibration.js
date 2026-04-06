@@ -1,31 +1,37 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/global-calibration.js  (FULL FILE)
-Rev: 2026-04-06a-write-global-calibration-to-field_readiness_latest
+Rev: 2026-04-06b-method1-base-anchored-global-calibration
 
 KEEP UI (per Dane):
 ✅ Preserve the exact Rev 2026-01-22c modal look/feel (theme patch + layout + wording)
 ✅ Do NOT "redesign" the popup UI
 
-CENTRALIZED READINESS (THIS REV):
-✅ Uses field_readiness_latest for the readiness number shown in this modal
-✅ APPLY now writes adjusted live readiness/storage directly to field_readiness_latest
-✅ RESET now rebuilds live readiness/storage directly to field_readiness_latest
+METHOD 1 (THIS REV):
+✅ UI still shows current LIVE readiness from field_readiness_latest
+✅ Slider still anchors to the CURRENT SHOWN number the user sees
+✅ BUT calibration math now uses BASE / UNADJUSTED model output underneath
+✅ APPLY computes a NEW ABSOLUTE storage multiplier from BASE -> TARGET
+✅ APPLY writes immediate live results into field_readiness_latest
+✅ APPLY also stores the absolute global multiplier in field_readiness_tuning/global
+✅ RESET rebuilds field_readiness_latest from BASE model and clears absolute multiplier to 1.0
 ✅ Keeps learning/tuning doc write
 ✅ Keeps fr:soft-reload after apply/reset
-✅ Stops relying on field_readiness_state for global calibration truth
+✅ Stops relying on field_readiness_state for actual global calibration truth
 
 WHY:
-✅ Makes global calibration change the SAME live collection the app is reading
-✅ Fixes prior split-brain behavior where modal read latest but wrote old state
-✅ Keeps current UI and slider behavior intact
+✅ Prevents recalibration from chaining off an already-calibrated shown value
+✅ Matches Method 1:
+   every new adjustment recomputes from CURRENT BASE model -> TARGET
+✅ Makes current live scores move now, while preparing for Cloud Function
+   to later honor the same saved absolute multiplier
 
 NOTES:
-- "Shown" readiness comes from field_readiness_latest when present.
-- Apply computes one global storage multiplier from the reference field.
-- The reference field is forced to the target readiness.
-- Other fields move by the same storage multiplier using their current live latest storage.
-- Writes are MERGE writes to field_readiness_latest so extra fields owned elsewhere stay intact.
-
+- SHOWN readiness = what user currently sees from field_readiness_latest
+- BASE readiness = what model.js says right now with zero calibration
+- Slider starts at SHOWN, but saved multiplier is computed from BASE
+- For immediate live update, all fields are recalculated from BASE model
+  using the new absolute multiplier, then written to field_readiness_latest
+- Writes are MERGE writes to field_readiness_latest so extra fields stay intact
 ===================================================================== */
 'use strict';
 
@@ -34,8 +40,6 @@ import { canEdit } from './perm.js';
 import { buildWxCtx, CONST, OPS, EXTRA } from './state.js';
 import { getFieldParams } from './params.js';
 import { getCurrentOp } from './thresholds.js';
-
-// ✅ SINGLE SOURCE OF TRUTH: deps wiring lives here
 import { ensureFRModules, buildFRDeps } from './formula.js';
 
 function $(id){ return document.getElementById(id); }
@@ -47,9 +51,7 @@ function esc(s){
 }
 
 /* =====================================================================
-   LEGACY STATE COLLECTION (left defined only so old helper plumbing
-   does not explode if referenced elsewhere; global calibration no longer
-   writes to it)
+   LEGACY STATE COLLECTION
 ===================================================================== */
 const FR_STATE_COLLECTION = 'field_readiness_state';
 const STATE_TTL_MS = 30000;
@@ -61,7 +63,7 @@ const FR_LATEST_COLLECTION = 'field_readiness_latest';
 const LATEST_TTL_MS = 30000;
 
 /* =====================================================================
-   LEARNING / TUNING DOC (kept)
+   LEARNING / TUNING DOC
 ===================================================================== */
 const FR_TUNE_COLLECTION = 'field_readiness_tuning';
 const FR_TUNE_DOC = 'global';
@@ -70,27 +72,19 @@ const DRY_LOSS_MULT_MIN = 0.30;
 const DRY_LOSS_MULT_MAX = 3.00;
 const RAIN_EFF_MULT_MIN = 0.30;
 const RAIN_EFF_MULT_MAX = 3.00;
+const GLOBAL_STORAGE_MULT_MIN = 0.05;
+const GLOBAL_STORAGE_MULT_MAX = 5.00;
 
-// How aggressively one global shift changes tuning.
 const TUNE_EXP = 0.50;
 
 /* =====================================================================
    FORCE CALIBRATION helpers (must match model.js reversal)
-   model (NEW extreme symmetric):
-     creditInches is SIGNED:
-       Smax=3 -> +credit (drier)
-       Smax=4 -> 0
-       Smax=5 -> -credit (wetter)
-     storageForReadiness = clamp(storageEff - creditInches, 0..Smax)
 ===================================================================== */
 const GCAL_SMAX_MIN = 3.0;
 const GCAL_SMAX_MAX = 5.0;
 const GCAL_SMAX_MID = 4.0;
-
-// ✅ match model EXTREME setting
 const GCAL_REV_POINTS_MAX = 20;
 
-// match model surface penalty defaults closely enough for live recompute
 const GCAL_SURFACE_CAP_IN = 0.70;
 const GCAL_SURFACE_PENALTY_MAX = 36;
 const GCAL_SURFACE_PENALTY_EXP = 1.20;
@@ -106,10 +100,8 @@ function gcalStorageNeededForTargetReadiness(targetR, Smax){
   const smax = clamp(Number(Smax), GCAL_SMAX_MIN, GCAL_SMAX_MAX);
 
   const creditIn = gcalDryCreditInchesFromSmax(smax);
-
   const wetPct = clamp(100 - r, 0, 100);
   const storageForReadiness = smax * (wetPct / 100);
-
   const storageEff = clamp(storageForReadiness + creditIn, 0, smax);
 
   return { storageEff, creditIn, wetPct, storageForReadiness };
@@ -145,8 +137,7 @@ function gcalComputeLiveReadinessFromState(storagePhys, surfaceStorage, Smax){
     };
   }
 
-  // CAL is zero in current render/model path, so storageEff = storagePhys
-  const storageEff = storagePhysClamped;
+  const storageEff = storagePhysClamped; // CAL is zero in current model path
   const creditIn = gcalDryCreditInchesFromSmax(smax);
   const storageForReadiness = clamp(storageEff - creditIn, 0, smax);
 
@@ -247,7 +238,7 @@ function getAuthUserIdModern(api){
 }
 
 /* =====================================================================
-   Legacy persisted truth-state load (left in place for compatibility only)
+   Legacy persisted truth-state load (compat only)
 ===================================================================== */
 async function loadPersistedState(state, { force=false } = {}){
   try{
@@ -493,21 +484,25 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
 }
 
 /* =====================================================================
-   Tuning doc read/write (kept)
+   Tuning doc read/write
 ===================================================================== */
 function normalizeTuneDoc(d){
   const doc = (d && typeof d === 'object') ? d : {};
   const dryLoss = safeNum(doc.DRY_LOSS_MULT);
   const rainEff = safeNum(doc.RAIN_EFF_MULT);
+  const globalStorageMult = safeNum(doc.GLOBAL_STORAGE_MULT);
 
   return {
     DRY_LOSS_MULT: clamp((dryLoss == null ? 1.0 : dryLoss), DRY_LOSS_MULT_MIN, DRY_LOSS_MULT_MAX),
     RAIN_EFF_MULT: clamp((rainEff == null ? 1.0 : rainEff), RAIN_EFF_MULT_MIN, RAIN_EFF_MULT_MAX),
+    GLOBAL_STORAGE_MULT: clamp((globalStorageMult == null ? 1.0 : globalStorageMult), GLOBAL_STORAGE_MULT_MIN, GLOBAL_STORAGE_MULT_MAX),
 
     lastStorageMult: safeNum(doc.lastStorageMult),
     lastPercentMove: safeNum(doc.lastPercentMove),
     lastAnchorReadiness: safeNum(doc.lastAnchorReadiness),
     lastTargetReadiness: safeNum(doc.lastTargetReadiness),
+    lastBaseReadiness: safeNum(doc.lastBaseReadiness),
+    lastShownReadiness: safeNum(doc.lastShownReadiness),
     lastOp: safeStr(doc.lastOp),
     lastAsOfDateISO: safeStr(doc.lastAsOfDateISO),
     updatedBy: safeStr(doc.updatedBy),
@@ -766,7 +761,6 @@ function getSelectedField(state){
   return (state.fields || []).find(x=>x.id === fid) || null;
 }
 
-// For this modal, CAL must match render.js: ALL ZERO.
 function getCalForShown(_state){
   return { wetBias:0, opWetBias:{}, readinessShift:0, opReadinessShift:{} };
 }
@@ -793,7 +787,6 @@ function runFieldWithCal(state, f, _calObj){
   return run;
 }
 
-// ✅ "Shown" run now prefers centralized field_readiness_latest
 function getRunForFieldShown(state, f){
   if (!f) return null;
 
@@ -804,7 +797,6 @@ function getRunForFieldShown(state, f){
   return runFieldWithCal(state, f, getCalForShown(state));
 }
 
-// ✅ Separate deep/model run for math / Smax fallback
 function getRunForFieldModel(state, f){
   return runFieldWithCal(state, f, getCalForShown(state));
 }
@@ -920,7 +912,7 @@ function renderCooldownCard(state){
     ? `Last global shift: <span class="mono">${esc(since)}</span> ago`
     : `Last global shift: <span class="mono">—</span>`;
   const sub = `Next global shift allowed: <span class="mono">${esc(nextAbs)}</span>`;
-  const note = `Apply forces the reference field to the target readiness, then scales all fields storage by the same %. Reset rebuilds truth from the last ~30 days.`;
+  const note = `Apply recalculates ONE new absolute global multiplier from the current BASE model to your selected target. Reset clears the saved global multiplier and rebuilds from base.`;
 
   const cardStyle =
     'border:1px solid var(--border);border-radius:14px;padding:12px;' +
@@ -1017,16 +1009,17 @@ function updateGuardText(state){
     return;
   }
 
-  const anchor = clamp(Math.round(Number(state._adjAnchorReadiness ?? 50)), 0, 100);
+  const shownAnchor = clamp(Math.round(Number(state._adjAnchorReadiness ?? 50)), 0, 100);
+  const baseAnchor = clamp(Math.round(Number(state._adjBaseReadiness ?? shownAnchor)), 0, 100);
   const target = sliderVal();
 
   let factor = 1;
-  if (anchor > 0) factor = target / anchor;
+  if (baseAnchor > 0) factor = target / baseAnchor;
 
   const pct = Math.round((factor - 1) * 100);
   const dir = (pct >= 0) ? 'drier' : 'wetter';
 
-  el.textContent = `Will shift ALL fields ~${Math.abs(pct)}% ${dir}.`;
+  el.textContent = `Current shown: ${shownAnchor}. Base behind it: ${baseAnchor}. New absolute global multiplier will shift ALL fields ~${Math.abs(pct)}% ${dir}.`;
 }
 
 /* =========================
@@ -1048,6 +1041,7 @@ function updatePills(state, run){
   const fid = state.selectedFieldId;
   const p = getFieldParams(state, fid);
   const latest = getLatestReadinessForField(state, fid);
+  const baseRun = getRunForFieldModel(state, getSelectedField(state));
 
   const thr = currentThreshold(state);
 
@@ -1081,6 +1075,15 @@ function updatePills(state, run){
   try{
     const thrEl = $('adjThreshold');
     if (thrEl) thrEl.textContent = String(thr);
+  }catch(_){}
+
+  try{
+    const baseEl = $('adjBaseReadiness');
+    if (baseEl){
+      baseEl.textContent = Number.isFinite(Number(baseRun?.readinessR))
+        ? String(Math.round(Number(baseRun.readinessR)))
+        : '—';
+    }
   }catch(_){}
 }
 
@@ -1225,6 +1228,7 @@ function buildLatestMergePayload(existingRec, fieldObj, patch){
 
   if (p.anchorReadiness !== undefined) out.anchorReadiness = Math.round(Number(p.anchorReadiness));
   if (p.targetReadiness !== undefined) out.targetReadiness = Math.round(Number(p.targetReadiness));
+  if (p.baseReadiness !== undefined) out.baseReadiness = Math.round(Number(p.baseReadiness));
   if (p.storageMult !== undefined) out.storageMult = Number(p.storageMult);
   if (p.asOfDateISO !== undefined) out.asOfDateISO = String(p.asOfDateISO || '');
   if (p.updatedBy !== undefined) out.updatedBy = p.updatedBy || null;
@@ -1234,12 +1238,13 @@ function buildLatestMergePayload(existingRec, fieldObj, patch){
 }
 
 /* =====================================================================
-   Learning write (kept)
+   Learning + absolute multiplier write
 ===================================================================== */
 async function writeLearningFromStorageShift(state, {
   storageMult,
   percentMove,
-  anchorR,
+  baseAnchorR,
+  shownAnchorR,
   targetR,
   asOfDateISO,
   refFieldId,
@@ -1251,7 +1256,7 @@ async function writeLearningFromStorageShift(state, {
 
   const prev = await loadGlobalTuning(state);
 
-  const sm = clamp(Number(storageMult || 1), 0.10, 2.50);
+  const sm = clamp(Number(storageMult || 1), GLOBAL_STORAGE_MULT_MIN, GLOBAL_STORAGE_MULT_MAX);
   const intentFactor = clamp(1 / Math.max(1e-6, sm), 0.10, 2.50);
 
   const next = computeNextTuning(prev, intentFactor);
@@ -1260,10 +1265,13 @@ async function writeLearningFromStorageShift(state, {
   const payload = {
     DRY_LOSS_MULT: next.DRY_LOSS_MULT,
     RAIN_EFF_MULT: next.RAIN_EFF_MULT,
+    GLOBAL_STORAGE_MULT: sm,
 
     lastStorageMult: sm,
     lastPercentMove: clamp(Number(percentMove || 0), -90, 90),
-    lastAnchorReadiness: clamp(Number(anchorR || 0), 0, 100),
+    lastAnchorReadiness: clamp(Number(shownAnchorR || 0), 0, 100),
+    lastBaseReadiness: clamp(Number(baseAnchorR || 0), 0, 100),
+    lastShownReadiness: clamp(Number(shownAnchorR || 0), 0, 100),
     lastTargetReadiness: clamp(Number(targetR || 0), 0, 100),
     lastOp: String(opKey || ''),
     lastAsOfDateISO: String(asOfDateISO || ''),
@@ -1279,8 +1287,22 @@ async function writeLearningFromStorageShift(state, {
   await writeGlobalTuning(state, payload);
 }
 
+async function clearAbsoluteGlobalMultiplier(state){
+  const api = getAPI(state);
+  if (!api) return;
+  const createdBy = (api.kind === 'compat') ? getAuthUserIdCompat() : getAuthUserIdModern(api);
+
+  await writeGlobalTuning(state, {
+    GLOBAL_STORAGE_MULT: 1.0,
+    updatedBy: createdBy || null,
+    updatedAt: (api.kind === 'compat')
+      ? nowISO()
+      : (api.serverTimestamp ? api.serverTimestamp() : new Date().toISOString())
+  });
+}
+
 /* =====================================================================
-   ✅ ADD BACK: writeWeightsLock + futureTimestamp (WAS MISSING)
+   writeWeightsLock + futureTimestamp
 ===================================================================== */
 function futureTimestamp(api, ms){
   try{
@@ -1330,8 +1352,9 @@ async function writeWeightsLock(state, nowMs){
 }
 
 /* =====================================================================
-   APPLY: FORCE ref to target readiness + scale all fields by same %
-   NOW WRITES DIRECTLY TO field_readiness_latest
+   APPLY: METHOD 1
+   Compute NEW ABSOLUTE multiplier from BASE model -> TARGET,
+   then write immediate live latest docs from BASE model * new multiplier.
 ===================================================================== */
 async function applyAdjustment(state){
   if (isLocked(state)) return;
@@ -1361,29 +1384,27 @@ async function applyAdjustment(state){
   if (state._adjStatus === 'wet' && feel !== 'dry') return;
   if (state._adjStatus === 'dry' && feel !== 'wet') return;
 
-  const anchorR = clamp(Math.round(Number(state._adjAnchorReadiness ?? runRefShown.readinessR ?? 0)), 0, 100);
+  const shownAnchorR = clamp(Math.round(Number(state._adjAnchorReadiness ?? runRefShown.readinessR ?? 0)), 0, 100);
+  const baseAnchorR = clamp(Math.round(Number(state._adjBaseReadiness ?? runRefModel.readinessR ?? 0)), 0, 100);
   const targetR = clamp(Math.round(Number(sliderVal())), 0, 100);
 
   let factor = 1;
-  if (anchorR > 0) factor = targetR / anchorR;
+  if (baseAnchorR > 0) factor = targetR / baseAnchorR;
   const percentMove = clamp((factor - 1) * 100, -90, 90);
 
-  const refLatest = getLatestReadinessForField(state, fRef.id);
   const SmaxRef = Number(runRefModel.factors.Smax);
   const forced = gcalStorageNeededForTargetReadiness(targetR, SmaxRef);
   const forcedStorageRef = forced.storageEff;
 
-  const curStorageRefRaw =
-    safeNum(refLatest && refLatest.storageFinal) ??
-    safeNum(refLatest && refLatest.storagePhysFinal) ??
-    safeNum(runRefShown && runRefShown.storageFinal) ??
+  const baseStorageRefRaw =
     safeNum(runRefModel && runRefModel.storageFinal) ??
+    safeNum(runRefModel && runRefModel.storagePhysFinal) ??
     0;
 
-  const curStorageRef = Math.max(0.05, (isFinite(curStorageRefRaw) ? curStorageRefRaw : 0));
+  const baseStorageRef = Math.max(0.05, (isFinite(baseStorageRefRaw) ? baseStorageRefRaw : 0));
 
-  let storageMult = forcedStorageRef / curStorageRef;
-  storageMult = clamp(storageMult, 0.05, 5.0);
+  let storageMult = forcedStorageRef / baseStorageRef;
+  storageMult = clamp(storageMult, GLOBAL_STORAGE_MULT_MIN, GLOBAL_STORAGE_MULT_MAX);
 
   let asOf = '';
   try{
@@ -1394,7 +1415,6 @@ async function applyAdjustment(state){
   if (!asOf) asOf = isoDay(new Date().toISOString());
 
   const createdBy = (api.kind === 'compat') ? getAuthUserIdCompat() : getAuthUserIdModern(api);
-
   const fields = Array.isArray(state.fields) ? state.fields : [];
   if (!fields.length) return;
 
@@ -1412,33 +1432,32 @@ async function applyAdjustment(state){
 
         const smax = Number(run.factors.Smax);
 
-        const curStorageRaw =
-          safeNum(latest && latest.storageFinal) ??
-          safeNum(latest && latest.storagePhysFinal) ??
+        const baseStorageRaw =
           safeNum(run && run.storageFinal) ??
           safeNum(run && run.storagePhysFinal) ??
           0;
 
-        const curStorage = Math.max(0.05, (isFinite(curStorageRaw) ? curStorageRaw : 0));
+        const baseStorage = Math.max(0.05, (isFinite(baseStorageRaw) ? baseStorageRaw : 0));
 
-        let nextStoragePhys = clamp(curStorage * storageMult, 0, smax);
+        let nextStoragePhys = clamp(baseStorage * storageMult, 0, smax);
         if (String(f.id) === String(fRef.id)){
           nextStoragePhys = clamp(forcedStorageRef, 0, smax);
         }
 
-        const nextSurfaceStorage =
-          safeNum(latest && latest.surfaceStorageFinal) ??
+        const baseSurfaceStorage =
+          safeNum(run && run.surfaceStorageFinal) ??
           0;
 
-        const live = gcalComputeLiveReadinessFromState(nextStoragePhys, nextSurfaceStorage, smax);
+        const live = gcalComputeLiveReadinessFromState(nextStoragePhys, baseSurfaceStorage, smax);
 
+        const params = getFieldParams(state, f.id) || {};
         const payload = buildLatestMergePayload(latest, f, {
           fieldId: String(f.id),
           fieldName: String(f.name || ''),
           readiness: live.readiness,
           wetness: live.wetness,
-          soilWetness: safeNum(latest && latest.soilWetness) ?? safeNum(getFieldParams(state, f.id)?.soilWetness),
-          drainageIndex: safeNum(latest && latest.drainageIndex) ?? safeNum(getFieldParams(state, f.id)?.drainageIndex),
+          soilWetness: safeNum(latest && latest.soilWetness) ?? safeNum(params.soilWetness),
+          drainageIndex: safeNum(latest && latest.drainageIndex) ?? safeNum(params.drainageIndex),
           readinessCreditIn: live.creditIn,
           storageFinal: live.storageEff,
           storageForReadiness: live.storageForReadiness,
@@ -1448,10 +1467,16 @@ async function applyAdjustment(state){
           wetBiasApplied: live.wetBiasApplied,
           runKey: `global-calibration:${Date.now()}`,
           seedSource: 'global-calibration',
+          weatherSource: safeStr(
+            (Array.isArray(run.rows) && run.rows.length && run.rows[run.rows.length - 1] && run.rows[run.rows.length - 1].rainSource) ||
+            (latest && latest.weatherSource) ||
+            ''
+          ),
           computedAt: updatedAtISO,
           asOfDateISO: String(asOf),
           storageMult,
-          anchorReadiness: anchorR,
+          anchorReadiness: shownAnchorR,
+          baseReadiness: baseAnchorR,
           targetReadiness: targetR,
           updatedAt: updatedAtISO,
           updatedBy: createdBy || null
@@ -1483,33 +1508,32 @@ async function applyAdjustment(state){
 
         const smax = Number(run.factors.Smax);
 
-        const curStorageRaw =
-          safeNum(latest && latest.storageFinal) ??
-          safeNum(latest && latest.storagePhysFinal) ??
+        const baseStorageRaw =
           safeNum(run && run.storageFinal) ??
           safeNum(run && run.storagePhysFinal) ??
           0;
 
-        const curStorage = Math.max(0.05, (isFinite(curStorageRaw) ? curStorageRaw : 0));
+        const baseStorage = Math.max(0.05, (isFinite(baseStorageRaw) ? baseStorageRaw : 0));
 
-        let nextStoragePhys = clamp(curStorage * storageMult, 0, smax);
+        let nextStoragePhys = clamp(baseStorage * storageMult, 0, smax);
         if (String(f.id) === String(fRef.id)){
           nextStoragePhys = clamp(forcedStorageRef, 0, smax);
         }
 
-        const nextSurfaceStorage =
-          safeNum(latest && latest.surfaceStorageFinal) ??
+        const baseSurfaceStorage =
+          safeNum(run && run.surfaceStorageFinal) ??
           0;
 
-        const live = gcalComputeLiveReadinessFromState(nextStoragePhys, nextSurfaceStorage, smax);
+        const live = gcalComputeLiveReadinessFromState(nextStoragePhys, baseSurfaceStorage, smax);
 
+        const params = getFieldParams(state, f.id) || {};
         const payload = buildLatestMergePayload(latest, f, {
           fieldId: String(f.id),
           fieldName: String(f.name || ''),
           readiness: live.readiness,
           wetness: live.wetness,
-          soilWetness: safeNum(latest && latest.soilWetness) ?? safeNum(getFieldParams(state, f.id)?.soilWetness),
-          drainageIndex: safeNum(latest && latest.drainageIndex) ?? safeNum(getFieldParams(state, f.id)?.drainageIndex),
+          soilWetness: safeNum(latest && latest.soilWetness) ?? safeNum(params.soilWetness),
+          drainageIndex: safeNum(latest && latest.drainageIndex) ?? safeNum(params.drainageIndex),
           readinessCreditIn: live.creditIn,
           storageFinal: live.storageEff,
           storageForReadiness: live.storageForReadiness,
@@ -1519,10 +1543,16 @@ async function applyAdjustment(state){
           wetBiasApplied: live.wetBiasApplied,
           runKey: `global-calibration:${Date.now()}`,
           seedSource: 'global-calibration',
+          weatherSource: safeStr(
+            (Array.isArray(run.rows) && run.rows.length && run.rows[run.rows.length - 1] && run.rows[run.rows.length - 1].rainSource) ||
+            (latest && latest.weatherSource) ||
+            ''
+          ),
           computedAt: api.serverTimestamp ? api.serverTimestamp() : new Date().toISOString(),
           asOfDateISO: String(asOf),
           storageMult,
-          anchorReadiness: anchorR,
+          anchorReadiness: shownAnchorR,
+          baseReadiness: baseAnchorR,
           targetReadiness: targetR,
           updatedAt: api.serverTimestamp ? api.serverTimestamp() : new Date().toISOString(),
           updatedBy: createdBy || null
@@ -1548,7 +1578,8 @@ async function applyAdjustment(state){
     await writeLearningFromStorageShift(state, {
       storageMult,
       percentMove,
-      anchorR,
+      baseAnchorR,
+      shownAnchorR,
       targetR,
       asOfDateISO: asOf,
       refFieldId: String(fRef.id || ''),
@@ -1572,7 +1603,8 @@ async function applyAdjustment(state){
 
 /* =====================================================================
    RESET / REBUILD truth from last ~30 days
-   NOW WRITES DIRECTLY TO field_readiness_latest
+   Writes BASE model result to field_readiness_latest and clears saved
+   absolute multiplier back to 1.0
 ===================================================================== */
 async function rebuildTruthFromLast30Days(state){
   try{
@@ -1580,7 +1612,7 @@ async function rebuildTruthFromLast30Days(state){
     if (!canEdit(state)) return;
 
     const ok = window.confirm(
-      'Reset/Rebuild Truth?\n\nThis will recompute TODAY storage truth for ALL fields using the last ~30 days of weather and your current field sliders.\n\nProceed?'
+      'Reset/Rebuild Truth?\n\nThis will recompute TODAY storage truth for ALL fields using the last ~30 days of weather and your current field sliders, write BASE model results into field_readiness_latest, and clear the saved global multiplier back to 1.0.\n\nProceed?'
     );
     if (!ok) return;
 
@@ -1674,6 +1706,7 @@ async function rebuildTruthFromLast30Days(state){
             ),
             computedAt: updatedAtISO,
             asOfDateISO: String(asOf),
+            storageMult: 1.0,
             updatedAt: updatedAtISO,
             updatedBy: createdBy || null
           });
@@ -1690,9 +1723,11 @@ async function rebuildTruthFromLast30Days(state){
         }
       }
 
+      await clearAbsoluteGlobalMultiplier(state);
+
       state._latestReadinessLoadedAt = Date.now();
       try{ document.dispatchEvent(new CustomEvent('fr:soft-reload')); }catch(_){}
-      window.alert('Reset complete: latest truth rebuilt from last ~30 days weather.');
+      window.alert('Reset complete: latest truth rebuilt from last ~30 days weather and saved global multiplier cleared to 1.0.');
       return;
     }
 
@@ -1739,6 +1774,7 @@ async function rebuildTruthFromLast30Days(state){
             ),
             computedAt: api.serverTimestamp ? api.serverTimestamp() : new Date().toISOString(),
             asOfDateISO: String(asOf),
+            storageMult: 1.0,
             updatedAt: api.serverTimestamp ? api.serverTimestamp() : new Date().toISOString(),
             updatedBy: createdBy || null
           });
@@ -1756,9 +1792,11 @@ async function rebuildTruthFromLast30Days(state){
         }
       }
 
+      await clearAbsoluteGlobalMultiplier(state);
+
       state._latestReadinessLoadedAt = Date.now();
       try{ document.dispatchEvent(new CustomEvent('fr:soft-reload')); }catch(_){}
-      window.alert('Reset complete: latest truth rebuilt from last ~30 days weather.');
+      window.alert('Reset complete: latest truth rebuilt from last ~30 days weather and saved global multiplier cleared to 1.0.');
     }
   }catch(e){
     console.warn('[FieldReadiness] rebuildTruthFromLast30Days failed:', e);
@@ -1767,7 +1805,7 @@ async function rebuildTruthFromLast30Days(state){
 }
 
 /* =====================================================================
-   Cooldown card + reset button (inserted without changing layout)
+   Cooldown card + reset button
 ===================================================================== */
 function ensureResetButtonExists(){
   try{
@@ -1812,7 +1850,8 @@ async function openAdjust(state){
   renderCooldownCard(state);
 
   const runShown = getRunForFieldShown(state, f);
-  if (!runShown) return;
+  const runModel = getRunForFieldModel(state, f);
+  if (!runShown || !runModel) return;
 
   const thr = currentThreshold(state);
   const status = statusFromReadinessAndThreshold(state, runShown, thr);
@@ -1820,7 +1859,10 @@ async function openAdjust(state){
   state._adjStatus = status;
   state._adjFeel = null;
 
+  // what user sees
   state._adjAnchorReadiness = clamp(Math.round(Number(runShown?.readinessR ?? 50)), 0, 100);
+  // true base behind it
+  state._adjBaseReadiness = clamp(Math.round(Number(runModel?.readinessR ?? state._adjAnchorReadiness)), 0, 100);
 
   setAnchor(state, state._adjAnchorReadiness);
   setSliderVal(state._adjAnchorReadiness);
@@ -1841,11 +1883,13 @@ async function openAdjust(state){
     renderCooldownCard(state);
 
     const f2 = getSelectedField(state);
-    const run2 = getRunForFieldShown(state, f2);
-    if (run2){
+    const runShown2 = getRunForFieldShown(state, f2);
+    const runModel2 = getRunForFieldModel(state, f2);
+    if (runShown2){
       const thr2 = currentThreshold(state);
-      state._adjStatus = statusFromReadinessAndThreshold(state, run2, thr2);
-      updatePills(state, run2);
+      state._adjStatus = statusFromReadinessAndThreshold(state, runShown2, thr2);
+      state._adjBaseReadiness = clamp(Math.round(Number(runModel2?.readinessR ?? state._adjBaseReadiness ?? 0)), 0, 100);
+      updatePills(state, runShown2);
     }
     updateUI(state);
   }, 30000);
