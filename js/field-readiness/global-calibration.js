@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/global-calibration.js  (FULL FILE)
-Rev: 2026-03-15a-use-field_readiness_latest-for-shown-readiness
+Rev: 2026-04-06a-write-global-calibration-to-field_readiness_latest
 
 KEEP UI (per Dane):
 ✅ Preserve the exact Rev 2026-01-22c modal look/feel (theme patch + layout + wording)
@@ -8,22 +8,23 @@ KEEP UI (per Dane):
 
 CENTRALIZED READINESS (THIS REV):
 ✅ Uses field_readiness_latest for the readiness number shown in this modal
-✅ Anchor readiness, pills, and wet/dry status now come from field_readiness_latest
-✅ Keeps apply/reset behavior based on persisted truth storage + model reversal
-✅ Keeps existing truth writes to field_readiness_state
+✅ APPLY now writes adjusted live readiness/storage directly to field_readiness_latest
+✅ RESET now rebuilds live readiness/storage directly to field_readiness_latest
 ✅ Keeps learning/tuning doc write
 ✅ Keeps fr:soft-reload after apply/reset
+✅ Stops relying on field_readiness_state for global calibration truth
 
 WHY:
-✅ Makes this page match the rest of the app when readiness is centralized
-✅ Reduces mismatch between tile numbers and global calibration popup
+✅ Makes global calibration change the SAME live collection the app is reading
+✅ Fixes prior split-brain behavior where modal read latest but wrote old state
+✅ Keeps current UI and slider behavior intact
 
 NOTES:
-- "Shown" readiness now comes from field_readiness_latest.
-- Apply still computes storage multiplier using the current modeled storage state
-  so truth-state writes continue to work correctly.
-- If a field does not yet have a field_readiness_latest doc, this file falls back
-  to the model path for display.
+- "Shown" readiness comes from field_readiness_latest when present.
+- Apply computes one global storage multiplier from the reference field.
+- The reference field is forced to the target readiness.
+- Other fields move by the same storage multiplier using their current live latest storage.
+- Writes are MERGE writes to field_readiness_latest so extra fields owned elsewhere stay intact.
 
 ===================================================================== */
 'use strict';
@@ -46,7 +47,9 @@ function esc(s){
 }
 
 /* =====================================================================
-   PERSISTED TRUTH STATE COLLECTION
+   LEGACY STATE COLLECTION (left defined only so old helper plumbing
+   does not explode if referenced elsewhere; global calibration no longer
+   writes to it)
 ===================================================================== */
 const FR_STATE_COLLECTION = 'field_readiness_state';
 const STATE_TTL_MS = 30000;
@@ -87,6 +90,11 @@ const GCAL_SMAX_MID = 4.0;
 // ✅ match model EXTREME setting
 const GCAL_REV_POINTS_MAX = 20;
 
+// match model surface penalty defaults closely enough for live recompute
+const GCAL_SURFACE_CAP_IN = 0.70;
+const GCAL_SURFACE_PENALTY_MAX = 36;
+const GCAL_SURFACE_PENALTY_EXP = 1.20;
+
 function gcalDryCreditInchesFromSmax(Smax){
   const s = clamp(Number(Smax), GCAL_SMAX_MIN, GCAL_SMAX_MAX);
   const signed = clamp((GCAL_SMAX_MID - s) / 1.0, -1, 1);
@@ -105,6 +113,64 @@ function gcalStorageNeededForTargetReadiness(targetR, Smax){
   const storageEff = clamp(storageForReadiness + creditIn, 0, smax);
 
   return { storageEff, creditIn, wetPct, storageForReadiness };
+}
+
+function gcalSurfacePenaltyFromStorage(surfaceStorage){
+  const cap = Math.max(1e-6, GCAL_SURFACE_CAP_IN);
+  const frac = clamp(Number(surfaceStorage || 0) / cap, 0, 1);
+  return clamp(
+    Math.pow(frac, GCAL_SURFACE_PENALTY_EXP) * GCAL_SURFACE_PENALTY_MAX,
+    0,
+    GCAL_SURFACE_PENALTY_MAX
+  );
+}
+
+function gcalComputeLiveReadinessFromState(storagePhys, surfaceStorage, Smax){
+  const smax = clamp(Number(Smax || 0), 0, GCAL_SMAX_MAX);
+  const storagePhysClamped = clamp(Number(storagePhys || 0), 0, smax);
+  const surfaceStorageClamped = clamp(Number(surfaceStorage || 0), 0, GCAL_SURFACE_CAP_IN);
+
+  if (storagePhysClamped <= 0 && surfaceStorageClamped <= 0){
+    return {
+      readiness: 100,
+      wetness: 0,
+      baseReadiness: 100,
+      surfacePenalty: 0,
+      creditIn: 0,
+      storageEff: 0,
+      storageForReadiness: 0,
+      storagePhysFinal: 0,
+      surfaceStorageFinal: 0,
+      wetBiasApplied: 0
+    };
+  }
+
+  // CAL is zero in current render/model path, so storageEff = storagePhys
+  const storageEff = storagePhysClamped;
+  const creditIn = gcalDryCreditInchesFromSmax(smax);
+  const storageForReadiness = clamp(storageEff - creditIn, 0, smax);
+
+  const baseWetness = smax > 0
+    ? clamp((storageForReadiness / smax) * 100, 0, 100)
+    : 0;
+
+  const baseReadiness = clamp(100 - baseWetness, 0, 100);
+  const surfacePenalty = gcalSurfacePenaltyFromStorage(surfaceStorageClamped);
+  const readiness = clamp(baseReadiness - surfacePenalty, 0, 100);
+  const wetness = clamp(100 - readiness, 0, 100);
+
+  return {
+    readiness,
+    wetness,
+    baseReadiness,
+    surfacePenalty,
+    creditIn,
+    storageEff,
+    storageForReadiness,
+    storagePhysFinal: storagePhysClamped,
+    surfaceStorageFinal: surfaceStorageClamped,
+    wetBiasApplied: 0
+  };
 }
 
 /* =====================================================================
@@ -181,7 +247,7 @@ function getAuthUserIdModern(api){
 }
 
 /* =====================================================================
-   Persisted truth-state load
+   Legacy persisted truth-state load (left in place for compatibility only)
 ===================================================================== */
 async function loadPersistedState(state, { force=false } = {}){
   try{
@@ -300,6 +366,8 @@ function buildLatestReadinessRecord(raw, fallbackId){
     storageFinal: safeNum(d.storageFinal),
     storageForReadiness: safeNum(d.storageForReadiness),
     storagePhysFinal: safeNum(d.storagePhysFinal),
+    surfaceStorageFinal: safeNum(d.surfaceStorageFinal),
+    surfacePenaltyFinal: safeNum(d.surfacePenaltyFinal),
     wetBiasApplied: safeNum(d.wetBiasApplied),
     runKey: safeStr(d.runKey),
     seedSource: safeStr(d.seedSource),
@@ -406,6 +474,8 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
     storageFinal: safeNum(rec.storageFinal),
     storageForReadiness: safeNum(rec.storageForReadiness),
     storagePhysFinal: safeNum(rec.storagePhysFinal),
+    surfaceStorageFinal: safeNum(rec.surfaceStorageFinal),
+    surfacePenaltyFinal: safeNum(rec.surfacePenaltyFinal),
     wetBiasApplied: safeNum(rec.wetBiasApplied),
     runKey: safeStr(rec.runKey),
     seedSource: safeStr(rec.seedSource),
@@ -734,7 +804,7 @@ function getRunForFieldShown(state, f){
   return runFieldWithCal(state, f, getCalForShown(state));
 }
 
-// ✅ Separate deep/model run for apply/reset math
+// ✅ Separate deep/model run for math / Smax fallback
 function getRunForFieldModel(state, f){
   return runFieldWithCal(state, f, getCalForShown(state));
 }
@@ -1089,14 +1159,78 @@ function updateUI(state){
 }
 
 /* =====================================================================
-   Firestore writes (truth)
+   Firestore writes (LATEST truth)
 ===================================================================== */
-async function writeTruthStateDocCompat(db, fieldId, payload){
-  await db.collection(FR_STATE_COLLECTION).doc(String(fieldId)).set(payload, { merge:true });
+async function writeLatestReadinessDocCompat(db, fieldId, payload){
+  await db.collection(FR_LATEST_COLLECTION).doc(String(fieldId)).set(payload, { merge:true });
 }
-async function writeTruthStateDocModern(api, db, fieldId, payload){
-  const ref = api.doc(db, FR_STATE_COLLECTION, String(fieldId));
+async function writeLatestReadinessDocModern(api, db, fieldId, payload){
+  const ref = api.doc(db, FR_LATEST_COLLECTION, String(fieldId));
   await api.setDoc(ref, payload, { merge:true });
+}
+
+function buildLatestMergePayload(existingRec, fieldObj, patch){
+  const rec = (existingRec && typeof existingRec === 'object') ? existingRec : null;
+  const raw = (rec && rec._raw && typeof rec._raw === 'object') ? rec._raw : {};
+  const f = fieldObj || {};
+  const p = (patch && typeof patch === 'object') ? patch : {};
+
+  const location =
+    (p.location && typeof p.location === 'object')
+      ? p.location
+      : (
+          raw.location && typeof raw.location === 'object'
+            ? raw.location
+            : (
+                rec && rec.location && typeof rec.location === 'object'
+                  ? rec.location
+                  : {
+                      lat: safeNum(f.lat),
+                      lng: safeNum(f.lng)
+                    }
+              )
+        );
+
+  const out = {
+    fieldId: safeStr(p.fieldId || raw.fieldId || rec?.fieldId || f.id),
+    fieldName: safeStr(p.fieldName || raw.fieldName || rec?.fieldName || f.name || ''),
+    farmId: safeStr(p.farmId || raw.farmId || rec?.farmId || f.farmId || ''),
+    county: safeStr(p.county || raw.county || rec?.county || f.county || ''),
+    state: safeStr(p.state || raw.state || rec?.state || f.state || ''),
+    timezone: safeStr(p.timezone || raw.timezone || rec?.timezone || ''),
+    weatherSource: safeStr(p.weatherSource || raw.weatherSource || rec?.weatherSource || ''),
+    seedSource: safeStr(p.seedSource || raw.seedSource || rec?.seedSource || ''),
+    runKey: safeStr(p.runKey || raw.runKey || rec?.runKey || ''),
+    weatherFetchedAt: p.weatherFetchedAt ?? raw.weatherFetchedAt ?? rec?.weatherFetchedAtISO ?? null,
+    computedAt: p.computedAt ?? nowISO(),
+    location
+  };
+
+  const farmNameVal = (p.farmName !== undefined)
+    ? p.farmName
+    : (raw.farmName !== undefined ? raw.farmName : rec?.farmName);
+  if (farmNameVal !== undefined) out.farmName = farmNameVal;
+
+  if (Number.isFinite(Number(p.readiness))) out.readiness = Math.round(Number(p.readiness));
+  if (Number.isFinite(Number(p.wetness))) out.wetness = Math.round(Number(p.wetness));
+  if (Number.isFinite(Number(p.soilWetness))) out.soilWetness = Number(p.soilWetness);
+  if (Number.isFinite(Number(p.drainageIndex))) out.drainageIndex = Number(p.drainageIndex);
+  if (Number.isFinite(Number(p.readinessCreditIn))) out.readinessCreditIn = Number(p.readinessCreditIn);
+  if (Number.isFinite(Number(p.storageFinal))) out.storageFinal = Number(p.storageFinal);
+  if (Number.isFinite(Number(p.storageForReadiness))) out.storageForReadiness = Number(p.storageForReadiness);
+  if (Number.isFinite(Number(p.storagePhysFinal))) out.storagePhysFinal = Number(p.storagePhysFinal);
+  if (Number.isFinite(Number(p.surfaceStorageFinal))) out.surfaceStorageFinal = Number(p.surfaceStorageFinal);
+  if (Number.isFinite(Number(p.surfacePenaltyFinal))) out.surfacePenaltyFinal = Number(p.surfacePenaltyFinal);
+  if (Number.isFinite(Number(p.wetBiasApplied))) out.wetBiasApplied = Number(p.wetBiasApplied);
+
+  if (p.anchorReadiness !== undefined) out.anchorReadiness = Math.round(Number(p.anchorReadiness));
+  if (p.targetReadiness !== undefined) out.targetReadiness = Math.round(Number(p.targetReadiness));
+  if (p.storageMult !== undefined) out.storageMult = Number(p.storageMult);
+  if (p.asOfDateISO !== undefined) out.asOfDateISO = String(p.asOfDateISO || '');
+  if (p.updatedBy !== undefined) out.updatedBy = p.updatedBy || null;
+  if (p.updatedAt !== undefined) out.updatedAt = p.updatedAt;
+
+  return out;
 }
 
 /* =====================================================================
@@ -1196,7 +1330,8 @@ async function writeWeightsLock(state, nowMs){
 }
 
 /* =====================================================================
-   APPLY (FIX): FORCE ref to target readiness + scale all fields by same %
+   APPLY: FORCE ref to target readiness + scale all fields by same %
+   NOW WRITES DIRECTLY TO field_readiness_latest
 ===================================================================== */
 async function applyAdjustment(state){
   if (isLocked(state)) return;
@@ -1211,10 +1346,7 @@ async function applyAdjustment(state){
   await loadPersistedState(state, { force:true });
   await loadLatestReadiness(state, { force:true });
 
-  // ✅ Use latest for shown readiness / anchor logic
   const runRefShown = getRunForFieldShown(state, fRef);
-
-  // ✅ Use deep model run for storage math / Smax
   const runRefModel = getRunForFieldModel(state, fRef);
 
   if (!runRefShown) return;
@@ -1236,11 +1368,18 @@ async function applyAdjustment(state){
   if (anchorR > 0) factor = targetR / anchorR;
   const percentMove = clamp((factor - 1) * 100, -90, 90);
 
+  const refLatest = getLatestReadinessForField(state, fRef.id);
   const SmaxRef = Number(runRefModel.factors.Smax);
   const forced = gcalStorageNeededForTargetReadiness(targetR, SmaxRef);
   const forcedStorageRef = forced.storageEff;
 
-  const curStorageRefRaw = Number(runRefModel.storageFinal || 0);
+  const curStorageRefRaw =
+    safeNum(refLatest && refLatest.storageFinal) ??
+    safeNum(refLatest && refLatest.storagePhysFinal) ??
+    safeNum(runRefShown && runRefShown.storageFinal) ??
+    safeNum(runRefModel && runRefModel.storageFinal) ??
+    0;
+
   const curStorageRef = Math.max(0.05, (isFinite(curStorageRefRaw) ? curStorageRefRaw : 0));
 
   let storageMult = forcedStorageRef / curStorageRef;
@@ -1267,27 +1406,50 @@ async function applyAdjustment(state){
       try{
         if (!f || !f.id) continue;
 
+        const latest = getLatestReadinessForField(state, f.id);
         const run = getRunForFieldModel(state, f);
         if (!run || !run.factors || !isFinite(Number(run.factors.Smax))) continue;
 
         const smax = Number(run.factors.Smax);
 
-        const curS = Number(run.storageFinal || 0);
-        const cur = Math.max(0.05, (isFinite(curS) ? curS : 0));
+        const curStorageRaw =
+          safeNum(latest && latest.storageFinal) ??
+          safeNum(latest && latest.storagePhysFinal) ??
+          safeNum(run && run.storageFinal) ??
+          safeNum(run && run.storagePhysFinal) ??
+          0;
 
-        let next = clamp(cur * storageMult, 0, smax);
+        const curStorage = Math.max(0.05, (isFinite(curStorageRaw) ? curStorageRaw : 0));
 
+        let nextStoragePhys = clamp(curStorage * storageMult, 0, smax);
         if (String(f.id) === String(fRef.id)){
-          next = clamp(forcedStorageRef, 0, smax);
+          nextStoragePhys = clamp(forcedStorageRef, 0, smax);
         }
 
-        await writeTruthStateDocCompat(db, String(f.id), {
+        const nextSurfaceStorage =
+          safeNum(latest && latest.surfaceStorageFinal) ??
+          0;
+
+        const live = gcalComputeLiveReadinessFromState(nextStoragePhys, nextSurfaceStorage, smax);
+
+        const payload = buildLatestMergePayload(latest, f, {
           fieldId: String(f.id),
           fieldName: String(f.name || ''),
+          readiness: live.readiness,
+          wetness: live.wetness,
+          soilWetness: safeNum(latest && latest.soilWetness) ?? safeNum(getFieldParams(state, f.id)?.soilWetness),
+          drainageIndex: safeNum(latest && latest.drainageIndex) ?? safeNum(getFieldParams(state, f.id)?.drainageIndex),
+          readinessCreditIn: live.creditIn,
+          storageFinal: live.storageEff,
+          storageForReadiness: live.storageForReadiness,
+          storagePhysFinal: live.storagePhysFinal,
+          surfaceStorageFinal: live.surfaceStorageFinal,
+          surfacePenaltyFinal: live.surfacePenalty,
+          wetBiasApplied: live.wetBiasApplied,
+          runKey: `global-calibration:${Date.now()}`,
+          seedSource: 'global-calibration',
+          computedAt: updatedAtISO,
           asOfDateISO: String(asOf),
-          storageFinal: next,
-          SmaxAtSave: smax,
-          source: 'global-force-target',
           storageMult,
           anchorReadiness: anchorR,
           targetReadiness: targetR,
@@ -1295,19 +1457,19 @@ async function applyAdjustment(state){
           updatedBy: createdBy || null
         });
 
-        state.persistedStateByFieldId = state.persistedStateByFieldId || {};
-        state.persistedStateByFieldId[String(f.id)] = {
-          fieldId: String(f.id),
-          storageFinal: Number(next),
-          asOfDateISO: String(asOf),
-          SmaxAtSave: Number(smax)
-        };
+        await writeLatestReadinessDocCompat(db, String(f.id), payload);
+
+        state.latestReadinessByFieldId = state.latestReadinessByFieldId || {};
+        state.latestReadinessByFieldId[String(f.id)] = buildLatestReadinessRecord({
+          ...(latest && latest._raw ? latest._raw : {}),
+          ...payload
+        }, String(f.id));
       }catch(e){
-        console.warn('[FieldReadiness] global force write failed (compat):', e);
+        console.warn('[FieldReadiness] global latest write failed (compat):', e);
       }
     }
 
-    state._persistLoadedAt = Date.now();
+    state._latestReadinessLoadedAt = Date.now();
   } else if (api.kind !== 'compat'){
     const db = api.getFirestore();
 
@@ -1315,27 +1477,50 @@ async function applyAdjustment(state){
       try{
         if (!f || !f.id) continue;
 
+        const latest = getLatestReadinessForField(state, f.id);
         const run = getRunForFieldModel(state, f);
         if (!run || !run.factors || !isFinite(Number(run.factors.Smax))) continue;
 
         const smax = Number(run.factors.Smax);
 
-        const curS = Number(run.storageFinal || 0);
-        const cur = Math.max(0.05, (isFinite(curS) ? curS : 0));
+        const curStorageRaw =
+          safeNum(latest && latest.storageFinal) ??
+          safeNum(latest && latest.storagePhysFinal) ??
+          safeNum(run && run.storageFinal) ??
+          safeNum(run && run.storagePhysFinal) ??
+          0;
 
-        let next = clamp(cur * storageMult, 0, smax);
+        const curStorage = Math.max(0.05, (isFinite(curStorageRaw) ? curStorageRaw : 0));
 
+        let nextStoragePhys = clamp(curStorage * storageMult, 0, smax);
         if (String(f.id) === String(fRef.id)){
-          next = clamp(forcedStorageRef, 0, smax);
+          nextStoragePhys = clamp(forcedStorageRef, 0, smax);
         }
 
-        await writeTruthStateDocModern(api, db, String(f.id), {
+        const nextSurfaceStorage =
+          safeNum(latest && latest.surfaceStorageFinal) ??
+          0;
+
+        const live = gcalComputeLiveReadinessFromState(nextStoragePhys, nextSurfaceStorage, smax);
+
+        const payload = buildLatestMergePayload(latest, f, {
           fieldId: String(f.id),
           fieldName: String(f.name || ''),
+          readiness: live.readiness,
+          wetness: live.wetness,
+          soilWetness: safeNum(latest && latest.soilWetness) ?? safeNum(getFieldParams(state, f.id)?.soilWetness),
+          drainageIndex: safeNum(latest && latest.drainageIndex) ?? safeNum(getFieldParams(state, f.id)?.drainageIndex),
+          readinessCreditIn: live.creditIn,
+          storageFinal: live.storageEff,
+          storageForReadiness: live.storageForReadiness,
+          storagePhysFinal: live.storagePhysFinal,
+          surfaceStorageFinal: live.surfaceStorageFinal,
+          surfacePenaltyFinal: live.surfacePenalty,
+          wetBiasApplied: live.wetBiasApplied,
+          runKey: `global-calibration:${Date.now()}`,
+          seedSource: 'global-calibration',
+          computedAt: api.serverTimestamp ? api.serverTimestamp() : new Date().toISOString(),
           asOfDateISO: String(asOf),
-          storageFinal: next,
-          SmaxAtSave: smax,
-          source: 'global-force-target',
           storageMult,
           anchorReadiness: anchorR,
           targetReadiness: targetR,
@@ -1343,19 +1528,20 @@ async function applyAdjustment(state){
           updatedBy: createdBy || null
         });
 
-        state.persistedStateByFieldId = state.persistedStateByFieldId || {};
-        state.persistedStateByFieldId[String(f.id)] = {
-          fieldId: String(f.id),
-          storageFinal: Number(next),
-          asOfDateISO: String(asOf),
-          SmaxAtSave: Number(smax)
-        };
+        await writeLatestReadinessDocModern(api, db, String(f.id), payload);
+
+        state.latestReadinessByFieldId = state.latestReadinessByFieldId || {};
+        state.latestReadinessByFieldId[String(f.id)] = buildLatestReadinessRecord({
+          ...(latest && latest._raw ? latest._raw : {}),
+          ...payload,
+          computedAt: nowISO()
+        }, String(f.id));
       }catch(e){
-        console.warn('[FieldReadiness] global force write failed:', e);
+        console.warn('[FieldReadiness] global latest write failed:', e);
       }
     }
 
-    state._persistLoadedAt = Date.now();
+    state._latestReadinessLoadedAt = Date.now();
   }
 
   try{
@@ -1385,7 +1571,8 @@ async function applyAdjustment(state){
 }
 
 /* =====================================================================
-   RESET / REBUILD truth from last ~30 days (adds button, keeps UI)
+   RESET / REBUILD truth from last ~30 days
+   NOW WRITES DIRECTLY TO field_readiness_latest
 ===================================================================== */
 async function rebuildTruthFromLast30Days(state){
   try{
@@ -1409,6 +1596,8 @@ async function rebuildTruthFromLast30Days(state){
       window.alert('Firebase is not ready. Try again after the app finishes loading.');
       return;
     }
+
+    await loadLatestReadiness(state, { force:true });
 
     let dryLossMult = 1.0;
     try{
@@ -1449,6 +1638,7 @@ async function rebuildTruthFromLast30Days(state){
         try{
           if (!f || !f.id) continue;
 
+          const latest = getLatestReadinessForField(state, f.id);
           const run = state._mods.model.runField(f, depsRebuild);
           if (!run || safeNum(run.storageFinal) == null) continue;
 
@@ -1460,36 +1650,49 @@ async function rebuildTruthFromLast30Days(state){
           }catch(_){}
           if (!asOf) asOf = isoDay(new Date().toISOString());
 
-          const Smax = safeNum(run?.factors?.Smax) ?? 0;
-          const storageFinal = Math.max(0, Number(run.storageFinal));
-
-          await writeTruthStateDocCompat(db, String(f.id), {
+          const params = getFieldParams(state, f.id) || {};
+          const payload = buildLatestMergePayload(latest, f, {
             fieldId: String(f.id),
             fieldName: String(f.name || ''),
+            readiness: Math.round(Number(run.readinessR || 0)),
+            wetness: Math.round(Number(run.wetnessR || 0)),
+            soilWetness: safeNum(latest && latest.soilWetness) ?? safeNum(params.soilWetness),
+            drainageIndex: safeNum(latest && latest.drainageIndex) ?? safeNum(params.drainageIndex),
+            readinessCreditIn: safeNum(run.readinessCreditIn) ?? 0,
+            storageFinal: Math.max(0, Number(run.storageFinal || 0)),
+            storageForReadiness: safeNum(run.storageForReadiness) ?? 0,
+            storagePhysFinal: Math.max(0, Number(run.storagePhysFinal || 0)),
+            surfaceStorageFinal: Math.max(0, Number(run.surfaceStorageFinal || 0)),
+            surfacePenaltyFinal: safeNum(run.surfacePenaltyFinal) ?? 0,
+            wetBiasApplied: 0,
+            runKey: `reset-rebuild-30days:${Date.now()}`,
+            seedSource: String(run.seedSource || 'baseline'),
+            weatherSource: safeStr(
+              (Array.isArray(run.rows) && run.rows.length && run.rows[run.rows.length - 1] && run.rows[run.rows.length - 1].rainSource) ||
+              (latest && latest.weatherSource) ||
+              ''
+            ),
+            computedAt: updatedAtISO,
             asOfDateISO: String(asOf),
-            storageFinal,
-            SmaxAtSave: Number(Smax || 0),
-            source: 'reset-rebuild-30days',
             updatedAt: updatedAtISO,
             updatedBy: createdBy || null
           });
 
-          state.persistedStateByFieldId = state.persistedStateByFieldId || {};
-          state.persistedStateByFieldId[String(f.id)] = {
-            fieldId: String(f.id),
-            storageFinal: Number(storageFinal),
-            asOfDateISO: String(asOf),
-            SmaxAtSave: Number(Smax || 0)
-          };
+          await writeLatestReadinessDocCompat(db, String(f.id), payload);
+
+          state.latestReadinessByFieldId = state.latestReadinessByFieldId || {};
+          state.latestReadinessByFieldId[String(f.id)] = buildLatestReadinessRecord({
+            ...(latest && latest._raw ? latest._raw : {}),
+            ...payload
+          }, String(f.id));
         }catch(e){
-          console.warn('[FieldReadiness] rebuild truth failed for field:', f?.name, e);
+          console.warn('[FieldReadiness] rebuild latest failed for field:', f?.name, e);
         }
       }
 
-      state._persistLoadedAt = Date.now();
-      state._latestReadinessLoadedAt = 0;
+      state._latestReadinessLoadedAt = Date.now();
       try{ document.dispatchEvent(new CustomEvent('fr:soft-reload')); }catch(_){}
-      window.alert('Reset complete: truth rebuilt from last ~30 days weather.');
+      window.alert('Reset complete: latest truth rebuilt from last ~30 days weather.');
       return;
     }
 
@@ -1500,6 +1703,7 @@ async function rebuildTruthFromLast30Days(state){
         try{
           if (!f || !f.id) continue;
 
+          const latest = getLatestReadinessForField(state, f.id);
           const run = state._mods.model.runField(f, depsRebuild);
           if (!run || safeNum(run.storageFinal) == null) continue;
 
@@ -1511,36 +1715,50 @@ async function rebuildTruthFromLast30Days(state){
           }catch(_){}
           if (!asOf) asOf = isoDay(new Date().toISOString());
 
-          const Smax = safeNum(run?.factors?.Smax) ?? 0;
-          const storageFinal = Math.max(0, Number(run.storageFinal));
-
-          await writeTruthStateDocModern(api, db, String(f.id), {
+          const params = getFieldParams(state, f.id) || {};
+          const payload = buildLatestMergePayload(latest, f, {
             fieldId: String(f.id),
             fieldName: String(f.name || ''),
+            readiness: Math.round(Number(run.readinessR || 0)),
+            wetness: Math.round(Number(run.wetnessR || 0)),
+            soilWetness: safeNum(latest && latest.soilWetness) ?? safeNum(params.soilWetness),
+            drainageIndex: safeNum(latest && latest.drainageIndex) ?? safeNum(params.drainageIndex),
+            readinessCreditIn: safeNum(run.readinessCreditIn) ?? 0,
+            storageFinal: Math.max(0, Number(run.storageFinal || 0)),
+            storageForReadiness: safeNum(run.storageForReadiness) ?? 0,
+            storagePhysFinal: Math.max(0, Number(run.storagePhysFinal || 0)),
+            surfaceStorageFinal: Math.max(0, Number(run.surfaceStorageFinal || 0)),
+            surfacePenaltyFinal: safeNum(run.surfacePenaltyFinal) ?? 0,
+            wetBiasApplied: 0,
+            runKey: `reset-rebuild-30days:${Date.now()}`,
+            seedSource: String(run.seedSource || 'baseline'),
+            weatherSource: safeStr(
+              (Array.isArray(run.rows) && run.rows.length && run.rows[run.rows.length - 1] && run.rows[run.rows.length - 1].rainSource) ||
+              (latest && latest.weatherSource) ||
+              ''
+            ),
+            computedAt: api.serverTimestamp ? api.serverTimestamp() : new Date().toISOString(),
             asOfDateISO: String(asOf),
-            storageFinal,
-            SmaxAtSave: Number(Smax || 0),
-            source: 'reset-rebuild-30days',
             updatedAt: api.serverTimestamp ? api.serverTimestamp() : new Date().toISOString(),
             updatedBy: createdBy || null
           });
 
-          state.persistedStateByFieldId = state.persistedStateByFieldId || {};
-          state.persistedStateByFieldId[String(f.id)] = {
-            fieldId: String(f.id),
-            storageFinal: Number(storageFinal),
-            asOfDateISO: String(asOf),
-            SmaxAtSave: Number(Smax || 0)
-          };
+          await writeLatestReadinessDocModern(api, db, String(f.id), payload);
+
+          state.latestReadinessByFieldId = state.latestReadinessByFieldId || {};
+          state.latestReadinessByFieldId[String(f.id)] = buildLatestReadinessRecord({
+            ...(latest && latest._raw ? latest._raw : {}),
+            ...payload,
+            computedAt: nowISO()
+          }, String(f.id));
         }catch(e){
-          console.warn('[FieldReadiness] rebuild truth failed for field:', f?.name, e);
+          console.warn('[FieldReadiness] rebuild latest failed for field:', f?.name, e);
         }
       }
 
-      state._persistLoadedAt = Date.now();
-      state._latestReadinessLoadedAt = 0;
+      state._latestReadinessLoadedAt = Date.now();
       try{ document.dispatchEvent(new CustomEvent('fr:soft-reload')); }catch(_){}
-      window.alert('Reset complete: truth rebuilt from last ~30 days weather.');
+      window.alert('Reset complete: latest truth rebuilt from last ~30 days weather.');
     }
   }catch(e){
     console.warn('[FieldReadiness] rebuildTruthFromLast30Days failed:', e);
