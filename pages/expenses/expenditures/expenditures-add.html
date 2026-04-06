@@ -95,7 +95,6 @@
       gap: 10px;
       flex-wrap: wrap;
     }
-    /* only bottom button row should be centered */
     .rc-actions-bottom {
       justify-content: center;
     }
@@ -118,6 +117,13 @@
       background: #2F6C3C;
       color: #fff;
     }
+    .btn[disabled],
+    .linklike[disabled] {
+      opacity: 0.65;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
     .linklike {
       border: 0;
       background: none;
@@ -185,7 +191,6 @@
       color: var(--muted, #67706B);
     }
 
-    /* Camera modal + vertical framing box (mobile-deposit style) */
     .camera-modal[hidden] {
       display: none !important;
     }
@@ -253,7 +258,7 @@
     .camera-frame {
       width: 70%;
       max-width: 320px;
-      aspect-ratio: 2 / 3; /* vertical for receipts */
+      aspect-ratio: 2 / 3;
       border-radius: 12px;
       box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4);
       border: 2px solid rgba(255, 255, 255, 0.9);
@@ -347,24 +352,27 @@
       padding: 4px 6px;
     }
 
-    /* OCR processing overlay */
-    .ocr-overlay[hidden] {
+    .ocr-overlay[hidden],
+    .save-overlay[hidden] {
       display: none !important;
     }
-    .ocr-overlay {
+    .ocr-overlay,
+    .save-overlay {
       position: fixed;
       inset: 0;
       z-index: 99995;
       display: grid;
       place-items: center;
     }
-    .ocr-overlay-backdrop {
+    .ocr-overlay-backdrop,
+    .save-overlay-backdrop {
       position: absolute;
       inset: 0;
       backdrop-filter: blur(3px);
       background: rgba(0, 0, 0, 0.25);
     }
-    .ocr-overlay-box {
+    .ocr-overlay-box,
+    .save-overlay-box {
       position: relative;
       padding: 16px 22px;
       border-radius: 14px;
@@ -376,7 +384,8 @@
       gap: 10px;
       min-width: 220px;
     }
-    .ocr-spinner {
+    .ocr-spinner,
+    .save-spinner {
       width: 26px;
       height: 26px;
       border-radius: 50%;
@@ -387,7 +396,8 @@
     @keyframes ocr-spin {
       to { transform: rotate(360deg); }
     }
-    .ocr-overlay-text {
+    .ocr-overlay-text,
+    .save-overlay-text {
       font-size: 14px;
       font-weight: 600;
       text-align: center;
@@ -417,7 +427,6 @@
       <section class="section">
         <header class="section-head">
           <div class="icon" aria-hidden="true">
-            <!-- Tabler (MIT) receipt icon -->
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path stroke="none" d="M0 0h24v24H0z" fill="none" />
@@ -432,7 +441,6 @@
         </header>
 
         <div class="section-body">
-          <!-- Camera / import -->
           <div class="rc-actions">
             <button id="btnTake" class="btn" type="button">Take Photo</button>
             <button id="btnImport" class="btn" type="button">Import</button>
@@ -444,15 +452,12 @@
             <div id="ocrStatus" class="help"></div>
           </div>
 
-          <!-- hidden inputs (fallbacks) -->
           <input id="camInput" type="file" accept="image/*,.pdf" capture="environment" hidden>
           <input id="fileInput" type="file" accept="image/*,.pdf" hidden>
 
-          <!-- Row 1: Submitted By + Submitted Date -->
           <div class="grid-2">
             <div class="field">
               <label for="whoSel">Submitted By<span class="req">*</span></label>
-              <!-- Plain select so dropdown stays anchored -->
               <select id="whoSel" class="select">
                 <option value="">Loading…</option>
               </select>
@@ -463,7 +468,6 @@
             </div>
           </div>
 
-          <!-- Row 2: Payment Method + Category -->
           <div class="grid-2">
             <div class="field">
               <label for="paymethod">Payment Method<span class="req">*</span></label>
@@ -488,7 +492,6 @@
             </div>
           </div>
 
-          <!-- Row 3: Merchant + Total + Receipt Date -->
           <div class="grid-3">
             <div class="field">
               <label for="merchant">Merchant<span class="req">*</span></label>
@@ -514,13 +517,11 @@
             <textarea id="notes" class="textarea" placeholder="Anything helpful for accounting…"></textarea>
           </div>
 
-          <!-- Bottom Clear / Save centered -->
           <div class="rc-actions rc-actions-bottom">
             <button id="btnClear" class="btn" type="button">Clear</button>
             <button id="btnSave" class="btn btn-primary" type="button">Save</button>
           </div>
 
-          <!-- Centered Cancel underneath -->
           <div class="rc-actions rc-actions-bottom" style="margin-top:6px;">
             <button id="btnCancel" class="btn" type="button">Cancel</button>
           </div>
@@ -529,7 +530,6 @@
     </div>
   </fv-shell>
 
-  <!-- Camera modal (mobile-deposit style) -->
   <div id="cameraModal" class="camera-modal" hidden>
     <div class="camera-backdrop"></div>
     <div class="camera-shell" role="dialog" aria-modal="true" aria-labelledby="cameraTitle">
@@ -561,7 +561,6 @@
     </div>
   </div>
 
-  <!-- OCR processing overlay -->
   <div id="ocrOverlay" class="ocr-overlay" hidden>
     <div class="ocr-overlay-backdrop"></div>
     <div class="ocr-overlay-box">
@@ -570,9 +569,16 @@
     </div>
   </div>
 
+  <div id="saveOverlay" class="save-overlay" hidden>
+    <div class="save-overlay-backdrop"></div>
+    <div class="save-overlay-box">
+      <div class="save-spinner"></div>
+      <div class="save-overlay-text">Saving…</div>
+    </div>
+  </div>
+
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- Main logic: modular Firebase -->
   <script type="module">
     import {
       ready,
@@ -582,13 +588,11 @@
       addDoc,
       getDocs,
       serverTimestamp,
-      // storage + update helpers
       getStorage,
       ref,
       uploadBytes,
       getDownloadURL,
       updateDoc,
-      // added for faster "Submitted By"
       doc,
       getDoc
     } from '/Farm-vista/js/firebase-init.js';
@@ -608,7 +612,7 @@
         new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
           .toISOString().slice(0, 10);
 
-      const whoSel   = $("whoSel"),
+      const whoSel    = $("whoSel"),
             submitted = $("submitted"),
             merchant  = $("merchant"),
             rdate     = $("rdate"),
@@ -618,28 +622,69 @@
             project   = $("project"),
             notes     = $("notes");
 
+      const btnTake    = $("btnTake"),
+            btnImport  = $("btnImport"),
+            btnReplace = $("btnReplace"),
+            btnClear   = $("btnClear"),
+            btnSave    = $("btnSave"),
+            btnCancel  = $("btnCancel");
+
+      const saveOverlay = $("saveOverlay");
+
       submitted.value = todayISO();
 
-      /* Keep track of the receipt file so we can upload it on Save */
       let receiptFileForStorage = null;
       let receiptFileOriginalName = "";
+      let isSaving = false;
 
-      /* USD formatting */
       const usdFmt = new Intl.NumberFormat("en-US", {
         style: "currency",
         currency: "USD"
       });
+
       const parseUSD = str => {
         if (!str) return "";
         const n = Number(String(str).replace(/[^0-9.-]/g, ""));
         return isFinite(n) ? n : "";
       };
+
       total.addEventListener("blur", e => {
         const v = parseUSD(e.target.value);
         e.target.value = v === "" ? "" : usdFmt.format(v);
       });
 
-      /* ---------- auth/user readiness (helps iOS) ---------- */
+      function setSavingState(active) {
+        isSaving = !!active;
+        saveOverlay.hidden = !active;
+
+        [
+          btnTake,
+          btnImport,
+          btnReplace,
+          btnClear,
+          btnSave,
+          btnCancel,
+          whoSel,
+          submitted,
+          merchant,
+          rdate,
+          category,
+          total,
+          paymethod,
+          project,
+          notes
+        ].forEach(el => {
+          if (!el) return;
+          el.disabled = !!active;
+        });
+
+        if (active) {
+          btnSave.textContent = "Saving…";
+        } else {
+          btnSave.textContent = "Save";
+        }
+      }
+
       async function waitForUser(maxMs = 2500) {
         const started = Date.now();
         while (!auth.currentUser && (Date.now() - started) < maxMs) {
@@ -648,19 +693,13 @@
         return auth.currentUser || null;
       }
 
-      /* Submitted By — FAST + RELIABLE:
-         1) Show me instantly (no Firestore scan)
-         2) Use cached employee list instantly if available
-         3) Fetch only my doc (single read) to get correct name
-         4) Refresh full list in background, update cache
-      */
       async function loadEmployeesCombo() {
         const user = await waitForUser(2500);
         const meEmail = (user?.email || "").toLowerCase().trim();
         const meNameFallback = user?.displayName || user?.email || "Me";
 
         const CACHE_KEY = "fv_employees_cache_v2";
-        const CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 12; // 12 hours
+        const CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 12;
 
         function setOptions(list, chosenValue) {
           whoSel.innerHTML = "";
@@ -694,7 +733,6 @@
 
         seedInstant();
 
-        // 1) Cached list (instant on repeat opens)
         let cachedList = null;
         try {
           const raw = localStorage.getItem(CACHE_KEY);
@@ -711,8 +749,6 @@
           setOptions(cachedList, chosen);
         }
 
-        // 2) Single-doc read for ME (fast + gets correct name)
-        // Assumes employee doc id is email (common in your project). If not found, it just skips.
         try {
           if (meEmail) {
             const meRef = doc(db, "employees", meEmail);
@@ -722,7 +758,7 @@
               const list = Array.isArray(cachedList) ? [...cachedList] : [];
               const idx = list.findIndex(e => (e.email || "").toLowerCase() === me.email);
               if (idx >= 0) list[idx] = me; else list.unshift(me);
-              // de-dupe
+
               const seen = new Set();
               const deduped = list.filter(x => {
                 const k = (x.email || x.id || "").toLowerCase();
@@ -730,14 +766,13 @@
                 seen.add(k);
                 return true;
               });
+
               setOptions(deduped, me.email);
             }
           }
         } catch (e) {
-          // ignore (speed boost only)
         }
 
-        // 3) Background refresh full list (authoritative)
         try {
           const snap = await getDocs(collection(db, "employees"));
           const list = [];
@@ -756,7 +791,6 @@
           } catch (_) {}
         } catch (err) {
           console.warn("Failed to load employees for Submitted By:", err);
-          // Keep whatever we already have (seed/cached) so user can still save.
           if (!whoSel.value && meEmail) {
             whoSel.value = meEmail;
           }
@@ -769,12 +803,12 @@
         if (opt && opt.text) return opt.text.trim();
         return whoSel.value || "";
       }
+
       function getSubmittedByEmail() {
         if (!whoSel) return "";
         return (whoSel.value || "").trim();
       }
 
-      /* ======= OCR overlay helpers (min 2 seconds visible) ======= */
       const ocrOverlay = $("ocrOverlay");
       let ocrOverlayStartedAt = 0;
 
@@ -782,6 +816,7 @@
         ocrOverlayStartedAt = Date.now();
         ocrOverlay.hidden = false;
       }
+
       function hideOcrOverlay() {
         const elapsed = Date.now() - ocrOverlayStartedAt;
         const remaining = Math.max(0, 2000 - elapsed);
@@ -790,18 +825,12 @@
         }, remaining);
       }
 
-      /* ======= Receipt capture + image normalization (HEIC → JPEG, resize) ======= */
-
-      const btnTake    = $("btnTake"),
-            btnImport  = $("btnImport"),
-            btnReplace = $("btnReplace");
       const camInput   = $("camInput"),
             fileInput  = $("fileInput");
       const preview    = $("preview"),
             thumb      = $("thumb"),
             ocrStatus  = $("ocrStatus");
 
-      // Camera modal elements
       const cameraModal    = $("cameraModal");
       const cameraVideo    = $("cameraVideo");
       const cameraFrame    = $("cameraFrame");
@@ -889,6 +918,8 @@
       }
 
       async function openCameraModal() {
+        if (isSaving) return;
+
         torchOn = false;
         if (camStream) stopCameraStream();
         torchToggle.hidden = true;
@@ -944,7 +975,7 @@
       }
 
       async function toggleTorch() {
-        if (!camTrack) return;
+        if (!camTrack || isSaving) return;
         try {
           const caps = camTrack.getCapabilities ? camTrack.getCapabilities() : null;
           if (!caps || !("torch" in caps)) {
@@ -970,7 +1001,9 @@
       }
 
       async function captureFromCamera() {
+        if (isSaving) return;
         if (!camStream || !cameraVideo.videoWidth || !cameraVideo.videoHeight) return;
+
         try {
           const canvas = document.createElement("canvas");
           const vw = cameraVideo.videoWidth;
@@ -1009,11 +1042,12 @@
       }
 
       torchToggle.addEventListener("click", toggleTorch);
-      cameraCloseTop.addEventListener("click", closeCameraModal);
-      cameraCancel.addEventListener("click", closeCameraModal);
+      cameraCloseTop.addEventListener("click", () => { if (!isSaving) closeCameraModal(); });
+      cameraCancel.addEventListener("click", () => { if (!isSaving) closeCameraModal(); });
       cameraCapture.addEventListener("click", captureFromCamera);
 
       btnTake.addEventListener("click", () => {
+        if (isSaving) return;
         if (navigator.mediaDevices?.getUserMedia) {
           openCameraModal().catch(err => {
             console.warn("Camera modal failed, falling back to input:", err);
@@ -1023,16 +1057,25 @@
           camInput.click();
         }
       });
-      btnImport.addEventListener("click", () => fileInput.click());
-      btnReplace.addEventListener("click", () => fileInput.click());
 
-      camInput.addEventListener("change", () => { handleFiles(camInput.files); });
-      fileInput.addEventListener("change", () => { handleFiles(fileInput.files); });
+      btnImport.addEventListener("click", () => {
+        if (isSaving) return;
+        fileInput.click();
+      });
+
+      btnReplace.addEventListener("click", () => {
+        if (isSaving) return;
+        fileInput.click();
+      });
+
+      camInput.addEventListener("change", () => { if (!isSaving) handleFiles(camInput.files); });
+      fileInput.addEventListener("change", () => { if (!isSaving) handleFiles(fileInput.files); });
 
       async function handleFiles(list) {
+        if (isSaving) return;
         if (!list || !list.length) return;
-        const rawFile = list[0];
 
+        const rawFile = list[0];
         const fileForOcr = await prepareImageForOcr(rawFile);
 
         receiptFileForStorage = fileForOcr || rawFile;
@@ -1042,6 +1085,7 @@
 
         const previewFile = receiptFileForStorage;
         thumb.innerHTML = "";
+
         if ((previewFile.type || "").startsWith("image/")) {
           const img = document.createElement("img");
           img.alt = previewFile.name;
@@ -1382,7 +1426,9 @@
         return `expenditures/${safeId}/receipt-original.${ext}`;
       }
 
-      $("btnSave").addEventListener("click", async () => {
+      btnSave.addEventListener("click", async () => {
+        if (isSaving) return;
+
         const submittedByName  = getSubmittedByName();
         const submittedByEmail = getSubmittedByEmail();
 
@@ -1412,55 +1458,60 @@
         };
 
         try {
+          setSavingState(true);
+
           const docRef = await addDoc(collection(db, "expenditures"), {
             ...payload,
             createdAt: serverTimestamp()
           });
 
           if (receiptFileForStorage) {
-            try {
-              const path = buildReceiptPath(docRef.id, receiptFileForStorage);
-              const meta = { contentType: receiptFileForStorage.type || "application/octet-stream" };
-              const storageRef = ref(storage, path);
-              await uploadBytes(storageRef, receiptFileForStorage, meta);
-              const url = await getDownloadURL(storageRef);
+            const path = buildReceiptPath(docRef.id, receiptFileForStorage);
+            const meta = { contentType: receiptFileForStorage.type || "application/octet-stream" };
+            const storageRef = ref(storage, path);
 
-              await updateDoc(docRef, {
-                receiptImage: {
-                  url,
-                  path,
-                  contentType: receiptFileForStorage.type || null,
-                  fileName: receiptFileForStorage.name || receiptFileOriginalName || null,
-                  size: typeof receiptFileForStorage.size === "number" ? receiptFileForStorage.size : null
-                }
-              });
-            } catch (uploadErr) {
-              console.warn("Failed to upload / attach receipt image:", uploadErr);
-            }
+            await uploadBytes(storageRef, receiptFileForStorage, meta);
+            const url = await getDownloadURL(storageRef);
+
+            await updateDoc(docRef, {
+              receiptImage: {
+                url,
+                path,
+                contentType: receiptFileForStorage.type || null,
+                fileName: receiptFileForStorage.name || receiptFileOriginalName || null,
+                size: typeof receiptFileForStorage.size === "number" ? receiptFileForStorage.size : null
+              }
+            });
           }
 
           showToast("Saved.");
           setTimeout(() => window.history.back(), 700);
         } catch (e) {
-          console.error(e);
-          showToast("Saved locally.");
+          console.error("Save failed:", e);
+          setSavingState(false);
+          showToast("Save failed.");
         }
       });
 
-      $("btnClear").addEventListener("click", () => window.location.reload());
-      $("btnCancel").addEventListener("click", () => window.history.back());
+      btnClear.addEventListener("click", () => {
+        if (isSaving) return;
+        window.location.reload();
+      });
 
-      // Load employees for Submitted By (now fast + cached + reliable on iOS)
+      btnCancel.addEventListener("click", () => {
+        if (isSaving) return;
+        window.history.back();
+      });
+
       await loadEmployeesCombo();
 
-      // ===== Quick-camera auto-open support (?src=quick-camera) =====
       try {
         const url = new URL(window.location.href);
         const srcParam = (url.searchParams.get('src') || '').toLowerCase();
         if (srcParam === 'quick-camera') {
           setTimeout(() => {
             const btnTakeNow = document.getElementById('btnTake');
-            if (btnTakeNow) btnTakeNow.click();
+            if (btnTakeNow && !isSaving) btnTakeNow.click();
           }, 200);
         }
       } catch (err) {
