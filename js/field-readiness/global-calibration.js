@@ -1,37 +1,19 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/global-calibration.js  (FULL FILE)
-Rev: 2026-04-06b-method1-base-anchored-global-calibration
+Rev: 2026-04-06c-global-storage-mult-sync
 
 KEEP UI (per Dane):
 ✅ Preserve the exact Rev 2026-01-22c modal look/feel (theme patch + layout + wording)
 ✅ Do NOT "redesign" the popup UI
 
-METHOD 1 (THIS REV):
-✅ UI still shows current LIVE readiness from field_readiness_latest
-✅ Slider still anchors to the CURRENT SHOWN number the user sees
-✅ BUT calibration math now uses BASE / UNADJUSTED model output underneath
-✅ APPLY computes a NEW ABSOLUTE storage multiplier from BASE -> TARGET
-✅ APPLY writes immediate live results into field_readiness_latest
-✅ APPLY also stores the absolute global multiplier in field_readiness_tuning/global
-✅ RESET rebuilds field_readiness_latest from BASE model and clears absolute multiplier to 1.0
+THIS REV:
+✅ Keeps Method 1 base-anchored behavior
+✅ Continues writing immediate live results into field_readiness_latest
+✅ Writes GLOBAL_STORAGE_MULT and lastStorageMult together
+✅ RESET clears BOTH GLOBAL_STORAGE_MULT and lastStorageMult back to 1.0
 ✅ Keeps learning/tuning doc write
 ✅ Keeps fr:soft-reload after apply/reset
-✅ Stops relying on field_readiness_state for actual global calibration truth
-
-WHY:
-✅ Prevents recalibration from chaining off an already-calibrated shown value
-✅ Matches Method 1:
-   every new adjustment recomputes from CURRENT BASE model -> TARGET
-✅ Makes current live scores move now, while preparing for Cloud Function
-   to later honor the same saved absolute multiplier
-
-NOTES:
-- SHOWN readiness = what user currently sees from field_readiness_latest
-- BASE readiness = what model.js says right now with zero calibration
-- Slider starts at SHOWN, but saved multiplier is computed from BASE
-- For immediate live update, all fields are recalculated from BASE model
-  using the new absolute multiplier, then written to field_readiness_latest
-- Writes are MERGE writes to field_readiness_latest so extra fields stay intact
+✅ Keeps current UI behavior and wording
 ===================================================================== */
 'use strict';
 
@@ -491,13 +473,19 @@ function normalizeTuneDoc(d){
   const dryLoss = safeNum(doc.DRY_LOSS_MULT);
   const rainEff = safeNum(doc.RAIN_EFF_MULT);
   const globalStorageMult = safeNum(doc.GLOBAL_STORAGE_MULT);
+  const lastStorageMult = safeNum(doc.lastStorageMult);
+
+  const chosenGlobal =
+    globalStorageMult != null
+      ? globalStorageMult
+      : (lastStorageMult != null ? lastStorageMult : 1.0);
 
   return {
     DRY_LOSS_MULT: clamp((dryLoss == null ? 1.0 : dryLoss), DRY_LOSS_MULT_MIN, DRY_LOSS_MULT_MAX),
     RAIN_EFF_MULT: clamp((rainEff == null ? 1.0 : rainEff), RAIN_EFF_MULT_MIN, RAIN_EFF_MULT_MAX),
-    GLOBAL_STORAGE_MULT: clamp((globalStorageMult == null ? 1.0 : globalStorageMult), GLOBAL_STORAGE_MULT_MIN, GLOBAL_STORAGE_MULT_MAX),
+    GLOBAL_STORAGE_MULT: clamp(chosenGlobal, GLOBAL_STORAGE_MULT_MIN, GLOBAL_STORAGE_MULT_MAX),
 
-    lastStorageMult: safeNum(doc.lastStorageMult),
+    lastStorageMult: clamp((lastStorageMult == null ? chosenGlobal : lastStorageMult), GLOBAL_STORAGE_MULT_MIN, GLOBAL_STORAGE_MULT_MAX),
     lastPercentMove: safeNum(doc.lastPercentMove),
     lastAnchorReadiness: safeNum(doc.lastAnchorReadiness),
     lastTargetReadiness: safeNum(doc.lastTargetReadiness),
@@ -1266,8 +1254,8 @@ async function writeLearningFromStorageShift(state, {
     DRY_LOSS_MULT: next.DRY_LOSS_MULT,
     RAIN_EFF_MULT: next.RAIN_EFF_MULT,
     GLOBAL_STORAGE_MULT: sm,
-
     lastStorageMult: sm,
+
     lastPercentMove: clamp(Number(percentMove || 0), -90, 90),
     lastAnchorReadiness: clamp(Number(shownAnchorR || 0), 0, 100),
     lastBaseReadiness: clamp(Number(baseAnchorR || 0), 0, 100),
@@ -1294,6 +1282,7 @@ async function clearAbsoluteGlobalMultiplier(state){
 
   await writeGlobalTuning(state, {
     GLOBAL_STORAGE_MULT: 1.0,
+    lastStorageMult: 1.0,
     updatedBy: createdBy || null,
     updatedAt: (api.kind === 'compat')
       ? nowISO()
@@ -1353,8 +1342,6 @@ async function writeWeightsLock(state, nowMs){
 
 /* =====================================================================
    APPLY: METHOD 1
-   Compute NEW ABSOLUTE multiplier from BASE model -> TARGET,
-   then write immediate live latest docs from BASE model * new multiplier.
 ===================================================================== */
 async function applyAdjustment(state){
   if (isLocked(state)) return;
@@ -1603,8 +1590,6 @@ async function applyAdjustment(state){
 
 /* =====================================================================
    RESET / REBUILD truth from last ~30 days
-   Writes BASE model result to field_readiness_latest and clears saved
-   absolute multiplier back to 1.0
 ===================================================================== */
 async function rebuildTruthFromLast30Days(state){
   try{
@@ -1859,9 +1844,7 @@ async function openAdjust(state){
   state._adjStatus = status;
   state._adjFeel = null;
 
-  // what user sees
   state._adjAnchorReadiness = clamp(Math.round(Number(runShown?.readinessR ?? 50)), 0, 100);
-  // true base behind it
   state._adjBaseReadiness = clamp(Math.round(Number(runModel?.readinessR ?? state._adjAnchorReadiness)), 0, 100);
 
   setAnchor(state, state._adjAnchorReadiness);
