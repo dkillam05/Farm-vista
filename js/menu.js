@@ -246,32 +246,6 @@ export const NAV_MENU = {
       initialOpen: false,
       children: [
         {
-          type: 'link',
-          id: 'office-field-boundary-correction',
-          perm: 'office-field-boundary-correction',
-          icon: '🗺️',
-          label: 'Field Boundary Correction',
-          href: '/Farm-vista/pages/office/field-boundaries.html',
-          activeMatch: 'starts-with'
-        },
-        {
-          type: 'link',
-          id: 'office-vehicle-registration',
-          perm: 'office-vehicle-registration',
-          icon: '🚗',
-          label: 'Vehicle Registration',
-          href: '/Farm-vista/pages/office/vehicle-registration.html',
-          activeMatch: 'exact'
-        },
-        {
-          type: 'link',
-          id: 'office-farm-land-leases',
-          icon: '🌾',
-          label: 'Farm Land Leases',
-          href: '/Farm-vista/docs/cooming-soon.html',
-          activeMatch: 'starts-with'
-        },
-        {
           type: 'group',
           id: 'office-insurance',
           icon: '🛡️',
@@ -322,12 +296,24 @@ export const NAV_MENU = {
           ]
         },
         {
-          type: 'link',
-          id: 'office-fsa',
-          icon: '🏛️',
-          label: 'FSA',
-          href: '/Farm-vista/docs/cooming-soon.html',
-          activeMatch: 'starts-with'
+          type: 'group',
+          id: 'office-purchase-inventory',
+          perm: 'office-purchase-inventory',
+          icon: '🧾',
+          label: 'Purchase Inventory',
+          collapsible: true,
+          initialOpen: false,
+          children: [
+            {
+              type: 'link',
+              id: 'office-purchase-inventory-seed',
+              perm: 'office-purchase-inventory-seed',
+              icon: '🌱',
+              label: 'Seed',
+              href: '/Farm-vista/docs/cooming-soon.html',
+              activeMatch: 'starts-with'
+            }
+          ]
         },
         {
           type: 'group',
@@ -343,6 +329,40 @@ export const NAV_MENU = {
             { type: 'link', id: 'teams-vendors', perm: 'teams-vendors', icon: '🏪', label: 'Vendors', href: '/Farm-vista/pages/office/teams-and-partners/vendors.html' },
             { type: 'link', id: 'teams-dictionary', perm: 'teams-dictionary', icon: '📖', label: 'Dictionary', href: '/Farm-vista/pages/office/teams-and-partners/dictionary.html' }
           ]
+        },
+        {
+          type: 'link',
+          id: 'office-farm-land-leases',
+          icon: '🌾',
+          label: 'Farm Land Leases',
+          href: '/Farm-vista/docs/cooming-soon.html',
+          activeMatch: 'starts-with'
+        },
+        {
+          type: 'link',
+          id: 'office-field-boundary-correction',
+          perm: 'office-field-boundary-correction',
+          icon: '🗺️',
+          label: 'Field Boundary Correction',
+          href: '/Farm-vista/pages/office/field-boundaries.html',
+          activeMatch: 'starts-with'
+        },
+        {
+          type: 'link',
+          id: 'office-fsa',
+          icon: '🏛️',
+          label: 'FSA',
+          href: '/Farm-vista/docs/cooming-soon.html',
+          activeMatch: 'starts-with'
+        },
+        {
+          type: 'link',
+          id: 'office-vehicle-registration',
+          perm: 'office-vehicle-registration',
+          icon: '🚗',
+          label: 'Vehicle Registration',
+          href: '/Farm-vista/pages/office/vehicle-registration.html',
+          activeMatch: 'exact'
         }
       ]
     },
@@ -373,6 +393,15 @@ export const NAV_MENU = {
           icon: '➖',
           label: 'Inventory Manual Adjustment',
           href: '/Farm-vista/pages/inventory/manual-removal.html',
+          activeMatch: 'starts-with'
+        },
+        {
+          type: 'link',
+          id: 'inv-seed-inventory',
+          perm: 'inv-seed-inventory',
+          icon: '🌱',
+          label: 'Seed Inventory',
+          href: '/Farm-vista/docs/cooming-soon.html',
           activeMatch: 'starts-with'
         }
       ]
