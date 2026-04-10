@@ -386,6 +386,15 @@ export const NAV_MENU = {
           href: '/Farm-vista/pages/inventory/grain-bags.html',
           activeMatch: 'starts-with'
         },
+                {
+          type: 'link',
+          id: 'inv-seed-inventory',
+          perm: 'inv-seed-inventory',
+          icon: '🌱',
+          label: 'Seed Inventory',
+          href: '/Farm-vista/docs/cooming-soon.html',
+          activeMatch: 'starts-with'
+        },
         {
           type: 'link',
           id: 'inv-manual-removal',
@@ -393,15 +402,6 @@ export const NAV_MENU = {
           icon: '➖',
           label: 'Inventory Manual Adjustment',
           href: '/Farm-vista/pages/inventory/manual-removal.html',
-          activeMatch: 'starts-with'
-        },
-        {
-          type: 'link',
-          id: 'inv-seed-inventory',
-          perm: 'inv-seed-inventory',
-          icon: '🌱',
-          label: 'Seed Inventory',
-          href: '/Farm-vista/docs/cooming-soon.html',
           activeMatch: 'starts-with'
         }
       ]
