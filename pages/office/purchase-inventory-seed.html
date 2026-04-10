@@ -45,6 +45,9 @@
 
       --void-row-bg: rgba(179,38,30,.10);
       --void-row-bg-hover: rgba(179,38,30,.14);
+
+      --locked-row-bg: rgba(138,90,0,.10);
+      --locked-row-bg-hover: rgba(138,90,0,.14);
     }
 
     html, body{
@@ -54,7 +57,7 @@
     }
 
     .page{
-      max-width:1500px;
+      max-width:1520px;
       margin:0 auto;
       padding:clamp(14px,3vw,22px);
       padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 140px)!important;
@@ -176,7 +179,7 @@
       flex-wrap:wrap;
       align-items:center;
       justify-content:flex-end;
-      margin-top:4px;
+      margin-top:6px;
     }
     .btn{
       display:inline-flex;
@@ -215,7 +218,7 @@
 
     .toolbar{
       display:grid;
-      grid-template-columns:minmax(260px, 1.3fr) minmax(180px, .7fr) minmax(180px, .7fr) minmax(180px, .8fr);
+      grid-template-columns:minmax(260px, 1.3fr) minmax(160px, .65fr) minmax(160px, .65fr) minmax(160px, .65fr);
       gap:12px;
       align-items:end;
     }
@@ -265,7 +268,7 @@
       width:100%;
       border-collapse:separate;
       border-spacing:0;
-      min-width:1120px;
+      min-width:1320px;
       font-size:14px;
       background:var(--sheet-cell-bg);
       color:var(--sheet-text);
@@ -314,34 +317,39 @@
     tbody tr.voidRow:hover td{
       background:var(--void-row-bg-hover);
     }
+    tbody tr.lockedRow:not(.voidRow) td{
+      background:var(--locked-row-bg);
+    }
+    tbody tr.lockedRow:not(.voidRow):hover td{
+      background:var(--locked-row-bg-hover);
+    }
 
     .cell-title{font-weight:950;}
     .muted{color:var(--sheet-muted);font-size:12px;font-weight:850;}
-    .status-active{
+    .status-active,
+    .status-void,
+    .status-locked{
       display:inline-flex;
       align-items:center;
       justify-content:center;
       min-width:82px;
       padding:5px 10px;
       border-radius:999px;
-      background:rgba(47,108,60,.12);
-      color:#24542e;
       font-size:12px;
       font-weight:950;
       text-decoration:none !important;
     }
+    .status-active{
+      background:rgba(47,108,60,.12);
+      color:#24542e;
+    }
     .status-void{
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      min-width:82px;
-      padding:5px 10px;
-      border-radius:999px;
       background:rgba(179,38,30,.14);
       color:#8a1c1c;
-      font-size:12px;
-      font-weight:950;
-      text-decoration:none !important;
+    }
+    .status-locked{
+      background:rgba(138,90,0,.14);
+      color:#7a5100;
     }
 
     .toast{
@@ -362,7 +370,7 @@
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
 
     dialog.sheet{
-      width:min(920px, 94vw);
+      width:min(980px, 94vw);
       border:1px solid var(--border);
       border-radius:14px;
       padding:0;
@@ -413,6 +421,16 @@
       gap:10px;
     }
 
+    .rule-note{
+      border:1px dashed var(--border);
+      border-radius:12px;
+      padding:10px 12px;
+      background:rgba(47,108,60,.04);
+      font-size:13px;
+      font-weight:850;
+      color:var(--muted,#67706B);
+    }
+
     @media (max-width:1100px){
       .toolbar{
         grid-template-columns:1fr 1fr;
@@ -460,7 +478,7 @@
         grid-template-columns:1fr;
       }
       table.grid{
-        min-width:980px;
+        min-width:1180px;
         font-size:13px;
       }
       thead th{
@@ -478,6 +496,8 @@
         --sheet-hover: rgba(255,255,255,.05);
         --void-row-bg: rgba(179,38,30,.20);
         --void-row-bg-hover: rgba(179,38,30,.26);
+        --locked-row-bg: rgba(138,90,0,.20);
+        --locked-row-bg-hover: rgba(138,90,0,.26);
       }
       .grid-viewport{ background:var(--surface) !important; }
       table.grid{ background:var(--surface) !important; color:var(--text) !important; }
@@ -502,6 +522,12 @@
       tbody tr.voidRow:hover td{
         background:var(--void-row-bg-hover) !important;
       }
+      tbody tr.lockedRow:not(.voidRow) td{
+        background:var(--locked-row-bg) !important;
+      }
+      tbody tr.lockedRow:not(.voidRow):hover td{
+        background:var(--locked-row-bg-hover) !important;
+      }
       .status-active{
         background:rgba(47,108,60,.24);
         color:#d8f0de;
@@ -509,6 +535,10 @@
       .status-void{
         background:rgba(179,38,30,.30);
         color:#ffd7d2;
+      }
+      .status-locked{
+        background:rgba(138,90,0,.30);
+        color:#ffe7b8;
       }
     }
   </style>
@@ -518,7 +548,7 @@
   <fv-shell>
     <div class="page">
       <h1 class="page-title">Purchase Inventory • Seed</h1>
-      <p class="page-sub">Enter seed purchase lines here for the office team. Rows can be edited later, voided for history, or deleted cleanly.</p>
+      <p class="page-sub">Purchase starts the seed record here. Later delivery and outbound can update the same line.</p>
 
       <div id="alert" class="alert" role="alert"></div>
 
@@ -565,13 +595,13 @@
             </div>
 
             <div class="field span-1">
-              <label for="units">Units Purchased</label>
-              <input id="units" class="input" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0">
+              <label for="qtyPurchased">Units Purchased</label>
+              <input id="qtyPurchased" class="input" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0">
             </div>
 
             <div class="field span-6">
-              <label for="notes">Notes</label>
-              <textarea id="notes" class="textarea" placeholder="Optional notes about this purchase line"></textarea>
+              <label for="note">Note</label>
+              <textarea id="note" class="textarea" placeholder="Optional note for this purchased line"></textarea>
             </div>
 
             <div class="field span-6">
@@ -596,7 +626,7 @@
           <div class="head-row1">
             <div class="head-left">
               <div class="icon" aria-hidden="true">🌱</div>
-              <div class="head-title">Seed Purchase Overview</div>
+              <div class="head-title">Seed Inventory Records</div>
             </div>
           </div>
 
@@ -608,7 +638,7 @@
                   <path d="M21 21l-4.2-4.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                   <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/>
                 </svg>
-                <input id="q" type="search" placeholder="year, crop, brand, variety, notes…" autocomplete="off">
+                <input id="q" type="search" placeholder="year, crop, brand, variety, note…" autocomplete="off">
               </div>
             </div>
 
@@ -640,7 +670,7 @@
         <div class="section-body">
           <div class="table-wrap">
             <div id="gridViewport" class="grid-viewport">
-              <table class="grid" aria-label="Seed purchase spreadsheet">
+              <table class="grid" aria-label="Seed inventory spreadsheet">
                 <thead id="thead"></thead>
                 <tbody id="tbody">
                   <tr><td class="muted" style="padding:12px;">Loading…</td></tr>
@@ -657,7 +687,7 @@
 
   <dialog id="editSheet" class="sheet" aria-modal="true">
     <header>
-      <strong id="editTitle">Edit Purchase Line</strong>
+      <strong id="editTitle">Edit Seed Record</strong>
       <button id="editClose" class="btn" type="button">Close</button>
     </header>
 
@@ -695,22 +725,31 @@
 
         <div class="mini-grid">
           <div class="field">
-            <label for="editUnits">Units</label>
-            <input id="editUnits" class="input" type="number" min="0" step="0.01" inputmode="decimal">
+            <label for="editQtyPurchased">Units Purchased</label>
+            <input id="editQtyPurchased" class="input" type="number" min="0" step="0.01" inputmode="decimal">
           </div>
 
           <div class="field">
-            <label for="editStatus">Status</label>
-            <select id="editStatus" class="select">
-              <option value="active">Active</option>
-              <option value="void">Void</option>
-            </select>
+            <label for="editQtyDelivered">Units Delivered</label>
+            <input id="editQtyDelivered" class="input" type="number" readonly>
+            <div class="help">Read only on this page.</div>
           </div>
 
-          <div class="field" style="grid-column:span 2;">
-            <label for="editNotes">Notes</label>
-            <textarea id="editNotes" class="textarea" placeholder="Optional notes"></textarea>
+          <div class="field">
+            <label for="editQtyShipped">Units Shipped</label>
+            <input id="editQtyShipped" class="input" type="number" readonly>
+            <div class="help">Read only on this page.</div>
           </div>
+
+          <div class="field">
+            <label for="editQtyAvailable">Units Available</label>
+            <input id="editQtyAvailable" class="input" type="number" readonly>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="editNote">Note</label>
+          <textarea id="editNote" class="textarea" placeholder="Optional note"></textarea>
         </div>
 
         <div class="pill-row">
@@ -718,6 +757,10 @@
           <span id="editPillBrand" class="pill">Brand: —</span>
           <span id="editPillVariety" class="pill">Variety: —</span>
           <span id="editPillTrait" class="pill">Trait: —</span>
+        </div>
+
+        <div id="ruleNote" class="rule-note">
+          Once delivery has started, this line cannot be voided or deleted, and units purchased cannot be reduced below units delivered.
         </div>
       </div>
     </div>
@@ -755,7 +798,7 @@
     const COLLATOR = new Intl.Collator(undefined, { numeric:true, sensitivity:'base' });
 
     const PRODUCTS_COLLECTION = 'productsSeed';
-    const PURCHASES_COLLECTION = 'inventoryPurchasesSeed';
+    const SEED_COLLECTION = 'inventorySeed';
 
     const alertBox = $('#alert');
     const tbody = $('#tbody');
@@ -765,8 +808,8 @@
     const crop = $('#crop');
     const brand = $('#brand');
     const variety = $('#variety');
-    const units = $('#units');
-    const notes = $('#notes');
+    const qtyPurchased = $('#qtyPurchased');
+    const note = $('#note');
     const brandHelp = $('#brandHelp');
     const varietyHelp = $('#varietyHelp');
 
@@ -775,13 +818,13 @@
     const pillVariety = $('#pillVariety');
     const pillTrait = $('#pillTrait');
 
+    const btnClear = $('#btnClear');
+    const btnSave = $('#btnSave');
+
     const qInput = $('#q');
     const filterYear = $('#filterYear');
     const filterCrop = $('#filterCrop');
     const filterStatus = $('#filterStatus');
-
-    const btnClear = $('#btnClear');
-    const btnSave = $('#btnSave');
 
     const editSheet = $('#editSheet');
     const editTitle = $('#editTitle');
@@ -790,14 +833,17 @@
     const btnUpdate = $('#btnUpdate');
     const btnVoid = $('#btnVoid');
     const btnDelete = $('#btnDelete');
+    const ruleNote = $('#ruleNote');
 
     const editCropYear = $('#editCropYear');
     const editCrop = $('#editCrop');
     const editBrand = $('#editBrand');
     const editVariety = $('#editVariety');
-    const editUnits = $('#editUnits');
-    const editStatus = $('#editStatus');
-    const editNotes = $('#editNotes');
+    const editQtyPurchased = $('#editQtyPurchased');
+    const editQtyDelivered = $('#editQtyDelivered');
+    const editQtyShipped = $('#editQtyShipped');
+    const editQtyAvailable = $('#editQtyAvailable');
+    const editNote = $('#editNote');
 
     const editPillCrop = $('#editPillCrop');
     const editPillBrand = $('#editPillBrand');
@@ -806,10 +852,10 @@
 
     const state = {
       products: [],
-      purchases: [],
+      rows: [],
       selectedId: null,
       editingId: null,
-      sortKey: 'createdAtMs',
+      sortKey: 'updatedAtMs',
       sortDir: -1,
       q: '',
       filterYear: 'all',
@@ -823,17 +869,20 @@
       { key:'brand', label:'Brand' },
       { key:'variety', label:'Variety' },
       { key:'traitLabel', label:'Trait' },
-      { key:'units', label:'Units' },
+      { key:'qtyPurchased', label:'Purchased' },
+      { key:'qtyDelivered', label:'Delivered' },
+      { key:'qtyShipped', label:'Shipped' },
+      { key:'qtyAvailable', label:'Available' },
       { key:'status', label:'Status' },
       { key:'updatedAtMs', label:'Updated' },
-      { key:'notes', label:'Notes' }
+      { key:'note', label:'Note' }
     ];
 
     function showError(msg){
       alertBox.textContent = msg;
       alertBox.classList.add('show');
       clearTimeout(showError._t);
-      showError._t = setTimeout(() => alertBox.classList.remove('show'), 7000);
+      showError._t = setTimeout(() => alertBox.classList.remove('show'), 8000);
     }
 
     function toast(msg='Saved.'){
@@ -856,14 +905,6 @@
       }[c]));
     }
 
-    function openSheet(dlg){
-      try{ dlg.showModal(); }catch{ dlg.setAttribute('open',''); }
-    }
-
-    function closeSheet(dlg){
-      try{ dlg.close(); }catch{ dlg.removeAttribute('open'); }
-    }
-
     function norm(v){
       return String(v ?? '').trim().toLowerCase();
     }
@@ -875,13 +916,22 @@
       return v || '—';
     }
 
-    function fmtUnits(v){
-      const n = Number(v);
+    function fmtQty(v){
+      const n = Number(v || 0);
       if(Number.isNaN(n)) return '';
       return new Intl.NumberFormat('en-US', {
         minimumFractionDigits: (n % 1 === 0 ? 0 : 2),
         maximumFractionDigits: 2
       }).format(n);
+    }
+
+    function num(v){
+      const n = Number(v);
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function calcAvailable(delivered, shipped){
+      return Math.max(0, num(delivered) - num(shipped));
     }
 
     function toDateObj(v){
@@ -921,11 +971,18 @@
       }
     }
 
+    function openSheet(dlg){
+      try{ dlg.showModal(); }catch{ dlg.setAttribute('open',''); }
+    }
+
+    function closeSheet(dlg){
+      try{ dlg.close(); }catch{ dlg.removeAttribute('open'); }
+    }
+
     function buildYearOptions(target, selected){
       const now = new Date().getFullYear();
       const years = [];
       for(let y = now - 2; y <= now + 3; y++) years.push(String(y));
-
       target.innerHTML = years.map(y => (
         `<option value="${esc(y)}"${String(selected) === y ? ' selected' : ''}>${esc(y)}</option>`
       )).join('');
@@ -935,7 +992,7 @@
       const yearSet = new Set();
       const now = new Date().getFullYear();
       for(let y = now - 2; y <= now + 3; y++) yearSet.add(String(y));
-      state.purchases.forEach(p => { if(p.cropYear) yearSet.add(String(p.cropYear)); });
+      state.rows.forEach(r => { if(r.cropYear) yearSet.add(String(r.cropYear)); });
 
       const years = Array.from(yearSet).sort((a,b)=> COLLATOR.compare(a,b));
       filterYear.innerHTML = `<option value="all">All Years</option>` + years.map(y => (
@@ -943,7 +1000,7 @@
       )).join('');
     }
 
-    function filteredProductsByCrop(cropValue){
+    function activeSeedProductsForCrop(cropValue){
       const c = norm(cropValue);
       return state.products.filter(p => {
         if(norm(p.status || 'active') !== 'active') return false;
@@ -955,7 +1012,7 @@
 
     function uniqueBrandsForCrop(cropValue){
       const brands = new Set();
-      filteredProductsByCrop(cropValue).forEach(p => {
+      activeSeedProductsForCrop(cropValue).forEach(p => {
         const b = String(p.brand || '').trim();
         if(b) brands.add(b);
       });
@@ -963,39 +1020,37 @@
     }
 
     function varietiesForCropBrand(cropValue, brandValue){
-      const c = norm(cropValue);
-      const b = norm(brandValue);
-
-      return filteredProductsByCrop(cropValue)
-        .filter(p => norm(p.brand) === b)
-        .sort((a,b2)=>{
+      const brandNorm = norm(brandValue);
+      return activeSeedProductsForCrop(cropValue)
+        .filter(p => norm(p.brand) === brandNorm)
+        .sort((a,b)=>{
           const aa = `${a.variety || ''} ${a.traitLabel || ''}`;
-          const bb = `${b2.variety || ''} ${b2.traitLabel || ''}`;
+          const bb = `${b.variety || ''} ${b.traitLabel || ''}`;
           return COLLATOR.compare(aa, bb);
         })
         .map(p => ({
           id: p.id,
-          variety: String(p.variety || '').trim(),
           brand: String(p.brand || '').trim(),
-          crop: String(p.crop || '').trim(),
+          variety: String(p.variety || '').trim(),
           trait: String(p.trait || '').trim(),
-          traitLabel: String(p.traitLabel || '').trim()
+          traitLabel: String(p.traitLabel || '').trim(),
+          crop: String(p.crop || '').trim()
         }))
-        .filter(v => !!v.variety && (!!c && !!b));
+        .filter(x => !!x.variety);
     }
 
-    function selectedProductFromForm(){
-      const productId = variety.value || '';
-      return state.products.find(p => p.id === productId) || null;
+    function selectedMainProduct(){
+      const id = variety.value || '';
+      return state.products.find(p => p.id === id) || null;
     }
 
-    function selectedProductFromEdit(){
-      const productId = editVariety.value || '';
-      return state.products.find(p => p.id === productId) || null;
+    function selectedEditProduct(){
+      const id = editVariety.value || '';
+      return state.products.find(p => p.id === id) || null;
     }
 
     function updateMainPills(){
-      const p = selectedProductFromForm();
+      const p = selectedMainProduct();
       pillCrop.textContent = `Crop: ${prettyCrop(crop.value)}`;
       pillBrand.textContent = `Brand: ${brand.value || '—'}`;
       pillVariety.textContent = `Variety: ${p?.variety || '—'}`;
@@ -1003,17 +1058,17 @@
     }
 
     function updateEditPills(){
-      const p = selectedProductFromEdit();
+      const p = selectedEditProduct();
       editPillCrop.textContent = `Crop: ${prettyCrop(editCrop.value)}`;
       editPillBrand.textContent = `Brand: ${editBrand.value || '—'}`;
       editPillVariety.textContent = `Variety: ${p?.variety || '—'}`;
       editPillTrait.textContent = `Trait: ${p?.traitLabel || p?.trait || '—'}`;
     }
 
-    function populateBrandSelect(targetBrand, cropValue, selectedBrand, helpEl){
+    function populateBrandSelect(target, cropValue, selectedValue='', helpEl=null){
       const brands = uniqueBrandsForCrop(cropValue);
-      targetBrand.innerHTML = '<option value="">— Select Brand —</option>' + brands.map(b => (
-        `<option value="${esc(b)}"${selectedBrand === b ? ' selected' : ''}>${esc(b)}</option>`
+      target.innerHTML = '<option value="">— Select Brand —</option>' + brands.map(b => (
+        `<option value="${esc(b)}"${selectedValue === b ? ' selected' : ''}>${esc(b)}</option>`
       )).join('');
 
       if(helpEl){
@@ -1025,9 +1080,9 @@
       }
     }
 
-    function populateVarietySelect(targetVariety, cropValue, brandValue, selectedId, helpEl){
-      const varieties = varietiesForCropBrand(cropValue, brandValue);
-      targetVariety.innerHTML = '<option value="">— Select Variety —</option>' + varieties.map(v => {
+    function populateVarietySelect(target, cropValue, brandValue, selectedId='', helpEl=null){
+      const list = varietiesForCropBrand(cropValue, brandValue);
+      target.innerHTML = '<option value="">— Select Variety —</option>' + list.map(v => {
         const extra = v.traitLabel ? ` • ${v.traitLabel}` : (v.trait ? ` • ${v.trait}` : '');
         return `<option value="${esc(v.id)}"${selectedId === v.id ? ' selected' : ''}>${esc(v.variety + extra)}</option>`;
       }).join('');
@@ -1036,7 +1091,7 @@
         if(!brandValue){
           helpEl.textContent = 'Choose brand next.';
         }else{
-          helpEl.textContent = `${varieties.length} variet${varieties.length === 1 ? 'y' : 'ies'} available.`;
+          helpEl.textContent = `${list.length} variet${list.length === 1 ? 'y' : 'ies'} available.`;
         }
       }
     }
@@ -1046,8 +1101,8 @@
       crop.value = '';
       brand.innerHTML = '<option value="">— Select Brand —</option>';
       variety.innerHTML = '<option value="">— Select Variety —</option>';
-      units.value = '';
-      notes.value = '';
+      qtyPurchased.value = '';
+      note.value = '';
       brandHelp.textContent = 'Choose crop first.';
       varietyHelp.textContent = 'Choose brand next.';
       updateMainPills();
@@ -1056,11 +1111,6 @@
     function syncMainSelectors(){
       populateBrandSelect(brand, crop.value, '', brandHelp);
       populateVarietySelect(variety, crop.value, brand.value, '', varietyHelp);
-      updateMainPills();
-    }
-
-    function syncMainVarieties(keepId=''){
-      populateVarietySelect(variety, crop.value, brand.value, keepId, varietyHelp);
       updateMainPills();
     }
 
@@ -1075,41 +1125,45 @@
       if(!crop.value) return 'Choose crop.';
       if(!brand.value) return 'Choose brand.';
       if(!variety.value) return 'Choose variety.';
-      if(!String(units.value).trim()) return 'Enter units purchased.';
+      if(!String(qtyPurchased.value).trim()) return 'Enter units purchased.';
 
-      const n = Number(units.value);
-      if(Number.isNaN(n) || n <= 0) return 'Units must be greater than zero.';
+      const n = Number(qtyPurchased.value);
+      if(Number.isNaN(n) || n <= 0) return 'Units purchased must be greater than zero.';
       return '';
     }
 
-    function validateEditForm(){
+    function validateEditForm(row){
       if(!editCropYear.value) return 'Choose crop year.';
       if(!editCrop.value) return 'Choose crop.';
       if(!editBrand.value) return 'Choose brand.';
       if(!editVariety.value) return 'Choose variety.';
-      if(!String(editUnits.value).trim()) return 'Enter units.';
-      const n = Number(editUnits.value);
-      if(Number.isNaN(n) || n <= 0) return 'Units must be greater than zero.';
+      if(!String(editQtyPurchased.value).trim()) return 'Enter units purchased.';
+
+      const purchased = Number(editQtyPurchased.value);
+      const delivered = num(row.qtyDelivered);
+
+      if(Number.isNaN(purchased) || purchased <= 0) return 'Units purchased must be greater than zero.';
+      if(purchased < delivered) return `Units purchased cannot be less than delivered (${fmtQty(delivered)}).`;
       return '';
     }
 
-    function purchaseSearchText(p){
+    function rowSearchText(r){
       return [
-        p.cropYear,
-        p.crop,
-        p.brand,
-        p.variety,
-        p.trait,
-        p.traitLabel,
-        p.notes,
-        p.status,
-        p.updatedBy,
-        p.createdBy
+        r.cropYear,
+        r.crop,
+        r.brand,
+        r.variety,
+        r.trait,
+        r.traitLabel,
+        r.note,
+        r.status,
+        r.createdBy,
+        r.updatedBy
       ].map(x => String(x || '')).join(' ').toLowerCase();
     }
 
     function filteredRows(){
-      let rows = state.purchases.slice();
+      let rows = state.rows.slice();
 
       if(state.filterYear !== 'all'){
         rows = rows.filter(r => String(r.cropYear || '') === String(state.filterYear));
@@ -1122,7 +1176,7 @@
       }
       if(state.q){
         const q = norm(state.q);
-        rows = rows.filter(r => purchaseSearchText(r).includes(q));
+        rows = rows.filter(r => rowSearchText(r).includes(q));
       }
 
       rows.sort((a,b)=>{
@@ -1147,11 +1201,13 @@
         case 'brand': return r.brand || '';
         case 'variety': return r.variety || '';
         case 'traitLabel': return r.traitLabel || r.trait || '';
-        case 'units': return Number(r.units || 0) || 0;
+        case 'qtyPurchased': return num(r.qtyPurchased);
+        case 'qtyDelivered': return num(r.qtyDelivered);
+        case 'qtyShipped': return num(r.qtyShipped);
+        case 'qtyAvailable': return num(r.qtyAvailable);
         case 'status': return r.status || 'active';
-        case 'updatedAtMs': return Number(r.updatedAtMs || 0) || 0;
-        case 'createdAtMs': return Number(r.createdAtMs || 0) || 0;
-        case 'notes': return r.notes || '';
+        case 'updatedAtMs': return num(r.updatedAtMs);
+        case 'note': return r.note || '';
         default: return r[key] || '';
       }
     }
@@ -1186,26 +1242,41 @@
       const rows = filteredRows();
 
       if(!rows.length){
-        tbody.innerHTML = `<tr><td class="muted" colspan="${COLUMNS.length}" style="padding:12px;">No purchase lines found.</td></tr>`;
+        tbody.innerHTML = `<tr><td class="muted" colspan="${COLUMNS.length}" style="padding:12px;">No seed records found.</td></tr>`;
         return;
       }
 
       tbody.innerHTML = rows.map(r => {
         const status = norm(r.status || 'active');
+        const delivered = num(r.qtyDelivered);
+        const shipped = num(r.qtyShipped);
+        const available = calcAvailable(delivered, shipped);
+        const isLocked = delivered > 0;
+
+        let statusHtml = `<span class="status-active">Active</span>`;
+        if(status === 'void'){
+          statusHtml = `<span class="status-void">Void</span>`;
+        } else if(isLocked){
+          statusHtml = `<span class="status-locked">Delivered</span>`;
+        }
+
         return `
-          <tr data-id="${esc(r.id)}" class="${state.selectedId === r.id ? 'activeRow ' : ''}${status === 'void' ? 'voidRow' : ''}">
+          <tr
+            data-id="${esc(r.id)}"
+            class="${state.selectedId === r.id ? 'activeRow ' : ''}${status === 'void' ? 'voidRow ' : ''}${isLocked ? 'lockedRow' : ''}"
+          >
             <td><span class="cell-title">${esc(r.cropYear || '')}</span></td>
             <td>${esc(prettyCrop(r.crop))}</td>
             <td>${esc(r.brand || '')}</td>
             <td><span class="cell-title">${esc(r.variety || '')}</span></td>
             <td>${esc(r.traitLabel || r.trait || '—')}</td>
-            <td>${esc(fmtUnits(r.units))}</td>
-            <td>${status === 'void'
-              ? `<span class="status-void">Void</span>`
-              : `<span class="status-active">Active</span>`}
-            </td>
+            <td>${esc(fmtQty(r.qtyPurchased))}</td>
+            <td>${esc(fmtQty(delivered))}</td>
+            <td>${esc(fmtQty(shipped))}</td>
+            <td>${esc(fmtQty(available))}</td>
+            <td>${statusHtml}</td>
             <td class="muted">${esc(fmtDateShort(r.updatedAt || r.createdAt))}</td>
-            <td class="muted">${esc(r.notes || '')}</td>
+            <td class="muted">${esc(r.note || '')}</td>
           </tr>
         `;
       }).join('');
@@ -1222,20 +1293,35 @@
     }
 
     function openEdit(id){
-      const row = state.purchases.find(x => x.id === id);
+      const row = state.rows.find(x => x.id === id);
       if(!row) return;
 
       state.editingId = id;
-      editTitle.textContent = `Edit Purchase Line • ${row.brand || ''} ${row.variety || ''}`.trim();
 
       buildYearOptions(editCropYear, String(row.cropYear || new Date().getFullYear()));
       editCrop.value = row.crop || '';
       syncEditSelectors(row.brand || '', row.productId || '');
-      editUnits.value = String(row.units ?? '');
-      editStatus.value = norm(row.status || 'active') === 'void' ? 'void' : 'active';
-      editNotes.value = row.notes || '';
-      updateEditPills();
 
+      editQtyPurchased.value = String(num(row.qtyPurchased));
+      editQtyDelivered.value = String(num(row.qtyDelivered));
+      editQtyShipped.value = String(num(row.qtyShipped));
+      editQtyAvailable.value = String(calcAvailable(row.qtyDelivered, row.qtyShipped));
+      editNote.value = row.note || '';
+
+      const delivered = num(row.qtyDelivered);
+      const isLocked = delivered > 0;
+      const isVoid = norm(row.status || 'active') === 'void';
+
+      editTitle.textContent = `Edit Seed Record • ${row.brand || ''} ${row.variety || ''}`.trim();
+      ruleNote.textContent = isLocked
+        ? `Delivery has started on this line. You cannot void or delete it, and purchased units cannot go below ${fmtQty(delivered)}.`
+        : 'No delivery has started yet. You can still edit, void, or delete this line.';
+
+      btnVoid.disabled = isLocked || isVoid;
+      btnDelete.disabled = isLocked;
+      btnUpdate.disabled = false;
+
+      updateEditPills();
       openSheet(editSheet);
     }
 
@@ -1259,35 +1345,43 @@
       }
     }
 
-    async function loadPurchases(db){
+    async function loadRows(db){
       try{
-        const snap = await getDocs(query(collection(db, PURCHASES_COLLECTION), orderBy('createdAt', 'desc')));
+        const snap = await getDocs(query(collection(db, SEED_COLLECTION), orderBy('updatedAt', 'desc')));
         const out = [];
         snap.forEach(d => {
           const data = d.data() || {};
           out.push({
             id: d.id,
             ...data,
+            qtyPurchased: num(data.qtyPurchased),
+            qtyDelivered: num(data.qtyDelivered),
+            qtyShipped: num(data.qtyShipped),
+            qtyAvailable: calcAvailable(data.qtyDelivered, data.qtyShipped),
             createdAtMs: dateMs(data.createdAt),
             updatedAtMs: dateMs(data.updatedAt)
           });
         });
-        state.purchases = out;
+        state.rows = out;
       }catch(err){
-        console.warn('purchase ordered query failed, falling back:', err?.message || err);
-        const snap = await getDocs(collection(db, PURCHASES_COLLECTION));
+        console.warn('inventorySeed ordered query failed, falling back:', err?.message || err);
+        const snap = await getDocs(collection(db, SEED_COLLECTION));
         const out = [];
         snap.forEach(d => {
           const data = d.data() || {};
           out.push({
             id: d.id,
             ...data,
+            qtyPurchased: num(data.qtyPurchased),
+            qtyDelivered: num(data.qtyDelivered),
+            qtyShipped: num(data.qtyShipped),
+            qtyAvailable: calcAvailable(data.qtyDelivered, data.qtyShipped),
             createdAtMs: dateMs(data.createdAt),
             updatedAtMs: dateMs(data.updatedAt)
           });
         });
-        out.sort((a,b)=> (b.createdAtMs || 0) - (a.createdAtMs || 0));
-        state.purchases = out;
+        out.sort((a,b)=> (b.updatedAtMs || 0) - (a.updatedAtMs || 0));
+        state.rows = out;
       }
     }
 
@@ -1296,7 +1390,7 @@
         const db = getFirestore();
         await Promise.all([
           loadProducts(db),
-          loadPurchases(db)
+          loadRows(db)
         ]);
         buildFilterYearOptions();
         renderTable();
@@ -1307,7 +1401,7 @@
       }
     }
 
-    async function saveNewLine(){
+    async function saveNewRow(){
       const err = validateMainForm();
       if(err){
         showError(err);
@@ -1315,8 +1409,8 @@
       }
 
       const db = getFirestore();
-      const p = selectedProductFromForm();
-      if(!p){
+      const product = selectedMainProduct();
+      if(!product){
         showError('Choose a valid variety.');
         return;
       }
@@ -1324,27 +1418,34 @@
       btnSave.disabled = true;
 
       try{
-        const payload = {
+        const nowUser = currentUserLabel();
+        await addDoc(collection(db, SEED_COLLECTION), {
           cropYear: String(cropYear.value || ''),
           crop: norm(crop.value),
-          brand: String(p.brand || '').trim(),
-          variety: String(p.variety || '').trim(),
-          productId: p.id,
-          trait: String(p.trait || '').trim(),
-          traitLabel: String(p.traitLabel || '').trim(),
-          units: Number(units.value),
+          brand: String(product.brand || '').trim(),
+          variety: String(product.variety || '').trim(),
+          trait: String(product.trait || '').trim(),
+          traitLabel: String(product.traitLabel || '').trim(),
+          productId: product.id,
+          productRef: doc(db, PRODUCTS_COLLECTION, product.id),
+
+          qtyPurchased: Number(qtyPurchased.value),
+          qtyDelivered: 0,
+          qtyShipped: 0,
+          qtyAvailable: 0,
+
           status: 'active',
-          notes: String(notes.value || '').trim(),
+          note: String(note.value || '').trim(),
+
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
-          createdBy: currentUserLabel(),
-          updatedBy: currentUserLabel()
-        };
+          createdBy: nowUser,
+          updatedBy: nowUser
+        });
 
-        await addDoc(collection(db, PURCHASES_COLLECTION), payload);
         toast('Purchase line saved.');
         resetMainForm();
-        await loadPurchases(db);
+        await loadRows(db);
         buildFilterYearOptions();
         renderTable();
       }catch(err2){
@@ -1355,21 +1456,21 @@
       }
     }
 
-    async function updateLine(nextStatus){
+    async function updateRow(){
       if(!state.editingId) return;
 
-      const row = state.purchases.find(x => x.id === state.editingId);
+      const row = state.rows.find(x => x.id === state.editingId);
       if(!row) return;
 
-      const err = validateEditForm();
+      const err = validateEditForm(row);
       if(err){
         showError(err);
         return;
       }
 
       const db = getFirestore();
-      const p = selectedProductFromEdit();
-      if(!p){
+      const product = selectedEditProduct();
+      if(!product){
         showError('Choose a valid variety.');
         return;
       }
@@ -1379,25 +1480,33 @@
       btnDelete.disabled = true;
 
       try{
-        const payload = {
+        const delivered = num(row.qtyDelivered);
+        const shipped = num(row.qtyShipped);
+        const purchased = Number(editQtyPurchased.value);
+
+        await updateDoc(doc(db, SEED_COLLECTION, row.id), {
           cropYear: String(editCropYear.value || ''),
           crop: norm(editCrop.value),
-          brand: String(p.brand || '').trim(),
-          variety: String(p.variety || '').trim(),
-          productId: p.id,
-          trait: String(p.trait || '').trim(),
-          traitLabel: String(p.traitLabel || '').trim(),
-          units: Number(editUnits.value),
-          status: nextStatus || norm(editStatus.value || 'active'),
-          notes: String(editNotes.value || '').trim(),
+          brand: String(product.brand || '').trim(),
+          variety: String(product.variety || '').trim(),
+          trait: String(product.trait || '').trim(),
+          traitLabel: String(product.traitLabel || '').trim(),
+          productId: product.id,
+          productRef: doc(db, PRODUCTS_COLLECTION, product.id),
+
+          qtyPurchased: purchased,
+          qtyDelivered: delivered,
+          qtyShipped: shipped,
+          qtyAvailable: calcAvailable(delivered, shipped),
+
+          note: String(editNote.value || '').trim(),
           updatedAt: serverTimestamp(),
           updatedBy: currentUserLabel()
-        };
+        });
 
-        await updateDoc(doc(db, PURCHASES_COLLECTION, row.id), payload);
         closeSheet(editSheet);
-        toast(payload.status === 'void' ? 'Purchase line voided.' : 'Purchase line updated.');
-        await loadPurchases(db);
+        toast('Seed record updated.');
+        await loadRows(db);
         buildFilterYearOptions();
         renderTable();
       }catch(err2){
@@ -1405,30 +1514,76 @@
         showError(err2?.message || 'Update failed.');
       }finally{
         btnUpdate.disabled = false;
-        btnVoid.disabled = false;
-        btnDelete.disabled = false;
+        const delivered = num(row.qtyDelivered);
+        const isVoid = norm(row.status || 'active') === 'void';
+        btnVoid.disabled = delivered > 0 || isVoid;
+        btnDelete.disabled = delivered > 0;
       }
     }
 
-    async function deleteLine(){
+    async function voidRow(){
       if(!state.editingId) return;
 
-      const row = state.purchases.find(x => x.id === state.editingId);
+      const row = state.rows.find(x => x.id === state.editingId);
       if(!row) return;
 
-      const ok = window.confirm(`Delete ${row.brand || ''} ${row.variety || ''} permanently?`);
+      if(num(row.qtyDelivered) > 0){
+        showError('Cannot void a line once delivery has started.');
+        return;
+      }
+
+      const ok = window.confirm(`Void ${row.brand || ''} ${row.variety || ''}?`);
       if(!ok) return;
 
-      const db = getFirestore();
       btnUpdate.disabled = true;
       btnVoid.disabled = true;
       btnDelete.disabled = true;
 
       try{
-        await deleteDoc(doc(db, PURCHASES_COLLECTION, row.id));
+        const db = getFirestore();
+        await updateDoc(doc(db, SEED_COLLECTION, row.id), {
+          status: 'void',
+          updatedAt: serverTimestamp(),
+          updatedBy: currentUserLabel()
+        });
+
         closeSheet(editSheet);
-        toast('Purchase line deleted.');
-        await loadPurchases(db);
+        toast('Seed record voided.');
+        await loadRows(db);
+        buildFilterYearOptions();
+        renderTable();
+      }catch(err){
+        console.error(err);
+        showError(err?.message || 'Void failed.');
+      }finally{
+        btnUpdate.disabled = false;
+      }
+    }
+
+    async function deleteRowNow(){
+      if(!state.editingId) return;
+
+      const row = state.rows.find(x => x.id === state.editingId);
+      if(!row) return;
+
+      if(num(row.qtyDelivered) > 0){
+        showError('Cannot delete a line once delivery has started.');
+        return;
+      }
+
+      const ok = window.confirm(`Delete ${row.brand || ''} ${row.variety || ''} permanently?`);
+      if(!ok) return;
+
+      btnUpdate.disabled = true;
+      btnVoid.disabled = true;
+      btnDelete.disabled = true;
+
+      try{
+        const db = getFirestore();
+        await deleteDoc(doc(db, SEED_COLLECTION, row.id));
+        closeSheet(editSheet);
+        toast('Seed record deleted.');
+        await loadRows(db);
         buildFilterYearOptions();
         renderTable();
       }catch(err){
@@ -1436,8 +1591,6 @@
         showError(err?.message || 'Delete failed.');
       }finally{
         btnUpdate.disabled = false;
-        btnVoid.disabled = false;
-        btnDelete.disabled = false;
       }
     }
 
@@ -1449,7 +1602,8 @@
 
     brand.addEventListener('change', () => {
       variety.value = '';
-      syncMainVarieties();
+      populateVarietySelect(variety, crop.value, brand.value, '', varietyHelp);
+      updateMainPills();
     });
 
     variety.addEventListener('change', updateMainPills);
@@ -1469,7 +1623,7 @@
     editVariety.addEventListener('change', updateEditPills);
 
     btnClear.addEventListener('click', resetMainForm);
-    btnSave.addEventListener('click', saveNewLine);
+    btnSave.addEventListener('click', saveNewRow);
 
     qInput.addEventListener('input', () => {
       state.q = qInput.value || '';
@@ -1490,12 +1644,12 @@
 
     editClose.addEventListener('click', () => closeSheet(editSheet));
     editCancel.addEventListener('click', () => closeSheet(editSheet));
-    btnUpdate.addEventListener('click', () => updateLine(''));
-    btnVoid.addEventListener('click', () => updateLine('void'));
-    btnDelete.addEventListener('click', deleteLine);
+    btnUpdate.addEventListener('click', updateRow);
+    btnVoid.addEventListener('click', voidRow);
+    btnDelete.addEventListener('click', deleteRowNow);
 
-    window.addEventListener('online', ()=> toast('Back online.'));
-    window.addEventListener('offline', ()=> toast('Offline mode.'));
+    window.addEventListener('online', () => toast('Back online.'));
+    window.addEventListener('offline', () => toast('Offline mode.'));
 
     (async()=>{
       await ready;
