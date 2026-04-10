@@ -308,7 +308,7 @@ export const NAV_MENU = {
               id: 'office-purchase-inventory-seed',
               icon: '🌱',
               label: 'Seed',
-              href: '/Farm-vista/docs/cooming-soon.html',
+              href: '/Farm-vista/pages/office/purchase-inventory-seed.html',
               activeMatch: 'starts-with'
             }
           ]
