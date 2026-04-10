@@ -386,7 +386,7 @@ export const NAV_MENU = {
           href: '/Farm-vista/pages/inventory/grain-bags.html',
           activeMatch: 'starts-with'
         },
-                {
+        {
           type: 'link',
           id: 'inv-seed-inventory',
           perm: 'inv-seed-inventory',
