@@ -298,7 +298,6 @@ export const NAV_MENU = {
         {
           type: 'group',
           id: 'office-purchase-inventory',
-          perm: 'office-purchase-inventory',
           icon: '🧾',
           label: 'Purchase Inventory',
           collapsible: true,
@@ -307,7 +306,6 @@ export const NAV_MENU = {
             {
               type: 'link',
               id: 'office-purchase-inventory-seed',
-              perm: 'office-purchase-inventory-seed',
               icon: '🌱',
               label: 'Seed',
               href: '/Farm-vista/docs/cooming-soon.html',
@@ -389,9 +387,8 @@ export const NAV_MENU = {
         {
           type: 'link',
           id: 'inv-seed-inventory',
-          perm: 'inv-seed-inventory',
           icon: '🌱',
-          label: 'Seed Inventory',
+          label: 'Seed',
           href: '/Farm-vista/docs/cooming-soon.html',
           activeMatch: 'starts-with'
         },
