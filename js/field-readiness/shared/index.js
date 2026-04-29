@@ -1,6 +1,6 @@
 // /js/field-readiness/shared/index.js  (FULL FILE)
 // FarmVista Readiness Rebuilder (Cloud Run)
-// Rev: 2026-03-26a-preserve-readiness-score-write-weather-display-only
+// Rev: 2026-04-29a-scheduler-safe-paged-display-refresh
 //
 // PURPOSE:
 // ✅ DOES NOT fetch Open-Meteo
@@ -8,21 +8,14 @@
 // ✅ ONLY reads existing field_weather_cache as primary input
 // ✅ STILL writes weather / display history into field_readiness_latest
 // ✅ STILL uses MRMS overlay when ready enough for display/model rows
-// ✅ STILL writes:
-//    - modelRows
-//    - tankTrace
-//    - dailySeries30d
-//    - dailySeriesFcst
-//    - mrmsDailySeries30d
-//    - mrmsHourlyLast24
-//    - mrmsHourlyLatest
-//    - weatherFetchedAt / weatherSource / run metadata
 // ✅ STILL iterates ALL active fields
 // ✅ STILL writes placeholder docs for new fields so they are not invisible
 // ✅ STILL ignores stale cache automatically when lat/lng changed
+// ✅ SAFER scheduled runs: pages fields and loads per-field support docs
+// ✅ SAFER runKey: hourly bucket by default
 // ❌ DOES NOT overwrite readiness score fields in field_readiness_latest
 // ❌ DOES NOT overwrite wetness/storage/readiness-derived scalar fields
-//
+
 const express = require("express");
 const {
   runFieldReadinessCore,
@@ -34,7 +27,6 @@ app.disable("x-powered-by");
 
 const PORT = process.env.PORT || 8080;
 
-// Optional: lock CORS to your domains (comma-separated).
 const ALLOWED = (process.env.FV_ALLOWED_ORIGINS || "")
   .split(",")
   .map(s => s.trim())
@@ -61,37 +53,52 @@ function num(v, d = null){
   const n = Number(v);
   return Number.isFinite(n) ? n : d;
 }
-function round(v, d=2){
+
+function round(v, d = 2){
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
   const p = Math.pow(10, d);
-  return Math.round(Number(v) * p) / p;
+  return Math.round(n * p) / p;
 }
+
 function mmToIn(mm){
   return Number(mm || 0) / 25.4;
 }
+
 function safeStr(x){
   const s = String(x || "");
   return s ? s : "";
 }
+
 function safeISO10(x){
   const s = safeStr(x);
   return s.length >= 10 ? s.slice(0, 10) : s;
 }
+
 function safeNum(v){
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
+
 function normalizeStatus(s){
   return String(s || "").trim().toLowerCase();
 }
 
 /* =====================================================================
-   Firestore
+   Firestore / env
 ===================================================================== */
 const READINESS_LATEST_COLLECTION = process.env.FV_READINESS_LATEST_COLLECTION || "field_readiness_latest";
 const READINESS_RUNS_COLLECTION = process.env.FV_READINESS_RUNS_COLLECTION || "field_readiness_runs";
 const PERSISTED_STATE_COLLECTION = process.env.FV_PERSISTED_STATE_COLLECTION || "field_readiness_state";
 const MRMS_COLLECTION = process.env.FV_MRMS_COLLECTION || "field_mrms_weather";
 const WEATHER_CACHE_COLLECTION = process.env.FV_WEATHER_CACHE_COLLECTION || "field_weather_cache";
+const FIELDS_COLLECTION = process.env.FV_FIELDS_COLLECTION || "fields";
+
+const PAGE_SIZE = Math.max(5, Math.min(100, Number(process.env.FV_READINESS_FIELD_PAGE_SIZE || 25)));
+const BATCH_COMMIT_SIZE = Math.max(10, Math.min(400, Number(process.env.FV_READINESS_BATCH_COMMIT_SIZE || 50)));
+const HISTORY_DAYS_REQUIRED = 30;
+const MRMS_MIN_COVERAGE = 0.90;
+const LOCATION_EPSILON = 0.00001;
 
 const LOSS_SCALE = Number.isFinite(Number(process.env.FV_READINESS_LOSS_SCALE))
   ? Number(process.env.FV_READINESS_LOSS_SCALE)
@@ -136,10 +143,6 @@ const FV_TUNE = {
   MID_ACCEL_EXP: Number.isFinite(Number(process.env.FV_MID_ACCEL_EXP)) ? Number(process.env.FV_MID_ACCEL_EXP) : 1.35
 };
 
-const HISTORY_DAYS_REQUIRED = 30;
-const MRMS_MIN_COVERAGE = 0.90;
-const LOCATION_EPSILON = 0.00001;
-
 let _admin = null;
 let _db = null;
 
@@ -162,12 +165,18 @@ function getFirestore(){
   return _db;
 }
 
+function fv(){
+  getFirestore();
+  return _admin.firestore.FieldValue;
+}
+
 /* =====================================================================
-   Helpers
+   Scheduler / run lock
 ===================================================================== */
 function isSchedulerRequest(req){
   const ua = String(req.headers["user-agent"] || "");
   if (ua.includes("Google-Cloud-Scheduler")) return true;
+
   const run = String(req.query.run || "");
   return run === "1" || run === "true";
 }
@@ -179,9 +188,9 @@ function makeRunKey(timeZone){
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
-    minute: "2-digit",
     hour12: false
   });
+
   const parts = dtf.formatToParts(new Date());
   const map = {};
   for (const p of parts) map[p.type] = p.value;
@@ -190,8 +199,8 @@ function makeRunKey(timeZone){
   const mo = map.month || "01";
   const d = map.day || "01";
   const hh = map.hour || "00";
-  const mm = map.minute || "00";
-  return `${y}-${mo}-${d}_${hh}${mm}`;
+
+  return `${y}-${mo}-${d}_${hh}00`;
 }
 
 async function ensureRunLockOrSkip(runKey, timezone){
@@ -199,21 +208,28 @@ async function ensureRunLockOrSkip(runKey, timezone){
   const runRef = db.collection(READINESS_RUNS_COLLECTION).doc(runKey);
 
   let shouldRun = false;
+
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(runRef);
+
     if (snap.exists){
       const d = snap.data() || {};
       const st = String(d.status || "");
+
       if (st === "done" || st === "running"){
         shouldRun = false;
         return;
       }
     }
+
     tx.set(runRef, {
       status: "running",
       timezone,
-      startedAt: _admin.firestore.FieldValue.serverTimestamp()
+      startedAt: fv().serverTimestamp(),
+      mode: "readiness_display_refresh_only",
+      rev: "2026-04-29a-scheduler-safe-paged-display-refresh"
     }, { merge: true });
+
     shouldRun = true;
   });
 
@@ -239,22 +255,26 @@ function getByPath(obj, path){
 
 function toNumMaybe(v){
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
+
   if (typeof v === "string"){
     const n = Number(v.trim());
     return Number.isFinite(n) ? n : null;
   }
+
   if (v && typeof v === "object"){
     if (typeof v.value === "number" && Number.isFinite(v.value)) return v.value;
     if (typeof v.value === "string"){
       const n = Number(String(v.value).trim());
       return Number.isFinite(n) ? n : null;
     }
+
     if (typeof v.n === "number" && Number.isFinite(v.n)) return v.n;
     if (typeof v.n === "string"){
       const n = Number(String(v.n).trim());
       return Number.isFinite(n) ? n : null;
     }
   }
+
   return null;
 }
 
@@ -323,92 +343,80 @@ function extractFieldParamsLikeFrontend(d){
   };
 }
 
-async function loadActiveFieldsMap(){
+/* =====================================================================
+   Paged fields
+===================================================================== */
+async function getFieldPage(cursorDoc){
   const db = getFirestore();
-  const out = new Map();
-  let raw = [];
 
-  try{
-    const snap = await db.collection("fields").where("status", "==", "active").get();
-    snap.forEach(doc => raw.push({ id: doc.id, data: doc.data() || {} }));
-  }catch(e){
-    console.warn("[Readiness] fields query(status==active) failed:", e?.message || e);
+  let q = db.collection(FIELDS_COLLECTION)
+    .orderBy("__name__")
+    .limit(PAGE_SIZE);
+
+  if (cursorDoc){
+    q = q.startAfter(cursorDoc);
   }
 
-  if (!raw.length){
-    try{
-      const snap2 = await db.collection("fields").get();
-      snap2.forEach(doc => raw.push({ id: doc.id, data: doc.data() || {} }));
-    }catch(e){
-      console.warn("[Readiness] fields query(all) failed:", e?.message || e);
-      raw = [];
-    }
-  }
+  const snap = await q.get();
 
-  for (const r of raw){
-    const d = r.data || {};
+  const rows = [];
+  snap.forEach(docSnap => {
+    const d = docSnap.data() || {};
     const st = normalizeStatus(d.status);
-    if (st && st !== "active") continue;
 
-    out.set(r.id, {
-      id: r.id,
+    if (st && st !== "active") return;
+
+    rows.push({
+      id: docSnap.id,
       data: d,
       location: extractLocation(d)
     });
-  }
+  });
 
-  return out;
+  const docs = snap.docs || [];
+  const lastDoc = docs.length ? docs[docs.length - 1] : null;
+
+  return {
+    rows,
+    lastDoc,
+    empty: snap.empty,
+    docsRead: docs.length
+  };
 }
 
-/* =====================================================================
-   Persisted truth
-===================================================================== */
-async function loadPersistedStateMap(){
+async function loadSupportDocsForField(fieldId){
   const db = getFirestore();
-  const out = new Map();
 
-  try{
-    const snap = await db.collection(PERSISTED_STATE_COLLECTION).get();
-    snap.forEach(docSnap => {
-      const d = docSnap.data() || {};
-      const fid = safeStr(d.fieldId || docSnap.id);
-      if (!fid) return;
+  const [wxSnap, mrmsSnap, stateSnap] = await Promise.all([
+    db.collection(WEATHER_CACHE_COLLECTION).doc(fieldId).get(),
+    db.collection(MRMS_COLLECTION).doc(fieldId).get(),
+    db.collection(PERSISTED_STATE_COLLECTION).doc(fieldId).get()
+  ]);
 
-      const storageFinal = safeNum(d.storageFinal);
-      const asOfDateISO = safeISO10(d.asOfDateISO);
-      if (storageFinal == null || !asOfDateISO) return;
+  const wxDoc = wxSnap.exists ? (wxSnap.data() || {}) : null;
+  const mrmsDoc = mrmsSnap.exists ? (mrmsSnap.data() || {}) : null;
 
-      out.set(fid, {
-        fieldId: fid,
+  let persistedState = null;
+  if (stateSnap.exists){
+    const d = stateSnap.data() || {};
+    const storageFinal = safeNum(d.storageFinal);
+    const asOfDateISO = safeISO10(d.asOfDateISO);
+
+    if (storageFinal != null && asOfDateISO){
+      persistedState = {
+        fieldId: safeStr(d.fieldId || fieldId),
         storageFinal,
         asOfDateISO,
         SmaxAtSave: safeNum(d.SmaxAtSave) ?? safeNum(d.smaxAtSave) ?? 0
-      });
-    });
-  }catch(e){
-    console.warn("[Readiness] loadPersistedStateMap failed:", e?.message || e);
+      };
+    }
   }
 
-  return out;
-}
-
-/* =====================================================================
-   Weather cache
-===================================================================== */
-async function loadWeatherCacheMap(){
-  const db = getFirestore();
-  const out = new Map();
-
-  try{
-    const snap = await db.collection(WEATHER_CACHE_COLLECTION).get();
-    snap.forEach(docSnap => {
-      out.set(String(docSnap.id), docSnap.data() || {});
-    });
-  }catch(e){
-    console.warn("[Readiness] loadWeatherCacheMap failed:", e?.message || e);
-  }
-
-  return out;
+  return {
+    wxDoc,
+    mrmsDoc,
+    persistedState
+  };
 }
 
 /* =====================================================================
@@ -420,34 +428,42 @@ function toYMDLocal(d){
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
+
 function startOfDayLocal(d){
   const out = new Date(d);
   out.setHours(0, 0, 0, 0);
   return out;
 }
+
 function addDaysLocal(d, delta){
   const out = new Date(d);
   out.setDate(out.getDate() + delta);
   return out;
 }
+
 function getDefaultRainRange72h(){
   const end = new Date();
   const start = new Date(end.getTime() - (72 * 60 * 60 * 1000));
   return { start, end };
 }
+
 function getMrmsDailySeries(doc){
   return Array.isArray(doc && doc.mrmsDailySeries30d) ? doc.mrmsDailySeries30d : [];
 }
+
 function getMrmsDailyMap(doc){
   const rows = getMrmsDailySeries(doc);
   const map = new Map();
+
   for (const r of rows){
     const key = String(r && r.dateISO || "").trim();
     if (!key) continue;
     map.set(key, r);
   }
+
   return map;
 }
+
 function mrmsBackfillReadyServer(doc){
   if (!doc || typeof doc !== "object") return false;
 
@@ -460,21 +476,16 @@ function mrmsBackfillReadyServer(doc){
   const start = startOfDayLocal(def.start);
   const end = startOfDayLocal(def.end);
 
-  if (meta && meta.fullBackfillComplete === true){
-    let cursor = new Date(start);
-    while (cursor <= end){
-      const key = toYMDLocal(cursor);
-      if (!map.has(key)) return false;
-      cursor = addDaysLocal(cursor, 1);
-    }
-    return true;
-  }
-
   let cursor = new Date(start);
+
   while (cursor <= end){
     const key = toYMDLocal(cursor);
     if (!map.has(key)) return false;
     cursor = addDaysLocal(cursor, 1);
+  }
+
+  if (meta && meta.fullBackfillComplete === true){
+    return true;
   }
 
   return true;
@@ -482,10 +493,14 @@ function mrmsBackfillReadyServer(doc){
 
 function buildMrmsDailyMapRows(mrmsDoc){
   const map = new Map();
-  const rows = Array.isArray(mrmsDoc && mrmsDoc.mrmsDailySeries30d) ? mrmsDoc.mrmsDailySeries30d : [];
+  const rows = Array.isArray(mrmsDoc && mrmsDoc.mrmsDailySeries30d)
+    ? mrmsDoc.mrmsDailySeries30d
+    : [];
+
   for (const r of rows){
     const iso = String(r && r.dateISO || "").slice(0, 10);
     if (!iso) continue;
+
     map.set(iso, {
       dateISO: iso,
       rainMm: num(r && r.rainMm, 0),
@@ -493,6 +508,7 @@ function buildMrmsDailyMapRows(mrmsDoc){
       hoursCount: Math.round(num(r && r.hoursCount, 0))
     });
   }
+
   return map;
 }
 
@@ -534,24 +550,11 @@ function overlayMrmsRainOntoWeatherRows(baseRows, mrmsDoc){
   });
 }
 
-async function loadMrmsDocMap(){
-  const db = getFirestore();
-  const out = new Map();
-
-  try{
-    const snap = await db.collection(MRMS_COLLECTION).get();
-    snap.forEach(docSnap => {
-      out.set(String(docSnap.id), docSnap.data() || {});
-    });
-  }catch(e){
-    console.warn("[Readiness] loadMrmsDocMap failed:", e?.message || e);
-  }
-
-  return out;
-}
-
 function getRecentMrmsDailyRows(mrmsDoc, days = HISTORY_DAYS_REQUIRED){
-  const rows = Array.isArray(mrmsDoc && mrmsDoc.mrmsDailySeries30d) ? mrmsDoc.mrmsDailySeries30d.slice() : [];
+  const rows = Array.isArray(mrmsDoc && mrmsDoc.mrmsDailySeries30d)
+    ? mrmsDoc.mrmsDailySeries30d.slice()
+    : [];
+
   return rows.slice(-days);
 }
 
@@ -589,6 +592,7 @@ function buildHistoryReadiness(wxDoc, mrmsDoc, days = HISTORY_DAYS_REQUIRED){
   const ready = weatherReady && mrmsStats.isReady;
 
   let reason = null;
+
   if (!weatherReady){
     const count = Array.isArray(wxDoc && wxDoc.dailySeries) ? wxDoc.dailySeries.length : 0;
     reason = `Processing history: weather days ${count}/${days}.`;
@@ -605,7 +609,10 @@ function buildHistoryReadiness(wxDoc, mrmsDoc, days = HISTORY_DAYS_REQUIRED){
 }
 
 function buildModelWeatherRowsForServer(wxDoc, mrmsDoc){
-  const baseRows = Array.isArray(wxDoc && wxDoc.dailySeries) ? wxDoc.dailySeries.slice() : [];
+  const baseRows = Array.isArray(wxDoc && wxDoc.dailySeries)
+    ? wxDoc.dailySeries.slice()
+    : [];
+
   if (!baseRows.length) return [];
 
   const coverageReady = getMrmsCoverageStats(mrmsDoc).isReady;
@@ -618,6 +625,9 @@ function buildModelWeatherRowsForServer(wxDoc, mrmsDoc){
   return overlayMrmsRainOntoWeatherRows(baseRows, mrmsDoc);
 }
 
+/* =====================================================================
+   Plain Firestore-safe rows
+===================================================================== */
 function toPlainModelRows(rows){
   return (Array.isArray(rows) ? rows : []).map(r => ({
     dateISO: safeISO10(r && r.dateISO),
@@ -723,28 +733,258 @@ function buildBaseLatestDoc({
     weatherSource: wx.source || null,
     runKey,
     timezone,
-    computedAt: _admin.firestore.FieldValue.serverTimestamp()
+    computedAt: fv().serverTimestamp()
   };
 }
 
 /* =====================================================================
-   Main writer
+   Per-field writer
+===================================================================== */
+function buildFieldWritePayload({
+  fieldId,
+  fieldRow,
+  wxRaw,
+  mrmsRaw,
+  persistedState,
+  runKey,
+  timezone
+}){
+  const DEFAULT_SOIL = 60;
+  const DEFAULT_DRAIN = 45;
+
+  const fd = fieldRow ? (fieldRow.data || {}) : {};
+  const currentLocation = fieldRow?.location || null;
+
+  const extractedParams = extractFieldParamsLikeFrontend(fd);
+
+  const soilWetness = Number.isFinite(Number(extractedParams.soilWetness))
+    ? Number(extractedParams.soilWetness)
+    : DEFAULT_SOIL;
+
+  const drainageIndex = Number.isFinite(Number(extractedParams.drainageIndex))
+    ? Number(extractedParams.drainageIndex)
+    : DEFAULT_DRAIN;
+
+  const wxLocationChanged = hasLocationChanged(wxRaw && wxRaw.location, currentLocation);
+  const mrmsLocationChanged = hasLocationChanged(mrmsRaw && mrmsRaw.location, currentLocation);
+  const locationChanged = !!(wxLocationChanged || mrmsLocationChanged);
+
+  const wx = locationChanged ? null : wxRaw;
+  const mrmsDoc = locationChanged ? null : mrmsRaw;
+
+  const baseDoc = buildBaseLatestDoc({
+    fieldId,
+    fieldData: fd,
+    fieldLocation: currentLocation,
+    wxDoc: wx,
+    runKey,
+    timezone
+  });
+
+  const weatherRows = buildModelWeatherRowsForServer(wx, mrmsDoc);
+  const historyReadiness = buildHistoryReadiness(wx, mrmsDoc, HISTORY_DAYS_REQUIRED);
+
+  if (weatherRows.length){
+    const summarySnapshot = runFieldReadinessCore(
+      weatherRows,
+      soilWetness,
+      drainageIndex,
+      null,
+      {
+        extra: EXTRA,
+        tune: FV_TUNE,
+        lossScale: LOSS_SCALE,
+        includeTrace: true
+      }
+    );
+
+    if (!summarySnapshot){
+      return {
+        ok: false,
+        skipWrite: true,
+        failReason: "runFieldReadinessCore returned empty summarySnapshot"
+      };
+    }
+
+    let historySnapshot = null;
+
+    if (historyReadiness.ready){
+      historySnapshot = runFieldReadinessCore(
+        weatherRows,
+        soilWetness,
+        drainageIndex,
+        null,
+        {
+          extra: EXTRA,
+          tune: FV_TUNE,
+          lossScale: LOSS_SCALE,
+          includeTrace: true,
+          forceFullHistoryFromPersisted: true
+        }
+      );
+    }
+
+    const sourceRows = Array.isArray(historySnapshot && historySnapshot.rows) && historySnapshot.rows.length
+      ? historySnapshot.rows
+      : (Array.isArray(summarySnapshot.rows) && summarySnapshot.rows.length ? summarySnapshot.rows : weatherRows);
+
+    const modelRows = toPlainModelRows(sourceRows).slice(-HISTORY_DAYS_REQUIRED);
+
+    const tankTrace = historyReadiness.ready
+      ? toPlainTankTrace(historySnapshot && historySnapshot.trace).slice(-HISTORY_DAYS_REQUIRED)
+      : [];
+
+    const dailySeries30d = Array.isArray(wx && wx.dailySeries)
+      ? wx.dailySeries.slice(-HISTORY_DAYS_REQUIRED)
+      : [];
+
+    const dailySeriesFcst = Array.isArray(wx && wx.dailySeriesFcst)
+      ? wx.dailySeriesFcst.slice(0, 7)
+      : [];
+
+    const mrmsDailySeries30d = Array.isArray(mrmsDoc && mrmsDoc.mrmsDailySeries30d)
+      ? mrmsDoc.mrmsDailySeries30d.slice(-HISTORY_DAYS_REQUIRED)
+      : [];
+
+    const mrmsHourlyLast24 = Array.isArray(mrmsDoc && mrmsDoc.mrmsHourlyLast24)
+      ? mrmsDoc.mrmsHourlyLast24.slice(-24)
+      : [];
+
+    const mrmsHourlyLatest = mrmsDoc && mrmsDoc.mrmsHourlyLatest
+      ? mrmsDoc.mrmsHourlyLatest
+      : null;
+
+    return {
+      ok: true,
+      type: "weatherRows",
+      locationChanged,
+      processingHistory: !historyReadiness.ready,
+      payload: {
+        ...baseDoc,
+
+        dailySeries30d,
+        dailySeriesFcst,
+        dailySeriesMeta: {
+          histDays: dailySeries30d.length,
+          fcstDays: dailySeriesFcst.length,
+          todayISO: safeISO10((dailySeries30d[dailySeries30d.length - 1] || {}).dateISO) || null
+        },
+
+        modelRows,
+        tankTrace,
+
+        historyReady: historyReadiness.ready,
+        historyCoverageMeta: historyReadiness.mrmsStats,
+        locationChanged,
+
+        mrmsDailySeries30d,
+        mrmsHourlyLast24,
+        mrmsHourlyLatest,
+        mrmsHistoryMeta: mrmsDoc && mrmsDoc.mrmsHistoryMeta ? mrmsDoc.mrmsHistoryMeta : null,
+        mrmsLastUpdatedAt: mrmsDoc && mrmsDoc.mrmsLastUpdatedAt ? mrmsDoc.mrmsLastUpdatedAt : null,
+
+        debug: {
+          summary: summarySnapshot.debug || null,
+          history: historySnapshot && historySnapshot.debug ? historySnapshot.debug : null,
+          locationChanged,
+          wxLocationChanged,
+          mrmsLocationChanged
+        },
+
+        status: historyReadiness.ready ? "ready" : "processing_history",
+        reason: historyReadiness.ready
+          ? fv().delete()
+          : (historyReadiness.reason || "Processing history.")
+
+        // IMPORTANT:
+        // readiness / wetness / storage* / seed* / sourceMode / startIdx
+        // are intentionally NOT written here, so existing readiness score
+        // is preserved and not recalculated/overwritten.
+      }
+    };
+  }
+
+  const capOnly = buildStorageCapOnlySnapshot(soilWetness, drainageIndex);
+
+  if (locationChanged){
+    return {
+      ok: true,
+      type: "locationChangedNoWeather",
+      locationChanged: true,
+      skippedNoWeather: true,
+      placeholderOnly: true,
+      payload: {
+        ...baseDoc,
+
+        storageMax: safeNum(capOnly && capOnly.storageMax),
+        storageCapacity: safeNum(capOnly && capOnly.storageCapacity),
+        storageMaxFinal: safeNum(capOnly && capOnly.storageMaxFinal),
+
+        soilWetness,
+        drainageIndex,
+        historyReady: false,
+        locationChanged: true,
+        status: "waiting_for_weather_cache",
+        reason: "Field lat/lng changed. Waiting for fresh weather and MRMS cache for the new location."
+
+        // readiness fields intentionally not written
+      }
+    };
+  }
+
+  if (persistedState && Number.isFinite(Number(persistedState.storageFinal))){
+    return {
+      ok: true,
+      type: "provisionalFromPersisted",
+      provisionalFromPersisted: true,
+      payload: {
+        ...baseDoc,
+
+        storageMax: safeNum(capOnly && capOnly.storageMax),
+        storageCapacity: safeNum(capOnly && capOnly.storageCapacity),
+        storageMaxFinal: safeNum(capOnly && capOnly.storageMaxFinal),
+
+        soilWetness,
+        drainageIndex,
+        status: "provisional_no_weather_cache",
+        reason: "Missing field_weather_cache; preserving existing readiness while waiting on weather cache."
+
+        // readiness fields intentionally not written
+      }
+    };
+  }
+
+  return {
+    ok: true,
+    type: "placeholderOnly",
+    skippedNoWeather: true,
+    placeholderOnly: true,
+    payload: {
+      ...baseDoc,
+
+      storageMax: safeNum(capOnly && capOnly.storageMax),
+      storageCapacity: safeNum(capOnly && capOnly.storageCapacity),
+      storageMaxFinal: safeNum(capOnly && capOnly.storageMaxFinal),
+
+      soilWetness,
+      drainageIndex,
+      status: "waiting_for_weather_cache",
+      reason: "Field exists, but no field_weather_cache and no persisted truth are available yet."
+
+      // readiness fields intentionally not written
+    }
+  };
+}
+
+/* =====================================================================
+   Main writer - paged / memory safe
 ===================================================================== */
 async function writeReadinessLatest(runKey, timezone){
   const db = getFirestore();
 
-  const DEFAULT_SOIL = 60;
-  const DEFAULT_DRAIN = 45;
-
-  const [fieldsMap, persistedMap, mrmsMap, wxMap] = await Promise.all([
-    loadActiveFieldsMap(),
-    loadPersistedStateMap(),
-    loadMrmsDocMap(),
-    loadWeatherCacheMap()
-  ]);
-
   let batch = db.batch();
-  let writes = 0;
+  let batchWrites = 0;
+
   let ok = 0;
   let fail = 0;
   let skippedNoWeather = 0;
@@ -752,258 +992,93 @@ async function writeReadinessLatest(runKey, timezone){
   let provisionalFromPersisted = 0;
   let processingHistory = 0;
   let totalFields = 0;
+  let docsRead = 0;
+  let pagesRead = 0;
   let latLngChangedFields = 0;
+  let weatherDocs = 0;
 
-  const fieldEntries = Array.from(fieldsMap.entries());
-  const CHUNK_SIZE = 10;
+  let cursorDoc = null;
 
-  for (let i = 0; i < fieldEntries.length; i += CHUNK_SIZE){
-    const chunk = fieldEntries.slice(i, i + CHUNK_SIZE);
+  async function commitIfNeeded(force = false){
+    if (batchWrites <= 0) return;
+    if (!force && batchWrites < BATCH_COMMIT_SIZE) return;
 
-    for (const [fieldId, fieldRow] of chunk){
+    await batch.commit();
+    batch = db.batch();
+    batchWrites = 0;
+  }
+
+  while (true){
+    const page = await getFieldPage(cursorDoc);
+
+    pagesRead++;
+    docsRead += page.docsRead;
+
+    if (page.empty){
+      break;
+    }
+
+    cursorDoc = page.lastDoc;
+
+    for (const fieldRow of page.rows){
       totalFields++;
 
-      const fd = fieldRow ? (fieldRow.data || {}) : {};
-      const currentLocation = fieldRow?.location || null;
-      const wxRaw = wxMap.get(fieldId) || null;
-      const persistedState = persistedMap.get(fieldId) || null;
-      const mrmsRaw = mrmsMap.get(fieldId) || null;
+      const fieldId = fieldRow.id;
 
       try{
-        const extractedParams = extractFieldParamsLikeFrontend(fd);
+        const support = await loadSupportDocsForField(fieldId);
+        if (support.wxDoc) weatherDocs++;
 
-        const soilWetness = Number.isFinite(Number(extractedParams.soilWetness))
-          ? Number(extractedParams.soilWetness)
-          : DEFAULT_SOIL;
-
-        const drainageIndex = Number.isFinite(Number(extractedParams.drainageIndex))
-          ? Number(extractedParams.drainageIndex)
-          : DEFAULT_DRAIN;
-
-        const wxLocationChanged = hasLocationChanged(wxRaw && wxRaw.location, currentLocation);
-        const mrmsLocationChanged = hasLocationChanged(mrmsRaw && mrmsRaw.location, currentLocation);
-        const locationChanged = !!(wxLocationChanged || mrmsLocationChanged);
-
-        const wx = locationChanged ? null : wxRaw;
-        const mrmsDoc = locationChanged ? null : mrmsRaw;
-
-        if (locationChanged){
-          latLngChangedFields++;
-        }
-
-        const outRef = db.collection(READINESS_LATEST_COLLECTION).doc(fieldId);
-        const baseDoc = buildBaseLatestDoc({
+        const built = buildFieldWritePayload({
           fieldId,
-          fieldData: fd,
-          fieldLocation: currentLocation,
-          wxDoc: wx,
+          fieldRow,
+          wxRaw: support.wxDoc,
+          mrmsRaw: support.mrmsDoc,
+          persistedState: support.persistedState,
           runKey,
           timezone
         });
 
-        const weatherRows = buildModelWeatherRowsForServer(wx, mrmsDoc);
-        const historyReadiness = buildHistoryReadiness(wx, mrmsDoc, HISTORY_DAYS_REQUIRED);
-
-        if (weatherRows.length){
-          const summarySnapshot = runFieldReadinessCore(
-            weatherRows,
-            soilWetness,
-            drainageIndex,
-            null,
-            {
-              extra: EXTRA,
-              tune: FV_TUNE,
-              lossScale: LOSS_SCALE,
-              includeTrace: true
-            }
-          );
-
-          if (!summarySnapshot){
-            fail++;
-            continue;
-          }
-
-          let historySnapshot = null;
-          if (historyReadiness.ready){
-            historySnapshot = runFieldReadinessCore(
-              weatherRows,
-              soilWetness,
-              drainageIndex,
-              null,
-              {
-                extra: EXTRA,
-                tune: FV_TUNE,
-                lossScale: LOSS_SCALE,
-                includeTrace: true,
-                forceFullHistoryFromPersisted: true
-              }
-            );
-          } else {
-            processingHistory++;
-          }
-
-          const sourceRows = Array.isArray(historySnapshot && historySnapshot.rows) && historySnapshot.rows.length
-            ? historySnapshot.rows
-            : (Array.isArray(summarySnapshot.rows) && summarySnapshot.rows.length ? summarySnapshot.rows : weatherRows);
-
-          const modelRows = toPlainModelRows(sourceRows).slice(-HISTORY_DAYS_REQUIRED);
-          const tankTrace = historyReadiness.ready
-            ? toPlainTankTrace(historySnapshot && historySnapshot.trace).slice(-HISTORY_DAYS_REQUIRED)
-            : [];
-
-          const dailySeries30d = Array.isArray(wx && wx.dailySeries)
-            ? wx.dailySeries.slice(-HISTORY_DAYS_REQUIRED)
-            : [];
-
-          const dailySeriesFcst = Array.isArray(wx && wx.dailySeriesFcst)
-            ? wx.dailySeriesFcst.slice(0, 7)
-            : [];
-
-          const mrmsDailySeries30d = Array.isArray(mrmsDoc && mrmsDoc.mrmsDailySeries30d)
-            ? mrmsDoc.mrmsDailySeries30d.slice(-HISTORY_DAYS_REQUIRED)
-            : [];
-
-          const mrmsHourlyLast24 = Array.isArray(mrmsDoc && mrmsDoc.mrmsHourlyLast24)
-            ? mrmsDoc.mrmsHourlyLast24.slice(-24)
-            : [];
-
-          const mrmsHourlyLatest = mrmsDoc && mrmsDoc.mrmsHourlyLatest
-            ? mrmsDoc.mrmsHourlyLatest
-            : null;
-
-          batch.set(outRef, {
-            ...baseDoc,
-
-            // KEEP weather/display data fresh
-            dailySeries30d,
-            dailySeriesFcst,
-            dailySeriesMeta: {
-              histDays: dailySeries30d.length,
-              fcstDays: dailySeriesFcst.length,
-              todayISO: safeISO10((dailySeries30d[dailySeries30d.length - 1] || {}).dateISO) || null
-            },
-
-            modelRows,
-            tankTrace,
-
-            historyReady: historyReadiness.ready,
-            historyCoverageMeta: historyReadiness.mrmsStats,
-            locationChanged,
-
-            mrmsDailySeries30d,
-            mrmsHourlyLast24,
-            mrmsHourlyLatest,
-            mrmsHistoryMeta: mrmsDoc && mrmsDoc.mrmsHistoryMeta ? mrmsDoc.mrmsHistoryMeta : null,
-            mrmsLastUpdatedAt: mrmsDoc && mrmsDoc.mrmsLastUpdatedAt ? mrmsDoc.mrmsLastUpdatedAt : null,
-
-            debug: {
-              summary: summarySnapshot.debug || null,
-              history: historySnapshot && historySnapshot.debug ? historySnapshot.debug : null,
-              locationChanged,
-              wxLocationChanged,
-              mrmsLocationChanged
-            },
-
-            status: historyReadiness.ready ? "ready" : "processing_history",
-            reason: historyReadiness.ready
-              ? _admin.firestore.FieldValue.delete()
-              : (historyReadiness.reason || "Processing history.")
-
-            // IMPORTANT:
-            // readiness / wetness / storage* / seed* / sourceMode / startIdx
-            // are intentionally NOT written here, so existing readiness score
-            // is preserved and not recalculated/overwritten.
-          }, { merge: true });
-
-          writes++;
-          ok++;
-        }
-        else if (locationChanged){
-          const capOnly = buildStorageCapOnlySnapshot(soilWetness, drainageIndex);
-
-          batch.set(outRef, {
-            ...baseDoc,
-
-            storageMax: safeNum(capOnly && capOnly.storageMax),
-            storageCapacity: safeNum(capOnly && capOnly.storageCapacity),
-            storageMaxFinal: safeNum(capOnly && capOnly.storageMaxFinal),
-
-            soilWetness,
-            drainageIndex,
-            historyReady: false,
-            locationChanged: true,
-            status: "waiting_for_weather_cache",
-            reason: "Field lat/lng changed. Waiting for fresh weather and MRMS cache for the new location."
-
-            // readiness fields intentionally not written
-          }, { merge: true });
-
-          writes++;
-          skippedNoWeather++;
-          placeholderOnly++;
-        }
-        else if (persistedState && Number.isFinite(Number(persistedState.storageFinal))){
-          const capOnly = buildStorageCapOnlySnapshot(soilWetness, drainageIndex);
-
-          batch.set(outRef, {
-            ...baseDoc,
-
-            storageMax: safeNum(capOnly && capOnly.storageMax),
-            storageCapacity: safeNum(capOnly && capOnly.storageCapacity),
-            storageMaxFinal: safeNum(capOnly && capOnly.storageMaxFinal),
-
-            soilWetness,
-            drainageIndex,
-            status: "provisional_no_weather_cache",
-            reason: "Missing field_weather_cache; preserving existing readiness while waiting on weather cache."
-
-            // readiness fields intentionally not written
-          }, { merge: true });
-
-          writes++;
-          ok++;
-          provisionalFromPersisted++;
-        }
-        else {
-          const capOnly = buildStorageCapOnlySnapshot(soilWetness, drainageIndex);
-
-          batch.set(outRef, {
-            ...baseDoc,
-
-            storageMax: safeNum(capOnly && capOnly.storageMax),
-            storageCapacity: safeNum(capOnly && capOnly.storageCapacity),
-            storageMaxFinal: safeNum(capOnly && capOnly.storageMaxFinal),
-
-            soilWetness,
-            drainageIndex,
-            status: "waiting_for_weather_cache",
-            reason: "Field exists, but no field_weather_cache and no persisted truth are available yet."
-
-            // readiness fields intentionally not written
-          }, { merge: true });
-
-          writes++;
-          skippedNoWeather++;
-          placeholderOnly++;
+        if (!built || built.ok !== true){
+          fail++;
+          console.warn("[Readiness] field skipped/fail:", fieldId, built && built.failReason ? built.failReason : "unknown");
+          continue;
         }
 
-        if (writes >= 50){
-          await batch.commit();
-          batch = db.batch();
-          writes = 0;
+        if (built.skipWrite){
+          fail++;
+          continue;
         }
+
+        const outRef = db.collection(READINESS_LATEST_COLLECTION).doc(fieldId);
+        batch.set(outRef, built.payload, { merge: true });
+        batchWrites++;
+
+        ok++;
+
+        if (built.locationChanged) latLngChangedFields++;
+        if (built.processingHistory) processingHistory++;
+        if (built.skippedNoWeather) skippedNoWeather++;
+        if (built.placeholderOnly) placeholderOnly++;
+        if (built.provisionalFromPersisted) provisionalFromPersisted++;
+
+        await commitIfNeeded(false);
       }catch(e){
         fail++;
         console.warn("[Readiness] field failed:", fieldId, e?.message || e);
       }
     }
 
-    await new Promise(r => setTimeout(r, 50));
+    await commitIfNeeded(true);
+
+    if (!cursorDoc || page.docsRead < PAGE_SIZE){
+      break;
+    }
+
+    await new Promise(r => setTimeout(r, 25));
   }
 
-  if (writes > 0){
-    await batch.commit();
-  }
+  await commitIfNeeded(true);
 
   return {
     ok,
@@ -1014,7 +1089,11 @@ async function writeReadinessLatest(runKey, timezone){
     processingHistory,
     latLngChangedFields,
     totalFields,
-    weatherDocs: wxMap.size
+    weatherDocs,
+    docsRead,
+    pagesRead,
+    pageSize: PAGE_SIZE,
+    batchCommitSize: BATCH_COMMIT_SIZE
   };
 }
 
@@ -1025,18 +1104,24 @@ app.get("/", async (req, res) => {
   cors(req, res);
 
   if (isSchedulerRequest(req)){
-    try{
-      const timezone = String(req.query.timezone || "America/Chicago");
-      const runKey = String(req.query.runKey || "").trim() || makeRunKey(timezone);
+    let lock = null;
+    let runKey = null;
+    let timezone = null;
 
-      const lock = await ensureRunLockOrSkip(runKey, timezone);
+    try{
+      timezone = String(req.query.timezone || "America/Chicago");
+      runKey = String(req.query.runKey || "").trim() || makeRunKey(timezone);
+
+      lock = await ensureRunLockOrSkip(runKey, timezone);
 
       let readiness = null;
+
       if (lock.shouldRun){
         readiness = await writeReadinessLatest(runKey, timezone);
+
         await lock.runRef.set({
           status: "done",
-          finishedAt: _admin.firestore.FieldValue.serverTimestamp(),
+          finishedAt: fv().serverTimestamp(),
           fieldsOk: readiness.ok,
           fieldsFail: readiness.fail,
           skippedNoWeather: readiness.skippedNoWeather,
@@ -1045,23 +1130,49 @@ app.get("/", async (req, res) => {
           processingHistory: readiness.processingHistory,
           latLngChangedFields: readiness.latLngChangedFields,
           totalFields: readiness.totalFields,
-          weatherDocs: readiness.weatherDocs
+          weatherDocs: readiness.weatherDocs,
+          docsRead: readiness.docsRead,
+          pagesRead: readiness.pagesRead,
+          pageSize: readiness.pageSize,
+          batchCommitSize: readiness.batchCommitSize
         }, { merge: true });
       } else {
-        readiness = { skipped: true, reason: "runKey already processed", runKey };
+        readiness = {
+          skipped: true,
+          reason: "runKey already processed or running",
+          runKey
+        };
       }
 
       return res.status(200).json({
         ok: true,
         mode: "readiness_display_refresh_only",
+        rev: "2026-04-29a-scheduler-safe-paged-display-refresh",
         ranAt: new Date().toISOString(),
         runKey,
         readiness
       });
     }catch(e){
       console.error("[Readiness] run failed:", e);
+
+      try{
+        if (lock && lock.runRef){
+          await lock.runRef.set({
+            status: "failed",
+            failedAt: fv().serverTimestamp(),
+            error: e?.message || "Readiness rebuild failed",
+            code: e?.code || null
+          }, { merge: true });
+        }
+      }catch(markErr){
+        console.warn("[Readiness] failed to mark run failed:", markErr?.message || markErr);
+      }
+
       return res.status(500).json({
         ok: false,
+        mode: "readiness_display_refresh_only",
+        rev: "2026-04-29a-scheduler-safe-paged-display-refresh",
+        runKey,
         error: e?.message || "Readiness rebuild failed",
         code: e?.code || null,
         hint: (e?.code === "MISSING_FIREBASE_ADMIN")
