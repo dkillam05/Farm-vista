@@ -3294,34 +3294,50 @@ function splitWeatherHistoryAndForecast(rawDoc){
     const d = safeObj(rawDoc) || {};
     const meta = getDailySeriesMeta(d);
 
-    const historyRows = (Array.isArray(d.dailySeries30d) ? d.dailySeries30d : [])
+    /* -------------------------------------------------------------
+    1. 🔥 PRIORITIZE CORRECT DATA SOURCE (dailySeries FIRST)
+    ------------------------------------------------------------- */
+
+    let baseRows = [];
+
+    if (Array.isArray(d.dailySeries) && d.dailySeries.length){
+      baseRows = d.dailySeries;
+    }
+    else if (Array.isArray(d.dailySeries30d) && d.dailySeries30d.length){
+      baseRows = d.dailySeries30d;
+    }
+    else {
+      baseRows = extractDailySeriesRows(d);
+    }
+
+    const rows = baseRows
       .map(normalizeDailyWxRow)
       .filter(r => r && r.dateISO);
+
+    /* -------------------------------------------------------------
+    2. FORECAST (leave as-is)
+    ------------------------------------------------------------- */
 
     const forecastRows = (Array.isArray(d.dailySeriesFcst) ? d.dailySeriesFcst : [])
       .map(normalizeDailyWxRow)
       .filter(r => r && r.dateISO);
 
-    if (historyRows.length || forecastRows.length){
-      return { historyRows, forecastRows };
-    }
-
-    const rows = extractDailySeriesRows(d)
-      .map(normalizeDailyWxRow)
-      .filter(r => r && r.dateISO);
-
-    if (!rows.length){
+    if (!rows.length && !forecastRows.length){
       return {
         historyRows: [],
         forecastRows: []
       };
     }
 
+    /* -------------------------------------------------------------
+    3. SPLIT HISTORY / FORECAST
+    ------------------------------------------------------------- */
+
     const todayISO = meta.todayISO;
 
     if (todayISO){
       const hist = [];
-      const fcst = [];
+      const fcst = [...forecastRows];
 
       for (const r of rows){
         if (String(r.dateISO) <= todayISO) hist.push(r);
@@ -3331,7 +3347,12 @@ function splitWeatherHistoryAndForecast(rawDoc){
       return { historyRows: hist, forecastRows: fcst };
     }
 
+    /* -------------------------------------------------------------
+    4. FALLBACK SPLIT
+    ------------------------------------------------------------- */
+
     const fcstDays = Math.max(0, Number(meta.fcstDays || 0));
+
     if (fcstDays > 0 && rows.length > fcstDays){
       return {
         historyRows: rows.slice(0, rows.length - fcstDays),
@@ -3341,8 +3362,9 @@ function splitWeatherHistoryAndForecast(rawDoc){
 
     return {
       historyRows: rows,
-      forecastRows: []
+      forecastRows: forecastRows
     };
+
   }catch(_){
     return {
       historyRows: [],
