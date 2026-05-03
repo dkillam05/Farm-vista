@@ -3150,70 +3150,55 @@ function normalizeDailyWxRow(raw){
         r.date ||
         r.day ||
         r.timeISO ||
-        r.timestampISO ||
-        r.validDate ||
-        r.validTime ||
         ''
       ),
 
+      // ✅ RAIN
       rainInAdj:
         safeNum(r.rainInAdj) ??
         safeNum(r.rainIn) ??
-        safeNum(r.precipIn) ??
-        safeNum(r.precipitationIn) ??
-        safeNum(r.rain) ??
+        safeNum(r.rainTotal) ??   // 🔥 ADD THIS
         0,
 
+      // ✅ TEMP
       tempF:
         safeNum(r.tempF) ??
-        safeNum(r.tempAvgF) ??
-        safeNum(r.avgTempF) ??
-        safeNum(r.temperatureF) ??
-        safeNum(r.tavgF) ??
+        safeNum(r.tempAvg) ??     // 🔥 ADD THIS
         0,
 
+      // ✅ WIND
       windMph:
         safeNum(r.windMph) ??
-        safeNum(r.windSpeedMph) ??
-        safeNum(r.windspeedMph) ??
-        safeNum(r.windAvgMph) ??
+        safeNum(r.windAvg) ??     // 🔥 ADD THIS
         0,
 
+      // ✅ RH
       rh:
         safeNum(r.rh) ??
-        safeNum(r.rhPct) ??
-        safeNum(r.relativeHumidity) ??
-        safeNum(r.relativeHumidityPct) ??
+        safeNum(r.rhAvg) ??       // 🔥 ADD THIS
         0,
 
+      // ✅ SOLAR
       solarWm2:
         safeNum(r.solarWm2) ??
-        safeNum(r.shortwaveWm2) ??
-        safeNum(r.shortwaveRadiation) ??
-        safeNum(r.solar) ??
+        safeNum(r.solarAvg) ??    // 🔥 ADD THIS
         0,
 
+      // ✅ ET0 (you may or may not have this)
       et0In:
         safeNum(r.et0In) ??
-        safeNum(r.etIn) ??
         safeNum(r.et0) ??
-        safeNum(r.evapotranspirationIn) ??
         0,
 
+      // ✅ SOIL MOISTURE
       sm010:
         safeNum(r.sm010) ??
-        safeNum(r.soilMoisture010) ??
-        safeNum(r.soilMoisture0to10) ??
-        safeNum(r.soil_moisture_0_to_10cm) ??
-        safeNum(r.soilMoisture_0_10) ??
         0,
 
+      // ✅ SOIL TEMP
       st010F:
         safeNum(r.st010F) ??
         safeNum(r.soilTemp010F) ??
-        safeNum(r.soilTemp0to10F) ??
-        safeNum(r.soilTempF_0_10) ??
-        safeNum(r.soilTemperatureF) ??
         safeNum(r.soil_temperature_0_to_10cm) ??
         0
     };
