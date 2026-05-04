@@ -3458,20 +3458,88 @@ async function _renderDetailsInternal(state){
      ✅ WEATHER (DAILY SERIES: HISTORY + FORECAST)
   =============================== */
   const wxb = $('wxRows');
-  if (wxb){
-    wxb.innerHTML = '';
+if (wxb){
+  wxb.innerHTML = '';
 
-    const split = splitWeatherHistoryAndForecast(d);
-    const historyRows = Array.isArray(split.historyRows) ? split.historyRows : [];
-    const forecastRows = Array.isArray(split.forecastRows) ? split.forecastRows : [];
+  const split = splitWeatherHistoryAndForecast(d);
+  let historyRows = Array.isArray(split.historyRows) ? split.historyRows : [];
+  const forecastRows = Array.isArray(split.forecastRows) ? split.forecastRows : [];
 
-    if (!historyRows.length && !forecastRows.length){
-      wxb.innerHTML = `<tr><td colspan="9" class="muted">No weather rows.</td></tr>`;
-    } else {
-      for (const r of historyRows){
+  /* ============================================================
+     🔥 FIX: Inject TODAY from hourly if missing
+  ============================================================ */
+  try{
+    const todayISO = new Date().toISOString().slice(0,10);
+
+    const hasToday = historyRows.some(r => String(r.dateISO) === todayISO);
+
+    if (!hasToday && Array.isArray(d.hourlySeries)){
+      const todayRows = d.hourlySeries.filter(r =>
+        String(r.dateISO || '').startsWith(todayISO)
+      );
+
+      if (todayRows.length){
+        const avg = (arr, key) =>
+          arr.reduce((a,b)=>a + (Number(b[key])||0),0) / arr.length;
+
+        const sum = (arr, key) =>
+          arr.reduce((a,b)=>a + (Number(b[key])||0),0);
+
+        historyRows.push({
+          dateISO: todayISO,
+          rainInAdj: sum(todayRows, "rainIn"),
+          tempF: avg(todayRows, "tempF"),
+          windMph: avg(todayRows, "windMph"),
+          rh: avg(todayRows, "rh"),
+          solarWm2: avg(todayRows, "solarWm2"),
+          et0In: avg(todayRows, "et0In"),
+          sm010: avg(todayRows, "sm010"),
+          st010F: avg(todayRows, "st010F")
+        });
+      }
+    }
+  }catch(_){}
+
+  /* ============================================================
+     RENDER
+  ============================================================ */
+
+  if (!historyRows.length && !forecastRows.length){
+    wxb.innerHTML = `<tr><td colspan="9" class="muted">No weather rows.</td></tr>`;
+  } else {
+
+    // HISTORY
+    for (const r of historyRows){
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="mono">${esc(String(r.dateISO || ''))}</td>
+        <td class="right mono">${Number(r.rainInAdj||0).toFixed(2)}</td>
+        <td class="right mono">${Math.round(Number(r.tempF||0))}</td>
+        <td class="right mono">${Math.round(Number(r.windMph||0))}</td>
+        <td class="right mono">${Math.round(Number(r.rh||0))}</td>
+        <td class="right mono">${Math.round(Number(r.solarWm2||0))}</td>
+        <td class="right mono">${Number(r.et0In||0).toFixed(2)}</td>
+        <td class="right mono">${Number(r.sm010||0).toFixed(3)}</td>
+        <td class="right mono">${Math.round(Number(r.st010F||0))}</td>
+      `;
+      wxb.appendChild(tr);
+    }
+
+    // FORECAST HEADER
+    if (forecastRows.length){
+      const sep = document.createElement('tr');
+      sep.innerHTML = `
+        <td colspan="9" class="muted" style="font-weight:900;padding-top:10px;">
+          Forecast
+        </td>
+      `;
+      wxb.appendChild(sep);
+
+      // FORECAST ROWS
+      for (const r of forecastRows){
         const tr = document.createElement('tr');
         tr.innerHTML = `
-          <td class="mono">${esc(String(r.dateISO || ''))}</td>
+          <td class="mono">Forecast • ${esc(String(r.dateISO || ''))}</td>
           <td class="right mono">${Number(r.rainInAdj||0).toFixed(2)}</td>
           <td class="right mono">${Math.round(Number(r.tempF||0))}</td>
           <td class="right mono">${Math.round(Number(r.windMph||0))}</td>
@@ -3483,34 +3551,9 @@ async function _renderDetailsInternal(state){
         `;
         wxb.appendChild(tr);
       }
-
-      if (forecastRows.length){
-        const sep = document.createElement('tr');
-        sep.innerHTML = `
-          <td colspan="9" class="muted" style="font-weight:900;padding-top:10px;">
-            Forecast
-          </td>
-        `;
-        wxb.appendChild(sep);
-
-        for (const r of forecastRows){
-          const tr = document.createElement('tr');
-          tr.innerHTML = `
-            <td class="mono">Forecast • ${esc(String(r.dateISO || ''))}</td>
-            <td class="right mono">${Number(r.rainInAdj||0).toFixed(2)}</td>
-            <td class="right mono">${Math.round(Number(r.tempF||0))}</td>
-            <td class="right mono">${Math.round(Number(r.windMph||0))}</td>
-            <td class="right mono">${Math.round(Number(r.rh||0))}</td>
-            <td class="right mono">${Math.round(Number(r.solarWm2||0))}</td>
-            <td class="right mono">${Number(r.et0In||0).toFixed(2)}</td>
-            <td class="right mono">${Number(r.sm010||0).toFixed(3)}</td>
-            <td class="right mono">${Math.round(Number(r.st010F||0))}</td>
-          `;
-          wxb.appendChild(tr);
-        }
-      }
     }
   }
+}
 
   /* ===============================
      ✅ MRMS (LIVE FROM field_mrms_weather + mrms_hourly fallback)
