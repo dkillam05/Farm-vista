@@ -2115,24 +2115,25 @@ async function warmWeatherForFieldSet(state, fields){
 
 async function computeDeepModelRunForField(state, fieldObj, opKey){
   try{
-    const wxCtx = buildWxCtx(state);
-    const run = await runFieldReadiness(state, fieldObj, {
-      opKey,
-      wxCtx,
-      persistedGetter: (id)=> getPersistedStateForDeps(state, id)
-    });
-    if (run) return run;
-  }catch(_){}
+    const latest = getLatestReadinessForField(
+      state,
+      fieldObj && fieldObj.id
+    );
 
-  try{
-    const deps = buildDepsForState(state, opKey);
-    const model = state && state._mods ? state._mods.model : null;
-    if (model && typeof model.runField === 'function'){
-      const legacy = model.runField(fieldObj, deps);
-      if (legacy) return legacy;
+    const synthetic = buildSyntheticRunFromLatest(
+      state,
+      fieldObj,
+      latest
+    );
+
+    if (synthetic){
+      return synthetic;
     }
   }catch(e){
-    console.warn('[FieldReadiness] legacy model fallback failed for field:', fieldObj && fieldObj.id, e);
+    console.warn(
+      '[FieldReadiness] synthetic latest build failed:',
+      e
+    );
   }
 
   return null;
