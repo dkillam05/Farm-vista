@@ -796,16 +796,27 @@ function setPanelText(id, txt){
 
 function renderTraceRows(tbody, rows, type){
   if (!tbody) return;
+
   tbody.innerHTML = '';
 
   if (!rows.length){
-    tbody.innerHTML = `<tr><td colspan="7" class="muted">No ${esc(type)} trace data.</td></tr>`;
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="7" class="muted">
+          No ${esc(type)} trace data.
+        </td>
+      </tr>
+    `;
     return;
   }
 
   for (const r of rows){
+
     const tr = document.createElement('tr');
 
+    // --------------------------------------------------
+    // TRACE VALUES
+    // --------------------------------------------------
     const add =
       type === 'surface'
         ? r.trace.surfaceAdd
@@ -821,14 +832,49 @@ function renderTraceRows(tbody, rows, type){
         ? r.trace.surface
         : r.trace.storage;
 
+    // --------------------------------------------------
+    // INFILTRATION MULTIPLIER
+    // --------------------------------------------------
+    const infilMult =
+      Number.isFinite(Number(r?.factors?.infilMult))
+        ? Number(r.factors.infilMult)
+        : null;
+
+    // --------------------------------------------------
+    // BUILD ROW
+    // --------------------------------------------------
     tr.innerHTML = `
-      <td class="mono">${esc(r.dateISO)}</td>
-      <td class="right mono">${Number(r.weather.rainUsedInMath ?? 0).toFixed(2)}</td>
-      <td class="right mono">—</td>
-      <td class="right mono">${Number(add ?? 0).toFixed(2)}</td>
-      <td class="right mono">${Number(r.dryPwrBreakdown.dryPwr ?? 0).toFixed(2)}</td>
-      <td class="right mono">${Number(loss ?? 0).toFixed(2)}</td>
-      <td class="right mono">${Number(end ?? 0).toFixed(2)}</td>
+      <td class="mono">
+        ${esc(r.dateISO)}
+      </td>
+
+      <td class="right mono">
+        ${Number(r.weather.rainUsedInMath ?? 0).toFixed(2)}
+      </td>
+
+      <td class="right mono">
+        ${
+          infilMult != null
+            ? infilMult.toFixed(3)
+            : '—'
+        }
+      </td>
+
+      <td class="right mono">
+        ${Number(add ?? 0).toFixed(2)}
+      </td>
+
+      <td class="right mono">
+        ${Number(r.dryPwrBreakdown.dryPwr ?? 0).toFixed(2)}
+      </td>
+
+      <td class="right mono">
+        ${Number(loss ?? 0).toFixed(2)}
+      </td>
+
+      <td class="right mono">
+        ${Number(end ?? 0).toFixed(2)}
+      </td>
     `;
 
     tbody.appendChild(tr);
