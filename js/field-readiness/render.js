@@ -2927,6 +2927,35 @@ setTimeout(async ()=>{
 }, 0);
 }
 
+/* ---------- tile render (PUBLIC) ---------- */
+export async function renderTiles(state){
+  await scheduleRender(state, 'all');
+}
+
+/* ---------- select field ---------- */
+export function selectField(state, id){
+  const f = state.fields.find(x=>x.id === id);
+  if (!f) return;
+
+  setSelectedField(state, id);
+  ensureSelectedParamsToSliders(state);
+
+  refreshDetailsOnly(state);
+
+  (async ()=>{
+    try{
+      await loadLatestReadiness(state, { force:false });
+      const ok = await fetchAndHydrateFieldParams(state, id);
+      if (!ok) return;
+      if (String(state.selectedFieldId) !== String(id)) return;
+
+      ensureSelectedParamsToSliders(state);
+      await refreshDetailsOnly(state);
+      await updateTileForField(state, id);
+    }catch(_){}
+  })();
+}
+
 /* ---------- beta panel ---------- */
 function renderBetaInputs(state){
   const box = $('betaInputs');
