@@ -2737,131 +2737,194 @@ async function _renderTilesInternal(state){
   const idsForPostPatch = [];
   let renderedCount = 0;
 
-  for (const f of show){
-    const run0 = state.lastRuns.get(f.id);
+for (const f of show){
 
-    const tile = document.createElement('div');
-    tile.dataset.fieldId = f.id;
-    tile.setAttribute('data-field-id', f.id);
+  // --------------------------------------------
+  // ALWAYS PREFER FIRESTORE TRUTH
+  // --------------------------------------------
+  const latestRec = getLatestReadinessForField(
+    state,
+    f.id
+  );
 
-    if (!run0){
-      const waiting = buildWaitingTileHtml(f, String(state.selectedFieldId) === String(f.id), thr);
-      tile.className = waiting.className;
-      tile.innerHTML = waiting.html;
-    } else {
-      const readiness = run0.readinessR;
+  const syntheticRun = buildSyntheticRunFromLatest(
+    state,
+    f,
+    latestRec
+  );
 
-      const leftPos = markerLeftCSS(readiness);
-      const thrPos  = markerLeftCSS(thr);
+  const run0 =
+    syntheticRun ||
+    state.lastRuns.get(f.id);
 
-      const perceived = perceivedFromThreshold(readiness, thr);
-      const pillBg = colorForPerceived(perceived);
-      const grad = gradientForThreshold(thr);
+  const tile = document.createElement('div');
+  tile.dataset.fieldId = f.id;
+  tile.setAttribute('data-field-id', f.id);
 
-      const mrmsRes = mrmsRangeById.get(f.id);
-      const rainText = rainTileTextFromMrmsResult(mrmsRes);
+  if (!run0){
+    const waiting = buildWaitingTileHtml(
+      f,
+      String(state.selectedFieldId) === String(f.id),
+      thr
+    );
 
-      tile.className = 'tile fv-swipe-item';
+    tile.className = waiting.className;
+    tile.innerHTML = waiting.html;
 
-      if (String(state.selectedFieldId) === String(f.id)){
-        tile.classList.add('fv-selected');
-        state._selectedTileId = String(f.id);
-      }
+  } else {
 
-      tile.innerHTML = `
-        <div class="tile-top">
-          <div class="titleline">
-            <div class="name" title="${esc(f.name)}">${esc(f.name)}</div>
-          </div>
-          <div class="readiness-pill" style="background:${pillBg};color:#fff;">Field Readiness ${readiness}</div>
-        </div>
+    try{
+      state.lastRuns = state.lastRuns || new Map();
+      state.lastRuns.set(f.id, run0);
+    }catch(_){}
 
-        <p class="subline">Rain (range): <span class="mono">${esc(rainText)}</span></p>
+    const readiness = run0.readinessR;
 
-        <div class="gauge-wrap">
-          <div class="chips">
-            <div class="chip wet">Wet</div>
-            <div class="chip readiness">Readiness</div>
-          </div>
+    const leftPos = markerLeftCSS(readiness);
+    const thrPos  = markerLeftCSS(thr);
 
-          <div class="gauge" style="background:${grad};">
-            <div class="thr" style="left:${thrPos};"></div>
-            <div class="marker" style="left:${leftPos};"></div>
-            <div class="badge" style="left:${leftPos};background:${pillBg};color:#fff;border:1px solid rgba(255,255,255,.18);">Field Readiness ${readiness}</div>
-          </div>
+    const perceived = perceivedFromThreshold(
+      readiness,
+      thr
+    );
 
-          <div class="etaSlot"></div>
-        </div>
-      `;
+    const pillBg = colorForPerceived(perceived);
+    const grad = gradientForThreshold(thr);
+
+    const mrmsRes = mrmsRangeById.get(f.id);
+
+    const rainText =
+      rainTileTextFromMrmsResult(mrmsRes);
+
+    tile.className = 'tile fv-swipe-item';
+
+    if (String(state.selectedFieldId) === String(f.id)){
+      tile.classList.add('fv-selected');
+      state._selectedTileId = String(f.id);
     }
 
-    wireTileInteractions(state, tile, f.id);
-    frag.appendChild(tile);
-    idsForPostPatch.push(String(f.id));
-    renderedCount++;
+    tile.innerHTML = `
+      <div class="tile-top">
+        <div class="titleline">
+          <div class="name" title="${esc(f.name)}">
+            ${esc(f.name)}
+          </div>
+        </div>
+
+        <div
+          class="readiness-pill"
+          style="background:${pillBg};color:#fff;"
+        >
+          Field Readiness ${readiness}
+        </div>
+      </div>
+
+      <p class="subline">
+        Rain (range):
+        <span class="mono">${esc(rainText)}</span>
+      </p>
+
+      <div class="gauge-wrap">
+
+        <div class="chips">
+          <div class="chip wet">Wet</div>
+          <div class="chip readiness">Readiness</div>
+        </div>
+
+        <div
+          class="gauge"
+          style="background:${grad};"
+        >
+
+          <div
+            class="thr"
+            style="left:${thrPos};"
+          ></div>
+
+          <div
+            class="marker"
+            style="left:${leftPos};"
+          ></div>
+
+          <div
+            class="badge"
+            style="
+              left:${leftPos};
+              background:${pillBg};
+              color:#fff;
+              border:1px solid rgba(255,255,255,.18);
+            "
+          >
+            Field Readiness ${readiness}
+          </div>
+
+        </div>
+
+        <div class="etaSlot"></div>
+
+      </div>
+    `;
   }
 
-  wrap.replaceChildren(frag);
+  wireTileInteractions(state, tile, f.id);
 
-  updateFieldsCountHelper(renderedCount, filtered.length);
-  updateEmptyMessageForCurrentFilters(state, filtered.length);
+  frag.appendChild(tile);
 
-  const empty = $('emptyMsg');
-  if (empty) empty.style.display = renderedCount ? 'none' : 'block';
+  idsForPostPatch.push(String(f.id));
 
-  try{
-    await initSwipeOnTiles(state, {
-      onDetails: async (fieldId)=>{
-        if (!canEdit(state)) return;
-        await openQuickView(state, fieldId);
-      }
-    });
-  }catch(e){
-    console.warn('[FieldReadiness] initSwipeOnTiles failed; using fallback swipe.', e);
-  }
+  renderedCount++;
+}
 
-  initFallbackSwipeOnTiles(state, wrap, {
+wrap.replaceChildren(frag);
+
+updateFieldsCountHelper(
+  renderedCount,
+  filtered.length
+);
+
+updateEmptyMessageForCurrentFilters(
+  state,
+  filtered.length
+);
+
+const empty = $('emptyMsg');
+
+if (empty){
+  empty.style.display =
+    renderedCount ? 'none' : 'block';
+}
+
+try{
+  await initSwipeOnTiles(state, {
     onDetails: async (fieldId)=>{
       if (!canEdit(state)) return;
+
       await openQuickView(state, fieldId);
     }
   });
-
-  setTimeout(async ()=>{
-    try{
-      await updateVisibleTilesBatched(state, idsForPostPatch);
-    }catch(_){}
-  }, 0);
+}catch(e){
+  console.warn(
+    '[FieldReadiness] initSwipeOnTiles failed; using fallback swipe.',
+    e
+  );
 }
 
-/* ---------- tile render (PUBLIC) ---------- */
-export async function renderTiles(state){
-  await scheduleRender(state, 'all');
-}
+initFallbackSwipeOnTiles(state, wrap, {
+  onDetails: async (fieldId)=>{
+    if (!canEdit(state)) return;
 
-/* ---------- select field ---------- */
-export function selectField(state, id){
-  const f = state.fields.find(x=>x.id === id);
-  if (!f) return;
+    await openQuickView(state, fieldId);
+  }
+});
 
-  setSelectedField(state, id);
-  ensureSelectedParamsToSliders(state);
-
-  refreshDetailsOnly(state);
-
-  (async ()=>{
-    try{
-      await loadLatestReadiness(state, { force:false });
-      const ok = await fetchAndHydrateFieldParams(state, id);
-      if (!ok) return;
-      if (String(state.selectedFieldId) !== String(id)) return;
-
-      ensureSelectedParamsToSliders(state);
-      await refreshDetailsOnly(state);
-      await updateTileForField(state, id);
-    }catch(_){}
-  })();
-}
+setTimeout(async ()=>{
+  try{
+    await updateVisibleTilesBatched(
+      state,
+      idsForPostPatch
+    );
+  }catch(_){}
+}, 0);
 
 /* ---------- beta panel ---------- */
 function renderBetaInputs(state){
