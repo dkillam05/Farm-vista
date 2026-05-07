@@ -690,13 +690,26 @@ function buildReadyTile(f, state, rec, rainText, thr){
         </div>
       </div>
 
-      <div class="etaSlot">
-        ${
-          etaText
-            ? `<div class="help"><button type="button" class="eta-help-btn">${esc(etaText)}</button></div>`
-            : ''
-        }
-      </div>
+<div class="etaSlot">
+  ${
+    etaText
+      ? `
+        <div
+          class="etaText"
+          style="
+            margin-top:8px;
+            font-size:12px;
+            opacity:.78;
+            text-align:center;
+            color:var(--text);
+          "
+        >
+          ${esc(etaText)}
+        </div>
+      `
+      : ''
+  }
+</div>
     </div>
   `;
 
