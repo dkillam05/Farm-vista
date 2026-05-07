@@ -2925,6 +2925,7 @@ setTimeout(async ()=>{
     );
   }catch(_){}
 }, 0);
+}
 
 /* ---------- beta panel ---------- */
 function renderBetaInputs(state){
