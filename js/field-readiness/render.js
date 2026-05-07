@@ -361,6 +361,144 @@ function buildLatestReadinessRecord(raw, fallbackId){
   };
 }
 
+async function loadLatestReadiness(state, { force=false } = {}){
+  try{
+    if (!state) return;
+
+    const now = Date.now();
+    const last = Number(state._latestReadinessLoadedAt || 0);
+
+    if (
+      !force &&
+      state.latestReadinessByFieldId &&
+      (now - last) < FR_LATEST_TTL_MS
+    ) {
+      return;
+    }
+
+    state.latestReadinessByFieldId = state.latestReadinessByFieldId || {};
+    const out = {};
+
+    const api = getAPI(state);
+
+    if (!api){
+      state.latestReadinessByFieldId = out;
+      state._latestReadinessLoadedAt = now;
+      return;
+    }
+
+    if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
+      const db = window.firebase.firestore();
+      const snap = await db.collection(FR_LATEST_COLLECTION).get();
+
+      snap.forEach(doc=>{
+        const rec = buildLatestReadinessRecord(doc.data() || {}, doc.id);
+        if (!rec || !rec.fieldId) return;
+        out[rec.fieldId] = rec;
+      });
+
+      state.latestReadinessByFieldId = out;
+      state._latestReadinessLoadedAt = now;
+      return;
+    }
+
+    if (api.kind !== 'compat'){
+      const db = api.getFirestore();
+      const col = api.collection(db, FR_LATEST_COLLECTION);
+      const snap = await api.getDocs(col);
+
+      snap.forEach(doc=>{
+        const rec = buildLatestReadinessRecord(doc.data() || {}, doc.id);
+        if (!rec || !rec.fieldId) return;
+        out[rec.fieldId] = rec;
+      });
+
+      state.latestReadinessByFieldId = out;
+      state._latestReadinessLoadedAt = now;
+    }
+  }catch(e){
+    console.warn('[FieldReadiness] field_conditions_current load failed:', e);
+    state.latestReadinessByFieldId = state.latestReadinessByFieldId || {};
+    state._latestReadinessLoadedAt = Date.now();
+  }
+}
+
+function getLatestReadinessForField(state, fieldId){
+  try{
+    const map = safeObj(state && state.latestReadinessByFieldId) || {};
+    const fid = safeStr(fieldId);
+    return safeObj(map[fid]);
+  }catch(_){
+    return null;
+  }
+}
+
+function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
+  const f = fieldObj || {};
+  const rec = latestRec || getLatestReadinessForField(state, f.id);
+
+  if (!rec) return null;
+
+  if (String(rec.status || '').toLowerCase() === 'waiting_for_weather_cache'){
+    return null;
+  }
+
+  const readinessR = safeInt(rec.readiness);
+  if (!Number.isFinite(readinessR)) return null;
+
+  const raw = safeObj(rec._raw) || {};
+
+  return {
+    ok: true,
+    source: 'field_conditions_current',
+    sourceLabel: 'field_conditions_current',
+
+    fieldId: safeStr(rec.fieldId || f.id),
+
+    readinessR,
+    readiness: readinessR,
+
+    wetness: safeInt(rec.wetness),
+    wetnessR: safeInt(rec.wetness),
+
+    soilWetness: safeNum(rec.soilWetness),
+    drainageIndex: safeNum(rec.drainageIndex),
+
+    readinessCreditIn: safeNum(rec.readinessCreditIn) ?? 0,
+
+    storageFinal: safeNum(rec.storageFinal),
+    storageForReadiness: safeNum(rec.storageForReadiness),
+    storagePhysFinal: safeNum(rec.storagePhysFinal),
+
+    surfaceStorageFinal: safeNum(rec.surfaceFinal),
+    surfaceFinal: safeNum(rec.surfaceFinal),
+
+    wetBiasApplied: safeNum(rec.wetBiasApplied),
+
+    runKey: safeStr(rec.runKey),
+    seedSource: safeStr(rec.seedSource),
+    weatherSource: safeStr(rec.weatherSource),
+    timezone: safeStr(rec.timezone),
+
+    status: safeStr(rec.status),
+    reason: safeStr(rec.reason),
+
+    computedAtISO: safeStr(rec.computedAtISO),
+    weatherFetchedAtISO: safeStr(rec.weatherFetchedAtISO),
+
+    county: safeStr(rec.county || f.county),
+    state: safeStr(rec.state || f.state),
+
+    trace:
+      Array.isArray(raw.trace) ? raw.trace : [],
+
+    rows:
+      Array.isArray(raw.rows) ? raw.rows : [],
+
+    _latest: rec
+  };
+}
+
 /* =====================================================================
    Persisted state loader (kept for details/model fallback)
 ===================================================================== */
