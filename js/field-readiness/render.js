@@ -1123,22 +1123,126 @@ export async function refreshDetailsOnly(state){
   await renderDetailsForSelected(state);
 }
 
-export function selectField(state, id){
-  const f = (state.fields || []).find(x=>x.id === id);
+export async function selectField(state, id){
+
+  const f =
+    (state.fields || []).find(
+      x => String(x.id) === String(id)
+    );
+
   if (!f) return;
 
-  setSelectedField(state, id);
-  ensureSelectedParamsToSliders(state);
+  // --------------------------------------------------
+  // STORE SELECTION
+  // --------------------------------------------------
+  state.selectedFieldId = id;
 
-  (async ()=>{
-    try{
-      await fetchAndHydrateFieldParams(state, id);
-    }catch(_){}
+  // --------------------------------------------------
+  // VISUAL TILE STATE
+  // --------------------------------------------------
+  try{
 
+    document
+      .querySelectorAll('.tile.fv-selected')
+      .forEach(el=>{
+        el.classList.remove('fv-selected');
+      });
+
+    const tile =
+      document.querySelector(
+        `.tile[data-field-id="${CSS.escape(String(id))}"]`
+      );
+
+    if (tile){
+      tile.classList.add('fv-selected');
+    }
+
+  }catch(_){}
+
+  // --------------------------------------------------
+  // PARAMS
+  // --------------------------------------------------
+  try{
     ensureSelectedParamsToSliders(state);
+  }catch(_){}
+
+  // --------------------------------------------------
+  // FORCE CURRENT DATA REFRESH
+  // --------------------------------------------------
+  try{
+
+    state._fieldConditionsLoadedAt = 0;
+
+    await loadFieldConditionsCurrent(
+      state,
+      { force:true }
+    );
+
+  }catch(e){
+
+    console.warn(
+      '[FieldReadiness] force refresh failed:',
+      e
+    );
+  }
+
+  // --------------------------------------------------
+  // FIELD PARAMS
+  // --------------------------------------------------
+  try{
+
+    await fetchAndHydrateFieldParams(
+      state,
+      id
+    );
+
+  }catch(_){}
+
+  // --------------------------------------------------
+  // DETAILS GRID
+  // --------------------------------------------------
+  try{
+
     await renderDetailsForSelected(state);
-    setSelectedTileClass(state, id);
-  })();
+
+  }catch(e){
+
+    console.warn(
+      '[FieldReadiness] renderDetailsForSelected failed:',
+      e
+    );
+  }
+
+  // --------------------------------------------------
+  // FINAL TILE REPAINT
+  // --------------------------------------------------
+  try{
+
+    await renderTilesInternal(state);
+
+  }catch(e){
+
+    console.warn(
+      '[FieldReadiness] renderTilesInternal failed:',
+      e
+    );
+  }
+
+  // --------------------------------------------------
+  // KEEP SELECTION
+  // --------------------------------------------------
+  try{
+
+    const tile =
+      document.querySelector(
+        `.tile[data-field-id="${CSS.escape(String(id))}"]`
+      );
+
+    if (tile){
+      tile.classList.add('fv-selected');
+    }
+
+  }catch(_){}
 }
 
 /* =====================================================================
