@@ -64,7 +64,7 @@ import * as EtaEngine from './eta-engine.js';
 /* =====================================================================
    Centralized readiness latest collection
 ===================================================================== */
-const FR_LATEST_COLLECTION = 'field_readiness_latest';
+const FR_LATEST_COLLECTION = 'field_conditions_current';
 const FR_LATEST_TTL_MS = 30000;
 
 /* =====================================================================
@@ -234,165 +234,130 @@ function setEtaDebug(state, fieldId, payload){
 function buildLatestReadinessRecord(raw, fallbackId){
   const d = safeObj(raw) || {};
   const fieldId = safeStr(d.fieldId || fallbackId);
+
   if (!fieldId) return null;
 
-  const readiness = safeInt(d.readiness);
-  const wetness = safeInt(d.wetness);
-  const soilWetness = safeNum(d.soilWetness);
-  const drainageIndex = safeNum(d.drainageIndex);
+  // --------------------------------------------
+  // NEW FIELD_CONDITIONS_CURRENT STRUCTURE
+  // --------------------------------------------
+  const final = safeObj(d.final) || {};
+  const soil = safeObj(d.soil) || {};
+  const surface = safeObj(d.surface) || {};
+
+  const readiness = safeInt(
+    final.readiness ?? d.readiness
+  );
+
+  const wetness = safeInt(
+    final.wetness ?? d.wetness
+  );
 
   return {
     fieldId,
+
     farmId: safeStr(d.farmId),
-    farmName: d.farmName == null ? null : safeStr(d.farmName),
+    farmName:
+      d.farmName == null
+        ? null
+        : safeStr(d.farmName),
+
     fieldName: safeStr(d.fieldName),
+
     county: safeStr(d.county),
     state: safeStr(d.state),
+
+    // --------------------------------------------
+    // READINESS
+    // --------------------------------------------
     readiness,
     wetness,
-    soilWetness,
-    drainageIndex,
-    readinessCreditIn: safeNum(d.readinessCreditIn) ?? 0,
-    storageFinal: safeNum(d.storageFinal),
-    storageForReadiness: safeNum(d.storageForReadiness),
-    storagePhysFinal: safeNum(d.storagePhysFinal),
-    wetBiasApplied: safeNum(d.wetBiasApplied),
+
+    baseReadiness: safeNum(
+      final.baseReadiness ?? d.baseReadiness
+    ),
+
+    surfacePenalty: safeNum(
+      final.surfacePenalty ?? d.surfacePenalty
+    ),
+
+    // --------------------------------------------
+    // STORAGE
+    // --------------------------------------------
+    storageFinal: safeNum(
+      final.storageFinal ??
+      soil.storage ??
+      d.storageFinal
+    ),
+
+    storageForReadiness: safeNum(
+      final.storageForReadiness ??
+      d.storageForReadiness
+    ),
+
+    storagePhysFinal: safeNum(
+      d.storagePhysFinal
+    ),
+
+    surfaceFinal: safeNum(
+      final.surfaceFinal ??
+      surface.water
+    ),
+
+    // --------------------------------------------
+    // FIELD SETTINGS
+    // --------------------------------------------
+    soilWetness: safeNum(d.soilWetness),
+    drainageIndex: safeNum(d.drainageIndex),
+
+    // --------------------------------------------
+    // DEBUG / META
+    // --------------------------------------------
+    readinessCreditIn:
+      safeNum(d.readinessCreditIn) ?? 0,
+
+    wetBiasApplied:
+      safeNum(d.wetBiasApplied),
+
     runKey: safeStr(d.runKey),
-    seedSource: safeStr(d.seedSource),
+
+    seedSource: safeStr(
+      d.seedSource ??
+      d?.debug?.seedMode
+    ),
+
     weatherSource: safeStr(d.weatherSource),
+
     timezone: safeStr(d.timezone),
+
     status: safeStr(d.status),
     reason: safeStr(d.reason),
-    computedAtISO: toIsoFromAny(d.computedAt),
-    weatherFetchedAtISO: toIsoFromAny(d.weatherFetchedAt),
+
+    computedAtISO:
+      toIsoFromAny(
+        d.updatedAt ??
+        d.computedAt
+      ),
+
+    weatherFetchedAtISO:
+      toIsoFromAny(d.weatherFetchedAt),
+
+    // --------------------------------------------
+    // LOCATION
+    // --------------------------------------------
     location: {
-      lat: safeNum(d && d.location && d.location.lat),
-      lng: safeNum(d && d.location && d.location.lng)
+      lat: safeNum(
+        d?.location?.lat
+      ),
+
+      lng: safeNum(
+        d?.location?.lng
+      )
     },
+
+    // --------------------------------------------
+    // KEEP RAW
+    // --------------------------------------------
     _raw: d
-  };
-}
-async function loadLatestReadiness(state, { force=false } = {}){
-  try{
-    if (!state) return;
-
-    const now = Date.now();
-    const last = Number(state._latestReadinessLoadedAt || 0);
-    if (!force && state.latestReadinessByFieldId && (now - last) < FR_LATEST_TTL_MS) return;
-
-    state.latestReadinessByFieldId = state.latestReadinessByFieldId || {};
-    const out = {};
-
-    const api = getAPI(state);
-    if (!api){
-      state.latestReadinessByFieldId = out;
-      state._latestReadinessLoadedAt = now;
-      return;
-    }
-
-    if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
-      const db = window.firebase.firestore();
-      const snap = await db.collection(FR_LATEST_COLLECTION).get();
-
-      snap.forEach(doc=>{
-        const rec = buildLatestReadinessRecord(doc.data() || {}, doc.id);
-        if (!rec || !rec.fieldId) return;
-        out[rec.fieldId] = rec;
-      });
-
-      state.latestReadinessByFieldId = out;
-      state._latestReadinessLoadedAt = now;
-      return;
-    }
-
-    if (api.kind !== 'compat'){
-      const db = api.getFirestore();
-      const col = api.collection(db, FR_LATEST_COLLECTION);
-      const snap = await api.getDocs(col);
-
-      snap.forEach(doc=>{
-        const rec = buildLatestReadinessRecord(doc.data() || {}, doc.id);
-        if (!rec || !rec.fieldId) return;
-        out[rec.fieldId] = rec;
-      });
-
-      state.latestReadinessByFieldId = out;
-      state._latestReadinessLoadedAt = now;
-      return;
-    }
-  }catch(e){
-    console.warn('[FieldReadiness] latest readiness load failed:', e);
-    state.latestReadinessByFieldId = state.latestReadinessByFieldId || {};
-    state._latestReadinessLoadedAt = Date.now();
-  }
-}
-function getLatestReadinessForField(state, fieldId){
-  try{
-    const map = safeObj(state && state.latestReadinessByFieldId) || {};
-    const fid = safeStr(fieldId);
-    const rec = map[fid];
-    return safeObj(rec);
-  }catch(_){
-    return null;
-  }
-}
-function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
-  const f = fieldObj || {};
-  const rec = latestRec || getLatestReadinessForField(state, f.id);
-  if (!rec) return null;
-
-  // Ignore placeholder rows still waiting for backend weather cache.
-  if (String(rec.status || '').toLowerCase() === 'waiting_for_weather_cache'){
-    return null;
-  }
-
-  const readinessR = safeInt(rec.readiness);
-  if (!Number.isFinite(readinessR)) return null;
-
-  const raw = safeObj(rec && rec._raw) || {};
-
-  return {
-    ok: true,
-    source: 'field_readiness_latest',
-    sourceLabel: 'field_readiness_latest',
-    fieldId: safeStr(rec.fieldId || f.id),
-    readinessR,
-    readiness: readinessR,
-    wetness: safeInt(rec.wetness),
-    wetnessR: safeInt(rec.wetness),
-    soilWetness: safeNum(rec.soilWetness),
-    drainageIndex: safeNum(rec.drainageIndex),
-    readinessCreditIn: safeNum(rec.readinessCreditIn) ?? 0,
-    storageFinal: safeNum(rec.storageFinal),
-    storageForReadiness: safeNum(rec.storageForReadiness),
-    storagePhysFinal: safeNum(rec.storagePhysFinal),
-    wetBiasApplied: safeNum(rec.wetBiasApplied),
-    runKey: safeStr(rec.runKey),
-    seedSource: safeStr(rec.seedSource),
-    weatherSource: safeStr(rec.weatherSource),
-    timezone: safeStr(rec.timezone),
-    status: safeStr(rec.status),
-    reason: safeStr(rec.reason),
-    computedAtISO: safeStr(rec.computedAtISO),
-    weatherFetchedAtISO: safeStr(rec.weatherFetchedAtISO),
-    county: safeStr(rec.county || f.county),
-    state: safeStr(rec.state || f.state),
-
-    trace:
-      Array.isArray(raw.trace) ? raw.trace :
-      Array.isArray(raw.soilMoistureTrace) ? raw.soilMoistureTrace :
-      Array.isArray(raw.surfaceWetnessTrace) ? raw.surfaceWetnessTrace :
-      Array.isArray(raw.soilTrace) ? raw.soilTrace :
-      Array.isArray(raw.surfaceTrace) ? raw.surfaceTrace :
-      Array.isArray(raw.tankTrace) ? raw.tankTrace :
-      [],
-
-    rows:
-      Array.isArray(raw.rows) ? raw.rows :
-      Array.isArray(raw.modelRows) ? raw.modelRows :
-      [],
-
-    _latest: rec
   };
 }
 
