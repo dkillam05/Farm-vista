@@ -2557,10 +2557,6 @@ async function updateVisibleTilesBatched(state, ids){
       : [];
     if (!list.length) return;
 
-    ensureSelectionStyleOnce();
-    ensureFieldsCountHelperEl();
-    await loadLatestReadiness(state, { force:false });
-
     const BATCH_SIZE = 10;
     const YIELD_MS = 8;
 
@@ -2570,10 +2566,10 @@ async function updateVisibleTilesBatched(state, ids){
       await Promise.all(
         batchIds.map(async (fid)=>{
           try{
-            await updateTileForField(state, fid);
+            await patchTileRainOnly(state, fid);
           }catch(e){
             try{
-              console.warn('[FieldReadiness] visible tile refresh failed for field:', fid, e);
+              console.warn('[FieldReadiness] visible tile rain refresh failed for field:', fid, e);
             }catch(_){}
           }
         })
