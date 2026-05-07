@@ -2632,6 +2632,7 @@ function wireTileInteractions(state, tileEl, fieldId){
 async function _renderTilesInternal(state){
   ensureSelectionStyleOnce();
   ensureFieldsCountHelperEl();
+
   await loadLatestReadiness(state, { force:false });
 
   const wrap = $('fieldsGrid');
@@ -2641,33 +2642,68 @@ async function _renderTilesInternal(state){
   const filteredNow = getFilteredFields(state);
   const filteredSigNow = getFilteredFieldSignature(filteredNow);
 
-  try{ state.pageSize = effectivePageSize; }catch(_){}
+  try{
+    state.pageSize = effectivePageSize;
+  }catch(_){}
 
   const viewKey = getTilesViewKey(state);
-  const prevKey = String(state._fvTilesViewKey || '');
-  const prevSig = String(state._fvTilesFieldSig || '');
-  const hasTiles = !!wrap.querySelector('.tile[data-field-id]');
-  const sameView = (prevKey === viewKey) && (prevSig === filteredSigNow) && hasTiles;
+
+  const prevKey =
+    String(state._fvTilesViewKey || '');
+
+  const prevSig =
+    String(state._fvTilesFieldSig || '');
+
+  const hasTiles =
+    !!wrap.querySelector('.tile[data-field-id]');
+
+  const sameView =
+    (prevKey === viewKey) &&
+    (prevSig === filteredSigNow) &&
+    hasTiles;
 
   state._fvTilesViewKey = viewKey;
   state._fvTilesFieldSig = filteredSigNow;
 
+  // --------------------------------------------------
+  // FAST PATH
+  // --------------------------------------------------
   if (sameView){
-    const filteredExisting = filteredNow;
-    const tiles = Array.from(wrap.querySelectorAll('.tile[data-field-id]'));
 
-    const desiredCount = (effectivePageSize === -1)
-      ? filteredExisting.length
-      : Math.min(filteredExisting.length, effectivePageSize);
+    const filteredExisting = filteredNow;
+
+    const tiles = Array.from(
+      wrap.querySelectorAll('.tile[data-field-id]')
+    );
+
+    const desiredCount =
+      (effectivePageSize === -1)
+        ? filteredExisting.length
+        : Math.min(
+            filteredExisting.length,
+            effectivePageSize
+          );
 
     if (tiles.length === desiredCount){
+
       const ids = tiles
         .slice(0, desiredCount)
-        .map(t => String(t.getAttribute('data-field-id') || ''))
+        .map(t =>
+          String(
+            t.getAttribute('data-field-id') || ''
+          )
+        )
         .filter(Boolean);
 
-      updateFieldsCountHelper(desiredCount, filteredExisting.length);
-      updateEmptyMessageForCurrentFilters(state, filteredExisting.length);
+      updateFieldsCountHelper(
+        desiredCount,
+        filteredExisting.length
+      );
+
+      updateEmptyMessageForCurrentFilters(
+        state,
+        filteredExisting.length
+      );
 
       initFallbackSwipeOnTiles(state, wrap, {
         onDetails: async (fieldId)=>{
@@ -2676,15 +2712,30 @@ async function _renderTilesInternal(state){
         }
       });
 
-      await updateVisibleTilesBatched(state, ids);
+      await updateVisibleTilesBatched(
+        state,
+        ids
+      );
+
       return;
     }
   }
 
+  // --------------------------------------------------
+  // LOADING
+  // --------------------------------------------------
   const searchQ = getFieldSearchQuery(state);
-  setFieldsCountHelperMessage(searchQ ? 'Searching fields…' : 'Preparing fields…');
+
+  setFieldsCountHelperMessage(
+    searchQ
+      ? 'Searching fields…'
+      : 'Preparing fields…'
+  );
+
   renderFieldsInlineLoading(
-    searchQ ? 'Searching field readiness...' : 'Loading field readiness...',
+    searchQ
+      ? 'Searching field readiness...'
+      : 'Loading field readiness...',
     searchQ
       ? 'Matching field names are being filtered, loaded, and sorted now.'
       : 'Centralized field_readiness_latest values are being loaded and sorted now.'
@@ -2693,266 +2744,434 @@ async function _renderTilesInternal(state){
   const opKey = getCurrentOp();
   const filtered = filteredNow;
 
-  state.lastRuns = state.lastRuns || new Map();
+  state.lastRuns =
+    state.lastRuns || new Map();
+
   state.lastRuns.clear();
 
-  const filteredRuns = await buildRunsForFields(state, filtered, opKey);
+  const filteredRuns =
+    await buildRunsForFields(
+      state,
+      filtered,
+      opKey
+    );
 
   for (const [fid, run] of filteredRuns.entries()){
     state.lastRuns.set(fid, run);
   }
 
+  // --------------------------------------------------
+  // MRMS
+  // --------------------------------------------------
   const range = parseRangeFromInput();
+
   const mrmsRangeById = new Map();
 
   await Promise.all(
     filtered.map(async (f)=>{
-      const res = await getMrmsRainResultForField(state, f.id, range, { force:true });
+      const res =
+        await getMrmsRainResultForField(
+          state,
+          f.id,
+          range,
+          { force:true }
+        );
+
       mrmsRangeById.set(f.id, res);
     })
   );
 
-  const sorted = sortFields(filtered, state.lastRuns, mrmsRangeById);
-  const thr = getThresholdForOp(state, opKey);
+  const sorted = sortFields(
+    filtered,
+    state.lastRuns,
+    mrmsRangeById
+  );
 
-  const cap = (effectivePageSize === -1)
-    ? sorted.length
-    : Math.min(sorted.length, effectivePageSize);
-  const show = sorted.slice(0, cap);
+  const thr =
+    getThresholdForOp(state, opKey);
+
+  const cap =
+    (effectivePageSize === -1)
+      ? sorted.length
+      : Math.min(
+          sorted.length,
+          effectivePageSize
+        );
+
+  const show =
+    sorted.slice(0, cap);
 
   await ensureFRModules(state);
 
-  const fc = state && state._mods ? state._mods.forecast : null;
-  if (fc && typeof fc.readWxSeriesFromCache === 'function'){
+  const fc =
+    state &&
+    state._mods
+      ? state._mods.forecast
+      : null;
+
+  if (
+    fc &&
+    typeof fc.readWxSeriesFromCache === 'function'
+  ){
     await Promise.all(
       show.map(async (f)=>{
         try{
-          await fc.readWxSeriesFromCache(String(f.id), {});
+          await fc.readWxSeriesFromCache(
+            String(f.id),
+            {}
+          );
         }catch(_){}
       })
     );
   }
 
-  const frag = document.createDocumentFragment();
+  // --------------------------------------------------
+  // BUILD TILES
+  // --------------------------------------------------
+  const frag =
+    document.createDocumentFragment();
+
   const idsForPostPatch = [];
+
   let renderedCount = 0;
 
-for (const f of show){
+  for (const f of show){
 
-  // --------------------------------------------
-  // ALWAYS PREFER FIRESTORE TRUTH
-  // --------------------------------------------
-  const latestRec = getLatestReadinessForField(
-    state,
-    f.id
-  );
+    const latestRec =
+      getLatestReadinessForField(
+        state,
+        f.id
+      );
 
-  const syntheticRun = buildSyntheticRunFromLatest(
-    state,
-    f,
-    latestRec
-  );
+    const syntheticRun =
+      buildSyntheticRunFromLatest(
+        state,
+        f,
+        latestRec
+      );
 
-  const run0 =
-    syntheticRun ||
-    state.lastRuns.get(f.id);
+    const run0 =
+      syntheticRun ||
+      state.lastRuns.get(f.id);
 
-  const tile = document.createElement('div');
-  tile.dataset.fieldId = f.id;
-  tile.setAttribute('data-field-id', f.id);
+    const tile =
+      document.createElement('div');
 
-  if (!run0){
-    const waiting = buildWaitingTileHtml(
-      f,
-      String(state.selectedFieldId) === String(f.id),
-      thr
+    tile.dataset.fieldId = f.id;
+
+    tile.setAttribute(
+      'data-field-id',
+      f.id
     );
 
-    tile.className = waiting.className;
-    tile.innerHTML = waiting.html;
+    // --------------------------------------------------
+    // WAITING TILE
+    // --------------------------------------------------
+    if (!run0){
 
-  } else {
+      const waiting =
+        buildWaitingTileHtml(
+          f,
+          String(state.selectedFieldId) === String(f.id),
+          thr
+        );
 
-    try{
-      state.lastRuns = state.lastRuns || new Map();
-      state.lastRuns.set(f.id, run0);
-    }catch(_){}
+      tile.className =
+        waiting.className;
 
-    const readiness = run0.readinessR;
+      tile.innerHTML =
+        waiting.html;
 
-    const leftPos = markerLeftCSS(readiness);
-    const thrPos  = markerLeftCSS(thr);
+    } else {
 
-    const perceived = perceivedFromThreshold(
-      readiness,
-      thr
-    );
+      try{
+        state.lastRuns =
+          state.lastRuns || new Map();
 
-    const pillBg = colorForPerceived(perceived);
-    const grad = gradientForThreshold(thr);
+        state.lastRuns.set(
+          f.id,
+          run0
+        );
+      }catch(_){}
 
-    const mrmsRes = mrmsRangeById.get(f.id);
+      const readiness =
+        run0.readinessR;
 
-    const rainText =
-      rainTileTextFromMrmsResult(mrmsRes);
+      const leftPos =
+        markerLeftCSS(readiness);
 
-    tile.className = 'tile fv-swipe-item';
+      const thrPos =
+        markerLeftCSS(thr);
 
-    if (String(state.selectedFieldId) === String(f.id)){
-      tile.classList.add('fv-selected');
-      state._selectedTileId = String(f.id);
-    }
+      const perceived =
+        perceivedFromThreshold(
+          readiness,
+          thr
+        );
 
-    tile.innerHTML = `
-      <div class="tile-top">
-        <div class="titleline">
-          <div class="name" title="${esc(f.name)}">
-            ${esc(f.name)}
+      const pillBg =
+        colorForPerceived(perceived);
+
+      const grad =
+        gradientForThreshold(thr);
+
+      const mrmsRes =
+        mrmsRangeById.get(f.id);
+
+      const rainText =
+        rainTileTextFromMrmsResult(
+          mrmsRes
+        );
+
+      tile.className =
+        'tile fv-swipe-item';
+
+      if (
+        String(state.selectedFieldId) ===
+        String(f.id)
+      ){
+        tile.classList.add(
+          'fv-selected'
+        );
+
+        state._selectedTileId =
+          String(f.id);
+      }
+
+      tile.innerHTML = `
+        <div class="tile-top">
+          <div class="titleline">
+            <div
+              class="name"
+              title="${esc(f.name)}"
+            >
+              ${esc(f.name)}
+            </div>
           </div>
-        </div>
-
-        <div
-          class="readiness-pill"
-          style="background:${pillBg};color:#fff;"
-        >
-          Field Readiness ${readiness}
-        </div>
-      </div>
-
-      <p class="subline">
-        Rain (range):
-        <span class="mono">${esc(rainText)}</span>
-      </p>
-
-      <div class="gauge-wrap">
-
-        <div class="chips">
-          <div class="chip wet">Wet</div>
-          <div class="chip readiness">Readiness</div>
-        </div>
-
-        <div
-          class="gauge"
-          style="background:${grad};"
-        >
 
           <div
-            class="thr"
-            style="left:${thrPos};"
-          ></div>
-
-          <div
-            class="marker"
-            style="left:${leftPos};"
-          ></div>
-
-          <div
-            class="badge"
+            class="readiness-pill"
             style="
-              left:${leftPos};
               background:${pillBg};
               color:#fff;
-              border:1px solid rgba(255,255,255,.18);
             "
           >
             Field Readiness ${readiness}
           </div>
-
         </div>
 
-        <div class="etaSlot"></div>
+        <p class="subline">
+          Rain (range):
+          <span class="mono">
+            ${esc(rainText)}
+          </span>
+        </p>
 
-      </div>
-    `;
+        <div class="gauge-wrap">
+
+          <div class="chips">
+            <div class="chip wet">
+              Wet
+            </div>
+
+            <div class="chip readiness">
+              Readiness
+            </div>
+          </div>
+
+          <div
+            class="gauge"
+            style="
+              background:${grad};
+            "
+          >
+
+            <div
+              class="thr"
+              style="
+                left:${thrPos};
+              "
+            ></div>
+
+            <div
+              class="marker"
+              style="
+                left:${leftPos};
+              "
+            ></div>
+
+            <div
+              class="badge"
+              style="
+                left:${leftPos};
+                background:${pillBg};
+                color:#fff;
+                border:1px solid rgba(255,255,255,.18);
+              "
+            >
+              Field Readiness ${readiness}
+            </div>
+
+          </div>
+
+          <div class="etaSlot"></div>
+
+        </div>
+      `;
+    }
+
+    wireTileInteractions(
+      state,
+      tile,
+      f.id
+    );
+
+    frag.appendChild(tile);
+
+    idsForPostPatch.push(
+      String(f.id)
+    );
+
+    renderedCount++;
   }
 
-  wireTileInteractions(state, tile, f.id);
+  // --------------------------------------------------
+  // FINAL DOM
+  // --------------------------------------------------
+  wrap.replaceChildren(frag);
 
-  frag.appendChild(tile);
+  updateFieldsCountHelper(
+    renderedCount,
+    filtered.length
+  );
 
-  idsForPostPatch.push(String(f.id));
+  updateEmptyMessageForCurrentFilters(
+    state,
+    filtered.length
+  );
 
-  renderedCount++;
-}
+  const empty = $('emptyMsg');
 
-wrap.replaceChildren(frag);
+  if (empty){
+    empty.style.display =
+      renderedCount
+        ? 'none'
+        : 'block';
+  }
 
-updateFieldsCountHelper(
-  renderedCount,
-  filtered.length
-);
+  // --------------------------------------------------
+  // SWIPE
+  // --------------------------------------------------
+  try{
 
-updateEmptyMessageForCurrentFilters(
-  state,
-  filtered.length
-);
+    await initSwipeOnTiles(state, {
+      onDetails: async (fieldId)=>{
+        if (!canEdit(state)) return;
 
-const empty = $('emptyMsg');
+        await openQuickView(
+          state,
+          fieldId
+        );
+      }
+    });
 
-if (empty){
-  empty.style.display =
-    renderedCount ? 'none' : 'block';
-}
+  }catch(e){
 
-try{
-  await initSwipeOnTiles(state, {
+    console.warn(
+      '[FieldReadiness] initSwipeOnTiles failed; using fallback swipe.',
+      e
+    );
+  }
+
+  initFallbackSwipeOnTiles(state, wrap, {
     onDetails: async (fieldId)=>{
       if (!canEdit(state)) return;
 
-      await openQuickView(state, fieldId);
+      await openQuickView(
+        state,
+        fieldId
+      );
     }
   });
-}catch(e){
-  console.warn(
-    '[FieldReadiness] initSwipeOnTiles failed; using fallback swipe.',
-    e
-  );
-}
 
-initFallbackSwipeOnTiles(state, wrap, {
-  onDetails: async (fieldId)=>{
-    if (!canEdit(state)) return;
+  // --------------------------------------------------
+  // POST PATCH
+  // --------------------------------------------------
+  setTimeout(async ()=>{
 
-    await openQuickView(state, fieldId);
-  }
-});
+    try{
 
-setTimeout(async ()=>{
-  try{
-    await updateVisibleTilesBatched(
-      state,
-      idsForPostPatch
-    );
-  }catch(_){}
-}, 0);
-}
+      await updateVisibleTilesBatched(
+        state,
+        idsForPostPatch
+      );
+
+    }catch(_){}
+
+  }, 0);
+
+} // END _renderTilesInternal
+
+
 
 /* ---------- tile render (PUBLIC) ---------- */
 export async function renderTiles(state){
   await scheduleRender(state, 'all');
 }
 
+
+
 /* ---------- select field ---------- */
 export function selectField(state, id){
-  const f = state.fields.find(x=>x.id === id);
+
+  const f =
+    state.fields.find(
+      x => x.id === id
+    );
+
   if (!f) return;
 
   setSelectedField(state, id);
+
   ensureSelectedParamsToSliders(state);
 
   refreshDetailsOnly(state);
 
   (async ()=>{
+
     try{
-      await loadLatestReadiness(state, { force:false });
-      const ok = await fetchAndHydrateFieldParams(state, id);
+
+      await loadLatestReadiness(
+        state,
+        { force:false }
+      );
+
+      const ok =
+        await fetchAndHydrateFieldParams(
+          state,
+          id
+        );
+
       if (!ok) return;
-      if (String(state.selectedFieldId) !== String(id)) return;
+
+      if (
+        String(state.selectedFieldId) !==
+        String(id)
+      ){
+        return;
+      }
 
       ensureSelectedParamsToSliders(state);
+
       await refreshDetailsOnly(state);
-      await updateTileForField(state, id);
+
+      await updateTileForField(
+        state,
+        id
+      );
+
     }catch(_){}
+
   })();
 }
 
