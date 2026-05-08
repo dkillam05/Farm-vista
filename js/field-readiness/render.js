@@ -835,10 +835,10 @@ function renderTraceRows(tbody, rows, type){
     // --------------------------------------------------
     // INFILTRATION MULTIPLIER
     // --------------------------------------------------
-    const infilMult =
-      Number.isFinite(Number(r?.factors?.infilMult))
-        ? Number(r.factors.infilMult)
-        : null;
+const infilMult =
+  Number.isFinite(Number(r?.trace?.infilMult))
+    ? Number(r.trace.infilMult)
+    : null;
 
     // --------------------------------------------------
     // BUILD ROW
