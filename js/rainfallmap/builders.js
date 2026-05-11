@@ -1,13 +1,18 @@
 /* ======================================================================
 /Farm-vista/js/rainfallmap/builders.js   (FULL FILE)
-Rev: 2026-05-11-field-conditions-current
+Rev: 2026-05-11-field-conditions-current-cache-v2
 
 GOAL
-✔ Readiness mode now uses field_conditions_current
+✔ Readiness mode uses field_conditions_current
 ✔ Map readiness matches new rolling engine collection
 ✔ Keeps fallback model path available
 ✔ Keeps rainfall overlay untouched
-✔ Keeps local overlay cache system
+✔ Keeps local overlay cache for fast loading
+✔ Prevents stale PWA/localStorage readiness blobs from sticking
+✔ Uses stale-while-revalidate behavior:
+   - cached data can paint instantly
+   - fresh data is always requested in background
+✔ Cache keys bumped to v2 to wipe old field_readiness_latest overlay payloads
 ✔ Backward compatible with old storage fields
 
 ====================================================================== */
@@ -57,9 +62,16 @@ import { getCurrentOp } from '/Farm-vista/js/field-readiness/thresholds.js';
 const FR_LATEST_COLLECTION = 'field_conditions_current';
 
 /* =====================================================================
-   Overlay cache (1 hour TTL)
+   Overlay cache
+
+   IMPORTANT:
+   Cache keys are bumped to v2 so old readiness overlays that were built
+   from field_readiness_latest are ignored immediately.
+
+   Cache is now used as an instant paint only.
+   Fresh data is always requested in the background.
 ===================================================================== */
-const OVERLAY_CACHE_TTL_MS = 60 * 60 * 1000;
+const OVERLAY_CACHE_TTL_MS = 5 * 60 * 1000;
 
 function safeStorageGet(key){
   try{
@@ -90,13 +102,13 @@ function makeRainCacheKey(){
   const farmId = String(getSelectedFarmId() || 'ALL');
   const rangePart = getCurrentRangeCachePart();
 
-  return `fv_rainfallmap_overlay_rain_v1|farm:${farmId}|range:${rangePart}`;
+  return `fv_rainfallmap_overlay_rain_v2|farm:${farmId}|range:${rangePart}`;
 }
 
 function makeReadinessCacheKey(){
   const farmId = String(getSelectedFarmId() || 'ALL');
 
-  return `fv_rainfallmap_overlay_ready_v1|farm:${farmId}`;
+  return `fv_rainfallmap_overlay_ready_v2|farm:${farmId}|source:${FR_LATEST_COLLECTION}`;
 }
 
 function readOverlayCache(key){
@@ -129,6 +141,16 @@ function isOverlayCacheFresh(entry){
   if (!entry || !entry.savedAt) return false;
 
   return (Date.now() - Number(entry.savedAt)) <= OVERLAY_CACHE_TTL_MS;
+}
+
+function scheduleBackgroundRefresh(fn){
+  try{
+    setTimeout(()=>{
+      try{
+        fn();
+      }catch(_){}
+    }, 0);
+  }catch(_){}
 }
 
 function safeObj(x){
@@ -258,6 +280,18 @@ function buildLatestReadinessRecord(raw, fallbackId){
     weatherFetchedAtISO:
       toIsoFromAny(d.weatherFetchedAt),
 
+    asOfDateISO:
+      safeStr(d.asOfDateISO),
+
+    modelVersion:
+      safeStr(d.modelVersion),
+
+    status:
+      safeStr(d.status),
+
+    source:
+      safeStr(d.source),
+
     location: {
       lat: safeNum(d?.location?.lat),
       lng: safeNum(d?.location?.lng)
@@ -357,14 +391,17 @@ export async function buildRainRenderableRows(
       return { cancelled:true };
     }
 
-    if (!isOverlayCacheFresh(cached)){
-      setTimeout(()=>{
-        buildRainRenderableRows(
-          requestId,
-          true
-        ).catch(()=>{});
-      }, 0);
-    }
+    /*
+      Stale-while-revalidate:
+      Paint fast from cache, but always refresh in background so the PWA
+      does not stay stuck on old rainfall overlay data.
+    */
+    scheduleBackgroundRefresh(()=>{
+      buildRainRenderableRows(
+        requestId,
+        true
+      ).catch(()=>{});
+    });
 
     return cached.data;
   }
@@ -424,7 +461,15 @@ export async function buildRainRenderableRows(
   const result = {
     points,
     summaries,
-    renderedFields
+    renderedFields,
+    cacheMeta: {
+      source: 'mrms',
+      cacheKey,
+      builtAt: Date.now(),
+      builtAtISO: new Date().toISOString(),
+      ttlMs: OVERLAY_CACHE_TTL_MS,
+      fresh: isOverlayCacheFresh({ savedAt: Date.now() })
+    }
   };
 
   writeOverlayCache(cacheKey, result);
@@ -601,14 +646,18 @@ export async function buildReadinessRenderableRows(
       return { cancelled:true };
     }
 
-    if (!isOverlayCacheFresh(cached)){
-      setTimeout(()=>{
-        buildReadinessRenderableRows(
-          requestId,
-          true
-        ).catch(()=>{});
-      }, 0);
-    }
+    /*
+      Stale-while-revalidate:
+      Paint instantly from cache, but always refresh from Firestore in the
+      background. This fixes installed PWA behavior where localStorage may
+      keep showing old readiness numbers even after a new deployment.
+    */
+    scheduleBackgroundRefresh(()=>{
+      buildReadinessRenderableRows(
+        requestId,
+        true
+      ).catch(()=>{});
+    });
 
     return cached.data;
   }
@@ -730,7 +779,7 @@ export async function buildReadinessRenderableRows(
 
     setDebug(
       hasLatest
-        ? `building readiness ${i+1}/${fields.length} • ${f.name} • latest`
+        ? `building readiness ${i+1}/${fields.length} • ${f.name} • field_conditions_current`
         : `building readiness ${i+1}/${fields.length} • ${f.name} • op=${opKey}`
     );
 
@@ -810,6 +859,15 @@ export async function buildReadinessRenderableRows(
           safeStr(
             latest.weatherFetchedAtISO
           ),
+
+        asOfDateISO:
+          safeStr(latest.asOfDateISO),
+
+        modelVersion:
+          safeStr(latest.modelVersion),
+
+        status:
+          safeStr(latest.status),
 
         _latest: latest
       };
@@ -919,7 +977,35 @@ export async function buildReadinessRenderableRows(
             ? 'field_conditions_current'
             : 'model'
         )
-      )
+      ),
+
+      asOfDateISO:
+        String(
+          run.asOfDateISO ||
+          latest?.asOfDateISO ||
+          ''
+        ),
+
+      computedAtISO:
+        String(
+          run.computedAtISO ||
+          latest?.computedAtISO ||
+          ''
+        ),
+
+      modelVersion:
+        String(
+          run.modelVersion ||
+          latest?.modelVersion ||
+          ''
+        ),
+
+      status:
+        String(
+          run.status ||
+          latest?.status ||
+          ''
+        )
     };
 
     renderedFields.push(rendered);
@@ -930,7 +1016,15 @@ export async function buildReadinessRenderableRows(
 
   const result = {
     summaries,
-    renderedFields
+    renderedFields,
+    cacheMeta: {
+      source: FR_LATEST_COLLECTION,
+      cacheKey,
+      builtAt: Date.now(),
+      builtAtISO: new Date().toISOString(),
+      ttlMs: OVERLAY_CACHE_TTL_MS,
+      fresh: isOverlayCacheFresh({ savedAt: Date.now() })
+    }
   };
 
   writeOverlayCache(cacheKey, result);
