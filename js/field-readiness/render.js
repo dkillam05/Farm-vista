@@ -1063,9 +1063,15 @@ async function renderDetailsForSelected(state){
 
   const meta = $('betaInputsMeta');
   if (meta){
-    meta.textContent = rec
-      ? `Source: field_conditions_current • Readiness: ${rec.readiness ?? '—'} • Updated: ${rec.updatedAtISO || rec.computedAtISO || '—'}`
-      : 'No field_conditions_current record found.';
+meta.textContent = rec
+  ? `
+      Field: ${f.name || 'Unknown'}
+      • Acres: ${Number(f.acres || 0).toFixed(1)}
+      • County: ${rec.county || f.county || '—'}
+      • Readiness: ${rec.readiness ?? '—'}
+      • Updated: ${rec.updatedAtISO || rec.computedAtISO || '—'}
+    `.replace(/\s+/g, ' ').trim()
+  : 'No field_conditions_current record found.';
   }
 
   const box = $('betaInputs');
