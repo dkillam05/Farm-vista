@@ -1272,20 +1272,34 @@ export async function selectField(state, id){
     );
   }
 
-  // --------------------------------------------------
-  // FINAL TILE REPAINT
-  // --------------------------------------------------
-  try{
+// --------------------------------------------------
+// KEEP EXISTING TILE SELECTION
+// (NO FULL TILE RE-RENDER)
+// --------------------------------------------------
+try{
 
-    await renderTilesInternal(state);
+  document
+    .querySelectorAll('.tile.fv-selected')
+    .forEach(el=>{
+      el.classList.remove('fv-selected');
+    });
 
-  }catch(e){
-
-    console.warn(
-      '[FieldReadiness] renderTilesInternal failed:',
-      e
+  const tile =
+    document.querySelector(
+      `.tile[data-field-id="${CSS.escape(String(id))}"]`
     );
+
+  if (tile){
+    tile.classList.add('fv-selected');
+
+    // subtle auto-scroll into view
+    tile.scrollIntoView({
+      behavior:'smooth',
+      block:'nearest'
+    });
   }
+
+}catch(_){}
 
   // --------------------------------------------------
   // KEEP SELECTION
