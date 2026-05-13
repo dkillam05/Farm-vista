@@ -595,6 +595,22 @@ function rainTileText(res){
 function buildWaitingTile(f, state, thr){
   const tile = document.createElement('div');
   tile.className = 'tile fv-swipe-item';
+  tile.style.transition =
+  'transform .16s ease, box-shadow .16s ease, border-color .16s ease';
+
+if (String(state.selectedFieldId) === String(f.id)){
+
+  tile.classList.add('fv-selected');
+
+  tile.style.border =
+    '2px solid rgba(46,125,50,.95)';
+
+  tile.style.boxShadow =
+    '0 0 0 2px rgba(46,125,50,.14)';
+
+  tile.style.transform =
+    'translateY(-2px)';
+}
   tile.dataset.fieldId = f.id;
   tile.setAttribute('data-field-id', f.id);
 
