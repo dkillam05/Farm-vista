@@ -1,35 +1,22 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-03-29b-show-soil-moisture-and-surface-wetness-separately
+Rev: 2026-05-13-field-conditions-current-read
 
 GOAL (per Dane, Feb 2026):
 ✅ Make Quick View readiness MATCH centralized app readiness
-✅ Show centralized readiness from field_readiness_latest
+✅ Show centralized readiness from field_conditions_current first
+✅ Fall back to field_readiness_latest if current doc is missing
 ✅ Support LIVE preview when sliders move
 ✅ Save slider values to fields/{fieldId}
-✅ Save updated live readiness to field_readiness_latest/{fieldId}
 ✅ Keep Range rain display aligned with MRMS tile logic
 ✅ Support lightweight MRMS UI refresh while Quick View is open
 
 THIS REV:
-✅ CRITICAL FIX: Quick View model recompute now uses runFieldReadiness(...)
-   instead of calling model.runField(...) directly
-✅ This forces the proper formula.js model-weather prewarm path
-✅ Quick View live preview now follows the same MRMS/Open-Meteo selection logic
-   used by formula.js
-✅ Save & Close now also writes centralized readiness from runFieldReadiness(...)
-   so field_readiness_latest is no longer rewritten from the wrong model path
-✅ UI CHANGE: replaces single "Storage" line with:
-   - Soil Moisture
-   - Surface Wetness
-✅ Soil Moisture now shows readiness-side storage number with cap
-✅ Surface Wetness now shows the larger fast-changing wetness storage number
-
-NOTES:
-- While sliders are moving, Quick View shows LIVE PREVIEW from the model.
-- Before any slider movement, Quick View still shows centralized readiness.
-- After Save & Close, centralized readiness is rewritten so the rest of the app
-  sees the updated number from Firestore.
+✅ Quick View now reads field_conditions_current before field_readiness_latest
+✅ Supports new nested final.readiness / final.wetness / final.storageFinal structure
+✅ Keeps old field_readiness_latest compatibility
+✅ Keeps Save & Close behavior unchanged
+✅ Keeps full original Quick View structure intact
 
 ===================================================================== */
 'use strict';
@@ -55,8 +42,9 @@ const FR_STATE_COLLECTION = 'field_readiness_state';
 const STATE_TTL_MS = 30000;
 
 /* =====================================================================
-   Centralized readiness collection
+   Centralized readiness collections
 ===================================================================== */
+const FIELD_CONDITIONS_COLLECTION = 'field_conditions_current';
 const FR_LATEST_COLLECTION = 'field_readiness_latest';
 const LATEST_TTL_MS = 30000;
 
@@ -183,6 +171,10 @@ async function loadPersistedState(state, { force=false } = {}){
 ===================================================================== */
 function buildLatestReadinessRecord(raw, fallbackId){
   const d = safeObj(raw) || {};
+  const final = safeObj(d.final) || {};
+  const soil = safeObj(d.soil) || {};
+  const surface = safeObj(d.surface) || {};
+
   const fieldId = safeStr(d.fieldId || fallbackId);
   if (!fieldId) return null;
 
@@ -193,14 +185,23 @@ function buildLatestReadinessRecord(raw, fallbackId){
     fieldName: safeStr(d.fieldName),
     county: safeStr(d.county),
     state: safeStr(d.state),
-    readiness: safeInt(d.readiness),
-    wetness: safeInt(d.wetness),
+
+    readiness: safeInt(final.readiness ?? d.readiness),
+    wetness: safeInt(final.wetness ?? d.wetness),
+
+    baseReadiness: safeNum(final.baseReadiness ?? d.baseReadiness),
+    surfacePenalty: safeNum(final.surfacePenalty ?? d.surfacePenalty),
+
     soilWetness: safeNum(d.soilWetness),
     drainageIndex: safeNum(d.drainageIndex),
     readinessCreditIn: safeNum(d.readinessCreditIn) ?? 0,
-    storageFinal: safeNum(d.storageFinal),
-    storageForReadiness: safeNum(d.storageForReadiness),
-    storagePhysFinal: safeNum(d.storagePhysFinal),
+
+    storageFinal: safeNum(final.storageFinal ?? soil.storage ?? d.storageFinal),
+    storageForReadiness: safeNum(final.storageForReadiness ?? d.storageForReadiness),
+    storagePhysFinal: safeNum(final.storagePhysFinal ?? d.storagePhysFinal),
+
+    surfaceFinal: safeNum(final.surfaceFinal ?? surface.water ?? d.surfaceFinal ?? d.surfaceStorageFinal),
+
     storageMax: safeNum(d.storageMax),
     storageCapacity: safeNum(d.storageCapacity),
     storageMaxFinal: safeNum(d.storageMaxFinal),
@@ -209,7 +210,10 @@ function buildLatestReadinessRecord(raw, fallbackId){
     seedSource: safeStr(d.seedSource),
     weatherSource: safeStr(d.weatherSource),
     timezone: safeStr(d.timezone),
-    computedAtISO: toIsoFromAny(d.computedAt),
+    status: safeStr(d.status),
+    reason: safeStr(d.reason),
+    computedAtISO: toIsoFromAny(d.computedAt ?? d.updatedAt),
+    updatedAtISO: toIsoFromAny(d.updatedAt ?? d.computedAt),
     weatherFetchedAtISO: toIsoFromAny(d.weatherFetchedAt),
     location: {
       lat: safeNum(d && d.location && d.location.lat),
@@ -239,13 +243,30 @@ async function loadLatestReadiness(state, { force=false } = {}){
 
     if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
       const db = window.firebase.firestore();
-      const snap = await db.collection(FR_LATEST_COLLECTION).get();
 
-      snap.forEach(doc=>{
-        const rec = buildLatestReadinessRecord(doc.data() || {}, doc.id);
-        if (!rec || !rec.fieldId) return;
-        out[rec.fieldId] = rec;
-      });
+      try{
+        const currentSnap = await db.collection(FIELD_CONDITIONS_COLLECTION).get();
+
+        currentSnap.forEach(doc=>{
+          const rec = buildLatestReadinessRecord(doc.data() || {}, doc.id);
+          if (!rec || !rec.fieldId) return;
+          out[rec.fieldId] = rec;
+        });
+      }catch(e){
+        console.warn('[FieldReadiness] quickview field_conditions_current load failed:', e);
+      }
+
+      try{
+        const latestSnap = await db.collection(FR_LATEST_COLLECTION).get();
+
+        latestSnap.forEach(doc=>{
+          const rec = buildLatestReadinessRecord(doc.data() || {}, doc.id);
+          if (!rec || !rec.fieldId) return;
+          if (!out[rec.fieldId]) out[rec.fieldId] = rec;
+        });
+      }catch(e){
+        console.warn('[FieldReadiness] quickview field_readiness_latest fallback load failed:', e);
+      }
 
       state.latestReadinessByFieldId = out;
       state._qvLatestLoadedAt = now;
@@ -254,14 +275,32 @@ async function loadLatestReadiness(state, { force=false } = {}){
 
     if (api.kind !== 'compat'){
       const db = api.getFirestore();
-      const col = api.collection(db, FR_LATEST_COLLECTION);
-      const snap = await api.getDocs(col);
 
-      snap.forEach(doc=>{
-        const rec = buildLatestReadinessRecord(doc.data() || {}, doc.id);
-        if (!rec || !rec.fieldId) return;
-        out[rec.fieldId] = rec;
-      });
+      try{
+        const currentCol = api.collection(db, FIELD_CONDITIONS_COLLECTION);
+        const currentSnap = await api.getDocs(currentCol);
+
+        currentSnap.forEach(doc=>{
+          const rec = buildLatestReadinessRecord(doc.data() || {}, doc.id);
+          if (!rec || !rec.fieldId) return;
+          out[rec.fieldId] = rec;
+        });
+      }catch(e){
+        console.warn('[FieldReadiness] quickview field_conditions_current load failed:', e);
+      }
+
+      try{
+        const latestCol = api.collection(db, FR_LATEST_COLLECTION);
+        const latestSnap = await api.getDocs(latestCol);
+
+        latestSnap.forEach(doc=>{
+          const rec = buildLatestReadinessRecord(doc.data() || {}, doc.id);
+          if (!rec || !rec.fieldId) return;
+          if (!out[rec.fieldId]) out[rec.fieldId] = rec;
+        });
+      }catch(e){
+        console.warn('[FieldReadiness] quickview field_readiness_latest fallback load failed:', e);
+      }
 
       state.latestReadinessByFieldId = out;
       state._qvLatestLoadedAt = now;
@@ -304,8 +343,8 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
 
   return {
     ok: true,
-    source: 'field_readiness_latest',
-    sourceLabel: 'field_readiness_latest',
+    source: FIELD_CONDITIONS_COLLECTION,
+    sourceLabel: FIELD_CONDITIONS_COLLECTION,
     fieldId: safeStr(rec.fieldId || f.id),
     readinessR,
     readiness: readinessR,
@@ -317,6 +356,7 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
     storageFinal: safeNum(rec.storageFinal),
     storageForReadiness: safeNum(rec.storageForReadiness),
     storagePhysFinal: safeNum(rec.storagePhysFinal),
+    surfaceFinal: safeNum(rec.surfaceFinal),
     storageMax: safeNum(rec.storageMax) ?? storageCap,
     storageCapacity: safeNum(rec.storageCapacity) ?? storageCap,
     storageMaxFinal: safeNum(rec.storageMaxFinal) ?? storageCap,
@@ -326,6 +366,7 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
     weatherSource: safeStr(rec.weatherSource),
     timezone: safeStr(rec.timezone),
     computedAtISO: safeStr(rec.computedAtISO),
+    updatedAtISO: safeStr(rec.updatedAtISO),
     weatherFetchedAtISO: safeStr(rec.weatherFetchedAtISO),
     county: safeStr(rec.county || f.county),
     state: safeStr(rec.state || f.state),
@@ -585,9 +626,10 @@ function getSurfaceWetnessDisplay(run){
     const r = run || {};
 
     const value =
+      safeNum(r.surfaceFinal) ??
+      safeNum(r.surfaceStorageFinal) ??
       safeNum(r.storagePhysFinal) ??
-      safeNum(r && r.trace && r.trace.length ? r.trace[r.trace.length - 1].after : null) ??
-      safeNum(r.surfaceStorageFinal);
+      safeNum(r && r.trace && r.trace.length ? r.trace[r.trace.length - 1].after : null);
 
     return { value };
   }catch(_){
@@ -1254,7 +1296,7 @@ async function fillQuickView(state, { live=false } = {}){
 
   let surfaceWetnessText = '—';
   {
-    const surfaceRun = runTruth || displayRun || null;
+    const surfaceRun = displayRun || runTruth || null;
     const sw = getSurfaceWetnessDisplay(surfaceRun);
     const v = safeNum(sw.value);
 
