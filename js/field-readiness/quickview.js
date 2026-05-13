@@ -1285,20 +1285,6 @@ const latestRec = getLatestReadinessForField(state, fid);
     sub.textContent = farmName ? `${farmName} • ${sourceTag}` : sourceTag;
   }
 
-  const savedParams = getFieldParams(state, f.id);
-
-const previewParams = state._qvPreviewValues || null;
-
-const pRaw = (
-  live &&
-  previewParams
-)
-  ? {
-      ...savedParams,
-      soilWetness: previewParams.soilWetness,
-      drainageIndex: previewParams.drainageIndex
-    }
-  : savedParams;
   const soil = $('frQvSoil');
   const drain = $('frQvDrain');
   const soilVal = $('frQvSoilVal');
