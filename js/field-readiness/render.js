@@ -1149,55 +1149,173 @@ function renderMrmsPanelFromDoc(doc){
 }
 
 async function renderDetailsForSelected(state){
-  await loadFieldConditionsCurrent(state, { force:false });
 
-  const f = (state.fields || []).find(x=>x.id === state.selectedFieldId);
+  await loadFieldConditionsCurrent(
+    state,
+    { force:false }
+  );
+
+  const f =
+    (state.fields || [])
+      .find(x => x.id === state.selectedFieldId);
+
   if (!f) return;
 
-  const rec = getCurrentRecord(state, f.id);
-  const rows = await loadDailyRowsForField(state, f.id, { force:false });
+  const rec =
+    getCurrentRecord(state, f.id);
+
+  const rows =
+    await loadDailyRowsForField(
+      state,
+      f.id,
+      { force:false }
+    );
+
+  // --------------------------------------------------
+  // DATE GROUPING
+  // --------------------------------------------------
+  const todayISO =
+    new Date().toISOString().slice(0,10);
+
+  const historyRows =
+    rows.filter(r =>
+      r.dateISO < todayISO
+    ).slice(-15);
+
+  const currentRows =
+    rows.filter(r =>
+      r.dateISO === todayISO
+    );
+
+  const forecastRows =
+    rows.filter(r =>
+      r.dateISO > todayISO
+    );
+
+  // --------------------------------------------------
+  // CURRENT SNAPSHOT
+  // FORCE TODAY VALUES
+  // --------------------------------------------------
+  const currentDay =
+    currentRows[currentRows.length - 1] || null;
 
   setPanelText(
     'detailsSoilMoisture',
-    rec?.storageFinal != null
-      ? Number(rec.storageFinal).toFixed(2)
-      : '—'
+    currentDay?.final?.storageFinal != null
+      ? Number(currentDay.final.storageFinal).toFixed(2)
+      : (
+          rec?.storageFinal != null
+            ? Number(rec.storageFinal).toFixed(2)
+            : '—'
+        )
   );
 
   setPanelText(
     'detailsSurfaceWetness',
-    rec?.surfaceFinal != null
-      ? Number(rec.surfaceFinal).toFixed(2)
-      : '—'
+    currentDay?.final?.surfaceFinal != null
+      ? Number(currentDay.final.surfaceFinal).toFixed(2)
+      : (
+          rec?.surfaceFinal != null
+            ? Number(rec.surfaceFinal).toFixed(2)
+            : '—'
+        )
   );
 
+  // --------------------------------------------------
+  // FIELD INFORMATION
+  // --------------------------------------------------
   const meta = $('betaInputsMeta');
+
   if (meta){
-meta.textContent = rec
-  ? `
-      Field: ${f.name || 'Unknown'}
-      • Acres: ${Number(f.acres || 0).toFixed(1)}
-      • County: ${rec.county || f.county || '—'}
-      • Readiness: ${rec.readiness ?? '—'}
-      • Updated: ${rec.updatedAtISO || rec.computedAtISO || '—'}
-    `.replace(/\s+/g, ' ').trim()
-  : 'No field_conditions_current record found.';
+
+    meta.textContent = rec
+      ? `
+          Field Information
+          • Field: ${f.name || 'Unknown'}
+          • Acres: ${Number(f.acres || 0).toFixed(1)}
+          • County: ${rec.county || f.county || '—'}
+          • Readiness: ${rec.readiness ?? '—'}
+          • Updated: ${rec.updatedAtISO || rec.computedAtISO || '—'}
+        `.replace(/\s+/g, ' ').trim()
+      : 'No field_conditions_current record found.';
   }
 
   const box = $('betaInputs');
+
   if (box){
     box.innerHTML = '';
   }
 
-  renderTraceRows($('soilTraceRows'), rows, 'soil');
-  renderTraceRows($('surfaceTraceRows'), rows, 'surface');
-  renderDryRows($('dryRows'), rows);
-  renderWeatherRows($('wxRows'), rows);
+  // --------------------------------------------------
+  // SOIL TRACE
+  // 15 DAY HISTORY
+  // CURRENT DAY
+  // FORECAST
+  // --------------------------------------------------
+  renderTraceRows(
+    $('soilTraceRows'),
+    [
+      ...historyRows,
+      ...currentRows,
+      ...forecastRows
+    ],
+    'soil'
+  );
 
+  // --------------------------------------------------
+  // SURFACE TRACE
+  // --------------------------------------------------
+  renderTraceRows(
+    $('surfaceTraceRows'),
+    [
+      ...historyRows,
+      ...currentRows,
+      ...forecastRows
+    ],
+    'surface'
+  );
+
+  // --------------------------------------------------
+  // DRY POWER
+  // HISTORY + CURRENT ONLY
+  // --------------------------------------------------
+  renderDryRows(
+    $('dryRows'),
+    [
+      ...historyRows,
+      ...currentRows
+    ]
+  );
+
+  // --------------------------------------------------
+  // WEATHER INPUTS
+  // HISTORY + CURRENT ONLY
+  // --------------------------------------------------
+  renderWeatherRows(
+    $('wxRows'),
+    [
+      ...historyRows,
+      ...currentRows
+    ]
+  );
+
+  // --------------------------------------------------
+  // MRMS
+  // LEAVE EXACTLY AS-IS
+  // --------------------------------------------------
   try{
-    const mrmsDoc = await loadFieldMrmsDoc(state, f.id, { force:true });
+
+    const mrmsDoc =
+      await loadFieldMrmsDoc(
+        state,
+        f.id,
+        { force:true }
+      );
+
     renderMrmsPanelFromDoc(mrmsDoc);
+
   }catch(_){
+
     renderMrmsPanelEmpty();
   }
 }
