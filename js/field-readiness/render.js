@@ -625,11 +625,13 @@ if (String(state.selectedFieldId) === String(f.id)){
     <div
       class="tile-top"
       style="
-        display:flex;
-        align-items:center;
-        gap:10px;
-        width:100%;
-        min-width:0;
+display:flex;
+align-items:center;
+justify-content:space-between;
+flex-wrap:nowrap;
+gap:10px;
+width:100%;
+min-width:0;
       "
     >
       <div
@@ -728,10 +730,12 @@ function buildReadyTile(f, state, rec, rainText, thr){
       class="tile-top"
       style="
         display:flex;
-        align-items:center;
-        gap:10px;
-        width:100%;
-        min-width:0;
+align-items:center;
+justify-content:space-between;
+flex-wrap:nowrap;
+gap:10px;
+width:100%;
+min-width:0;
       "
     >
       <div
