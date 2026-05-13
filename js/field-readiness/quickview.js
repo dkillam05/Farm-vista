@@ -1222,11 +1222,17 @@ async function fillQuickView(state, { live=false } = {}){
     persistedGetter: (id)=> getPersistedStateForDeps(state, id)
   });
 
-  const runTruth = await runFieldReadiness(state, f, {
-    opKey,
-    wxCtx,
-    persistedGetter: (id)=> getPersistedStateForDeps(state, id)
-  });
+const previewField = {
+  ...f,
+  soilWetness: pRaw.soilWetness,
+  drainageIndex: pRaw.drainageIndex
+};
+
+const runTruth = await runFieldReadiness(state, previewField, {
+  opKey,
+  wxCtx,
+  persistedGetter: (id)=> getPersistedStateForDeps(state, id)
+});
 
   const latestRec = getLatestReadinessForField(state, fid);
   const latestRun = buildSyntheticRunFromLatest(state, f, latestRec);
