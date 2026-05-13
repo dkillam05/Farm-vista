@@ -1222,6 +1222,33 @@ async function fillQuickView(state, { live=false } = {}){
     persistedGetter: (id)=> getPersistedStateForDeps(state, id)
   });
 
+const depsTruth = buildFRDeps(state, {
+  opKey,
+  wxCtx,
+  persistedGetter: (id)=> getPersistedStateForDeps(state, id)
+});
+
+// ---------------------------------------------------
+// PREVIEW PARAMS
+// ---------------------------------------------------
+const savedParams = getFieldParams(state, f.id);
+
+const previewParams = state._qvPreviewValues || null;
+
+const pRaw = (
+  live &&
+  previewParams
+)
+  ? {
+      ...savedParams,
+      soilWetness: previewParams.soilWetness,
+      drainageIndex: previewParams.drainageIndex
+    }
+  : savedParams;
+
+// ---------------------------------------------------
+// LIVE PREVIEW FIELD
+// ---------------------------------------------------
 const previewField = {
   ...f,
   soilWetness: pRaw.soilWetness,
@@ -1234,7 +1261,7 @@ const runTruth = await runFieldReadiness(state, previewField, {
   persistedGetter: (id)=> getPersistedStateForDeps(state, id)
 });
 
-  const latestRec = getLatestReadinessForField(state, fid);
+const latestRec = getLatestReadinessForField(state, fid);
   const latestRun = buildSyntheticRunFromLatest(state, f, latestRec);
 
   const previewMode = !!live || !!state._qvDidAdjust;
