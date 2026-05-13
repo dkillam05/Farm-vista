@@ -622,16 +622,47 @@ if (String(state.selectedFieldId) === String(f.id)){
   const thrPos = markerLeftCSS(thr);
 
   tile.innerHTML = `
-    <div class="tile-top">
-      <div class="titleline">
-        <div class="name" title="${esc(f.name || 'Field')}">${esc(f.name || 'Field')}</div>
+    <div
+      class="tile-top"
+      style="
+        display:flex;
+        align-items:center;
+        gap:10px;
+        width:100%;
+        min-width:0;
+      "
+    >
+      <div
+        class="name"
+        title="${esc(f.name || 'Field')}"
+        style="
+          flex:1 1 auto;
+          min-width:0;
+          overflow:hidden;
+          text-overflow:ellipsis;
+          white-space:nowrap;
+          font-weight:900;
+        "
+      >
+        ${esc(f.name || 'Field')}
       </div>
-      <div class="readiness-pill" style="background:color-mix(in srgb, var(--surface) 86%, #8b949e 14%);color:var(--text);">
+
+      <div
+        class="readiness-pill"
+        style="
+          background:color-mix(in srgb, var(--surface) 86%, #8b949e 14%);
+          color:var(--text);
+          flex:0 0 auto;
+          white-space:nowrap;
+        "
+      >
         Field Readiness —
       </div>
     </div>
 
-    <p class="subline">Rain (range): <span class="mono">Processing Data</span></p>
+    <p class="subline">
+      Rain (range): <span class="mono">Processing Data</span>
+    </p>
 
     <div class="gauge-wrap">
       <div class="chips">
@@ -639,10 +670,25 @@ if (String(state.selectedFieldId) === String(f.id)){
         <div class="chip readiness">Readiness</div>
       </div>
 
-      <div class="gauge" style="background:${grad};opacity:.82;">
+      <div
+        class="gauge"
+        style="background:${grad};opacity:.82;"
+      >
         <div class="thr" style="left:${thrPos};"></div>
-        <div class="marker" style="left:50%;opacity:.45;"></div>
-        <div class="badge" style="left:50%;background:color-mix(in srgb, var(--surface) 88%, #8b949e 12%);color:var(--text);">
+
+        <div
+          class="marker"
+          style="left:50%;opacity:.45;"
+        ></div>
+
+        <div
+          class="badge"
+          style="
+            left:50%;
+            background:color-mix(in srgb, var(--surface) 88%, #8b949e 12%);
+            color:var(--text);
+          "
+        >
           Loading…
         </div>
       </div>
@@ -678,19 +724,47 @@ function buildReadyTile(f, state, rec, rainText, thr){
       : ETA_UNAVAILABLE_TEXT;
 
   tile.innerHTML = `
-    <div class="tile-top">
-      <div class="titleline">
-        <div class="name" title="${esc(getFieldName(f, rec))}">
-          ${esc(getFieldName(f, rec))}
-        </div>
+    <div
+      class="tile-top"
+      style="
+        display:flex;
+        align-items:center;
+        gap:10px;
+        width:100%;
+        min-width:0;
+      "
+    >
+      <div
+        class="name"
+        title="${esc(getFieldName(f, rec))}"
+        style="
+          flex:1 1 auto;
+          min-width:0;
+          overflow:hidden;
+          text-overflow:ellipsis;
+          white-space:nowrap;
+          font-weight:900;
+        "
+      >
+        ${esc(getFieldName(f, rec))}
       </div>
 
-      <div class="readiness-pill" style="background:${pillBg};color:#fff;">
+      <div
+        class="readiness-pill"
+        style="
+          background:${pillBg};
+          color:#fff;
+          flex:0 0 auto;
+          white-space:nowrap;
+        "
+      >
         Field Readiness ${readiness}
       </div>
     </div>
 
-    <p class="subline">Rain (range): <span class="mono">${esc(rainText)}</span></p>
+    <p class="subline">
+      Rain (range): <span class="mono">${esc(rainText)}</span>
+    </p>
 
     <div class="gauge-wrap">
       <div class="chips">
@@ -698,34 +772,50 @@ function buildReadyTile(f, state, rec, rainText, thr){
         <div class="chip readiness">Readiness</div>
       </div>
 
-      <div class="gauge" style="background:${grad};">
+      <div
+        class="gauge"
+        style="background:${grad};"
+      >
         <div class="thr" style="left:${thrPos};"></div>
-        <div class="marker" style="left:${leftPos};"></div>
-        <div class="badge" style="left:${leftPos};background:${pillBg};color:#fff;border:1px solid rgba(255,255,255,.18);">
+
+        <div
+          class="marker"
+          style="left:${leftPos};"
+        ></div>
+
+        <div
+          class="badge"
+          style="
+            left:${leftPos};
+            background:${pillBg};
+            color:#fff;
+            border:1px solid rgba(255,255,255,.18);
+          "
+        >
           Field Readiness ${readiness}
         </div>
       </div>
 
-<div class="etaSlot">
-  ${
-    etaText
-      ? `
-        <div
-          class="etaText"
-          style="
-            margin-top:8px;
-            font-size:12px;
-            opacity:.78;
-            text-align:center;
-            color:var(--text);
-          "
-        >
-          ${esc(etaText)}
-        </div>
-      `
-      : ''
-  }
-</div>
+      <div class="etaSlot">
+        ${
+          etaText
+            ? `
+              <div
+                class="etaText"
+                style="
+                  margin-top:8px;
+                  font-size:12px;
+                  opacity:.78;
+                  text-align:center;
+                  color:var(--text);
+                "
+              >
+                ${esc(etaText)}
+              </div>
+            `
+            : ''
+        }
+      </div>
     </div>
   `;
 
