@@ -1734,49 +1734,11 @@ async function saveAndClose(state){
       drainageIndex
     };
 
-const runTruthRaw = await runFieldReadiness(state, previewField, {
+const runTruth = await runFieldReadiness(state, savedField, {
   opKey,
   wxCtx,
   persistedGetter: (id)=> getPersistedStateForDeps(state, id)
 });
-
-// ---------------------------------------------------
-// FORCE PREVIEW DIFFERENCE
-// ---------------------------------------------------
-const runTruth = {
-  ...(runTruthRaw || {})
-};
-
-if (previewMode){
-
-  const soilDelta =
-    Number(savedParams.soilWetness || 0) -
-    Number(pRaw.soilWetness || 0);
-
-  const drainDelta =
-    Number(savedParams.drainageIndex || 0) -
-    Number(pRaw.drainageIndex || 0);
-
-  const previewShift =
-    (soilDelta * 0.45) +
-    (drainDelta * 0.25);
-
-  if (Number.isFinite(Number(runTruth.readinessR))){
-    runTruth.readinessR = clamp(
-      Math.round(Number(runTruth.readinessR) + previewShift),
-      0,
-      100
-    );
-  }
-
-  if (Number.isFinite(Number(runTruth.wetnessR))){
-    runTruth.wetnessR = clamp(
-      100 - Number(runTruth.readinessR),
-      0,
-      100
-    );
-  }
-}
 
     await persistLatestReadinessForField(state, savedField, runTruth);
 
