@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js
-Rev: 2026-05-clean-field-conditions-current
+Rev: 2026-05-clean-field-conditions-current-grouped-details
 
 PURPOSE:
 ✅ Tiles read ONLY field_conditions_current
@@ -11,6 +11,9 @@ PURPOSE:
 ✅ Keep threshold/gauge UI behavior
 ✅ Keep MRMS rain range display
 ✅ Keep quickview/swipe hooks
+✅ Details grid grouped into History / Current / Forecast
+✅ Field Information displayed as stacked UI-friendly rows
+✅ Timestamps displayed in Central Time
 ===================================================================== */
 
 'use strict';
@@ -82,12 +85,114 @@ function toIsoFromAny(v){
   return '';
 }
 
+function formatCentralTime(value){
+  try{
+    if (!value) return '—';
+
+    let d = null;
+
+    if (value && typeof value.toDate === 'function'){
+      d = value.toDate();
+    } else if (value && typeof value.seconds === 'number'){
+      d = new Date(
+        Number(value.seconds) * 1000 +
+        Math.round(Number(value.nanoseconds || 0) / 1e6)
+      );
+    } else if (typeof value === 'string'){
+      d = new Date(value);
+    } else {
+      d = new Date(value);
+    }
+
+    if (!d || !Number.isFinite(d.getTime())){
+      return String(value || '—');
+    }
+
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone:'America/Chicago',
+      year:'numeric',
+      month:'2-digit',
+      day:'2-digit',
+      hour:'numeric',
+      minute:'2-digit',
+      hour12:true
+    }).format(d);
+  }catch(_){
+    return String(value || '—');
+  }
+}
+
 function markerLeftCSS(v){
   return `${clamp(Number(v) || 0, 0, 100)}%`;
 }
 
 function getFieldName(f, rec){
   return safeStr(rec?.fieldName || f?.name || 'Field');
+}
+
+function todayISOChicago(){
+  try{
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone:'America/Chicago',
+      year:'numeric',
+      month:'2-digit',
+      day:'2-digit'
+    }).formatToParts(new Date());
+
+    const y = parts.find(p=>p.type === 'year')?.value;
+    const m = parts.find(p=>p.type === 'month')?.value;
+    const d = parts.find(p=>p.type === 'day')?.value;
+
+    if (y && m && d) return `${y}-${m}-${d}`;
+  }catch(_){}
+
+  return new Date().toISOString().slice(0, 10);
+}
+
+function normalizeGroupedInput(rowsOrGroups){
+  if (!Array.isArray(rowsOrGroups)) return [];
+
+  if (
+    rowsOrGroups.length &&
+    safeObj(rowsOrGroups[0]) &&
+    Array.isArray(rowsOrGroups[0].rows)
+  ){
+    return rowsOrGroups;
+  }
+
+  return [
+    {
+      label:'',
+      rows:rowsOrGroups
+    }
+  ];
+}
+
+function appendGroupHeader(tbody, label, colspan){
+  if (!tbody || !label) return;
+
+  const tr = document.createElement('tr');
+  tr.className = 'fr-detail-group-row';
+
+  tr.innerHTML = `
+    <td
+      colspan="${Number(colspan || 1)}"
+      style="
+        padding:10px 12px;
+        font-weight:900;
+        font-size:12px;
+        letter-spacing:.02em;
+        background:color-mix(in srgb, var(--surface) 88%, var(--text) 12%);
+        color:var(--text);
+        border-top:1px solid var(--border);
+        border-bottom:1px solid var(--border);
+      "
+    >
+      ${esc(label)}
+    </td>
+  `;
+
+  tbody.appendChild(tr);
 }
 
 /* =====================================================================
@@ -263,7 +368,8 @@ function normalizeDailyDoc(raw, fallbackDate){
       surfaceToSoil: safeNum(trace.surfaceToSoil, null),
       loss: safeNum(trace.loss, null),
       surfaceLoss: safeNum(trace.surfaceLoss, null),
-      surfacePenalty: safeNum(trace.surfacePenalty, null)
+      surfacePenalty: safeNum(trace.surfacePenalty, null),
+      infilMult: safeNum(trace.infilMult, null)
     },
 
     final: {
@@ -625,13 +731,13 @@ if (String(state.selectedFieldId) === String(f.id)){
     <div
       class="tile-top"
       style="
-display:flex;
-align-items:center;
-justify-content:space-between;
-flex-wrap:nowrap;
-gap:10px;
-width:100%;
-min-width:0;
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        flex-wrap:nowrap;
+        gap:10px;
+        width:100%;
+        min-width:0;
       "
     >
       <div
@@ -730,12 +836,12 @@ function buildReadyTile(f, state, rec, rainText, thr){
       class="tile-top"
       style="
         display:flex;
-align-items:center;
-justify-content:space-between;
-flex-wrap:nowrap;
-gap:10px;
-width:100%;
-min-width:0;
+        align-items:center;
+        justify-content:space-between;
+        flex-wrap:nowrap;
+        gap:10px;
+        width:100%;
+        min-width:0;
       "
     >
       <div
@@ -904,12 +1010,15 @@ function setPanelText(id, txt){
   if (el) el.textContent = String(txt ?? '—');
 }
 
-function renderTraceRows(tbody, rows, type){
+function renderTraceRows(tbody, rowsOrGroups, type){
   if (!tbody) return;
 
   tbody.innerHTML = '';
 
-  if (!rows.length){
+  const groups = normalizeGroupedInput(rowsOrGroups);
+  const hasRows = groups.some(g=> Array.isArray(g.rows) && g.rows.length);
+
+  if (!hasRows){
     tbody.innerHTML = `
       <tr>
         <td colspan="7" class="muted">
@@ -920,138 +1029,156 @@ function renderTraceRows(tbody, rows, type){
     return;
   }
 
-  for (const r of rows){
+  for (const group of groups){
+    const rows = Array.isArray(group.rows) ? group.rows : [];
+    if (!rows.length) continue;
 
-    const tr = document.createElement('tr');
+    appendGroupHeader(tbody, group.label, 7);
 
-    // --------------------------------------------------
-    // TRACE VALUES
-    // --------------------------------------------------
-    const add =
-      type === 'surface'
-        ? r.trace.surfaceAdd
-        : r.trace.addRain;
+    for (const r of rows){
 
-    const loss =
-      type === 'surface'
-        ? r.trace.surfaceLoss
-        : r.trace.loss;
+      const tr = document.createElement('tr');
 
-    const end =
-      type === 'surface'
-        ? r.trace.surface
-        : r.trace.storage;
+      const add =
+        type === 'surface'
+          ? r.trace.surfaceAdd
+          : r.trace.addRain;
 
-    // --------------------------------------------------
-    // INFILTRATION MULTIPLIER
-    // --------------------------------------------------
-const infilMult =
-  Number.isFinite(Number(r?.trace?.infilMult))
-    ? Number(r.trace.infilMult)
-    : null;
+      const loss =
+        type === 'surface'
+          ? r.trace.surfaceLoss
+          : r.trace.loss;
 
-    // --------------------------------------------------
-    // BUILD ROW
-    // --------------------------------------------------
-    tr.innerHTML = `
-      <td class="mono">
-        ${esc(r.dateISO)}
-      </td>
+      const end =
+        type === 'surface'
+          ? r.trace.surface
+          : r.trace.storage;
 
-      <td class="right mono">
-        ${Number(r.weather.rainUsedInMath ?? 0).toFixed(2)}
-      </td>
+      const infilMult =
+        Number.isFinite(Number(r?.trace?.infilMult))
+          ? Number(r.trace.infilMult)
+          : null;
 
-      <td class="right mono">
-        ${
-          infilMult != null
-            ? infilMult.toFixed(3)
-            : '—'
-        }
-      </td>
+      tr.innerHTML = `
+        <td class="mono">
+          ${esc(r.dateISO)}
+        </td>
 
-      <td class="right mono">
-        ${Number(add ?? 0).toFixed(2)}
-      </td>
+        <td class="right mono">
+          ${Number(r.weather.rainUsedInMath ?? 0).toFixed(2)}
+        </td>
 
-      <td class="right mono">
-        ${Number(r.dryPwrBreakdown.dryPwr ?? 0).toFixed(2)}
-      </td>
+        <td class="right mono">
+          ${
+            infilMult != null
+              ? infilMult.toFixed(3)
+              : '—'
+          }
+        </td>
 
-      <td class="right mono">
-        ${Number(loss ?? 0).toFixed(2)}
-      </td>
+        <td class="right mono">
+          ${Number(add ?? 0).toFixed(2)}
+        </td>
 
-      <td class="right mono">
-        ${Number(end ?? 0).toFixed(2)}
-      </td>
-    `;
+        <td class="right mono">
+          ${Number(r.dryPwrBreakdown.dryPwr ?? 0).toFixed(2)}
+        </td>
 
-    tbody.appendChild(tr);
+        <td class="right mono">
+          ${Number(loss ?? 0).toFixed(2)}
+        </td>
+
+        <td class="right mono">
+          ${Number(end ?? 0).toFixed(2)}
+        </td>
+      `;
+
+      tbody.appendChild(tr);
+    }
   }
 }
 
-function renderDryRows(tbody, rows){
+function renderDryRows(tbody, rowsOrGroups){
   if (!tbody) return;
   tbody.innerHTML = '';
 
-  if (!rows.length){
+  const groups = normalizeGroupedInput(rowsOrGroups);
+  const hasRows = groups.some(g=> Array.isArray(g.rows) && g.rows.length);
+
+  if (!hasRows){
     tbody.innerHTML = `<tr><td colspan="15" class="muted">No DryPwr rows.</td></tr>`;
     return;
   }
 
-  for (const r of rows){
-    const d = r.dryPwrBreakdown;
+  for (const group of groups){
+    const rows = Array.isArray(group.rows) ? group.rows : [];
+    if (!rows.length) continue;
 
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td class="mono">${esc(r.dateISO)}</td>
-      <td class="right mono">${Math.round(Number(d.temp ?? 0))}</td>
-      <td class="right mono">${Number(d.tempN ?? 0).toFixed(2)}</td>
-      <td class="right mono">${Math.round(Number(d.wind ?? 0))}</td>
-      <td class="right mono">${Number(d.windN ?? 0).toFixed(2)}</td>
-      <td class="right mono">${Math.round(Number(d.rh ?? 0))}</td>
-      <td class="right mono">${Number(d.rhN ?? 0).toFixed(2)}</td>
-      <td class="right mono">${Math.round(Number(d.solar ?? 0))}</td>
-      <td class="right mono">${Number(d.solarN ?? 0).toFixed(2)}</td>
-      <td class="right mono">${Number(d.vpd ?? 0).toFixed(2)}</td>
-      <td class="right mono">${Number(d.vpdN ?? 0).toFixed(2)}</td>
-      <td class="right mono">${Math.round(Number(d.cloud ?? 0))}</td>
-      <td class="right mono">${Number(d.cloudN ?? 0).toFixed(2)}</td>
-      <td class="right mono">${Number(d.raw ?? 0).toFixed(2)}</td>
-      <td class="right mono">${Number(d.dryPwr ?? 0).toFixed(2)}</td>
-    `;
+    appendGroupHeader(tbody, group.label, 15);
 
-    tbody.appendChild(tr);
+    for (const r of rows){
+      const d = r.dryPwrBreakdown;
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="mono">${esc(r.dateISO)}</td>
+        <td class="right mono">${Math.round(Number(d.temp ?? 0))}</td>
+        <td class="right mono">${Number(d.tempN ?? 0).toFixed(2)}</td>
+        <td class="right mono">${Math.round(Number(d.wind ?? 0))}</td>
+        <td class="right mono">${Number(d.windN ?? 0).toFixed(2)}</td>
+        <td class="right mono">${Math.round(Number(d.rh ?? 0))}</td>
+        <td class="right mono">${Number(d.rhN ?? 0).toFixed(2)}</td>
+        <td class="right mono">${Math.round(Number(d.solar ?? 0))}</td>
+        <td class="right mono">${Number(d.solarN ?? 0).toFixed(2)}</td>
+        <td class="right mono">${Number(d.vpd ?? 0).toFixed(2)}</td>
+        <td class="right mono">${Number(d.vpdN ?? 0).toFixed(2)}</td>
+        <td class="right mono">${Math.round(Number(d.cloud ?? 0))}</td>
+        <td class="right mono">${Number(d.cloudN ?? 0).toFixed(2)}</td>
+        <td class="right mono">${Number(d.raw ?? 0).toFixed(2)}</td>
+        <td class="right mono">${Number(d.dryPwr ?? 0).toFixed(2)}</td>
+      `;
+
+      tbody.appendChild(tr);
+    }
   }
 }
 
-function renderWeatherRows(tbody, rows){
+function renderWeatherRows(tbody, rowsOrGroups){
   if (!tbody) return;
   tbody.innerHTML = '';
 
-  if (!rows.length){
+  const groups = normalizeGroupedInput(rowsOrGroups);
+  const hasRows = groups.some(g=> Array.isArray(g.rows) && g.rows.length);
+
+  if (!hasRows){
     tbody.innerHTML = `<tr><td colspan="9" class="muted">No weather rows.</td></tr>`;
     return;
   }
 
-  for (const r of rows){
-    const w = r.weather;
+  for (const group of groups){
+    const rows = Array.isArray(group.rows) ? group.rows : [];
+    if (!rows.length) continue;
 
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td class="mono">${esc(r.dateISO)}</td>
-      <td class="right mono">${Number(w.rainUsedInMath ?? 0).toFixed(2)}</td>
-      <td class="right mono">${Math.round(Number(w.tempF ?? 0))}</td>
-      <td class="right mono">${Math.round(Number(w.windMph ?? 0))}</td>
-      <td class="right mono">${Math.round(Number(w.rh ?? 0))}</td>
-      <td class="right mono">${Math.round(Number(w.solarWm2 ?? 0))}</td>
-      <td class="right mono">${Number(w.et0In ?? 0).toFixed(2)}</td>
-      <td class="right mono">${Number(w.sm010 ?? 0).toFixed(3)}</td>
-      <td class="right mono">${Math.round(Number(w.st010 ?? 0))}</td>
-    `;
+    appendGroupHeader(tbody, group.label, 9);
 
-    tbody.appendChild(tr);
+    for (const r of rows){
+      const w = r.weather;
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="mono">${esc(r.dateISO)}</td>
+        <td class="right mono">${Number(w.rainUsedInMath ?? 0).toFixed(2)}</td>
+        <td class="right mono">${Math.round(Number(w.tempF ?? 0))}</td>
+        <td class="right mono">${Math.round(Number(w.windMph ?? 0))}</td>
+        <td class="right mono">${Math.round(Number(w.rh ?? 0))}</td>
+        <td class="right mono">${Math.round(Number(w.solarWm2 ?? 0))}</td>
+        <td class="right mono">${Number(w.et0In ?? 0).toFixed(2)}</td>
+        <td class="right mono">${Number(w.sm010 ?? 0).toFixed(3)}</td>
+        <td class="right mono">${Math.round(Number(w.st010 ?? 0))}</td>
+      `;
+
+      tbody.appendChild(tr);
+    }
   }
 }
 
@@ -1114,9 +1241,10 @@ function renderMrmsPanelFromDoc(doc){
       hourlyBody.innerHTML = `<tr><td colspan="5" class="muted">No MRMS hourly data.</td></tr>`;
     } else {
       for (const r of hourly){
+        const rawTime = r.fileTimestampUtc || r.hourKey || '';
         const tr = document.createElement('tr');
         tr.innerHTML = `
-          <td class="mono">${esc(r.fileTimestampUtc || r.hourKey || '—')}</td>
+          <td class="mono">${esc(formatCentralTime(rawTime))}</td>
           <td class="right mono">${Number(r.rainMm || 0).toFixed(2)}</td>
           <td class="mono">${esc(r.selectedProduct || '—')}</td>
           <td class="mono">${esc(r.mode || '—')}</td>
@@ -1171,11 +1299,8 @@ async function renderDetailsForSelected(state){
       { force:false }
     );
 
-  // --------------------------------------------------
-  // DATE GROUPING
-  // --------------------------------------------------
   const todayISO =
-    new Date().toISOString().slice(0,10);
+    todayISOChicago();
 
   const historyRows =
     rows.filter(r =>
@@ -1192,10 +1317,6 @@ async function renderDetailsForSelected(state){
       r.dateISO > todayISO
     );
 
-  // --------------------------------------------------
-  // CURRENT SNAPSHOT
-  // FORCE TODAY VALUES
-  // --------------------------------------------------
   const currentDay =
     currentRows[currentRows.length - 1] || null;
 
@@ -1221,23 +1342,42 @@ async function renderDetailsForSelected(state){
         )
   );
 
-  // --------------------------------------------------
-  // FIELD INFORMATION
-  // --------------------------------------------------
   const meta = $('betaInputsMeta');
 
   if (meta){
-
-    meta.textContent = rec
+    meta.innerHTML = rec
       ? `
-          Field Information
-          • Field: ${f.name || 'Unknown'}
-          • Acres: ${Number(f.acres || 0).toFixed(1)}
-          • County: ${rec.county || f.county || '—'}
-          • Readiness: ${rec.readiness ?? '—'}
-          • Updated: ${rec.updatedAtISO || rec.computedAtISO || '—'}
-        `.replace(/\s+/g, ' ').trim()
-      : 'No field_conditions_current record found.';
+        <div
+          style="
+            display:grid;
+            gap:7px;
+            padding:12px;
+            border:1px solid var(--border);
+            border-radius:14px;
+            background:color-mix(in srgb, var(--surface) 92%, var(--text) 8%);
+          "
+        >
+          <div style="font-weight:900;font-size:15px;margin-bottom:2px;">
+            Field Information
+          </div>
+          <div>• Field: ${esc(f.name || 'Unknown')}</div>
+          <div>• Acres: ${Number(f.acres || 0).toFixed(1)}</div>
+          <div>• County: ${esc(rec.county || f.county || '—')}</div>
+          <div>• Readiness: ${esc(rec.readiness ?? '—')}</div>
+          <div>• Updated: ${esc(formatCentralTime(rec.updatedAtISO || rec.computedAtISO))}</div>
+        </div>
+      `
+      : `
+        <div
+          style="
+            padding:12px;
+            border:1px solid var(--border);
+            border-radius:14px;
+          "
+        >
+          No field_conditions_current record found.
+        </div>
+      `;
   }
 
   const box = $('betaInputs');
@@ -1246,63 +1386,72 @@ async function renderDetailsForSelected(state){
     box.innerHTML = '';
   }
 
-  // --------------------------------------------------
-  // SOIL TRACE
-  // 15 DAY HISTORY
-  // CURRENT DAY
-  // FORECAST
-  // --------------------------------------------------
   renderTraceRows(
     $('soilTraceRows'),
     [
-      ...historyRows,
-      ...currentRows,
-      ...forecastRows
+      {
+        label:'15 Day History',
+        rows:historyRows
+      },
+      {
+        label:'Current Day + Forecasted Remaining Hours',
+        rows:currentRows
+      },
+      {
+        label:'Forecast Days',
+        rows:forecastRows
+      }
     ],
     'soil'
   );
 
-  // --------------------------------------------------
-  // SURFACE TRACE
-  // --------------------------------------------------
   renderTraceRows(
     $('surfaceTraceRows'),
     [
-      ...historyRows,
-      ...currentRows,
-      ...forecastRows
+      {
+        label:'15 Day History',
+        rows:historyRows
+      },
+      {
+        label:'Current Day + Forecasted Remaining Hours',
+        rows:currentRows
+      },
+      {
+        label:'Forecast Days',
+        rows:forecastRows
+      }
     ],
     'surface'
   );
 
-  // --------------------------------------------------
-  // DRY POWER
-  // HISTORY + CURRENT ONLY
-  // --------------------------------------------------
   renderDryRows(
     $('dryRows'),
     [
-      ...historyRows,
-      ...currentRows
+      {
+        label:'15 Day History',
+        rows:historyRows
+      },
+      {
+        label:'Current Day',
+        rows:currentRows
+      }
     ]
   );
 
-  // --------------------------------------------------
-  // WEATHER INPUTS
-  // HISTORY + CURRENT ONLY
-  // --------------------------------------------------
   renderWeatherRows(
     $('wxRows'),
     [
-      ...historyRows,
-      ...currentRows
+      {
+        label:'15 Day History',
+        rows:historyRows
+      },
+      {
+        label:'Current Day',
+        rows:currentRows
+      }
     ]
   );
 
-  // --------------------------------------------------
-  // MRMS
-  // LEAVE EXACTLY AS-IS
-  // --------------------------------------------------
   try{
 
     const mrmsDoc =
@@ -1425,14 +1574,8 @@ export async function selectField(state, id){
 
   if (!f) return;
 
-  // --------------------------------------------------
-  // STORE SELECTION
-  // --------------------------------------------------
   state.selectedFieldId = id;
 
-  // --------------------------------------------------
-  // VISUAL TILE STATE
-  // --------------------------------------------------
   try{
 
     document
@@ -1452,16 +1595,10 @@ export async function selectField(state, id){
 
   }catch(_){}
 
-  // --------------------------------------------------
-  // PARAMS
-  // --------------------------------------------------
   try{
     ensureSelectedParamsToSliders(state);
   }catch(_){}
 
-  // --------------------------------------------------
-  // FORCE CURRENT DATA REFRESH
-  // --------------------------------------------------
   try{
 
     state._fieldConditionsLoadedAt = 0;
@@ -1479,9 +1616,6 @@ export async function selectField(state, id){
     );
   }
 
-  // --------------------------------------------------
-  // FIELD PARAMS
-  // --------------------------------------------------
   try{
 
     await fetchAndHydrateFieldParams(
@@ -1491,9 +1625,6 @@ export async function selectField(state, id){
 
   }catch(_){}
 
-  // --------------------------------------------------
-  // DETAILS GRID
-  // --------------------------------------------------
   try{
 
     await renderDetailsForSelected(state);
@@ -1506,10 +1637,6 @@ export async function selectField(state, id){
     );
   }
 
-// --------------------------------------------------
-// KEEP EXISTING TILE SELECTION
-// (NO FULL TILE RE-RENDER)
-// --------------------------------------------------
 try{
 
   document
@@ -1526,7 +1653,6 @@ try{
   if (tile){
     tile.classList.add('fv-selected');
 
-    // subtle auto-scroll into view
     tile.scrollIntoView({
       behavior:'smooth',
       block:'nearest'
@@ -1535,9 +1661,6 @@ try{
 
 }catch(_){}
 
-  // --------------------------------------------------
-  // KEEP SELECTION
-  // --------------------------------------------------
   try{
 
     const tile =
