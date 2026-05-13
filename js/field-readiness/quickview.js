@@ -1022,23 +1022,47 @@ function ensureBuiltOnce(state){
   const soilVal = $('frQvSoilVal');
   const drainVal = $('frQvDrainVal');
 
-  function onSliderChange(){
-    state._qvDidAdjust = true;
+function onSliderChange(){
 
-    if (soilVal) soilVal.textContent = String(Math.round(clamp(Number(soil.value),0,100)));
-    if (drainVal) drainVal.textContent = String(Math.round(clamp(Number(drain.value),0,100)));
+  state._qvDidAdjust = true;
 
-    const fid = state._qvFieldId;
-    if (!fid) return;
+  // ---------------------------------------------------
+  // TEMP PREVIEW VALUES ONLY
+  // ---------------------------------------------------
+  state._qvPreviewValues = {
+    soilWetness: clamp(Number(soil.value), 0, 100),
+    drainageIndex: clamp(Number(drain.value), 0, 100)
+  };
 
-    const p = getFieldParams(state, fid);
-    p.soilWetness = clamp(Number(soil.value), 0, 100);
-    p.drainageIndex = clamp(Number(drain.value), 0, 100);
-    state.perFieldParams.set(fid, p);
-
-    saveParamsToLocal(state);
-    fillQuickView(state, { live:true });
+  // ---------------------------------------------------
+  // UI LABELS
+  // ---------------------------------------------------
+  if (soilVal){
+    soilVal.textContent = String(
+      Math.round(state._qvPreviewValues.soilWetness)
+    );
   }
+
+  if (drainVal){
+    drainVal.textContent = String(
+      Math.round(state._qvPreviewValues.drainageIndex)
+    );
+  }
+
+  // ---------------------------------------------------
+  // IMPORTANT:
+  // DO NOT SAVE ANYTHING HERE
+  // ---------------------------------------------------
+  // NO:
+  // state.perFieldParams.set(...)
+  // saveParamsToLocal(...)
+  // firestore writes
+  //
+  // This is PREVIEW ONLY
+  // ---------------------------------------------------
+
+  fillQuickView(state, { live:true });
+}
 
   if (soil) soil.addEventListener('input', onSliderChange);
   if (drain) drain.addEventListener('input', onSliderChange);
@@ -1228,7 +1252,20 @@ async function fillQuickView(state, { live=false } = {}){
     sub.textContent = farmName ? `${farmName} • ${sourceTag}` : sourceTag;
   }
 
-  const pRaw = getFieldParams(state, f.id);
+  const savedParams = getFieldParams(state, f.id);
+
+const previewParams = state._qvPreviewValues || null;
+
+const pRaw = (
+  live &&
+  previewParams
+)
+  ? {
+      ...savedParams,
+      soilWetness: previewParams.soilWetness,
+      drainageIndex: previewParams.drainageIndex
+    }
+  : savedParams;
   const soil = $('frQvSoil');
   const drain = $('frQvDrain');
   const soilVal = $('frQvSoilVal');
