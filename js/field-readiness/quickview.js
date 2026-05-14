@@ -368,13 +368,13 @@ function normalizePreviewRun(raw, field){
   // --------------------------------------------
   // READINESS
   // --------------------------------------------
-  const readinessR =
-    safeInt(result.readiness) ??
-    safeInt(result.readinessR);
+const readinessR =
+  safeInt(result.readinessR) ??
+  safeInt(result.readiness);
 
-  const wetnessR =
-    safeInt(result.wetness) ??
-    safeInt(result.wetnessR);
+const wetnessR =
+  safeInt(result.wetnessR) ??
+  safeInt(result.wetness);
 
   console.log(
     "🧪 NORMALIZED PREVIEW VALUES:",
