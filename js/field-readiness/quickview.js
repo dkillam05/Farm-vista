@@ -1584,49 +1584,86 @@ async function fillQuickView(state, { live=false, immediate=false } = {}){
 
 if (previewMode && immediate){
 
-  const seq = Number(state._qvPreviewSeq || 0) + 1;
-  state._qvPreviewSeq = seq;
+  try{
 
-  state._qvPreviewLoading = true;
-  state._qvPreviewError = '';
+    const seq = Number(state._qvPreviewSeq || 0) + 1;
+    state._qvPreviewSeq = seq;
 
-  const hint = $('frQvHint');
-
-  if (hint){
-    hint.textContent = 'Calculating live preview…';
-  }
-
-  const res = await callPreviewEndpoint(state, f, pRaw);
-
-  if (seq !== state._qvPreviewSeq){
-    return;
-  }
-
-  state._qvPreviewLoading = false;
-
-  if (res && res.ok){
-
-    console.log('✅ PREVIEW SUCCESS', {
-      readiness: res.readinessR,
-      wetness: res.wetnessR,
-      storage: res.storageFinal
-    });
-
-    previewRun = res;
-    state._qvPreviewRun = res;
+    state._qvPreviewLoading = true;
     state._qvPreviewError = '';
 
-  } else {
+    const hint = $('frQvHint');
 
-    console.error('❌ PREVIEW FAILED', res);
+    if (hint){
+      hint.textContent = 'Calculating live preview…';
+    }
 
-    previewRun = null;
-    state._qvPreviewRun = null;
+    const res = await callPreviewEndpoint(state, f, pRaw);
 
-    state._qvPreviewError =
-      res && res.error
-        ? res.error
-        : 'Preview failed';
+    console.log('🧪 PREVIEW RESPONSE:', res);
+
+    if (seq !== state._qvPreviewSeq){
+      return;
+    }
+
+    state._qvPreviewLoading = false;
+
+    if (res && res.ok){
+
+      previewRun = res;
+
+      state._qvPreviewRun = res;
+      state._qvPreviewError = '';
+
+      console.log('✅ PREVIEW SUCCESS:', {
+        readinessR: res.readinessR,
+        wetnessR: res.wetnessR
+      });
+
+      if ($('frQvReadiness')){
+        $('frQvReadiness').textContent =
+          String(res.readinessR);
+      }
+
+      if ($('frQvWetness')){
+        $('frQvWetness').textContent =
+          String(res.wetnessR);
+      }
+
+      if (hint){
+        hint.textContent =
+          `Preview OK → Readiness ${res.readinessR}`;
+      }
+
+    } else {
+
+      console.error('❌ PREVIEW FAILED:', res);
+
+      previewRun = null;
+
+      state._qvPreviewRun = null;
+
+      state._qvPreviewError =
+        res && res.error
+          ? res.error
+          : 'Preview failed';
+
+      if (hint){
+        hint.textContent =
+          `FAILED: ${state._qvPreviewError}`;
+      }
+    }
+
+  } catch(err){
+
+    console.error('💥 QUICKVIEW CRASH:', err);
+
+    state._qvPreviewLoading = false;
+
+    if ($('frQvHint')){
+      $('frQvHint').textContent =
+        `CRASH: ${err.message || err}`;
+    }
   }
 }
 
