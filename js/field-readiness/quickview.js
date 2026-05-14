@@ -1571,43 +1571,52 @@ async function fillQuickView(state, { live=false, immediate=false } = {}){
   const previewMode = !!live || !!state._qvDidAdjust;
   let previewRun = state._qvPreviewRun || null;
 
-  if (previewMode && immediate){
-    const seq = Number(state._qvPreviewSeq || 0) + 1;
-    state._qvPreviewSeq = seq;
-    state._qvPreviewLoading = true;
-    state._qvPreviewError = '';
+if (previewMode && immediate){
 
-    const hint = $('frQvHint');
-    if (hint) hint.textContent = 'Calculating live preview…';
+  const seq = Number(state._qvPreviewSeq || 0) + 1;
+  state._qvPreviewSeq = seq;
 
-    const res = await callPreviewEndpoint(state, f, pRaw);
-
-    if (seq !== state._qvPreviewSeq) return;
-
-    state._qvPreviewLoading = false;
-
- if (res && res.ok){
-
-  console.log('✅ PREVIEW SUCCESS', {
-    readiness: res.readinessR,
-    wetness: res.wetnessR,
-    storage: res.storageFinal
-  });
-
-  previewRun = res;
-  state._qvPreviewRun = res;
+  state._qvPreviewLoading = true;
   state._qvPreviewError = '';
 
-} else {
+  const hint = $('frQvHint');
 
-  console.error('❌ PREVIEW FAILED', res);
+  if (hint){
+    hint.textContent = 'Calculating live preview…';
+  }
 
-  previewRun = null;
-  state._qvPreviewRun = null;
-  state._qvPreviewError =
-    res && res.error
-      ? res.error
-      : 'Preview failed';
+  const res = await callPreviewEndpoint(state, f, pRaw);
+
+  if (seq !== state._qvPreviewSeq){
+    return;
+  }
+
+  state._qvPreviewLoading = false;
+
+  if (res && res.ok){
+
+    console.log('✅ PREVIEW SUCCESS', {
+      readiness: res.readinessR,
+      wetness: res.wetnessR,
+      storage: res.storageFinal
+    });
+
+    previewRun = res;
+    state._qvPreviewRun = res;
+    state._qvPreviewError = '';
+
+  } else {
+
+    console.error('❌ PREVIEW FAILED', res);
+
+    previewRun = null;
+    state._qvPreviewRun = null;
+
+    state._qvPreviewError =
+      res && res.error
+        ? res.error
+        : 'Preview failed';
+  }
 }
 
 const displayRun =
