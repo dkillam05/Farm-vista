@@ -1,30 +1,27 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-05-13-field-conditions-current-read-preview-state-override
+Rev: 2026-05-13-cloud-run-preview-debounced
 
-GOAL (per Dane, Feb 2026):
-✅ Make Quick View readiness MATCH centralized app readiness
-✅ Show centralized readiness from field_conditions_current first
-✅ Fall back to field_readiness_latest if current doc is missing
-✅ Support LIVE preview when sliders move
-✅ Save slider values to fields/{fieldId}
-✅ Keep Range rain display aligned with MRMS tile logic
-✅ Support lightweight MRMS UI refresh while Quick View is open
-
-THIS REV:
-✅ Quick View now reads field_conditions_current before field_readiness_latest
-✅ Supports new nested final.readiness / final.wetness / final.storageFinal structure
-✅ Keeps old field_readiness_latest compatibility
+GOAL:
+✅ Keep Quick View UI visually the same
+✅ Read centralized readiness from field_conditions_current first
+✅ Fall back to field_readiness_latest if needed
 ✅ Slider movement is PREVIEW ONLY
-✅ Save & Close is the only place slider settings are committed
-✅ Live preview temporarily overrides state.perFieldParams for formula.js
-✅ Does NOT save temporary preview values to localStorage or Firestore
-✅ Keeps full original Quick View structure intact
+✅ Live preview calls Cloud Run readiness preview endpoint
+✅ Debounce slider preview so it does not spam Cloud Run
+✅ Save & Close writes:
+   - fields/{fieldId} slider values
+   - field_conditions_current/{fieldId} preview result
+   - field_readiness_latest/{fieldId} compatibility result
+✅ Does NOT save temporary preview values until Save & Close
+
+EXPECTED CLOUD RUN PREVIEW ENDPOINT:
+GET https://farmvista-field-weather-300398089669.us-central1.run.app/preview?fieldId=FIELD_ID&soilWetness=60&drainageIndex=45
 
 ===================================================================== */
 'use strict';
 
-import { buildWxCtx, OPS } from './state.js';
+import { OPS } from './state.js';
 import { getAPI } from './firebase.js';
 import { getFieldParams, saveParamsToLocal } from './params.js';
 import { getCurrentOp, getThresholdForOp } from './thresholds.js';
@@ -33,16 +30,16 @@ import { canEdit } from './perm.js';
 import { parseRangeFromInput, mrmsRainInRange } from './rain.js';
 import { loadFieldMrmsDoc } from './data.js';
 
-import { ensureFRModules, buildFRDeps, runFieldReadiness } from './formula.js';
-
 function $(id){ return document.getElementById(id); }
-
-const FR_STATE_COLLECTION = 'field_readiness_state';
-const STATE_TTL_MS = 30000;
 
 const FIELD_CONDITIONS_COLLECTION = 'field_conditions_current';
 const FR_LATEST_COLLECTION = 'field_readiness_latest';
+
 const LATEST_TTL_MS = 30000;
+const PREVIEW_DEBOUNCE_MS = 3000;
+
+const PREVIEW_BASE_URL =
+  'https://farmvista-field-weather-300398089669.us-central1.run.app';
 
 function safeObj(x){ return (x && typeof x === 'object') ? x : null; }
 
@@ -98,99 +95,6 @@ function toIsoFromAny(v){
   return '';
 }
 
-async function loadPersistedState(state, { force=false } = {}){
-  try{
-    if (!state) return;
-
-    const now = Date.now();
-    const last = Number(state._qvPersistLoadedAt || 0);
-
-    if (
-      !force &&
-      state.persistedStateByFieldId &&
-      (now - last) < STATE_TTL_MS
-    ){
-      return;
-    }
-
-    state.persistedStateByFieldId = state.persistedStateByFieldId || {};
-    const out = {};
-
-    const api = getAPI(state);
-
-    if (!api){
-      state.persistedStateByFieldId = out;
-      state._qvPersistLoadedAt = now;
-      return;
-    }
-
-    if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
-      const db = window.firebase.firestore();
-      const snap = await db.collection(FR_STATE_COLLECTION).get();
-
-      snap.forEach(doc=>{
-        const d = doc.data() || {};
-        const fid = safeStr(d.fieldId || doc.id);
-        if (!fid) return;
-
-        const storageFinal = safeNum(d.storageFinal);
-        const asOfDateISO = safeISO10(d.asOfDateISO);
-
-        if (storageFinal == null || !asOfDateISO) return;
-
-        out[fid] = {
-          fieldId: fid,
-          storageFinal,
-          asOfDateISO,
-          SmaxAtSave:
-            safeNum(d.SmaxAtSave) ??
-            safeNum(d.SmaxAtSave || d.smaxAtSave) ??
-            0
-        };
-      });
-
-      state.persistedStateByFieldId = out;
-      state._qvPersistLoadedAt = now;
-      return;
-    }
-
-    if (api.kind !== 'compat'){
-      const db = api.getFirestore();
-      const col = api.collection(db, FR_STATE_COLLECTION);
-      const snap = await api.getDocs(col);
-
-      snap.forEach(doc=>{
-        const d = doc.data() || {};
-        const fid = safeStr(d.fieldId || doc.id);
-        if (!fid) return;
-
-        const storageFinal = safeNum(d.storageFinal);
-        const asOfDateISO = safeISO10(d.asOfDateISO);
-
-        if (storageFinal == null || !asOfDateISO) return;
-
-        out[fid] = {
-          fieldId: fid,
-          storageFinal,
-          asOfDateISO,
-          SmaxAtSave:
-            safeNum(d.SmaxAtSave) ??
-            safeNum(d.SmaxAtSave || d.smaxAtSave) ??
-            0
-        };
-      });
-
-      state.persistedStateByFieldId = out;
-      state._qvPersistLoadedAt = now;
-      return;
-    }
-  }catch(e){
-    console.warn('[FieldReadiness] quickview persisted state load failed:', e);
-    state.persistedStateByFieldId = state.persistedStateByFieldId || {};
-    state._qvPersistLoadedAt = Date.now();
-  }
-}
-
 function buildLatestReadinessRecord(raw, fallbackId){
   const d = safeObj(raw) || {};
   const final = safeObj(d.final) || {};
@@ -223,14 +127,18 @@ function buildLatestReadinessRecord(raw, fallbackId){
     storagePhysFinal: safeNum(final.storagePhysFinal ?? d.storagePhysFinal),
     surfaceFinal: safeNum(final.surfaceFinal ?? surface.water ?? d.surfaceFinal ?? d.surfaceStorageFinal),
 
-    storageMax: safeNum(d.storageMax),
+    storageMax:
+      safeNum(d.storageMax) ??
+      safeNum(soil.Smax) ??
+      safeNum(d.Smax),
+
     storageCapacity: safeNum(d.storageCapacity),
     storageMaxFinal: safeNum(d.storageMaxFinal),
     wetBiasApplied: safeNum(d.wetBiasApplied),
 
     runKey: safeStr(d.runKey),
-    seedSource: safeStr(d.seedSource),
-    weatherSource: safeStr(d.weatherSource),
+    seedSource: safeStr(d.seedSource || d.seedMode),
+    weatherSource: safeStr(d.weatherSource || d.source),
     timezone: safeStr(d.timezone),
     status: safeStr(d.status),
     reason: safeStr(d.reason),
@@ -396,6 +304,8 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
     storagePhysFinal: safeNum(rec.storagePhysFinal),
     surfaceFinal: safeNum(rec.surfaceFinal),
 
+    surfaceStorageFinal: safeNum(rec.surfaceFinal),
+
     storageMax: safeNum(rec.storageMax) ?? storageCap,
     storageCapacity: safeNum(rec.storageCapacity) ?? storageCap,
     storageMaxFinal: safeNum(rec.storageMaxFinal) ?? storageCap,
@@ -424,10 +334,154 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
   };
 }
 
+function normalizePreviewRun(raw, field){
+  const r = safeObj(raw) || {};
+  const f = field || {};
+
+  const result = safeObj(r.result) || r;
+  const soil = safeObj(result.soil) || {};
+  const surface = safeObj(result.surface) || {};
+  const factors = safeObj(result.factors) || {};
+
+  const readinessR =
+    safeInt(result.readiness) ??
+    safeInt(result.readinessR);
+
+  const wetnessR =
+    safeInt(result.wetness) ??
+    safeInt(result.wetnessR);
+
+  if (!Number.isFinite(readinessR)) {
+    return {
+      ok: false,
+      error: safeStr(result.error || r.error || 'Preview did not return readiness')
+    };
+  }
+
+  const storageFinal =
+    safeNum(result.storageFinal) ??
+    safeNum(soil.storage);
+
+  const surfaceFinal =
+    safeNum(result.surfaceStorageFinal) ??
+    safeNum(result.surfaceFinal) ??
+    safeNum(surface.water);
+
+  const smax =
+    safeNum(result.Smax) ??
+    safeNum(factors.Smax) ??
+    safeNum(soil.Smax);
+
+  return {
+    ok: true,
+    source: 'cloud-run-preview',
+    sourceLabel: 'Cloud Run Preview',
+
+    fieldId: safeStr(result.fieldId || r.fieldId || f.id),
+    fieldName: safeStr(result.fieldName || r.fieldName || f.name),
+
+    readinessR,
+    readiness: readinessR,
+
+    wetnessR: Number.isFinite(wetnessR) ? wetnessR : clamp(100 - readinessR, 0, 100),
+    wetness: Number.isFinite(wetnessR) ? wetnessR : clamp(100 - readinessR, 0, 100),
+
+    baseReadiness: safeNum(result.baseReadiness),
+    surfacePenalty: safeNum(result.surfacePenalty),
+
+    storageFinal,
+    storageForReadiness: safeNum(result.storageForReadiness),
+    storagePhysFinal: safeNum(result.storagePhysFinal),
+    surfaceFinal,
+    surfaceStorageFinal: surfaceFinal,
+
+    readinessCreditIn: safeNum(result.readinessCreditIn) ?? 0,
+
+    storageMax: smax,
+    storageCapacity: smax,
+    storageMaxFinal: smax,
+
+    weatherSource: safeStr(result.weatherSource || result.source || 'farmvista-engine'),
+    seedSource: safeStr(result.seedMode || result.seedSource),
+    runKey: safeStr(result.runKey || 'quickview-preview'),
+
+    computedAtISO: toIsoFromAny(result.computedAt || new Date().toISOString()),
+
+    factors: {
+      ...(factors || {}),
+      Smax: smax
+    },
+
+    trace: Array.isArray(result.trace) ? result.trace : [],
+    rows: Array.isArray(result.rows) ? result.rows : [],
+
+    debug: safeObj(result.debug) || {},
+    _previewRaw: raw
+  };
+}
+
+async function callPreviewEndpoint(state, field, values){
+  const fid = safeStr(field && field.id);
+  if (!fid) {
+    return { ok:false, error:'Missing field ID' };
+  }
+
+  const soilWetness = clamp(Number(values && values.soilWetness), 0, 100);
+  const drainageIndex = clamp(Number(values && values.drainageIndex), 0, 100);
+
+  const url =
+    `${PREVIEW_BASE_URL}/preview` +
+    `?fieldId=${encodeURIComponent(fid)}` +
+    `&soilWetness=${encodeURIComponent(soilWetness)}` +
+    `&drainageIndex=${encodeURIComponent(drainageIndex)}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(()=> controller.abort(), 20000);
+
+  try{
+    const res = await fetch(url, {
+      method: 'GET',
+      mode: 'cors',
+      cache: 'no-store',
+      signal: controller.signal
+    });
+
+    if (!res.ok){
+      return {
+        ok:false,
+        error:`Preview failed (${res.status})`
+      };
+    }
+
+    const json = await res.json();
+    const normalized = normalizePreviewRun(json, field);
+
+    if (!normalized.ok){
+      return normalized;
+    }
+
+    normalized._previewValues = {
+      soilWetness,
+      drainageIndex
+    };
+
+    return normalized;
+  }catch(e){
+    return {
+      ok:false,
+      error: e && e.name === 'AbortError'
+        ? 'Preview timed out'
+        : (e && e.message ? e.message : String(e || 'Preview failed'))
+    };
+  }finally{
+    clearTimeout(timeout);
+  }
+}
+
 function getModelWeatherSourceValue(run){
   try{
     const rows = Array.isArray(run && run.rows) ? run.rows : [];
-    if (!rows.length) return 'open-meteo';
+    if (!rows.length) return safeStr(run && run.weatherSource) || 'farmvista-engine';
 
     let mrmsCount = 0;
     let omCount = 0;
@@ -443,7 +497,7 @@ function getModelWeatherSourceValue(run){
 
     return 'open-meteo';
   }catch(_){
-    return 'open-meteo';
+    return 'farmvista-engine';
   }
 }
 
@@ -451,11 +505,6 @@ function buildLatestPayloadFromRun(state, field, run){
   const f = field || {};
   const r = run || {};
   const latestExisting = getLatestReadinessForField(state, f.id) || null;
-
-  const info =
-    (state && state.wxInfoByFieldId && state.wxInfoByFieldId.get)
-      ? (state.wxInfoByFieldId.get(f.id) || null)
-      : null;
 
   const farmName =
     (state && state.farmsById && state.farmsById.get && f.farmId)
@@ -483,9 +532,16 @@ function buildLatestPayloadFromRun(state, field, run){
     soilWetness: safeNum(f.soilWetness),
     drainageIndex: safeNum(f.drainageIndex),
 
+    baseReadiness: safeNum(r.baseReadiness),
+    surfacePenalty: safeNum(r.surfacePenalty) ?? 0,
+
     readinessCreditIn: safeNum(r.readinessCreditIn) ?? 0,
 
     storageFinal: safeNum(r.storageFinal),
+    surfaceStorageFinal:
+      safeNum(r.surfaceStorageFinal) ??
+      safeNum(r.surfaceFinal),
+
     storageForReadiness:
       safeNum(r.storageForReadiness) ??
       safeNum(latestExisting && latestExisting.storageForReadiness),
@@ -499,27 +555,21 @@ function buildLatestPayloadFromRun(state, field, run){
       safeNum(r.storageCapacity) ??
       safeNum(r.storageMaxFinal) ??
       safeNum(r && r.factors && r.factors.Smax) ??
-      safeNum(latestExisting && latestExisting.storageMax) ??
-      safeNum(latestExisting && latestExisting.storageCapacity) ??
-      safeNum(latestExisting && latestExisting.storageMaxFinal),
+      safeNum(latestExisting && latestExisting.storageMax),
 
     storageCapacity:
       safeNum(r.storageCapacity) ??
       safeNum(r.storageMax) ??
       safeNum(r.storageMaxFinal) ??
       safeNum(r && r.factors && r.factors.Smax) ??
-      safeNum(latestExisting && latestExisting.storageCapacity) ??
-      safeNum(latestExisting && latestExisting.storageMax) ??
-      safeNum(latestExisting && latestExisting.storageMaxFinal),
+      safeNum(latestExisting && latestExisting.storageCapacity),
 
     storageMaxFinal:
       safeNum(r.storageMaxFinal) ??
       safeNum(r.storageMax) ??
       safeNum(r.storageCapacity) ??
       safeNum(r && r.factors && r.factors.Smax) ??
-      safeNum(latestExisting && latestExisting.storageMaxFinal) ??
-      safeNum(latestExisting && latestExisting.storageMax) ??
-      safeNum(latestExisting && latestExisting.storageCapacity),
+      safeNum(latestExisting && latestExisting.storageMaxFinal),
 
     wetBiasApplied:
       safeNum(r.wetBiasApplied) ??
@@ -534,24 +584,94 @@ function buildLatestPayloadFromRun(state, field, run){
       safeStr(latestExisting && latestExisting.timezone) ||
       'America/Chicago',
 
-    weatherFetchedAt:
-      (info && info.fetchedAt)
-        ? new Date(info.fetchedAt)
-        : new Date(nowIso),
-
+    weatherFetchedAt: new Date(nowIso),
     computedAt: new Date(nowIso),
+    updatedAt: new Date(nowIso),
+
+    source: 'quickview-cloud-run-preview',
+    status: 'ok',
 
     location
   };
 }
 
-async function writeLatestReadinessDoc(state, fieldId, payload){
+function buildFieldConditionsPayloadFromRun(state, field, run){
+  const f = field || {};
+  const r = run || {};
+  const smax =
+    safeNum(r && r.factors && r.factors.Smax) ??
+    safeNum(r.storageMax) ??
+    safeNum(r.storageCapacity) ??
+    safeNum(r.storageMaxFinal) ??
+    0;
+
+  const surfaceWater =
+    safeNum(r.surfaceStorageFinal) ??
+    safeNum(r.surfaceFinal) ??
+    0;
+
+  return {
+    fieldId: safeStr(f.id),
+    fieldName: safeStr(f.name) || null,
+
+    farmId: safeStr(f.farmId) || null,
+    farmName:
+      (state && state.farmsById && state.farmsById.get && f.farmId)
+        ? (state.farmsById.get(f.farmId) || null)
+        : null,
+
+    location: f.location || null,
+    county: f.county || null,
+    state: f.state || null,
+
+    soilWetness: safeNum(f.soilWetness),
+    drainageIndex: safeNum(f.drainageIndex),
+
+    readiness: Number(safeInt(r.readinessR)),
+    wetness: Number(safeInt(r.wetnessR)),
+
+    baseReadiness: Number(
+      safeNum(r.baseReadiness) ??
+      safeInt(r.readinessR)
+    ),
+
+    surfacePenalty: Number(
+      safeNum(r.surfacePenalty) ?? 0
+    ),
+
+    soil: {
+      storage: Number(safeNum(r.storageFinal) ?? 0),
+      Smax: Number(smax)
+    },
+
+    surface: {
+      water: Number(surfaceWater),
+      penalty: Number(safeNum(r.surfacePenalty) ?? 0)
+    },
+
+    storageFinal: Number(safeNum(r.storageFinal) ?? 0),
+    surfaceStorageFinal: Number(surfaceWater),
+    storageForReadiness: Number(safeNum(r.storageForReadiness) ?? 0),
+    readinessCreditIn: Number(safeNum(r.readinessCreditIn) ?? 0),
+
+    asOfDateISO: new Date().toISOString().slice(0, 10),
+    computedAt: new Date(),
+    updatedAt: new Date(),
+
+    modelVersion: 'quickview-cloud-run-preview',
+    source: 'quickview-save',
+    seedMode: safeStr(r.seedSource || 'quickview-save'),
+    status: 'ok'
+  };
+}
+
+async function writeDocCompatAware(state, collectionName, fieldId, payload){
   const api = getAPI(state);
   if (!api) return;
 
   if (api.kind !== 'compat'){
     const db = api.getFirestore();
-    const ref = api.doc(db, FR_LATEST_COLLECTION, String(fieldId));
+    const ref = api.doc(db, collectionName, String(fieldId));
 
     if (typeof api.setDoc === 'function'){
       await api.setDoc(ref, payload, { merge:true });
@@ -574,26 +694,30 @@ async function writeLatestReadinessDoc(state, fieldId, payload){
 
   if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
     const db = window.firebase.firestore();
-    await db.collection(FR_LATEST_COLLECTION).doc(String(fieldId)).set(payload, { merge:true });
+    await db.collection(collectionName).doc(String(fieldId)).set(payload, { merge:true });
   }
 }
 
 async function persistLatestReadinessForField(state, field, run){
-  try{
-    if (!state || !field || !field.id || !run) return;
+  const payload = buildLatestPayloadFromRun(state, field, run);
+  await writeDocCompatAware(state, FR_LATEST_COLLECTION, field.id, payload);
 
-    const payload = buildLatestPayloadFromRun(state, field, run);
-    await writeLatestReadinessDoc(state, field.id, payload);
+  state.latestReadinessByFieldId = state.latestReadinessByFieldId || {};
+  state.latestReadinessByFieldId[String(field.id)] =
+    buildLatestReadinessRecord(payload, String(field.id));
 
-    state.latestReadinessByFieldId = state.latestReadinessByFieldId || {};
-    state.latestReadinessByFieldId[String(field.id)] =
-      buildLatestReadinessRecord(payload, String(field.id));
+  state._qvLatestLoadedAt = Date.now();
+}
 
-    state._qvLatestLoadedAt = Date.now();
-  }catch(e){
-    console.warn('[FieldReadiness] latest readiness write failed:', e);
-    throw e;
-  }
+async function persistFieldConditionsForField(state, field, run){
+  const payload = buildFieldConditionsPayloadFromRun(state, field, run);
+  await writeDocCompatAware(state, FIELD_CONDITIONS_COLLECTION, field.id, payload);
+
+  state.latestReadinessByFieldId = state.latestReadinessByFieldId || {};
+  state.latestReadinessByFieldId[String(field.id)] =
+    buildLatestReadinessRecord(payload, String(field.id));
+
+  state._qvLatestLoadedAt = Date.now();
 }
 
 function perceivedFromThreshold(readiness, thr){
@@ -641,25 +765,6 @@ function gradientForThreshold(thr){
   )`;
 }
 
-function getPersistedStateForDeps(state, fieldId){
-  try{
-    const fid = String(fieldId || '');
-    if (!fid) return null;
-
-    const map =
-      (state && state.persistedStateByFieldId && typeof state.persistedStateByFieldId === 'object')
-        ? state.persistedStateByFieldId
-        : null;
-
-    if (!map) return null;
-
-    const s = map[fid];
-    return (s && typeof s === 'object') ? s : null;
-  }catch(_){
-    return null;
-  }
-}
-
 function getSoilMoistureDisplay(run){
   try{
     const r = run || {};
@@ -694,47 +799,6 @@ function getSurfaceWetnessDisplay(run){
     return { value };
   }catch(_){
     return { value:null };
-  }
-}
-
-async function runReadinessWithTemporaryParams(state, field, params, opts){
-  const fid = String(field && field.id || '');
-  const hadMap = !!(state && state.perFieldParams && typeof state.perFieldParams.get === 'function');
-  const oldParams = hadMap ? state.perFieldParams.get(fid) : undefined;
-
-  const oldSoilWetness = field ? field.soilWetness : undefined;
-  const oldDrainageIndex = field ? field.drainageIndex : undefined;
-
-  try{
-    if (hadMap){
-      state.perFieldParams.set(fid, {
-        ...(oldParams || {}),
-        ...(params || {})
-      });
-    }
-
-    if (field && params){
-      field.soilWetness = params.soilWetness;
-      field.drainageIndex = params.drainageIndex;
-    }
-
-    const previewField = {
-      ...(field || {}),
-      soilWetness: params && params.soilWetness,
-      drainageIndex: params && params.drainageIndex
-    };
-
-    return await runFieldReadiness(state, previewField, opts || {});
-  }finally{
-    if (hadMap){
-      if (oldParams === undefined) state.perFieldParams.delete(fid);
-      else state.perFieldParams.set(fid, oldParams);
-    }
-
-    if (field){
-      field.soilWetness = oldSoilWetness;
-      field.drainageIndex = oldDrainageIndex;
-    }
   }
 }
 
@@ -891,7 +955,7 @@ async function getQuickViewMrmsRainText(state, fieldId, range){
 function getModelRainSourceLabel(run){
   try{
     const rows = Array.isArray(run && run.rows) ? run.rows : [];
-    if (!rows.length) return 'Open-Meteo';
+    if (!rows.length) return safeStr(run && run.weatherSource) || 'FarmVista Engine';
 
     let mrmsCount = 0;
     let omCount = 0;
@@ -908,7 +972,7 @@ function getModelRainSourceLabel(run){
 
     return 'Open-Meteo';
   }catch(_){
-    return 'Open-Meteo';
+    return 'FarmVista Engine';
   }
 }
 
@@ -1231,7 +1295,7 @@ function ensureBuiltOnce(state){
       );
     }
 
-    fillQuickView(state, { live:true });
+    schedulePreviewRefresh(state);
   }
 
   if (soil) soil.addEventListener('input', onSliderChange);
@@ -1276,7 +1340,7 @@ function ensureBuiltOnce(state){
         if (!fid) return;
         if (String(state._qvFieldId || '') !== fid) return;
 
-        await fillQuickView(state, { live:true });
+        await fillQuickView(state, { live:true, immediate:true });
       }catch(_){}
     });
 
@@ -1288,10 +1352,27 @@ function ensureBuiltOnce(state){
         if (!fid) return;
         if (String(state._qvFieldId || '') !== fid) return;
 
-        await fillQuickView(state, { live:true });
+        await fillQuickView(state, { live:true, immediate:true });
       }catch(_){}
     });
   }
+}
+
+function schedulePreviewRefresh(state){
+  try{
+    if (state._qvPreviewTimer){
+      clearTimeout(state._qvPreviewTimer);
+      state._qvPreviewTimer = null;
+    }
+
+    const hint = $('frQvHint');
+    if (hint) hint.textContent = 'Preview will update after you stop moving the slider…';
+
+    state._qvPreviewTimer = setTimeout(()=>{
+      state._qvPreviewTimer = null;
+      fillQuickView(state, { live:true, immediate:true });
+    }, PREVIEW_DEBOUNCE_MS);
+  }catch(_){}
 }
 
 export function openQuickView(state, fieldId){
@@ -1306,6 +1387,14 @@ export function openQuickView(state, fieldId){
   state.selectedFieldId = fieldId;
   state._qvDidAdjust = false;
   state._qvPreviewValues = null;
+  state._qvPreviewRun = null;
+  state._qvPreviewError = '';
+  state._qvPreviewSeq = 0;
+
+  if (state._qvPreviewTimer){
+    clearTimeout(state._qvPreviewTimer);
+    state._qvPreviewTimer = null;
+  }
 
   const b = $('frQvBackdrop');
 
@@ -1313,7 +1402,7 @@ export function openQuickView(state, fieldId){
 
   state._qvOpen = true;
 
-  fillQuickView(state, { live:false });
+  fillQuickView(state, { live:false, immediate:true });
 }
 
 export function closeQuickView(state){
@@ -1323,6 +1412,13 @@ export function closeQuickView(state){
 
   state._qvOpen = false;
   state._qvPreviewValues = null;
+  state._qvPreviewRun = null;
+  state._qvPreviewError = '';
+
+  if (state._qvPreviewTimer){
+    clearTimeout(state._qvPreviewTimer);
+    state._qvPreviewTimer = null;
+  }
 
   try{
     state._qvHiddenForMap = false;
@@ -1444,25 +1540,15 @@ async function renderTilePreview(state, run, thr, etaTxt){
   `;
 }
 
-async function fillQuickView(state, { live=false } = {}){
+async function fillQuickView(state, { live=false, immediate=false } = {}){
   const fid = state._qvFieldId;
   const f = state.fields.find(x=>x.id===fid);
 
   if (!f) return;
 
-  await ensureFRModules(state);
-  await loadPersistedState(state, { force:true });
   await loadLatestReadiness(state, { force:true });
 
   const opKey = getCurrentOp();
-  const wxCtx = buildWxCtx(state);
-
-  const depsTruth = buildFRDeps(state, {
-    opKey,
-    wxCtx,
-    persistedGetter: id => getPersistedStateForDeps(state, id)
-  });
-
   const savedParams = getFieldParams(state, f.id);
   const previewParams = state._qvPreviewValues || null;
 
@@ -1475,23 +1561,41 @@ async function fillQuickView(state, { live=false } = {}){
         }
       : savedParams;
 
-  const runTruth = await runReadinessWithTemporaryParams(state, f, pRaw, {
-    opKey,
-    wxCtx,
-    persistedGetter: id => getPersistedStateForDeps(state, id)
-  });
-
-  const previewField = {
-    ...f,
-    soilWetness: pRaw.soilWetness,
-    drainageIndex: pRaw.drainageIndex
-  };
-
   const latestRec = getLatestReadinessForField(state, fid);
   const latestRun = buildSyntheticRunFromLatest(state, f, latestRec);
 
   const previewMode = !!live || !!state._qvDidAdjust;
-  const displayRun = previewMode ? runTruth : (latestRun || runTruth);
+
+  let previewRun = state._qvPreviewRun || null;
+
+  if (previewMode && immediate){
+    const seq = Number(state._qvPreviewSeq || 0) + 1;
+    state._qvPreviewSeq = seq;
+    state._qvPreviewLoading = true;
+    state._qvPreviewError = '';
+
+    const hint = $('frQvHint');
+    if (hint) hint.textContent = 'Calculating live preview…';
+
+    const res = await callPreviewEndpoint(state, f, pRaw);
+
+    if (seq !== state._qvPreviewSeq) return;
+
+    state._qvPreviewLoading = false;
+
+    if (res && res.ok){
+      previewRun = res;
+      state._qvPreviewRun = res;
+      state._qvPreviewError = '';
+    } else {
+      state._qvPreviewError = res && res.error ? res.error : 'Preview failed';
+    }
+  }
+
+  const displayRun =
+    previewMode
+      ? (previewRun || latestRun)
+      : latestRun;
 
   const farmName =
     (latestRec && latestRec.farmName) ||
@@ -1509,8 +1613,10 @@ async function fillQuickView(state, { live=false } = {}){
   if (sub){
     let sourceTag = 'Centralized readiness';
 
-    if (previewMode) sourceTag = 'Live preview';
-    else if (!latestRun) sourceTag = 'Truth (Rule A)';
+    if (previewMode && state._qvPreviewLoading) sourceTag = 'Live preview calculating';
+    else if (previewMode && previewRun) sourceTag = 'Live preview';
+    else if (previewMode && state._qvPreviewError) sourceTag = 'Preview unavailable';
+    else if (!latestRun) sourceTag = 'No centralized readiness';
 
     sub.textContent = farmName ? `${farmName} • ${sourceTag}` : sourceTag;
   }
@@ -1546,7 +1652,11 @@ async function fillQuickView(state, { live=false } = {}){
     if (saveBtn) saveBtn.disabled = true;
     if (inputsPanel) inputsPanel.style.opacity = '0.75';
   } else {
-    if (previewMode){
+    if (previewMode && state._qvPreviewLoading){
+      if (hint) hint.textContent = 'Calculating live preview…';
+    } else if (previewMode && state._qvPreviewError){
+      if (hint) hint.textContent = `Preview failed: ${state._qvPreviewError}`;
+    } else if (previewMode){
       if (hint) hint.textContent = 'Live preview only. Save & Close writes these slider settings.';
     } else {
       if (hint) hint.textContent = 'Move sliders to preview readiness live. Save & Close updates Firestore.';
@@ -1606,8 +1716,7 @@ async function fillQuickView(state, { live=false } = {}){
   let soilMoistureText = '—';
 
   {
-    const soilRun = displayRun || runTruth || null;
-    const tank = getSoilMoistureDisplay(soilRun);
+    const tank = getSoilMoistureDisplay(displayRun);
     const v = safeNum(tank.value);
     const c = safeNum(tank.cap);
 
@@ -1623,8 +1732,7 @@ async function fillQuickView(state, { live=false } = {}){
   let surfaceWetnessText = '—';
 
   {
-    const surfaceRun = displayRun || runTruth || null;
-    const sw = getSurfaceWetnessDisplay(surfaceRun);
+    const sw = getSurfaceWetnessDisplay(displayRun);
     const v = safeNum(sw.value);
 
     if (v != null){
@@ -1634,17 +1742,9 @@ async function fillQuickView(state, { live=false } = {}){
 
   setText('frQvSurfaceWetness', surfaceWetnessText);
 
-  const info = state.wxInfoByFieldId.get(f.id) || null;
-  const when = (info && info.fetchedAt) ? new Date(info.fetchedAt) : null;
-  const whenTxt = when ? when.toLocaleString() : '—';
   const wxMeta = $('frQvWxMeta');
 
   if (wxMeta){
-    const truthR =
-      (runTruth && isFinite(Number(runTruth.readinessR)))
-        ? Number(runTruth.readinessR)
-        : null;
-
     const centralR =
       (latestRun && isFinite(Number(latestRun.readinessR)))
         ? Number(latestRun.readinessR)
@@ -1655,14 +1755,23 @@ async function fillQuickView(state, { live=false } = {}){
         ? Number(displayRun.readinessR)
         : null;
 
-    const rainSource = getModelRainSourceLabel(runTruth);
+    const previewR =
+      (previewRun && isFinite(Number(previewRun.readinessR)))
+        ? Number(previewRun.readinessR)
+        : null;
+
+    const rainSource = getModelRainSourceLabel(displayRun);
+    const whenTxt =
+      (displayRun && displayRun.computedAtISO)
+        ? new Date(displayRun.computedAtISO).toLocaleString()
+        : '—';
 
     wxMeta.innerHTML =
       `Weather updated: <span class="mono">${esc(whenTxt)}</span>` +
       ` • Model rain: <span class="mono">${esc(rainSource)}</span>` +
       (shownR != null ? ` • Shown: <span class="mono">${shownR}</span>` : ``) +
       (centralR != null ? ` • Centralized: <span class="mono">${centralR}</span>` : ``) +
-      (truthR != null ? ` • Model: <span class="mono">${truthR}</span>` : ``);
+      (previewR != null ? ` • Preview: <span class="mono">${previewR}</span>` : ``);
   }
 
   const pe = $('frQvParamExplain');
@@ -1673,35 +1782,7 @@ async function fillQuickView(state, { live=false } = {}){
       `drain=<span class="mono">${Math.round(Number(pRaw.drainageIndex || 0))}</span>/100`;
   }
 
-  let etaTxt = '';
-
-  try{
-    const horizon = 168;
-
-    if (
-      state &&
-      state._mods &&
-      state._mods.model &&
-      typeof state._mods.model.etaToThreshold === 'function' &&
-      runTruth
-    ){
-      const res = await state._mods.model.etaToThreshold(
-        previewField,
-        depsTruth,
-        thr,
-        horizon,
-        3
-      );
-
-      if (res && res.ok && res.text){
-        etaTxt = String(res.text || '').trim();
-      }
-    }
-  }catch(_){
-    etaTxt = '';
-  }
-
-  await renderTilePreview(state, displayRun, thr, etaTxt);
+  await renderTilePreview(state, displayRun, thr, '');
 }
 
 async function saveAndClose(state){
@@ -1728,6 +1809,31 @@ async function saveAndClose(state){
   if (hint) hint.textContent = 'Saving…';
 
   try{
+    let runTruth = null;
+
+    const previewMatches =
+      state._qvPreviewRun &&
+      state._qvPreviewRun._previewValues &&
+      Number(state._qvPreviewRun._previewValues.soilWetness) === Number(soilWetness) &&
+      Number(state._qvPreviewRun._previewValues.drainageIndex) === Number(drainageIndex);
+
+    if (previewMatches){
+      runTruth = state._qvPreviewRun;
+    } else {
+      if (hint) hint.textContent = 'Calculating final preview before save…';
+
+      const res = await callPreviewEndpoint(state, f, {
+        soilWetness,
+        drainageIndex
+      });
+
+      if (!res || !res.ok){
+        throw new Error(res && res.error ? res.error : 'Preview failed before save');
+      }
+
+      runTruth = res;
+    }
+
     const p = getFieldParams(state, fid);
 
     p.soilWetness = soilWetness;
@@ -1763,28 +1869,13 @@ async function saveAndClose(state){
       }, { merge:true });
     }
 
-    await ensureFRModules(state);
-    await loadPersistedState(state, { force:true });
-
-    const opKey = getCurrentOp();
-    const wxCtx = buildWxCtx(state);
-
-    const savedField = {
-      ...f,
-      soilWetness,
-      drainageIndex
-    };
-
-    const runTruth = await runFieldReadiness(state, savedField, {
-      opKey,
-      wxCtx,
-      persistedGetter: id => getPersistedStateForDeps(state, id)
-    });
-
-    await persistLatestReadinessForField(state, savedField, runTruth);
+    await persistFieldConditionsForField(state, f, runTruth);
+    await persistLatestReadinessForField(state, f, runTruth);
 
     state._qvDidAdjust = false;
     state._qvPreviewValues = null;
+    state._qvPreviewRun = null;
+    state._qvPreviewError = '';
 
     try{
       document.dispatchEvent(
