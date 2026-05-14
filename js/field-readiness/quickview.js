@@ -1749,13 +1749,42 @@ async function fillQuickView(state, { live=false, immediate=false } = {}){
 
     state._qvPreviewLoading = false;
 
-    if (res && res.ok){
-      previewRun = res;
-      state._qvPreviewRun = res;
-      state._qvPreviewError = '';
-    } else {
-      state._qvPreviewError = res && res.error ? res.error : 'Preview failed';
+if (res && res.ok){
+
+  previewRun = res;
+
+  state._qvPreviewRun = res;
+
+  // ✅ CLEAR OLD FAILURES
+  state._qvPreviewError = '';
+
+  // ✅ CLEAR OLD LOADING FLAG
+  state._qvPreviewLoading = false;
+
+  console.log(
+    "✅ PREVIEW SUCCESS",
+    {
+      readiness: res.readinessR,
+      wetness: res.wetnessR
     }
+  );
+
+} else {
+
+  previewRun = null;
+
+  state._qvPreviewRun = null;
+
+  state._qvPreviewError =
+    res && res.error
+      ? res.error
+      : 'Preview failed';
+
+  console.log(
+    "❌ PREVIEW FAILED",
+    res
+  );
+}
   }
 
   const displayRun =
@@ -1814,22 +1843,81 @@ async function fillQuickView(state, { live=false, immediate=false } = {}){
   const inputsPanel = $('frQvInputsPanel');
 
   if (!canEdit(state)){
-    if (hint) hint.textContent = 'View only. You do not have edit permission.';
-    if (saveBtn) saveBtn.disabled = true;
-    if (inputsPanel) inputsPanel.style.opacity = '0.75';
-  } else {
-    if (previewMode && state._qvPreviewLoading){
-      if (hint) hint.textContent = 'Calculating live preview…';
-    } else if (previewMode && state._qvPreviewError){
-      if (hint) hint.textContent = `Preview failed: ${state._qvPreviewError}`;
-    } else if (previewMode){
-      if (hint) hint.textContent = 'Live preview only. Save & Close writes these slider settings.';
-    } else {
-      if (hint) hint.textContent = 'Move sliders to preview readiness live. Save & Close updates Firestore.';
+
+    if (hint){
+      hint.textContent =
+        'View only. You do not have edit permission.';
     }
 
-    if (saveBtn) saveBtn.disabled = false;
-    if (inputsPanel) inputsPanel.style.opacity = '1';
+    if (saveBtn){
+      saveBtn.disabled = true;
+    }
+
+    if (inputsPanel){
+      inputsPanel.style.opacity = '0.75';
+    }
+
+  } else {
+
+    // --------------------------------------------
+    // LIVE PREVIEW LOADING
+    // --------------------------------------------
+    if (
+      previewMode &&
+      state._qvPreviewLoading
+    ){
+
+      if (hint){
+        hint.textContent =
+          'Calculating live preview…';
+      }
+
+    // --------------------------------------------
+    // ONLY SHOW FAILURE
+    // IF THERE IS NO VALID PREVIEW
+    // --------------------------------------------
+    } else if (
+      previewMode &&
+      state._qvPreviewError &&
+      !previewRun
+    ){
+
+      if (hint){
+        hint.textContent =
+          `Preview failed: ${state._qvPreviewError}`;
+      }
+
+    // --------------------------------------------
+    // SUCCESSFUL LIVE PREVIEW
+    // --------------------------------------------
+    } else if (
+      previewMode &&
+      previewRun
+    ){
+
+      if (hint){
+        hint.textContent =
+          'Live preview only. Save & Close writes these slider settings.';
+      }
+
+    // --------------------------------------------
+    // DEFAULT
+    // --------------------------------------------
+    } else {
+
+      if (hint){
+        hint.textContent =
+          'Move sliders to preview readiness live. Save & Close updates Firestore.';
+      }
+    }
+
+    if (saveBtn){
+      saveBtn.disabled = false;
+    }
+
+    if (inputsPanel){
+      inputsPanel.style.opacity = '1';
+    }
   }
 
   setText(
