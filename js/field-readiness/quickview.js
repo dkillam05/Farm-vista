@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-05-13-cloud-run-preview-debounced
+Rev: 2026-05-14-cloud-run-preview-full-file-fixed
 
 GOAL:
 ✅ Keep Quick View UI visually the same
@@ -9,14 +9,12 @@ GOAL:
 ✅ Slider movement is PREVIEW ONLY
 ✅ Live preview calls Cloud Run readiness preview endpoint
 ✅ Debounce slider preview so it does not spam Cloud Run
+✅ Display preview result when sliders move
 ✅ Save & Close writes:
    - fields/{fieldId} slider values
    - field_conditions_current/{fieldId} preview result
    - field_readiness_latest/{fieldId} compatibility result
 ✅ Does NOT save temporary preview values until Save & Close
-
-EXPECTED CLOUD RUN PREVIEW ENDPOINT:
-GET https://farmvista-field-weather-300398089669.us-central1.run.app/preview?fieldId=FIELD_ID&soilWetness=60&drainageIndex=45
 
 ===================================================================== */
 'use strict';
@@ -46,11 +44,6 @@ function safeObj(x){ return (x && typeof x === 'object') ? x : null; }
 function safeStr(x){
   const s = String(x || '');
   return s ? s : '';
-}
-
-function safeISO10(x){
-  const s = safeStr(x);
-  return (s.length >= 10) ? s.slice(0,10) : s;
 }
 
 function safeNum(v){
@@ -272,7 +265,7 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
   if (!rec) return null;
 
   const readinessR = safeInt(rec.readiness);
-  if (!Number.isFinite(readinessR)) return null;
+  if (!Number.isFinite(Number(readinessR))) return null;
 
   const storageCap =
     safeNum(rec.storageMax) ??
@@ -302,8 +295,8 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
     storageFinal: safeNum(rec.storageFinal),
     storageForReadiness: safeNum(rec.storageForReadiness),
     storagePhysFinal: safeNum(rec.storagePhysFinal),
-    surfaceFinal: safeNum(rec.surfaceFinal),
 
+    surfaceFinal: safeNum(rec.surfaceFinal),
     surfaceStorageFinal: safeNum(rec.surfaceFinal),
 
     storageMax: safeNum(rec.storageMax) ?? storageCap,
@@ -335,88 +328,28 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
 }
 
 function normalizePreviewRun(raw, field){
-
-  console.log(
-    "🧪 RAW PREVIEW RESPONSE:",
-    raw
-  );
-
   const r = safeObj(raw) || {};
   const f = field || {};
+  const result = safeObj(r.result) || r;
+  const soil = safeObj(result.soil) || {};
+  const surface = safeObj(result.surface) || {};
+  const factors = safeObj(result.factors) || {};
 
-  // --------------------------------------------
-  // SUPPORT BOTH:
-  //
-  // OLD:
-  // { result: { ... } }
-  //
-  // NEW:
-  // { ok:true, readiness:74, ... }
-  // --------------------------------------------
-  const result =
-    safeObj(r.result) || r;
+  const readinessR =
+    safeInt(result.readinessR) ??
+    safeInt(result.readiness);
 
-  const soil =
-    safeObj(result.soil) || {};
+  const wetnessR =
+    safeInt(result.wetnessR) ??
+    safeInt(result.wetness);
 
-  const surface =
-    safeObj(result.surface) || {};
-
-  const factors =
-    safeObj(result.factors) || {};
-
-  // --------------------------------------------
-  // READINESS
-  // --------------------------------------------
-const readinessR =
-  safeInt(result.readinessR) ??
-  safeInt(result.readiness);
-
-const wetnessR =
-  safeInt(result.wetnessR) ??
-  safeInt(result.wetness);
-
-  console.log(
-    "🧪 NORMALIZED PREVIEW VALUES:",
-    {
-      readinessR,
-      wetnessR,
-      soilWetness:
-        result?.debug?.soilWetness,
-
-      drainageIndex:
-        result?.debug?.drainageIndex
-    }
-  );
-
-  // --------------------------------------------
-  // VALIDATION
-  // --------------------------------------------
-  if (
-    !Number.isFinite(
-      Number(readinessR)
-    )
-  ) {
-
-    console.log(
-      "❌ PREVIEW FAILED NORMALIZATION",
-      result
-    );
-
+  if (!Number.isFinite(Number(readinessR))){
     return {
-      ok: false,
-      error:
-        safeStr(
-          result.error ||
-          r.error ||
-          "Preview did not return readiness"
-        )
+      ok:false,
+      error:safeStr(result.error || r.error || 'Preview did not return readiness')
     };
   }
 
-  // --------------------------------------------
-  // STORAGE VALUES
-  // --------------------------------------------
   const storageFinal =
     safeNum(result.storageFinal) ??
     safeNum(soil.storage);
@@ -431,200 +364,88 @@ const wetnessR =
     safeNum(factors.Smax) ??
     safeNum(soil.Smax);
 
-  // --------------------------------------------
-  // SUCCESS
-  // --------------------------------------------
   return {
+    ok:true,
 
-    ok: true,
+    source:'cloud-run-preview',
+    sourceLabel:'Cloud Run Preview',
 
-    source:
-      "cloud-run-preview",
+    fieldId:safeStr(result.fieldId || r.fieldId || f.id),
+    fieldName:safeStr(result.fieldName || r.fieldName || f.name),
 
-    sourceLabel:
-      "Cloud Run Preview",
-
-    fieldId:
-      safeStr(
-        result.fieldId ||
-        r.fieldId ||
-        f.id
-      ),
-
-    fieldName:
-      safeStr(
-        result.fieldName ||
-        r.fieldName ||
-        f.name
-      ),
-
-    // --------------------------------------------
-    // MAIN OUTPUTS
-    // --------------------------------------------
     readinessR,
-    readiness:
-      readinessR,
+    readiness:readinessR,
 
-    wetnessR:
-      Number.isFinite(wetnessR)
-        ? wetnessR
-        : clamp(
-            100 - readinessR,
-            0,
-            100
-          ),
+    wetnessR:Number.isFinite(Number(wetnessR)) ? wetnessR : clamp(100 - readinessR, 0, 100),
+    wetness:Number.isFinite(Number(wetnessR)) ? wetnessR : clamp(100 - readinessR, 0, 100),
 
-    wetness:
-      Number.isFinite(wetnessR)
-        ? wetnessR
-        : clamp(
-            100 - readinessR,
-            0,
-            100
-          ),
-
-    // --------------------------------------------
-    // MODEL DETAILS
-    // --------------------------------------------
-    baseReadiness:
-      safeNum(result.baseReadiness),
-
-    surfacePenalty:
-      safeNum(result.surfacePenalty),
+    baseReadiness:safeNum(result.baseReadiness),
+    surfacePenalty:safeNum(result.surfacePenalty),
 
     storageFinal,
-
-    storageForReadiness:
-      safeNum(
-        result.storageForReadiness
-      ),
-
-    storagePhysFinal:
-      safeNum(
-        result.storagePhysFinal
-      ),
+    storageForReadiness:safeNum(result.storageForReadiness),
+    storagePhysFinal:safeNum(result.storagePhysFinal),
 
     surfaceFinal,
+    surfaceStorageFinal:surfaceFinal,
 
-    surfaceStorageFinal:
-      surfaceFinal,
+    readinessCreditIn:safeNum(result.readinessCreditIn) ?? 0,
 
-    readinessCreditIn:
-      safeNum(
-        result.readinessCreditIn
-      ) ?? 0,
+    storageMax:smax,
+    storageCapacity:smax,
+    storageMaxFinal:smax,
 
-    // --------------------------------------------
-    // STORAGE CAPACITY
-    // --------------------------------------------
-    storageMax:
-      smax,
+    weatherSource:safeStr(result.weatherSource || result.source || 'farmvista-engine'),
+    seedSource:safeStr(result.seedMode || result.seedSource),
+    runKey:safeStr(result.runKey || 'quickview-preview'),
 
-    storageCapacity:
-      smax,
+    computedAtISO:toIsoFromAny(result.computedAt || new Date().toISOString()),
 
-    storageMaxFinal:
-      smax,
-
-    // --------------------------------------------
-    // META
-    // --------------------------------------------
-    weatherSource:
-      safeStr(
-        result.weatherSource ||
-        result.source ||
-        "farmvista-engine"
-      ),
-
-    seedSource:
-      safeStr(
-        result.seedMode ||
-        result.seedSource
-      ),
-
-    runKey:
-      safeStr(
-        result.runKey ||
-        "quickview-preview"
-      ),
-
-    computedAtISO:
-      toIsoFromAny(
-        result.computedAt ||
-        new Date().toISOString()
-      ),
-
-    // --------------------------------------------
-    // FACTORS
-    // --------------------------------------------
-    factors: {
+    factors:{
       ...(factors || {}),
-      Smax: smax
+      Smax:smax
     },
 
-    // --------------------------------------------
-    // MODEL ARRAYS
-    // --------------------------------------------
-    trace:
-      Array.isArray(result.trace)
-        ? result.trace
-        : [],
+    trace:Array.isArray(result.trace) ? result.trace : [],
+    rows:Array.isArray(result.rows) ? result.rows : [],
 
-    rows:
-      Array.isArray(result.rows)
-        ? result.rows
-        : [],
-
-    // --------------------------------------------
-    // DEBUG
-    // --------------------------------------------
-    debug:
-      safeObj(result.debug) || {},
-
-    _previewRaw:
-      raw
+    debug:safeObj(result.debug) || {},
+    _previewRaw:raw
   };
 }
 
 async function callPreviewEndpoint(state, field, values){
   const fid = safeStr(field && field.id);
-  if (!fid) {
-    return { ok:false, error:'Missing field ID' };
-  }
+  if (!fid) return { ok:false, error:'Missing field ID' };
 
   const soilWetness = clamp(Number(values && values.soilWetness), 0, 100);
   const drainageIndex = clamp(Number(values && values.drainageIndex), 0, 100);
 
-const url =
-  `${PREVIEW_BASE_URL}/preview-readiness` +
-  `?fieldId=${encodeURIComponent(fid)}` +
-  `&soilWetness=${encodeURIComponent(soilWetness)}` +
-  `&drainageIndex=${encodeURIComponent(drainageIndex)}`;
+  const url =
+    `${PREVIEW_BASE_URL}/preview-readiness` +
+    `?fieldId=${encodeURIComponent(fid)}` +
+    `&soilWetness=${encodeURIComponent(soilWetness)}` +
+    `&drainageIndex=${encodeURIComponent(drainageIndex)}`;
 
   const controller = new AbortController();
   const timeout = setTimeout(()=> controller.abort(), 20000);
 
   try{
     const res = await fetch(url, {
-      method: 'GET',
-      mode: 'cors',
-      cache: 'no-store',
-      signal: controller.signal
+      method:'GET',
+      mode:'cors',
+      cache:'no-store',
+      signal:controller.signal
     });
 
     if (!res.ok){
-      return {
-        ok:false,
-        error:`Preview failed (${res.status})`
-      };
+      return { ok:false, error:`Preview failed (${res.status})` };
     }
 
     const json = await res.json();
     const normalized = normalizePreviewRun(json, field);
 
-    if (!normalized.ok){
-      return normalized;
-    }
+    if (!normalized.ok) return normalized;
 
     normalized._previewValues = {
       soilWetness,
@@ -635,7 +456,7 @@ const url =
   }catch(e){
     return {
       ok:false,
-      error: e && e.name === 'AbortError'
+      error:e && e.name === 'AbortError'
         ? 'Preview timed out'
         : (e && e.message ? e.message : String(e || 'Preview failed'))
     };
@@ -1556,6 +1377,7 @@ export function openQuickView(state, fieldId){
   state._qvPreviewRun = null;
   state._qvPreviewError = '';
   state._qvPreviewSeq = 0;
+  state._qvPreviewLoading = false;
 
   if (state._qvPreviewTimer){
     clearTimeout(state._qvPreviewTimer);
@@ -1580,6 +1402,7 @@ export function closeQuickView(state){
   state._qvPreviewValues = null;
   state._qvPreviewRun = null;
   state._qvPreviewError = '';
+  state._qvPreviewLoading = false;
 
   if (state._qvPreviewTimer){
     clearTimeout(state._qvPreviewTimer);
@@ -1731,7 +1554,6 @@ async function fillQuickView(state, { live=false, immediate=false } = {}){
   const latestRun = buildSyntheticRunFromLatest(state, f, latestRec);
 
   const previewMode = !!live || !!state._qvDidAdjust;
-
   let previewRun = state._qvPreviewRun || null;
 
   if (previewMode && immediate){
@@ -1749,42 +1571,15 @@ async function fillQuickView(state, { live=false, immediate=false } = {}){
 
     state._qvPreviewLoading = false;
 
-if (res && res.ok){
-
-  previewRun = res;
-
-  state._qvPreviewRun = res;
-
-  // ✅ CLEAR OLD FAILURES
-  state._qvPreviewError = '';
-
-  // ✅ CLEAR OLD LOADING FLAG
-  state._qvPreviewLoading = false;
-
-  console.log(
-    "✅ PREVIEW SUCCESS",
-    {
-      readiness: res.readinessR,
-      wetness: res.wetnessR
+    if (res && res.ok){
+      previewRun = res;
+      state._qvPreviewRun = res;
+      state._qvPreviewError = '';
+    } else {
+      previewRun = null;
+      state._qvPreviewRun = null;
+      state._qvPreviewError = res && res.error ? res.error : 'Preview failed';
     }
-  );
-
-} else {
-
-  previewRun = null;
-
-  state._qvPreviewRun = null;
-
-  state._qvPreviewError =
-    res && res.error
-      ? res.error
-      : 'Preview failed';
-
-  console.log(
-    "❌ PREVIEW FAILED",
-    res
-  );
-}
   }
 
   const displayRun =
@@ -1810,7 +1605,7 @@ if (res && res.ok){
 
     if (previewMode && state._qvPreviewLoading) sourceTag = 'Live preview calculating';
     else if (previewMode && previewRun) sourceTag = 'Live preview';
-    else if (previewMode && state._qvPreviewError) sourceTag = 'Preview unavailable';
+    else if (previewMode && state._qvPreviewError && !previewRun) sourceTag = 'Preview unavailable';
     else if (!latestRun) sourceTag = 'No centralized readiness';
 
     sub.textContent = farmName ? `${farmName} • ${sourceTag}` : sourceTag;
@@ -1843,81 +1638,22 @@ if (res && res.ok){
   const inputsPanel = $('frQvInputsPanel');
 
   if (!canEdit(state)){
-
-    if (hint){
-      hint.textContent =
-        'View only. You do not have edit permission.';
-    }
-
-    if (saveBtn){
-      saveBtn.disabled = true;
-    }
-
-    if (inputsPanel){
-      inputsPanel.style.opacity = '0.75';
-    }
-
+    if (hint) hint.textContent = 'View only. You do not have edit permission.';
+    if (saveBtn) saveBtn.disabled = true;
+    if (inputsPanel) inputsPanel.style.opacity = '0.75';
   } else {
-
-    // --------------------------------------------
-    // LIVE PREVIEW LOADING
-    // --------------------------------------------
-    if (
-      previewMode &&
-      state._qvPreviewLoading
-    ){
-
-      if (hint){
-        hint.textContent =
-          'Calculating live preview…';
-      }
-
-    // --------------------------------------------
-    // ONLY SHOW FAILURE
-    // IF THERE IS NO VALID PREVIEW
-    // --------------------------------------------
-    } else if (
-      previewMode &&
-      state._qvPreviewError &&
-      !previewRun
-    ){
-
-      if (hint){
-        hint.textContent =
-          `Preview failed: ${state._qvPreviewError}`;
-      }
-
-    // --------------------------------------------
-    // SUCCESSFUL LIVE PREVIEW
-    // --------------------------------------------
-    } else if (
-      previewMode &&
-      previewRun
-    ){
-
-      if (hint){
-        hint.textContent =
-          'Live preview only. Save & Close writes these slider settings.';
-      }
-
-    // --------------------------------------------
-    // DEFAULT
-    // --------------------------------------------
+    if (previewMode && state._qvPreviewLoading){
+      if (hint) hint.textContent = 'Calculating live preview…';
+    } else if (previewMode && state._qvPreviewError && !previewRun){
+      if (hint) hint.textContent = `Preview failed: ${state._qvPreviewError}`;
+    } else if (previewMode && previewRun){
+      if (hint) hint.textContent = 'Live preview only. Save & Close writes these slider settings.';
     } else {
-
-      if (hint){
-        hint.textContent =
-          'Move sliders to preview readiness live. Save & Close updates Firestore.';
-      }
+      if (hint) hint.textContent = 'Move sliders to preview readiness live. Save & Close updates Firestore.';
     }
 
-    if (saveBtn){
-      saveBtn.disabled = false;
-    }
-
-    if (inputsPanel){
-      inputsPanel.style.opacity = '1';
-    }
+    if (saveBtn) saveBtn.disabled = false;
+    if (inputsPanel) inputsPanel.style.opacity = '1';
   }
 
   setText(
@@ -2130,6 +1866,7 @@ async function saveAndClose(state){
     state._qvPreviewValues = null;
     state._qvPreviewRun = null;
     state._qvPreviewError = '';
+    state._qvPreviewLoading = false;
 
     try{
       document.dispatchEvent(
