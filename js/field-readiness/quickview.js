@@ -429,11 +429,11 @@ async function callPreviewEndpoint(state, field, values){
   const soilWetness = clamp(Number(values && values.soilWetness), 0, 100);
   const drainageIndex = clamp(Number(values && values.drainageIndex), 0, 100);
 
-  const url =
-    `${PREVIEW_BASE_URL}/preview` +
-    `?fieldId=${encodeURIComponent(fid)}` +
-    `&soilWetness=${encodeURIComponent(soilWetness)}` +
-    `&drainageIndex=${encodeURIComponent(drainageIndex)}`;
+const url =
+  `${PREVIEW_BASE_URL}/preview-readiness` +
+  `?fieldId=${encodeURIComponent(fid)}` +
+  `&soilWetness=${encodeURIComponent(soilWetness)}` +
+  `&drainageIndex=${encodeURIComponent(drainageIndex)}`;
 
   const controller = new AbortController();
   const timeout = setTimeout(()=> controller.abort(), 20000);
