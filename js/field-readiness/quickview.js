@@ -328,9 +328,16 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
 }
 
 function normalizePreviewRun(raw, field){
-  const r = safeObj(raw) || {};
-  const f = field || {};
-  const result = safeObj(r.result) || r;
+const r = safeObj(raw) || {};
+const f = field || {};
+
+// --------------------------------------------
+// SUPPORT MULTIPLE PAYLOAD SHAPES
+// --------------------------------------------
+const result =
+  safeObj(r.result) ||
+  safeObj(r.preview) ||
+  r;
   const soil = safeObj(result.soil) || {};
   const surface = safeObj(result.surface) || {};
   const factors = safeObj(result.factors) || {};
