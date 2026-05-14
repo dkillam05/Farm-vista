@@ -479,14 +479,24 @@ if (!normalized || !normalized.ok){
     };
 
     return normalized;
-  }catch(e){
-    return {
-      ok:false,
-      error:e && e.name === 'AbortError'
-        ? 'Preview timed out'
-        : (e && e.message ? e.message : String(e || 'Preview failed'))
-    };
-  }finally{
+}catch(e){
+
+  const msg =
+    e && e.name === 'AbortError'
+      ? 'Preview timed out'
+      : (
+          e && e.message
+            ? e.message
+            : String(e || 'Preview failed')
+        );
+
+  return {
+    ok:false,
+    error:
+      `FETCH FAILED | url=${url} | name=${e && e.name ? e.name : 'none'} | message=${msg}`
+  };
+
+}finally{
     clearTimeout(timeout);
   }
 }
