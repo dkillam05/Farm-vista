@@ -335,14 +335,39 @@ function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
 }
 
 function normalizePreviewRun(raw, field){
+
+  console.log(
+    "🧪 RAW PREVIEW RESPONSE:",
+    raw
+  );
+
   const r = safeObj(raw) || {};
   const f = field || {};
 
-  const result = safeObj(r.result) || r;
-  const soil = safeObj(result.soil) || {};
-  const surface = safeObj(result.surface) || {};
-  const factors = safeObj(result.factors) || {};
+  // --------------------------------------------
+  // SUPPORT BOTH:
+  //
+  // OLD:
+  // { result: { ... } }
+  //
+  // NEW:
+  // { ok:true, readiness:74, ... }
+  // --------------------------------------------
+  const result =
+    safeObj(r.result) || r;
 
+  const soil =
+    safeObj(result.soil) || {};
+
+  const surface =
+    safeObj(result.surface) || {};
+
+  const factors =
+    safeObj(result.factors) || {};
+
+  // --------------------------------------------
+  // READINESS
+  // --------------------------------------------
   const readinessR =
     safeInt(result.readiness) ??
     safeInt(result.readinessR);
@@ -351,13 +376,47 @@ function normalizePreviewRun(raw, field){
     safeInt(result.wetness) ??
     safeInt(result.wetnessR);
 
-  if (!Number.isFinite(readinessR)) {
+  console.log(
+    "🧪 NORMALIZED PREVIEW VALUES:",
+    {
+      readinessR,
+      wetnessR,
+      soilWetness:
+        result?.debug?.soilWetness,
+
+      drainageIndex:
+        result?.debug?.drainageIndex
+    }
+  );
+
+  // --------------------------------------------
+  // VALIDATION
+  // --------------------------------------------
+  if (
+    !Number.isFinite(
+      Number(readinessR)
+    )
+  ) {
+
+    console.log(
+      "❌ PREVIEW FAILED NORMALIZATION",
+      result
+    );
+
     return {
       ok: false,
-      error: safeStr(result.error || r.error || 'Preview did not return readiness')
+      error:
+        safeStr(
+          result.error ||
+          r.error ||
+          "Preview did not return readiness"
+        )
     };
   }
 
+  // --------------------------------------------
+  // STORAGE VALUES
+  // --------------------------------------------
   const storageFinal =
     safeNum(result.storageFinal) ??
     safeNum(soil.storage);
@@ -372,51 +431,158 @@ function normalizePreviewRun(raw, field){
     safeNum(factors.Smax) ??
     safeNum(soil.Smax);
 
+  // --------------------------------------------
+  // SUCCESS
+  // --------------------------------------------
   return {
+
     ok: true,
-    source: 'cloud-run-preview',
-    sourceLabel: 'Cloud Run Preview',
 
-    fieldId: safeStr(result.fieldId || r.fieldId || f.id),
-    fieldName: safeStr(result.fieldName || r.fieldName || f.name),
+    source:
+      "cloud-run-preview",
 
+    sourceLabel:
+      "Cloud Run Preview",
+
+    fieldId:
+      safeStr(
+        result.fieldId ||
+        r.fieldId ||
+        f.id
+      ),
+
+    fieldName:
+      safeStr(
+        result.fieldName ||
+        r.fieldName ||
+        f.name
+      ),
+
+    // --------------------------------------------
+    // MAIN OUTPUTS
+    // --------------------------------------------
     readinessR,
-    readiness: readinessR,
+    readiness:
+      readinessR,
 
-    wetnessR: Number.isFinite(wetnessR) ? wetnessR : clamp(100 - readinessR, 0, 100),
-    wetness: Number.isFinite(wetnessR) ? wetnessR : clamp(100 - readinessR, 0, 100),
+    wetnessR:
+      Number.isFinite(wetnessR)
+        ? wetnessR
+        : clamp(
+            100 - readinessR,
+            0,
+            100
+          ),
 
-    baseReadiness: safeNum(result.baseReadiness),
-    surfacePenalty: safeNum(result.surfacePenalty),
+    wetness:
+      Number.isFinite(wetnessR)
+        ? wetnessR
+        : clamp(
+            100 - readinessR,
+            0,
+            100
+          ),
+
+    // --------------------------------------------
+    // MODEL DETAILS
+    // --------------------------------------------
+    baseReadiness:
+      safeNum(result.baseReadiness),
+
+    surfacePenalty:
+      safeNum(result.surfacePenalty),
 
     storageFinal,
-    storageForReadiness: safeNum(result.storageForReadiness),
-    storagePhysFinal: safeNum(result.storagePhysFinal),
+
+    storageForReadiness:
+      safeNum(
+        result.storageForReadiness
+      ),
+
+    storagePhysFinal:
+      safeNum(
+        result.storagePhysFinal
+      ),
+
     surfaceFinal,
-    surfaceStorageFinal: surfaceFinal,
 
-    readinessCreditIn: safeNum(result.readinessCreditIn) ?? 0,
+    surfaceStorageFinal:
+      surfaceFinal,
 
-    storageMax: smax,
-    storageCapacity: smax,
-    storageMaxFinal: smax,
+    readinessCreditIn:
+      safeNum(
+        result.readinessCreditIn
+      ) ?? 0,
 
-    weatherSource: safeStr(result.weatherSource || result.source || 'farmvista-engine'),
-    seedSource: safeStr(result.seedMode || result.seedSource),
-    runKey: safeStr(result.runKey || 'quickview-preview'),
+    // --------------------------------------------
+    // STORAGE CAPACITY
+    // --------------------------------------------
+    storageMax:
+      smax,
 
-    computedAtISO: toIsoFromAny(result.computedAt || new Date().toISOString()),
+    storageCapacity:
+      smax,
 
+    storageMaxFinal:
+      smax,
+
+    // --------------------------------------------
+    // META
+    // --------------------------------------------
+    weatherSource:
+      safeStr(
+        result.weatherSource ||
+        result.source ||
+        "farmvista-engine"
+      ),
+
+    seedSource:
+      safeStr(
+        result.seedMode ||
+        result.seedSource
+      ),
+
+    runKey:
+      safeStr(
+        result.runKey ||
+        "quickview-preview"
+      ),
+
+    computedAtISO:
+      toIsoFromAny(
+        result.computedAt ||
+        new Date().toISOString()
+      ),
+
+    // --------------------------------------------
+    // FACTORS
+    // --------------------------------------------
     factors: {
       ...(factors || {}),
       Smax: smax
     },
 
-    trace: Array.isArray(result.trace) ? result.trace : [],
-    rows: Array.isArray(result.rows) ? result.rows : [],
+    // --------------------------------------------
+    // MODEL ARRAYS
+    // --------------------------------------------
+    trace:
+      Array.isArray(result.trace)
+        ? result.trace
+        : [],
 
-    debug: safeObj(result.debug) || {},
-    _previewRaw: raw
+    rows:
+      Array.isArray(result.rows)
+        ? result.rows
+        : [],
+
+    // --------------------------------------------
+    // DEBUG
+    // --------------------------------------------
+    debug:
+      safeObj(result.debug) || {},
+
+    _previewRaw:
+      raw
   };
 }
 
