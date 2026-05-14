@@ -1,6 +1,6 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
-Rev: 2026-05-13-field-conditions-current-read-preview-fixed
+Rev: 2026-05-13-field-conditions-current-read-preview-state-override
 
 GOAL (per Dane, Feb 2026):
 ✅ Make Quick View readiness MATCH centralized app readiness
@@ -17,8 +17,8 @@ THIS REV:
 ✅ Keeps old field_readiness_latest compatibility
 ✅ Slider movement is PREVIEW ONLY
 ✅ Save & Close is the only place slider settings are committed
-✅ Live preview uses temporary slider values in runFieldReadiness(...)
-✅ Fixes duplicate depsTruth / pRaw ordering issue
+✅ Live preview temporarily overrides state.perFieldParams for formula.js
+✅ Does NOT save temporary preview values to localStorage or Firestore
 ✅ Keeps full original Quick View structure intact
 
 ===================================================================== */
@@ -694,6 +694,47 @@ function getSurfaceWetnessDisplay(run){
     return { value };
   }catch(_){
     return { value:null };
+  }
+}
+
+async function runReadinessWithTemporaryParams(state, field, params, opts){
+  const fid = String(field && field.id || '');
+  const hadMap = !!(state && state.perFieldParams && typeof state.perFieldParams.get === 'function');
+  const oldParams = hadMap ? state.perFieldParams.get(fid) : undefined;
+
+  const oldSoilWetness = field ? field.soilWetness : undefined;
+  const oldDrainageIndex = field ? field.drainageIndex : undefined;
+
+  try{
+    if (hadMap){
+      state.perFieldParams.set(fid, {
+        ...(oldParams || {}),
+        ...(params || {})
+      });
+    }
+
+    if (field && params){
+      field.soilWetness = params.soilWetness;
+      field.drainageIndex = params.drainageIndex;
+    }
+
+    const previewField = {
+      ...(field || {}),
+      soilWetness: params && params.soilWetness,
+      drainageIndex: params && params.drainageIndex
+    };
+
+    return await runFieldReadiness(state, previewField, opts || {});
+  }finally{
+    if (hadMap){
+      if (oldParams === undefined) state.perFieldParams.delete(fid);
+      else state.perFieldParams.set(fid, oldParams);
+    }
+
+    if (field){
+      field.soilWetness = oldSoilWetness;
+      field.drainageIndex = oldDrainageIndex;
+    }
   }
 }
 
@@ -1434,17 +1475,17 @@ async function fillQuickView(state, { live=false } = {}){
         }
       : savedParams;
 
+  const runTruth = await runReadinessWithTemporaryParams(state, f, pRaw, {
+    opKey,
+    wxCtx,
+    persistedGetter: id => getPersistedStateForDeps(state, id)
+  });
+
   const previewField = {
     ...f,
     soilWetness: pRaw.soilWetness,
     drainageIndex: pRaw.drainageIndex
   };
-
-  const runTruth = await runFieldReadiness(state, previewField, {
-    opKey,
-    wxCtx,
-    persistedGetter: id => getPersistedStateForDeps(state, id)
-  });
 
   const latestRec = getLatestReadinessForField(state, fid);
   const latestRun = buildSyntheticRunFromLatest(state, f, latestRec);
@@ -1734,11 +1775,11 @@ async function saveAndClose(state){
       drainageIndex
     };
 
-const runTruth = await runFieldReadiness(state, savedField, {
-  opKey,
-  wxCtx,
-  persistedGetter: (id)=> getPersistedStateForDeps(state, id)
-});
+    const runTruth = await runFieldReadiness(state, savedField, {
+      opKey,
+      wxCtx,
+      persistedGetter: id => getPersistedStateForDeps(state, id)
+    });
 
     await persistLatestReadinessForField(state, savedField, runTruth);
 
