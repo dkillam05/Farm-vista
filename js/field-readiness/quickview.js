@@ -342,9 +342,17 @@ const result =
   const surface = safeObj(result.surface) || {};
   const factors = safeObj(result.factors) || {};
 
-  const readinessR =
-    safeInt(result.readinessR) ??
-    safeInt(result.readiness);
+const readinessR =
+  safeInt(result.readinessR) ??
+  safeInt(result.readiness);
+
+console.log('🧪 NORMALIZED PREVIEW VALUES', {
+  raw,
+  result,
+  readiness: result.readiness,
+  readinessR: result.readinessR,
+  parsedReadinessR: readinessR
+});
 
   const wetnessR =
     safeInt(result.wetnessR) ??
@@ -1578,26 +1586,39 @@ async function fillQuickView(state, { live=false, immediate=false } = {}){
 
     state._qvPreviewLoading = false;
 
-    if (res && res.ok){
-      previewRun = res;
-      state._qvPreviewRun = res;
-      state._qvPreviewError = '';
-    } else {
-      previewRun = null;
-      state._qvPreviewRun = null;
-      state._qvPreviewError = res && res.error ? res.error : 'Preview failed';
-    }
-  }
+ if (res && res.ok){
 
-  const displayRun =
-    previewMode
-      ? (previewRun || latestRun)
-      : latestRun;
+  console.log('✅ PREVIEW SUCCESS', {
+    readiness: res.readinessR,
+    wetness: res.wetnessR,
+    storage: res.storageFinal
+  });
 
-  const farmName =
-    (latestRec && latestRec.farmName) ||
-    state.farmsById.get(f.farmId) ||
-    '';
+  previewRun = res;
+  state._qvPreviewRun = res;
+  state._qvPreviewError = '';
+
+} else {
+
+  console.error('❌ PREVIEW FAILED', res);
+
+  previewRun = null;
+  state._qvPreviewRun = null;
+  state._qvPreviewError =
+    res && res.error
+      ? res.error
+      : 'Preview failed';
+}
+
+const displayRun =
+  previewMode
+    ? (previewRun || latestRun)
+    : latestRun;
+
+const farmName =
+  (latestRec && latestRec.farmName) ||
+  state.farmsById.get(f.farmId) ||
+  '';
 
   const opLabel = (OPS.find(o=>o.key===opKey)?.label) || opKey;
   const thr = getThresholdForOp(state, opKey);
