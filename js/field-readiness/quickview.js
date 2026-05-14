@@ -1630,10 +1630,13 @@ if (previewMode && immediate){
   }
 }
 
-const displayRun =
-  previewMode
-    ? (previewRun || latestRun)
-    : latestRun;
+const displayRun = previewRun || latestRun;
+
+console.log('🧪 DISPLAY RUN', displayRun);
+
+if (previewRun && Number.isFinite(Number(previewRun.readinessR))){
+  setText('frQvReadiness', previewRun.readinessR);
+}
 
 const farmName =
   (latestRec && latestRec.farmName) ||
