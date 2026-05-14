@@ -458,9 +458,20 @@ async function callPreviewEndpoint(state, field, values){
     }
 
     const json = await res.json();
-    const normalized = normalizePreviewRun(json, field);
+const normalized = normalizePreviewRun(json, field);
 
-    if (!normalized.ok) return normalized;
+console.log('🧪 RAW PREVIEW RESPONSE', json);
+console.log('🧪 NORMALIZED RESPONSE', normalized);
+
+if (!normalized || !normalized.ok){
+  return {
+    ok:false,
+    error:
+      normalized && normalized.error
+        ? normalized.error
+        : 'Normalization failed'
+  };
+}
 
     normalized._previewValues = {
       soilWetness,
