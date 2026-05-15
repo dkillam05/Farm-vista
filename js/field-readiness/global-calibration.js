@@ -719,35 +719,35 @@ function updatePills(
             : '—'
         );
 
-  setText(
-    'adjReadiness',
-    shownReadiness
-  );
+setText(
+  'adjReadiness',
+  shownReadiness
+);
 
-  setText(
-    'adjWetness',
-    shownWetness
-  );
+setText(
+  'adjWetness',
+  shownWetness
+);
 
-  setText(
-    'adjSoil',
-    shownSoil === '—'
-      ? '—'
-      : `${shownSoil}/100`
-  );
+setText(
+  'adjModelClass',
+  (state._adjStatus || '—')
+    .toUpperCase()
+);
 
-  setText(
-    'adjDrain',
-    shownDrain === '—'
-      ? '—'
-      : `${shownDrain}/100`
-  );
+const soilWrap =
+  $('adjSoil')?.closest('.pill');
 
-  setText(
-    'adjModelClass',
-    (state._adjStatus || '—')
-      .toUpperCase()
-  );
+if (soilWrap){
+  soilWrap.style.display = 'none';
+}
+
+const drainWrap =
+  $('adjDrain')?.closest('.pill');
+
+if (drainWrap){
+  drainWrap.style.display = 'none';
+}
 
   const thrEl =
     $('adjThreshold');
