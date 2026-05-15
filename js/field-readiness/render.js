@@ -1,11 +1,14 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/render.js
-Rev: 2026-05-clean-field-conditions-current-grouped-details
+Rev: 2026-05-15-backend-eta-days-tiles
 
 PURPOSE:
-✅ Tiles read ONLY field_conditions_current
+✅ Tiles read ONLY field_conditions_current for readiness
+✅ Tiles read daily subcollection for backend ETA buckets
 ✅ No browser-side readiness recompute
-✅ No state.lastRuns overwrite loop
+✅ No frontend weather/soil ETA physics
+✅ ETA uses backend eta.etaDays only
+✅ ETA text click opens eta-helper popup
 ✅ Details read selected field daily subcollection
 ✅ Keep same public exports used by index.js
 ✅ Keep threshold/gauge UI behavior
@@ -27,7 +30,6 @@ import { initSwipeOnTiles } from './swipe.js';
 import { parseRangeFromInput, mrmsRainInRange } from './rain.js';
 import { fetchAndHydrateFieldParams, loadFieldMrmsDoc } from './data.js';
 import { getAPI } from './firebase.js';
-import { ensureFRModules } from './formula.js';
 
 const FIELD_CONDITIONS_COLLECTION = 'field_conditions_current';
 const DAILY_SUBCOLLECTION = 'daily';
@@ -35,6 +37,7 @@ const FIELD_SEARCH_INPUT_ID = 'fieldSearch';
 const READINESS_TTL_MS = 30000;
 const DAILY_TTL_MS = 30000;
 const ETA_UNAVAILABLE_TEXT = 'ETA can not be calculated at this time';
+const ETA_HORIZON_HOURS = 168;
 
 /* =====================================================================
    BASIC HELPERS
@@ -56,6 +59,13 @@ function safeNum(v, fallback = null){
 function safeInt(v, fallback = null){
   const n = Number(v);
   return Number.isFinite(n) ? Math.round(n) : fallback;
+}
+
+function round(v, d = 2){
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  const p = Math.pow(10, d);
+  return Math.round(n * p) / p;
 }
 
 function toIsoFromAny(v){
@@ -310,6 +320,151 @@ function getCurrentRecord(state, fieldId){
 }
 
 /* =====================================================================
+   BACKEND ETA HELPERS
+===================================================================== */
+function getEtaFromDailyRows(rows){
+  const today = todayISOChicago();
+  const arr = Array.isArray(rows) ? rows : [];
+
+  const todayRow =
+    arr.find(r => String(r.dateISO || '') === today);
+
+  const etaToday =
+    safeObj(todayRow?._raw?.eta) ||
+    safeObj(todayRow?.eta);
+
+  if (
+    etaToday &&
+    Array.isArray(etaToday.etaDays) &&
+    etaToday.etaDays.length
+  ){
+    return etaToday;
+  }
+
+  const latestWithEta = arr
+    .filter(r=>{
+      const e =
+        safeObj(r?._raw?.eta) ||
+        safeObj(r?.eta);
+
+      return e &&
+        Array.isArray(e.etaDays) &&
+        e.etaDays.length;
+    })
+    .sort((a, b)=> String(b.dateISO).localeCompare(String(a.dateISO)))[0];
+
+  return (
+    safeObj(latestWithEta?._raw?.eta) ||
+    safeObj(latestWithEta?.eta) ||
+    null
+  );
+}
+
+function calculateEtaFromDays({
+  readinessNow,
+  threshold,
+  etaDays,
+  horizonHours = ETA_HORIZON_HOURS
+}){
+  const rNow = safeNum(readinessNow);
+  const thr = safeNum(threshold);
+
+  if (rNow === null || thr === null){
+    return {
+      ok:false,
+      status:'missing_inputs',
+      text:ETA_UNAVAILABLE_TEXT,
+      hours:null
+    };
+  }
+
+  if (rNow >= thr){
+    return {
+      ok:true,
+      status:'ready_now',
+      text:'',
+      hours:0
+    };
+  }
+
+  const days = Array.isArray(etaDays) ? etaDays : [];
+
+  if (!days.length){
+    return {
+      ok:false,
+      status:'missing_eta_days',
+      text:ETA_UNAVAILABLE_TEXT,
+      hours:null
+    };
+  }
+
+  let runningReadiness = rNow;
+  let elapsedHours = 0;
+
+  for (const day of days){
+    const gain = safeNum(day?.readinessGain, 0);
+    const hours = safeNum(day?.hours, 24);
+    const rate = safeNum(day?.drydownPointsPerHour, null);
+
+    if (
+      gain > 0 &&
+      rate !== null &&
+      rate > 0 &&
+      runningReadiness + gain >= thr
+    ){
+      const needed = thr - runningReadiness;
+      const partialHours = needed / rate;
+      const totalHours = elapsedHours + partialHours;
+
+      if (totalHours > horizonHours){
+        return {
+          ok:false,
+          status:'beyond_horizon',
+          text:`>${Math.round(horizonHours)}h`,
+          hours:horizonHours
+        };
+      }
+
+      return {
+        ok:true,
+        status:'reaches_threshold',
+        text:`~${Math.max(0, Math.round(totalHours))}h`,
+        hours:totalHours
+      };
+    }
+
+    runningReadiness += gain;
+    runningReadiness = clamp(runningReadiness, 0, 100);
+    elapsedHours += hours;
+  }
+
+  return {
+    ok:false,
+    status:'not_reached',
+    text:`>${Math.round(horizonHours)}h`,
+    hours:null
+  };
+}
+
+function getTileEtaInfo(rows, readiness, threshold){
+  const eta = getEtaFromDailyRows(rows);
+  const etaDays = Array.isArray(eta?.etaDays) ? eta.etaDays : [];
+
+  const calc = calculateEtaFromDays({
+    readinessNow: readiness,
+    threshold,
+    etaDays,
+    horizonHours: ETA_HORIZON_HOURS
+  });
+
+  return {
+    eta,
+    etaDays,
+    ...calc
+  };
+}
+
+/* =====================================================================
    DAILY SUBCOLLECTION LOADER
 ===================================================================== */
 function normalizeDailyDoc(raw, fallbackDate){
@@ -318,12 +473,15 @@ function normalizeDailyDoc(raw, fallbackDate){
   const trace = safeObj(d.trace) || {};
   const dry = safeObj(d.dryPwrBreakdown) || {};
   const final = safeObj(d.final) || {};
+  const eta = safeObj(d.eta) || {};
 
   const dateISO = safeStr(d.dateISO || fallbackDate);
   if (!dateISO) return null;
 
   return {
     dateISO,
+
+    eta,
 
     weather: {
       rainSource: safeStr(weather.rainSource),
@@ -702,68 +860,28 @@ function buildWaitingTile(f, state, thr){
   const tile = document.createElement('div');
   tile.className = 'tile fv-swipe-item';
   tile.style.transition =
-  'transform .16s ease, box-shadow .16s ease, border-color .16s ease';
-
-if (String(state.selectedFieldId) === String(f.id)){
-
-  tile.classList.add('fv-selected');
-
-  tile.style.border =
-    '2px solid rgba(46,125,50,.95)';
-
-  tile.style.boxShadow =
-    '0 0 0 2px rgba(46,125,50,.14)';
-
-  tile.style.transform =
-    'translateY(-2px)';
-}
-  tile.dataset.fieldId = f.id;
-  tile.setAttribute('data-field-id', f.id);
+    'transform .16s ease, box-shadow .16s ease, border-color .16s ease';
 
   if (String(state.selectedFieldId) === String(f.id)){
     tile.classList.add('fv-selected');
+    tile.style.border = '2px solid rgba(46,125,50,.95)';
+    tile.style.boxShadow = '0 0 0 2px rgba(46,125,50,.14)';
+    tile.style.transform = 'translateY(-2px)';
   }
+
+  tile.dataset.fieldId = f.id;
+  tile.setAttribute('data-field-id', f.id);
 
   const grad = gradientForThreshold(thr);
   const thrPos = markerLeftCSS(thr);
 
   tile.innerHTML = `
-    <div
-      class="tile-top"
-      style="
-        display:flex;
-        align-items:center;
-        justify-content:space-between;
-        flex-wrap:nowrap;
-        gap:10px;
-        width:100%;
-        min-width:0;
-      "
-    >
-      <div
-        class="name"
-        title="${esc(f.name || 'Field')}"
-        style="
-          flex:1 1 auto;
-          min-width:0;
-          overflow:hidden;
-          text-overflow:ellipsis;
-          white-space:nowrap;
-          font-weight:900;
-        "
-      >
+    <div class="tile-top" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:nowrap;gap:10px;width:100%;min-width:0;">
+      <div class="name" title="${esc(f.name || 'Field')}" style="flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:900;">
         ${esc(f.name || 'Field')}
       </div>
 
-      <div
-        class="readiness-pill"
-        style="
-          background:color-mix(in srgb, var(--surface) 86%, #8b949e 14%);
-          color:var(--text);
-          flex:0 0 auto;
-          white-space:nowrap;
-        "
-      >
+      <div class="readiness-pill" style="background:color-mix(in srgb, var(--surface) 86%, #8b949e 14%);color:var(--text);flex:0 0 auto;white-space:nowrap;">
         Field Readiness —
       </div>
     </div>
@@ -778,25 +896,11 @@ if (String(state.selectedFieldId) === String(f.id)){
         <div class="chip readiness">Readiness</div>
       </div>
 
-      <div
-        class="gauge"
-        style="background:${grad};opacity:.82;"
-      >
+      <div class="gauge" style="background:${grad};opacity:.82;">
         <div class="thr" style="left:${thrPos};"></div>
+        <div class="marker" style="left:50%;opacity:.45;"></div>
 
-        <div
-          class="marker"
-          style="left:50%;opacity:.45;"
-        ></div>
-
-        <div
-          class="badge"
-          style="
-            left:50%;
-            background:color-mix(in srgb, var(--surface) 88%, #8b949e 12%);
-            color:var(--text);
-          "
-        >
+        <div class="badge" style="left:50%;background:color-mix(in srgb, var(--surface) 88%, #8b949e 12%);color:var(--text);">
           Loading…
         </div>
       </div>
@@ -808,7 +912,7 @@ if (String(state.selectedFieldId) === String(f.id)){
   return tile;
 }
 
-function buildReadyTile(f, state, rec, rainText, thr){
+function buildReadyTile(f, state, rec, rainText, thr, etaInfo, opKey){
   const readiness = safeInt(rec.readiness, 0);
   const leftPos = markerLeftCSS(readiness);
   const thrPos = markerLeftCSS(thr);
@@ -829,45 +933,15 @@ function buildReadyTile(f, state, rec, rainText, thr){
   const etaText =
     Number(readiness) >= Number(thr)
       ? ''
-      : ETA_UNAVAILABLE_TEXT;
+      : safeStr(etaInfo?.text || ETA_UNAVAILABLE_TEXT);
 
   tile.innerHTML = `
-    <div
-      class="tile-top"
-      style="
-        display:flex;
-        align-items:center;
-        justify-content:space-between;
-        flex-wrap:nowrap;
-        gap:10px;
-        width:100%;
-        min-width:0;
-      "
-    >
-      <div
-        class="name"
-        title="${esc(getFieldName(f, rec))}"
-        style="
-          flex:1 1 auto;
-          min-width:0;
-          overflow:hidden;
-          text-overflow:ellipsis;
-          white-space:nowrap;
-          font-weight:900;
-        "
-      >
+    <div class="tile-top" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:nowrap;gap:10px;width:100%;min-width:0;">
+      <div class="name" title="${esc(getFieldName(f, rec))}" style="flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:900;">
         ${esc(getFieldName(f, rec))}
       </div>
 
-      <div
-        class="readiness-pill"
-        style="
-          background:${pillBg};
-          color:#fff;
-          flex:0 0 auto;
-          white-space:nowrap;
-        "
-      >
+      <div class="readiness-pill" style="background:${pillBg};color:#fff;flex:0 0 auto;white-space:nowrap;">
         Field Readiness ${readiness}
       </div>
     </div>
@@ -882,26 +956,11 @@ function buildReadyTile(f, state, rec, rainText, thr){
         <div class="chip readiness">Readiness</div>
       </div>
 
-      <div
-        class="gauge"
-        style="background:${grad};"
-      >
+      <div class="gauge" style="background:${grad};">
         <div class="thr" style="left:${thrPos};"></div>
+        <div class="marker" style="left:${leftPos};"></div>
 
-        <div
-          class="marker"
-          style="left:${leftPos};"
-        ></div>
-
-        <div
-          class="badge"
-          style="
-            left:${leftPos};
-            background:${pillBg};
-            color:#fff;
-            border:1px solid rgba(255,255,255,.18);
-          "
-        >
+        <div class="badge" style="left:${leftPos};background:${pillBg};color:#fff;border:1px solid rgba(255,255,255,.18);">
           Field Readiness ${readiness}
         </div>
       </div>
@@ -910,24 +969,61 @@ function buildReadyTile(f, state, rec, rainText, thr){
         ${
           etaText
             ? `
-              <div
-                class="etaText"
+              <button
+                class="etaText fvEtaHelpBtn"
+                type="button"
+                data-field-id="${esc(f.id)}"
                 style="
                   margin-top:8px;
                   font-size:12px;
-                  opacity:.78;
+                  opacity:.86;
                   text-align:center;
                   color:var(--text);
+                  background:transparent;
+                  border:0;
+                  padding:0;
+                  width:100%;
+                  cursor:pointer;
+                  text-decoration:underline;
+                  text-underline-offset:3px;
                 "
               >
                 ${esc(etaText)}
-              </div>
+              </button>
             `
             : ''
         }
       </div>
     </div>
   `;
+
+  const etaBtn = tile.querySelector('.fvEtaHelpBtn');
+
+  if (etaBtn){
+    etaBtn.addEventListener('click', e=>{
+      e.preventDefault();
+      e.stopPropagation();
+
+      try{
+        document.dispatchEvent(
+          new CustomEvent('fr:eta-help', {
+            detail:{
+              fieldId:f.id,
+              fieldName:getFieldName(f, rec),
+              opKey,
+              threshold:thr,
+              readinessNow:readiness,
+              etaText,
+              horizonHours:ETA_HORIZON_HOURS,
+              etaDays:Array.isArray(etaInfo?.etaDays) ? etaInfo.etaDays : []
+            }
+          })
+        );
+      }catch(err){
+        console.warn('[FieldReadiness] ETA helper dispatch failed:', err);
+      }
+    });
+  }
 
   return tile;
 }
@@ -1060,37 +1156,13 @@ function renderTraceRows(tbody, rowsOrGroups, type){
           : null;
 
       tr.innerHTML = `
-        <td class="mono">
-          ${esc(r.dateISO)}
-        </td>
-
-        <td class="right mono">
-          ${Number(r.weather.rainUsedInMath ?? 0).toFixed(2)}
-        </td>
-
-        <td class="right mono">
-          ${
-            infilMult != null
-              ? infilMult.toFixed(3)
-              : '—'
-          }
-        </td>
-
-        <td class="right mono">
-          ${Number(add ?? 0).toFixed(2)}
-        </td>
-
-        <td class="right mono">
-          ${Number(r.dryPwrBreakdown.dryPwr ?? 0).toFixed(2)}
-        </td>
-
-        <td class="right mono">
-          ${Number(loss ?? 0).toFixed(2)}
-        </td>
-
-        <td class="right mono">
-          ${Number(end ?? 0).toFixed(2)}
-        </td>
+        <td class="mono">${esc(r.dateISO)}</td>
+        <td class="right mono">${Number(r.weather.rainUsedInMath ?? 0).toFixed(2)}</td>
+        <td class="right mono">${infilMult != null ? infilMult.toFixed(3) : '—'}</td>
+        <td class="right mono">${Number(add ?? 0).toFixed(2)}</td>
+        <td class="right mono">${Number(r.dryPwrBreakdown.dryPwr ?? 0).toFixed(2)}</td>
+        <td class="right mono">${Number(loss ?? 0).toFixed(2)}</td>
+        <td class="right mono">${Number(end ?? 0).toFixed(2)}</td>
       `;
 
       tbody.appendChild(tr);
@@ -1277,11 +1349,7 @@ function renderMrmsPanelFromDoc(doc){
 }
 
 async function renderDetailsForSelected(state){
-
-  await loadFieldConditionsCurrent(
-    state,
-    { force:false }
-  );
+  await loadFieldConditionsCurrent(state, { force:false });
 
   const f =
     (state.fields || [])
@@ -1289,8 +1357,7 @@ async function renderDetailsForSelected(state){
 
   if (!f) return;
 
-  const rec =
-    getCurrentRecord(state, f.id);
+  const rec = getCurrentRecord(state, f.id);
 
   const rows =
     await loadDailyRowsForField(
@@ -1299,23 +1366,16 @@ async function renderDetailsForSelected(state){
       { force:false }
     );
 
-  const todayISO =
-    todayISOChicago();
+  const todayISO = todayISOChicago();
 
   const historyRows =
-    rows.filter(r =>
-      r.dateISO < todayISO
-    ).slice(-15);
+    rows.filter(r => r.dateISO < todayISO).slice(-15);
 
   const currentRows =
-    rows.filter(r =>
-      r.dateISO === todayISO
-    );
+    rows.filter(r => r.dateISO === todayISO);
 
   const forecastRows =
-    rows.filter(r =>
-      r.dateISO > todayISO
-    );
+    rows.filter(r => r.dateISO > todayISO);
 
   const currentDay =
     currentRows[currentRows.length - 1] || null;
@@ -1347,16 +1407,7 @@ async function renderDetailsForSelected(state){
   if (meta){
     meta.innerHTML = rec
       ? `
-        <div
-          style="
-            display:grid;
-            gap:7px;
-            padding:12px;
-            border:1px solid var(--border);
-            border-radius:14px;
-            background:color-mix(in srgb, var(--surface) 92%, var(--text) 8%);
-          "
-        >
+        <div style="display:grid;gap:7px;padding:12px;border:1px solid var(--border);border-radius:14px;background:color-mix(in srgb, var(--surface) 92%, var(--text) 8%);">
           <div style="font-weight:900;font-size:15px;margin-bottom:2px;">
             Field Information
           </div>
@@ -1368,13 +1419,7 @@ async function renderDetailsForSelected(state){
         </div>
       `
       : `
-        <div
-          style="
-            padding:12px;
-            border:1px solid var(--border);
-            border-radius:14px;
-          "
-        >
+        <div style="padding:12px;border:1px solid var(--border);border-radius:14px;">
           No field_conditions_current record found.
         </div>
       `;
@@ -1453,7 +1498,6 @@ async function renderDetailsForSelected(state){
   );
 
   try{
-
     const mrmsDoc =
       await loadFieldMrmsDoc(
         state,
@@ -1462,9 +1506,7 @@ async function renderDetailsForSelected(state){
       );
 
     renderMrmsPanelFromDoc(mrmsDoc);
-
   }catch(_){
-
     renderMrmsPanelEmpty();
   }
 }
@@ -1500,14 +1542,30 @@ async function renderTilesInternal(state){
     ? sorted
     : sorted.slice(0, pageSize);
 
+  const dailyRowsById = new Map();
+
+  await Promise.all(
+    show.map(async f=>{
+      const rows = await loadDailyRowsForField(state, f.id, { force:false });
+      dailyRowsById.set(String(f.id), rows);
+    })
+  );
+
   const frag = document.createDocumentFragment();
 
   for (const f of show){
     const rec = getCurrentRecord(state, f.id);
     const rainText = rainTileText(rainById.get(String(f.id)));
 
+    let etaInfo = null;
+
+    if (rec && Number.isFinite(Number(rec.readiness))){
+      const dailyRows = dailyRowsById.get(String(f.id)) || [];
+      etaInfo = getTileEtaInfo(dailyRows, rec.readiness, thr);
+    }
+
     const tile = rec && Number.isFinite(Number(rec.readiness))
-      ? buildReadyTile(f, state, rec, rainText, thr)
+      ? buildReadyTile(f, state, rec, rainText, thr, etaInfo, opKey)
       : buildWaitingTile(f, state, thr);
 
     wireTileInteractions(state, tile, f.id);
@@ -1545,7 +1603,7 @@ async function renderAll(state){
    PUBLIC EXPORTS
 ===================================================================== */
 export async function ensureModelWeatherModules(state){
-  await ensureFRModules(state);
+  return true;
 }
 
 export async function renderTiles(state){
@@ -1566,7 +1624,6 @@ export async function refreshDetailsOnly(state){
 }
 
 export async function selectField(state, id){
-
   const f =
     (state.fields || []).find(
       x => String(x.id) === String(id)
@@ -1577,7 +1634,6 @@ export async function selectField(state, id){
   state.selectedFieldId = id;
 
   try{
-
     document
       .querySelectorAll('.tile.fv-selected')
       .forEach(el=>{
@@ -1592,7 +1648,6 @@ export async function selectField(state, id){
     if (tile){
       tile.classList.add('fv-selected');
     }
-
   }catch(_){}
 
   try{
@@ -1600,16 +1655,13 @@ export async function selectField(state, id){
   }catch(_){}
 
   try{
-
     state._fieldConditionsLoadedAt = 0;
 
     await loadFieldConditionsCurrent(
       state,
       { force:true }
     );
-
   }catch(e){
-
     console.warn(
       '[FieldReadiness] force refresh failed:',
       e
@@ -1617,51 +1669,27 @@ export async function selectField(state, id){
   }
 
   try{
-
     await fetchAndHydrateFieldParams(
       state,
       id
     );
-
   }catch(_){}
 
   try{
-
     await renderDetailsForSelected(state);
-
   }catch(e){
-
     console.warn(
       '[FieldReadiness] renderDetailsForSelected failed:',
       e
     );
   }
 
-try{
-
-  document
-    .querySelectorAll('.tile.fv-selected')
-    .forEach(el=>{
-      el.classList.remove('fv-selected');
-    });
-
-  const tile =
-    document.querySelector(
-      `.tile[data-field-id="${CSS.escape(String(id))}"]`
-    );
-
-  if (tile){
-    tile.classList.add('fv-selected');
-
-    tile.scrollIntoView({
-      behavior:'smooth',
-      block:'nearest'
-    });
-  }
-
-}catch(_){}
-
   try{
+    document
+      .querySelectorAll('.tile.fv-selected')
+      .forEach(el=>{
+        el.classList.remove('fv-selected');
+      });
 
     const tile =
       document.querySelector(
@@ -1670,8 +1698,23 @@ try{
 
     if (tile){
       tile.classList.add('fv-selected');
-    }
 
+      tile.scrollIntoView({
+        behavior:'smooth',
+        block:'nearest'
+      });
+    }
+  }catch(_){}
+
+  try{
+    const tile =
+      document.querySelector(
+        `.tile[data-field-id="${CSS.escape(String(id))}"]`
+      );
+
+    if (tile){
+      tile.classList.add('fv-selected');
+    }
   }catch(_){}
 }
 
