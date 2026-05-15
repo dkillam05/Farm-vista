@@ -1442,13 +1442,8 @@ async function renderDetailsForSelected(state){
         <div style="display:grid;gap:7px;padding:12px;border:1px solid var(--border);border-radius:14px;background:color-mix(in srgb, var(--surface) 92%, var(--text) 8%);">
           <div style="font-weight:900;font-size:15px;margin-bottom:2px;">
             Field Information
-          </div>
-          <div>• Field: ${esc(f.name || 'Unknown')}</div>
-          <div>• Acres: ${Number(
-  f.acres ??
-  f.areaAcres ??
-  f.fieldAcres ??
-  f.totalAcres ??
+         <div>• Acres: ${Number(
+  f.tillable ??
   0
 ).toFixed(1)}</div>
           <div>• County: ${esc(rec.county || f.county || '—')}</div>
