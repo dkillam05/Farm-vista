@@ -1258,148 +1258,175 @@ function updateGuardText(state){
 /* =========================
    UI state (KEEP)
 ========================= */
-function updateAdjustHeader(state){
-  const f = getSelectedField(state);
-  const sub = $('adjustSub');
-  if (!sub) return;
-
-  if (f && f.name){
-    sub.textContent = `Global storage shift • ${f.name}`;
-  } else {
-    sub.textContent = 'Global storage shift';
-  }
-}
-
 function updatePills(state, run){
-  const fid = state.selectedFieldId;
-  const p = getFieldParams(state, fid);
-  const latest = getLatestReadinessForField(state, fid);
-  const baseRun = getRunForFieldModel(state, getSelectedField(state));
 
-  const thr = currentThreshold(state);
+  const fid =
+    state.selectedFieldId;
 
-const shownReadiness =
-  run && Number.isFinite(Number(run.readinessR ?? run.readiness))
-    ? Math.round(Number(run.readinessR ?? run.readiness))
-    : (
-        latest && Number.isFinite(Number(latest.readiness))
-          ? Math.round(Number(latest.readiness))
-          : '—'
-      );
+  const p =
+    getFieldParams(state, fid);
 
-const shownWetness =
-  run && Number.isFinite(Number(run.wetnessR ?? run.wetness))
-    ? Math.round(Number(run.wetnessR ?? run.wetness))
-    : (
-        latest && Number.isFinite(Number(latest.wetness))
-          ? Math.round(Number(latest.wetness))
-          : '—'
-      );
+  const latest =
+    state?.latestReadinessByFieldId?.[fid] ||
+    getLatestReadinessForField(state, fid) ||
+    null;
+
+  const baseRun =
+    getRunForFieldModel(
+      state,
+      getSelectedField(state)
+    );
+
+  const thr =
+    currentThreshold(state);
+
+  const shownReadiness =
+    Number.isFinite(
+      Number(
+        run?.readinessR ??
+        run?.readiness
+      )
+    )
+      ? Math.round(
+          Number(
+            run.readinessR ??
+            run.readiness
+          )
+        )
+      : (
+          Number.isFinite(
+            Number(latest?.readiness)
+          )
+            ? Math.round(
+                Number(latest.readiness)
+              )
+            : '—'
+        );
+
+  const shownWetness =
+    Number.isFinite(
+      Number(
+        run?.wetnessR ??
+        run?.wetness
+      )
+    )
+      ? Math.round(
+          Number(
+            run.wetnessR ??
+            run.wetness
+          )
+        )
+      : (
+          Number.isFinite(
+            Number(latest?.wetness)
+          )
+            ? Math.round(
+                Number(latest.wetness)
+              )
+            : '—'
+        );
 
   const shownSoil =
-    latest && safeNum(latest.soilWetness) != null
-      ? `${Math.round(Number(latest.soilWetness))}/100`
-      : `${p.soilWetness}/100`;
+    Number.isFinite(
+      Number(latest?.soilWetness)
+    )
+      ? Math.round(
+          Number(latest.soilWetness)
+        )
+      : (
+          Number.isFinite(
+            Number(p?.soilWetness)
+          )
+            ? Math.round(
+                Number(p.soilWetness)
+              )
+            : '—'
+        );
 
   const shownDrain =
-    latest && safeNum(latest.drainageIndex) != null
-      ? `${Math.round(Number(latest.drainageIndex))}/100`
-      : `${p.drainageIndex}/100`;
+    Number.isFinite(
+      Number(latest?.drainageIndex)
+    )
+      ? Math.round(
+          Number(latest.drainageIndex)
+        )
+      : (
+          Number.isFinite(
+            Number(p?.drainageIndex)
+          )
+            ? Math.round(
+                Number(p.drainageIndex)
+              )
+            : '—'
+        );
 
-  setText('adjReadiness', shownReadiness);
-  setText('adjWetness', shownWetness);
-  setText('adjSoil', shownSoil);
-  setText('adjDrain', shownDrain);
+  setText(
+    'adjReadiness',
+    shownReadiness
+  );
 
-  setText('adjModelClass', (state._adjStatus || '—').toUpperCase());
+  setText(
+    'adjWetness',
+    shownWetness
+  );
+
+  setText(
+    'adjSoil',
+    shownSoil === '—'
+      ? '—'
+      : `${shownSoil}/100`
+  );
+
+  setText(
+    'adjDrain',
+    shownDrain === '—'
+      ? '—'
+      : `${shownDrain}/100`
+  );
+
+  setText(
+    'adjModelClass',
+    (state._adjStatus || '—')
+      .toUpperCase()
+  );
 
   try{
-    const thrEl = $('adjThreshold');
-    if (thrEl) thrEl.textContent = String(thr);
+
+    const thrEl =
+      $('adjThreshold');
+
+    if (thrEl){
+      thrEl.textContent =
+        String(thr);
+    }
+
   }catch(_){}
 
   try{
-    const baseEl = $('adjBaseReadiness');
+
+    const baseEl =
+      $('adjBaseReadiness');
+
     if (baseEl){
-      baseEl.textContent = Number.isFinite(Number(baseRun?.readinessR))
-        ? String(Math.round(Number(baseRun.readinessR)))
-        : '—';
+
+      const baseReadiness =
+        baseRun?.readinessR ??
+        baseRun?.readiness ??
+        latest?.readiness;
+
+      baseEl.textContent =
+        Number.isFinite(
+          Number(baseReadiness)
+        )
+          ? String(
+              Math.round(
+                Number(baseReadiness)
+              )
+            )
+          : '—';
     }
+
   }catch(_){}
-}
-
-function updateUI(state){
-  const locked = isLocked(state);
-
-  const bWet = $('btnFeelWet');
-  const bDry = $('btnFeelDry');
-  const applyBtn = $('btnAdjApply');
-  const s = sliderEl();
-
-  if (bWet) bWet.disabled = locked || (state._adjStatus === 'wet');
-  if (bDry) bDry.disabled = locked || (state._adjStatus === 'dry');
-  if (s) s.disabled = locked;
-
-  if (locked){
-    state._adjFeel = null;
-  }
-
-  const seg = $('feelSeg');
-  if (seg){
-    seg.querySelectorAll('.segbtn').forEach(btn=>{
-      const bf = btn.getAttribute('data-feel');
-      btn.classList.toggle('on', bf === state._adjFeel);
-    });
-  }
-
-  const box = $('intensityBox');
-  const opposite =
-    (state._adjStatus === 'wet' && state._adjFeel === 'dry') ||
-    (state._adjStatus === 'dry' && state._adjFeel === 'wet');
-  if (box) box.classList.toggle('pv-hide', !opposite);
-
-  const title = $('intensityTitle');
-  const left = $('intensityLeft');
-  const right = $('intensityRight');
-  if (opposite){
-    if (state._adjStatus === 'wet'){
-      if (title) title.textContent = 'How DRY is it?';
-      if (left) left.textContent = 'Slightly drier';
-      if (right) right.textContent = 'Extremely drier';
-    } else {
-      if (title) title.textContent = 'How WET is it?';
-      if (left) left.textContent = 'Slightly wetter';
-      if (right) right.textContent = 'Extremely wetter';
-    }
-  }
-
-  const hint = $('adjHint');
-  if (hint){
-    const thr = currentThreshold(state);
-    const band = clamp(Math.round(Number(STATUS_HYSTERESIS)), 0, 10);
-
-    if (locked){
-      hint.textContent = 'Global shift is locked (72h rule).';
-    } else if (state._adjStatus === 'wet'){
-      hint.textContent =
-        `This reference field is WET for the current operation (Readiness below threshold ${thr}). ` +
-        `Only “Dry” is allowed. (Stability band ±${band} around threshold)`;
-    } else if (state._adjStatus === 'dry'){
-      hint.textContent =
-        `This reference field is DRY for the current operation (Readiness at/above threshold ${thr}). ` +
-        `Only “Wet” is allowed. (Stability band ±${band} around threshold)`;
-    } else {
-      hint.textContent = 'Choose Wet or Dry.';
-    }
-  }
-
-  if (applyBtn){
-    const hasChoice = (state._adjFeel === 'wet' || state._adjFeel === 'dry');
-    applyBtn.disabled = locked || !hasChoice;
-  }
-
-  enforceSliderClamp(state);
-  updateGuardText(state);
 }
 
 /* =====================================================================
