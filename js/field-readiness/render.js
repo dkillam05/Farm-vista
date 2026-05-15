@@ -889,12 +889,19 @@ function buildWaitingTile(f, state, thr){
   tile.style.transition =
     'transform .16s ease, box-shadow .16s ease, border-color .16s ease';
 
-  if (String(state.selectedFieldId) === String(f.id)){
-    tile.classList.add('fv-selected');
-    tile.style.border = '3px solid rgba(46,125,50,.98)';
-    tile.style.boxShadow = '0 0 0 3px rgba(46,125,50,.28)';
-    tile.style.transform = 'translateY(-2px)';
-  }
+if (String(state.selectedFieldId) === String(f.id)){
+
+  tile.classList.add('fv-selected');
+
+  tile.style.border =
+    '4px solid #2e7d32';
+
+  tile.style.boxShadow =
+    '0 0 0 4px rgba(46,125,50,.30)';
+
+  tile.style.transform =
+    'translateY(-2px)';
+}
 
   tile.dataset.fieldId = f.id;
   tile.setAttribute('data-field-id', f.id);
