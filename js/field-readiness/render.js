@@ -1685,8 +1685,18 @@ export async function selectField(state, id){
       );
 
     if (tile){
-      tile.classList.add('fv-selected');
-    }
+
+  tile.classList.add('fv-selected');
+
+  tile.style.border =
+    '4px solid #2e7d32';
+
+  tile.style.boxShadow =
+    '0 0 0 4px rgba(46,125,50,.30)';
+
+  tile.style.transform =
+    'translateY(-2px)';
+}
   }catch(_){}
 
   try{
