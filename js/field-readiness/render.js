@@ -891,8 +891,8 @@ function buildWaitingTile(f, state, thr){
 
   if (String(state.selectedFieldId) === String(f.id)){
     tile.classList.add('fv-selected');
-    tile.style.border = '2px solid rgba(140,140,140,.85)';
-    tile.style.boxShadow = '0 0 0 2px rgba(140,140,140,.18)'; 
+    tile.style.border = '3px solid rgba(46,125,50,.98)';
+    tile.style.boxShadow = '0 0 0 3px rgba(46,125,50,.28)';
     tile.style.transform = 'translateY(-2px)';
   }
 
