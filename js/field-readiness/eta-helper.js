@@ -1,382 +1,297 @@
 /* =====================================================================
 /Farm-vista/js/field-readiness/eta-helper.js  (FULL FILE)
-Rev: 2026-03-15f-live-eta-from-same-model-truth
+Rev: 2026-05-15-backend-eta-days-source
 
-Field ETA Helper (per Dane):
+Field ETA Helper
+
 ✅ Listens for "fr:eta-help"
-✅ Opens a FarmVista-style modal explaining the ETA text
+✅ Opens FarmVista-style modal explaining ETA
+✅ Uses NEW backend ETA source:
+   field_conditions_current/{fieldId}/daily/{latestDate}
+   → eta.etaDays
+✅ No frontend ETA physics
+✅ No formula.js
+✅ No model.etaToThreshold()
+✅ Tile helper and render can now use same backend ETA buckets
 ✅ Shows:
-   - Helper explanation (what ETA means)
-   - Snapshot (operation threshold, readiness now, ETA, horizon)
-   - Forecast inputs table (next 7 days INCLUDING today remaining hours if available)
-
-THIS REV:
-✅ FIX: helper no longer trusts only the clicked tile text
-✅ FIX: helper recomputes ETA live from the SAME model path used by tiles
-✅ FIX: helper seeds ETA from centralized field_readiness_latest truth
-✅ FIX: helper uses the SAME forecast/model deps path as field-readiness
-✅ If live recompute fails, it gracefully falls back to the passed tile ETA text
-✅ Modal owns vertical scroll
-✅ Background page scroll locked while modal open
-✅ Forecast grid keeps horizontal scroll
+   - Snapshot
+   - Backend ETA summary
+   - ETA day buckets
+   - Forecast/rain/readiness gain details
 ===================================================================== */
 'use strict';
 
 function esc(s){
-  return String(s ?? '').replace(/[&<>"']/g, (c)=>({
-    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&':'&amp;',
+    '<':'&lt;',
+    '>':'&gt;',
+    '"':'&quot;',
+    "'":'&#39;'
   }[c]));
 }
-function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
-function safeObj(x){ return (x && typeof x === 'object') ? x : null; }
-function safeStr(x){
-  const s = String(x ?? '');
-  return s ? s : '';
+
+function safeObj(x){
+  return x && typeof x === 'object'
+    ? x
+    : null;
 }
-function safeNum(v, d=null){
+
+function safeStr(x, fallback = ''){
+  if (x === undefined || x === null) return fallback;
+  const s = String(x);
+  return s ? s : fallback;
+}
+
+function safeNum(v, fallback = null){
   const n = Number(v);
-  return Number.isFinite(n) ? n : d;
+  return Number.isFinite(n) ? n : fallback;
 }
+
+function round(v, d = 2){
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  const p = Math.pow(10, d);
+  return Math.round(n * p) / p;
+}
+
 function todayISO(){
   const d = new Date();
   const y = d.getFullYear();
-  const m = String(d.getMonth()+1).padStart(2,'0');
-  const day = String(d.getDate()).padStart(2,'0');
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
-function mmToIn(mm){ return (Number(mm||0) / 25.4); }
-function cToF(c){ return (Number(c) * 9/5) + 32; }
-function round(v, d=2){
-  const p = Math.pow(10,d);
-  return Math.round(Number(v||0)*p)/p;
-}
-function parseTimeMsLocal(t){
-  try{
-    if (!t || typeof t !== 'string') return NaN;
-    const ms = Date.parse(t);
-    return Number.isFinite(ms) ? ms : NaN;
-  }catch(_){ return NaN; }
-}
+
 function compactEtaText(txt, horizonHours){
   const s = String(txt || '').trim();
   if (!s) return '';
+
   let m = s.match(/~\s*(\d+)\s*hours/i);
   if (!m) m = s.match(/~\s*(\d+)\s*h\b/i);
+
   if (m){
     const n = Number(m[1]);
-    if (Number.isFinite(n)) return (n <= horizonHours) ? `~${Math.round(n)}h` : `>${Math.round(horizonHours)}h`;
+    if (Number.isFinite(n)){
+      return n <= horizonHours
+        ? `~${Math.round(n)}h`
+        : `>${Math.round(horizonHours)}h`;
+    }
   }
-  if (/greater\s+than/i.test(s) || />\s*\d+/.test(s) || /beyond/i.test(s) || /over\s+\d+/i.test(s)){
+
+  if (
+    /greater\s+than/i.test(s) ||
+    />\s*\d+/.test(s) ||
+    /beyond/i.test(s) ||
+    /over\s+\d+/i.test(s)
+  ){
     return `>${Math.round(horizonHours) || 168}h`;
   }
+
   return s;
 }
 
 /* =====================================================================
-   Firebase modular loader (matches your other modules)
+   Firebase modular loader
 ===================================================================== */
 let __fbModPromise = null;
+
 async function getFirebaseMod(){
   if (__fbModPromise) return __fbModPromise;
+
   __fbModPromise = (async()=>{
     try{
       const mod = await import('/Farm-vista/js/firebase-init.js');
       if (mod && mod.ready) await mod.ready;
       return mod;
-    }catch(_){
+    }catch(e){
+      console.warn('[ETA Helper] Firebase load failed:', e);
       return null;
     }
   })();
+
   return __fbModPromise;
 }
 
-async function readForecastCacheDoc(fieldId, collectionName){
+/* =====================================================================
+   Backend ETA debug reads
+===================================================================== */
+async function readDailyEtaDoc(fieldId){
   const mod = await getFirebaseMod();
-  if (!mod || !(mod.getFirestore && mod.getDoc && mod.doc)) return null;
+
+  if (
+    !mod ||
+    !(mod.getFirestore && mod.getDoc && mod.doc)
+  ){
+    return null;
+  }
+
+  const fid = safeStr(fieldId);
+  if (!fid) return null;
+
+  const dateISO = todayISO();
 
   try{
     const db = mod.getFirestore();
-    const ref = mod.doc(db, String(collectionName||'field_weather_cache'), String(fieldId));
+
+    const ref = mod.doc(
+      db,
+      'field_conditions_current',
+      fid,
+      'daily',
+      dateISO
+    );
+
     const snap = await mod.getDoc(ref);
-    if (!snap || !snap.exists || !snap.exists()) return null;
-    return snap.data() || null;
-  }catch(_){
-    return null;
+
+    if (snap && snap.exists && snap.exists()){
+      return {
+        id: dateISO,
+        dateISO,
+        source: 'field_conditions_current/daily/today',
+        data: snap.data() || {}
+      };
+    }
+  }catch(e){
+    console.warn('[ETA Helper] Today ETA doc read failed:', e);
   }
+
+  return null;
 }
 
-async function readLatestReadinessDoc(fieldId, collectionName='field_readiness_latest'){
+async function readCurrentConditionsDoc(fieldId){
   const mod = await getFirebaseMod();
-  if (!mod || !(mod.getFirestore && mod.getDoc && mod.doc)) return null;
+
+  if (
+    !mod ||
+    !(mod.getFirestore && mod.getDoc && mod.doc)
+  ){
+    return null;
+  }
+
+  const fid = safeStr(fieldId);
+  if (!fid) return null;
 
   try{
     const db = mod.getFirestore();
-    const ref = mod.doc(db, String(collectionName), String(fieldId));
+
+    const ref = mod.doc(
+      db,
+      'field_conditions_current',
+      fid
+    );
+
     const snap = await mod.getDoc(ref);
-    if (!snap || !snap.exists || !snap.exists()) return null;
-    const d = snap.data() || {};
-    return {
-      fieldId: safeStr(d.fieldId || fieldId),
-      readiness: safeNum(d.readiness),
-      wetness: safeNum(d.wetness),
-      storagePhysFinal: safeNum(d.storagePhysFinal),
-      storageFinal: safeNum(d.storageFinal),
-      storageForReadiness: safeNum(d.storageForReadiness),
-      readinessCreditIn: safeNum(d.readinessCreditIn),
-      wetBiasApplied: safeNum(d.wetBiasApplied),
-      computedAtISO: safeStr(d.computedAt && typeof d.computedAt.toDate === 'function' ? d.computedAt.toDate().toISOString() : d.computedAt),
-      weatherFetchedAtISO: safeStr(d.weatherFetchedAt && typeof d.weatherFetchedAt.toDate === 'function' ? d.weatherFetchedAt.toDate().toISOString() : d.weatherFetchedAt),
-      runKey: safeStr(d.runKey),
-      source: 'field_readiness_latest'
-    };
-  }catch(_){
-    return null;
-  }
-}
 
-function computeTodayRemainingFromHourly(norm){
-  try{
-    const hourly = Array.isArray(norm && norm.hourly) ? norm.hourly : [];
-    if (!hourly.length) return null;
-
-    const tISO = todayISO();
-    const nowMs = Date.now();
-
-    let rainMm = 0;
-    let tempCSum = 0, nt=0;
-    let windSum = 0, nw=0;
-    let rhSum = 0, nr=0;
-    let solarSum = 0, ns=0;
-
-    for (const h of hourly){
-      const time = String(h.time || '');
-      if (time.length < 10) continue;
-      const dayISO = time.slice(0,10);
-      if (dayISO !== tISO) continue;
-
-      const ms = parseTimeMsLocal(time);
-      if (!Number.isFinite(ms)) continue;
-      if (ms <= nowMs) continue;
-
-      rainMm += Number(h.rain_mm || 0);
-
-      const tc = Number(h.temp_c);
-      if (Number.isFinite(tc)){ tempCSum += tc; nt++; }
-
-      const w = Number(h.wind_mph);
-      if (Number.isFinite(w)){ windSum += w; nw++; }
-
-      const rh = Number(h.rh_pct);
-      if (Number.isFinite(rh)){ rhSum += rh; nr++; }
-
-      const s = Number(h.solar_wm2);
-      if (Number.isFinite(s)){ solarSum += s; ns++; }
+    if (!snap || !snap.exists || !snap.exists()){
+      return null;
     }
 
-    if (rainMm === 0 && nt === 0 && nw === 0 && nr === 0 && ns === 0) return null;
-
-    return {
-      dateISO: `${tISO} (remaining)`,
-      rainIn: round(mmToIn(rainMm), 2),
-      tempF: nt ? Math.round(cToF(tempCSum/nt)) : 0,
-      windMph: nw ? Math.round(windSum/nw) : 0,
-      rh: nr ? Math.round(rhSum/nr) : 0,
-      solarWm2: ns ? Math.round(solarSum/ns) : 0,
-      et0In: null,
-      sm010: null,
-      st010F: null
-    };
-  }catch(_){
+    return snap.data() || null;
+  }catch(e){
+    console.warn('[ETA Helper] Current conditions read failed:', e);
     return null;
   }
 }
 
-function normalizeRowForTable(r0){
-  const r = r0 || {};
-  const dateISO = String(r.dateISO || '—').slice(0, 32);
+async function loadBackendEta(fieldId){
+  const [dailyDoc, currentDoc] = await Promise.all([
+    readDailyEtaDoc(fieldId),
+    readCurrentConditionsDoc(fieldId)
+  ]);
 
-  const rain = Number(r.rainInAdj ?? r.rainIn ?? 0);
-  const temp = Math.round(Number(r.temp ?? r.tempF ?? 0));
-  const wind = Math.round(Number(r.wind ?? r.windMph ?? 0));
-  const rh = Math.round(Number(r.rh ?? 0));
-  const solar = Math.round(Number(r.solar ?? r.solarWm2 ?? 0));
+  const dailyData = safeObj(dailyDoc && dailyDoc.data) || {};
+  const eta = safeObj(dailyData.eta) || safeObj(currentDoc && currentDoc.eta) || {};
 
-  const et0Num = (r.et0In == null ? r.et0 : r.et0In);
-  const et0 = (et0Num == null ? '—' : Number(et0Num).toFixed(2));
+  const etaDays =
+    Array.isArray(eta.etaDays)
+      ? eta.etaDays
+      : [];
 
-  const sm010 = (r.sm010 == null ? '—' : Number(r.sm010).toFixed(3));
-  const st010F = (r.st010F == null ? '—' : String(Math.round(Number(r.st010F))));
-
-  return { dateISO, rain, temp, wind, rh, solar, et0, sm010, st010F };
+  return {
+    fieldId: safeStr(fieldId),
+    dailyDateISO: safeStr(dailyDoc && dailyDoc.dateISO),
+    source: safeStr(dailyDoc && dailyDoc.source) || 'field_conditions_current',
+    dailyData,
+    currentDoc: safeObj(currentDoc) || {},
+    eta,
+    etaDays
+  };
 }
 
 /* =====================================================================
-   Formula/model loader for live ETA recompute
+   ETA crossing helper
 ===================================================================== */
-let __frModulePromise = null;
-async function getFRModules(){
-  if (__frModulePromise) return __frModulePromise;
-  __frModulePromise = (async()=>{
-    try{
-      const [formula] = await Promise.all([
-        import('/Farm-vista/js/field-readiness/formula.js')
-      ]);
-      return formula || null;
-    }catch(_){
-      return null;
-    }
-  })();
-  return __frModulePromise;
-}
+function calculateEtaFromDays({
+  readinessNow,
+  threshold,
+  etaDays,
+  horizonHours = 168
+}){
+  const rNow = safeNum(readinessNow);
+  const thr = safeNum(threshold);
 
-function getFieldObjFromState(fieldId){
-  try{
-    const state = window.__FV_FR || null;
-    const list = Array.isArray(state && state.fields) ? state.fields : [];
-    return list.find(f => String(f && f.id || '') === String(fieldId || '')) || null;
-  }catch(_){
-    return null;
+  if (rNow === null || thr === null){
+    return {
+      status: 'missing_inputs',
+      text: 'ETA can not be calculated at this time',
+      hours: null
+    };
   }
-}
 
-function ensureLatestOnState(fieldId, latestRec){
-  try{
-    const state = window.__FV_FR || null;
-    if (!state || !fieldId || !latestRec) return;
-    if (!state.latestReadinessByFieldId || typeof state.latestReadinessByFieldId !== 'object'){
-      state.latestReadinessByFieldId = {};
-    }
-    state.latestReadinessByFieldId[String(fieldId)] = latestRec;
-  }catch(_){}
-}
+  if (rNow >= thr){
+    return {
+      status: 'ready_now',
+      text: 'Ready now',
+      hours: 0
+    };
+  }
 
-async function recomputeLiveEta(fieldId, threshold, horizonHours){
-  try{
-    const state = window.__FV_FR || null;
-    const fieldObj = getFieldObjFromState(fieldId);
-    if (!state || !fieldObj) return null;
+  const need = thr - rNow;
+  let gained = 0;
+  let elapsed = 0;
 
-    const formula = await getFRModules();
-    if (!formula || typeof formula.ensureFRModules !== 'function' || typeof formula.buildFRDeps !== 'function'){
-      return null;
-    }
+  const days = Array.isArray(etaDays) ? etaDays : [];
 
-    const latestDoc = await readLatestReadinessDoc(fieldId);
-    if (latestDoc) ensureLatestOnState(fieldId, latestDoc);
+  for (const day of days){
+    const gain = safeNum(day && day.readinessGain, 0);
+    const hours = safeNum(day && day.hours, 24);
+    const rate = safeNum(day && day.drydownPointsPerHour, null);
 
-    await formula.ensureFRModules(state);
-
-    const model = state && state._mods ? state._mods.model : null;
-    if (!model || typeof model.etaToThreshold !== 'function'){
-      return null;
+    if (gain <= 0 || rate === null || rate <= 0){
+      elapsed += hours;
+      continue;
     }
 
-    const opKey =
-      (state && typeof state.currentOp === 'string' && state.currentOp)
-        ? String(state.currentOp)
-        : '';
+    if (gained + gain >= need){
+      const remaining = need - gained;
+      const partialHours = remaining / rate;
+      const total = elapsed + partialHours;
 
-    const wxCtx = (state && typeof state.buildWxCtx === 'function')
-      ? state.buildWxCtx(state)
-      : null;
-
-    const deps0 = formula.buildFRDeps(state, {
-      opKey,
-      wxCtx,
-      persistedGetter: (id)=>{
-        try{
-          const map = safeObj(state.persistedStateByFieldId) || {};
-          return safeObj(map[String(id)]) || null;
-        }catch(_){
-          return null;
-        }
-      }
-    });
-
-    const latestRec =
-      (state && safeObj(state.latestReadinessByFieldId) && safeObj(state.latestReadinessByFieldId[String(fieldId)]))
-        ? safeObj(state.latestReadinessByFieldId[String(fieldId)])
-        : latestDoc;
-
-    const deps = {
-      ...deps0,
-      getCentralizedLatestForFieldId: (id)=>{
-        const fid = String(id || '');
-        if (latestRec && String(latestRec.fieldId || fieldId) === fid) return latestRec;
-        try{
-          const map = safeObj(state.latestReadinessByFieldId) || {};
-          return safeObj(map[fid]) || null;
-        }catch(_){
-          return null;
-        }
-      },
-      getEtaSeedForFieldId: (id)=>{
-        const fid = String(id || '');
-        const rec =
-          (latestRec && String(latestRec.fieldId || fieldId) === fid)
-            ? latestRec
-            : (()=> {
-                try{
-                  const map = safeObj(state.latestReadinessByFieldId) || {};
-                  return safeObj(map[fid]) || null;
-                }catch(_){
-                  return null;
-                }
-              })();
-
-        if (!rec) return null;
-
+      if (total > horizonHours){
         return {
-          fieldId: String(rec.fieldId || fid),
-          readiness: safeNum(rec.readiness),
-          wetness: safeNum(rec.wetness),
-          storagePhysFinal: safeNum(rec.storagePhysFinal),
-          storageFinal: safeNum(rec.storageFinal),
-          storageForReadiness: safeNum(rec.storageForReadiness),
-          readinessCreditIn: safeNum(rec.readinessCreditIn),
-          wetBiasApplied: safeNum(rec.wetBiasApplied),
-          computedAtISO: safeStr(rec.computedAtISO),
-          weatherFetchedAtISO: safeStr(rec.weatherFetchedAtISO),
-          runKey: safeStr(rec.runKey),
-          source: 'field_readiness_latest'
+          status: 'beyond_horizon',
+          text: `>${Math.round(horizonHours)}h`,
+          hours: horizonHours
         };
       }
-    };
 
-    const res = await model.etaToThreshold(
-      fieldObj,
-      deps,
-      Number(threshold || 0),
-      Number(horizonHours || 168),
-      3
-    );
-
-    const out = safeObj(res) || {};
-    if (Number.isFinite(Number(out.hours))){
-      const hrs = Math.round(Number(out.hours));
       return {
-        text: hrs <= Number(horizonHours || 168) ? `~${hrs}h` : `>${Math.round(Number(horizonHours || 168))}h`,
-        raw: out
+        status: 'reaches_threshold',
+        text: `~${Math.max(0, Math.round(total))}h`,
+        hours: total
       };
     }
 
-    const txt = compactEtaText(out.text, Number(horizonHours || 168));
-    if (txt){
-      return { text: txt, raw: out };
-    }
-
-    if (out.exceedsHorizon === true || out.withinHorizon === false || out.reached === false || out.status === 'beyond'){
-      return { text: `>${Math.round(Number(horizonHours || 168))}h`, raw: out };
-    }
-
-    if (out.status === 'dryNow'){
-      return { text: '0h', raw: out };
-    }
-
-    return null;
-  }catch(_){
-    return null;
+    gained += gain;
+    elapsed += hours;
   }
+
+  return {
+    status: 'not_reached',
+    text: `>${Math.round(horizonHours)}h`,
+    hours: null
+  };
 }
 
 /* =====================================================================
@@ -389,23 +304,26 @@ function ensureModal(){
   bd = document.createElement('div');
   bd.id = 'fvEtaHelpBackdrop';
   bd.className = 'modal-backdrop pv-hide';
-  bd.setAttribute('role','dialog');
-  bd.setAttribute('aria-modal','true');
-  bd.setAttribute('aria-labelledby','fvEtaHelpTitle');
+  bd.setAttribute('role', 'dialog');
+  bd.setAttribute('aria-modal', 'true');
+  bd.setAttribute('aria-labelledby', 'fvEtaHelpTitle');
 
   bd.innerHTML = `
     <div class="modal">
       <div class="modal-h">
         <h3 id="fvEtaHelpTitle">ETA Helper</h3>
+
         <button class="xbtn" type="button" aria-label="Close">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
           </svg>
         </button>
+
         <div class="muted" style="font-size:12px; margin-top:4px;" id="fvEtaHelpSub">—</div>
       </div>
+
       <div class="modal-b" id="fvEtaHelpBody">
-        <div class="help">—</div>
+        <div class="help">Loading ETA details…</div>
       </div>
     </div>
   `;
@@ -414,6 +332,7 @@ function ensureModal(){
     document.documentElement.style.overflow = 'hidden';
     document.body.style.overflow = 'hidden';
   };
+
   bd._unlockScroll = ()=>{
     document.documentElement.style.overflow = '';
     document.body.style.overflow = '';
@@ -425,19 +344,33 @@ function ensureModal(){
   };
 
   bd.querySelector('.xbtn')?.addEventListener('click', close);
-  bd.addEventListener('click', (e)=>{ if (e.target === bd) close(); });
-  document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape' && !bd.classList.contains('pv-hide')) close(); });
+
+  bd.addEventListener('click', e=>{
+    if (e.target === bd) close();
+  });
+
+  document.addEventListener('keydown', e=>{
+    if (
+      e.key === 'Escape' &&
+      !bd.classList.contains('pv-hide')
+    ){
+      close();
+    }
+  });
 
   document.body.appendChild(bd);
+
   return bd;
 }
 
 function showModal(){
   const bd = ensureModal();
+
   bd.classList.remove('pv-hide');
   bd._lockScroll();
 
   const body = bd.querySelector('#fvEtaHelpBody');
+
   if (body){
     body.style.maxHeight = '70vh';
     body.style.overflowY = 'auto';
@@ -449,34 +382,143 @@ function showModal(){
 }
 
 /* =====================================================================
-   Build forecast rows (7-day view including today remaining)
+   HTML builders
 ===================================================================== */
-async function getForecastRows7(fieldId){
-  const state = window.__FV_FR || null;
+function buildHelperText(){
+  return `
+    <div style="font-size:14px; line-height:1.35;">
+      <b>What does this ETA mean?</b><br/>
+      This ETA is now driven by the <b>backend forecast projection</b>.
+      FarmVista starts with the current field readiness, then walks forward through
+      the saved forecast ETA buckets from Firestore.
+      Rain days can reduce readiness, and dry days can increase readiness.
+    </div>
+  `;
+}
 
-  const colName =
-    (state && state.CONST && state.CONST.WEATHER_CACHE_COLLECTION) ? String(state.CONST.WEATHER_CACHE_COLLECTION) :
-    (window.FV_FORECAST_TUNE && window.FV_FORECAST_TUNE.WEATHER_CACHE_COLLECTION) ? String(window.FV_FORECAST_TUNE.WEATHER_CACHE_COLLECTION) :
-    'field_weather_cache';
+function buildSnapshotHtml({
+  opKey,
+  threshold,
+  readinessNow,
+  etaText,
+  horizon,
+  source,
+  backendEta
+}){
+  const eta = safeObj(backendEta && backendEta.eta) || {};
 
-  const data = await readForecastCacheDoc(fieldId, colName);
-  const norm = (data && data.normalized) ? data.normalized : null;
+  return `
+    <div style="margin-top:14px;">
+      <div style="font-weight:900; font-size:13px; margin-bottom:8px;">Snapshot</div>
 
-  const todayRemain = computeTodayRemainingFromHourly(norm);
+      <div class="help" style="display:grid; gap:6px;">
+        <div><b>Operation:</b> ${esc(opKey || '—')}</div>
+        <div><b>Threshold:</b> ${Number.isFinite(Number(threshold)) ? esc(String(threshold)) : '—'}</div>
+        <div><b>Readiness now:</b> ${Number.isFinite(Number(readinessNow)) ? esc(String(round(readinessNow, 2))) : '—'}</div>
+        <div><b>ETA:</b> ${esc(etaText || '—')}</div>
+        <div><b>Horizon:</b> ${esc(String(horizon))}h</div>
+        <div><b>Backend source:</b> ${esc(source || '—')}</div>
+        <div><b>Backend projected readiness:</b> ${eta.projectedReadiness != null ? esc(String(round(eta.projectedReadiness, 2))) : '—'}</div>
+        <div><b>Backend total gain:</b> ${eta.readinessGain != null ? esc(String(round(eta.readinessGain, 2))) : '—'}</div>
 
-  const fcstRaw = Array.isArray(data && data.dailySeriesFcst) ? data.dailySeriesFcst : [];
-  const fcst = fcstRaw.filter(d => d && d.dateISO);
+        <div class="muted" style="font-size:12px;">
+          Source priority: field_conditions_current daily ETA buckets → passed tile ETA fallback
+        </div>
+      </div>
+    </div>
+  `;
+}
 
-  const tISO = todayISO();
-  const fcstStartsToday = fcst.length && String(fcst[0].dateISO).slice(0,10) === tISO;
+function buildEtaDaysTable(etaDays){
+  const days = Array.isArray(etaDays) ? etaDays : [];
 
-  const out = [];
-  if (todayRemain && !fcstStartsToday) out.push(todayRemain);
+  if (!days.length){
+    return `
+      <div class="help muted" style="margin-top:14px;">
+        No backend ETA day buckets were found yet. Wait for the next scheduled backend run.
+      </div>
+    `;
+  }
 
-  const need = Math.max(0, 7 - out.length);
-  for (const d of fcst.slice(0, need)) out.push(d);
+  const trs = days.map(day=>{
+    const gain = safeNum(day.readinessGain, 0);
+    const rate = safeNum(day.drydownPointsPerHour, 0);
+    const rain = safeNum(day.rainIn, 0);
 
-  return out;
+    const gainTxt =
+      gain > 0
+        ? `+${round(gain, 2)}`
+        : String(round(gain, 2));
+
+    const rateTxt =
+      rate > 0
+        ? `+${round(rate, 4)}`
+        : String(round(rate, 4));
+
+    return `
+      <tr>
+        <td class="right mono">${esc(day.day ?? '—')}</td>
+        <td class="mono">${esc(day.dateISO || '—')}</td>
+        <td class="right mono">${esc(day.hours ?? '—')}</td>
+        <td class="right mono">${esc(round(day.readinessStart, 2) ?? '—')}</td>
+        <td class="right mono">${esc(round(day.readinessEnd, 2) ?? '—')}</td>
+        <td class="right mono">${esc(gainTxt)}</td>
+        <td class="right mono">${esc(rateTxt)}</td>
+        <td class="right mono">${esc(round(rain, 2))}</td>
+        <td class="mono">${esc(day.rainSource || '—')}</td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div style="margin-top:14px;">
+      <div style="font-weight:900; font-size:13px; margin-bottom:8px;">Backend ETA buckets</div>
+
+      <div class="table-scroll" style="overflow-x:auto;">
+        <table aria-label="Backend ETA Buckets">
+          <thead>
+            <tr>
+              <th class="right">Day</th>
+              <th>Date</th>
+              <th class="right">Hours</th>
+              <th class="right">Start</th>
+              <th class="right">End</th>
+              <th class="right">Gain</th>
+              <th class="right">Pts/hr</th>
+              <th class="right">Rain</th>
+              <th>Source</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            ${trs}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="help muted" style="margin-top:8px;">
+        Positive gain means the field is drying. Negative gain means forecast rain/wet conditions are reducing readiness.
+      </div>
+    </div>
+  `;
+}
+
+function buildDebugSummary(backendEta){
+  const eta = safeObj(backendEta && backendEta.eta) || {};
+
+  return `
+    <div style="margin-top:14px;">
+      <div style="font-weight:900; font-size:13px; margin-bottom:8px;">Backend ETA Summary</div>
+
+      <div class="help" style="display:grid; gap:6px;">
+        <div><b>Current readiness:</b> ${eta.currentReadiness != null ? esc(String(round(eta.currentReadiness, 3))) : '—'}</div>
+        <div><b>Projected readiness:</b> ${eta.projectedReadiness != null ? esc(String(round(eta.projectedReadiness, 3))) : '—'}</div>
+        <div><b>Total readiness gain:</b> ${eta.readinessGain != null ? esc(String(round(eta.readinessGain, 3))) : '—'}</div>
+        <div><b>Projection hours:</b> ${eta.projectionHours != null ? esc(String(eta.projectionHours)) : '—'}</div>
+        <div><b>Average points/hour:</b> ${eta.drydownPointsPerHour != null ? esc(String(round(eta.drydownPointsPerHour, 6))) : '—'}</div>
+      </div>
+    </div>
+  `;
 }
 
 /* =====================================================================
@@ -485,130 +527,120 @@ async function getForecastRows7(fieldId){
 (function wireOnce(){
   try{
     if (window.__FV_FR_ETA_HELP_WIRED__) return;
+
     window.__FV_FR_ETA_HELP_WIRED__ = true;
 
-    document.addEventListener('fr:eta-help', async (e)=>{
+    document.addEventListener('fr:eta-help', async e=>{
       try{
-        const d = (e && e.detail) ? e.detail : {};
-        const fieldId = String(d.fieldId || '');
+        const d = e && e.detail ? e.detail : {};
+
+        const fieldId =
+          safeStr(d.fieldId);
+
         if (!fieldId) return;
 
         const bd = showModal();
 
-        const title = `ETA Helper • ${d.fieldName ? String(d.fieldName) : fieldId}`;
-        bd.querySelector('#fvEtaHelpTitle').textContent = title;
+        const title =
+          `ETA Helper • ${d.fieldName ? String(d.fieldName) : fieldId}`;
 
-        const opKey = String(d.opKey || '');
-        const thr = Number(d.threshold);
-        const readinessNow = Number(d.readinessNow);
-        const passedEtaText = compactEtaText(String(d.etaText || ''), Number(d.horizonHours || 168));
-        const horizon = Number(d.horizonHours || 168);
+        const titleEl =
+          bd.querySelector('#fvEtaHelpTitle');
 
-        bd.querySelector('#fvEtaHelpSub').textContent =
-          `Operation threshold: ${Number.isFinite(thr) ? thr : '—'} • Readiness now: ${Number.isFinite(readinessNow) ? readinessNow : '—'} • ETA: ${passedEtaText || 'Loading...'}`;
+        const subEl =
+          bd.querySelector('#fvEtaHelpSub');
 
-        const helperText = `
-          <div style="font-size:14px; line-height:1.35;">
-            <b>What does this ETA mean?</b><br/>
-            This is the <b>forecast-based time until the field reaches your selected operation threshold</b>.
-            We start from your <b>current readiness</b>, seeded from <b>field_readiness_latest</b> when available,
-            then simulate forward using the same FarmVista ETA model and forecast path used by the tiles.
-          </div>
-        `;
+        const body =
+          bd.querySelector('#fvEtaHelpBody');
 
-        const body = bd.querySelector('#fvEtaHelpBody');
-        body.innerHTML = `
-          ${helperText}
-          <div class="help muted" style="margin-top:12px;">Recomputing live ETA from current model + forecast…</div>
-        `;
+        if (titleEl) titleEl.textContent = title;
 
-        const [rows, liveEta] = await Promise.all([
-          getForecastRows7(fieldId),
-          recomputeLiveEta(fieldId, thr, horizon)
-        ]);
+        const opKey =
+          safeStr(d.opKey);
 
-        const finalEtaText = safeStr(liveEta && liveEta.text) || passedEtaText || '—';
+        const threshold =
+          safeNum(d.threshold);
 
-        bd.querySelector('#fvEtaHelpSub').textContent =
-          `Operation threshold: ${Number.isFinite(thr) ? thr : '—'} • Readiness now: ${Number.isFinite(readinessNow) ? readinessNow : '—'} • ETA: ${finalEtaText || '—'}`;
+        const readinessNow =
+          safeNum(d.readinessNow);
 
-        const snapshotHtml = `
-          <div style="margin-top:14px;">
-            <div style="font-weight:900; font-size:13px; margin-bottom:8px;">Snapshot</div>
-            <div class="help" style="display:grid; gap:6px;">
-              <div><b>Operation:</b> ${esc(opKey || '—')}</div>
-              <div><b>Threshold:</b> ${Number.isFinite(thr) ? esc(String(thr)) : '—'}</div>
-              <div><b>Readiness now:</b> ${Number.isFinite(readinessNow) ? esc(String(readinessNow)) : '—'}</div>
-              <div><b>ETA:</b> ${esc(finalEtaText || '—')}</div>
-              <div><b>Horizon:</b> ${esc(String(horizon))}h</div>
-              <div class="muted" style="font-size:12px;">
-                Source priority: live model recompute → passed tile ETA fallback
-              </div>
-            </div>
-          </div>
-        `;
+        const horizon =
+          safeNum(d.horizonHours, 168);
 
-        let tableHtml = '';
-        if (rows && rows.length){
-          const trs = rows.map(r=>{
-            const x = normalizeRowForTable(r);
-            return `
-              <tr>
-                <td class="mono">${esc(x.dateISO)}</td>
-                <td class="right mono">${Number(x.rain).toFixed(2)}</td>
-                <td class="right mono">${esc(x.temp)}</td>
-                <td class="right mono">${esc(x.wind)}</td>
-                <td class="right mono">${esc(x.rh)}</td>
-                <td class="right mono">${esc(x.solar)}</td>
-                <td class="right mono">${esc(x.et0)}</td>
-                <td class="right mono">${esc(x.sm010)}</td>
-                <td class="right mono">${esc(x.st010F)}</td>
-              </tr>
-            `;
-          }).join('');
+        const passedEtaText =
+          compactEtaText(
+            safeStr(d.etaText),
+            horizon
+          );
 
-          tableHtml = `
-            <div style="margin-top:14px;">
-              <div style="font-weight:900; font-size:13px; margin-bottom:8px;">Forecast inputs (next 7 days)</div>
-              <div class="table-scroll" style="overflow-x:auto;">
-                <table aria-label="ETA Forecast Inputs">
-                  <thead>
-                    <tr>
-                      <th style="width:130px;">Date</th>
-                      <th class="right">Rain</th>
-                      <th class="right">Temp</th>
-                      <th class="right">Wind</th>
-                      <th class="right">RH</th>
-                      <th class="right">Solar</th>
-                      <th class="right">ET0</th>
-                      <th class="right">SM 0–10</th>
-                      <th class="right">ST 0–10</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${trs}
-                  </tbody>
-                </table>
-              </div>
-              <div class="help muted" style="margin-top:8px;">
-                Note: “(remaining)” represents forecast hours later today after the current time, so you can see rain that hasn’t fallen yet.
-              </div>
-            </div>
-          `;
-        } else {
-          tableHtml = `
-            <div class="help muted" style="margin-top:14px;">
-              Forecast series is not available yet for this field (dailySeriesFcst missing).
+        if (subEl){
+          subEl.textContent =
+            `Operation threshold: ${threshold ?? '—'} • ` +
+            `Readiness now: ${readinessNow ?? '—'} • ` +
+            `ETA: ${passedEtaText || 'Loading...'}`;
+        }
+
+        if (body){
+          body.innerHTML = `
+            ${buildHelperText()}
+            <div class="help muted" style="margin-top:12px;">
+              Loading backend ETA buckets from Firestore…
             </div>
           `;
         }
 
-        body.innerHTML = `
-          ${helperText}
-          ${snapshotHtml}
-          ${tableHtml}
-        `;
-      }catch(_){}
+        const backendEta =
+          await loadBackendEta(fieldId);
+
+        const etaDays =
+          Array.isArray(backendEta.etaDays)
+            ? backendEta.etaDays
+            : [];
+
+        const calculated =
+          calculateEtaFromDays({
+            readinessNow,
+            threshold,
+            etaDays,
+            horizonHours: horizon
+          });
+
+        const finalEtaText =
+          safeStr(calculated && calculated.text) ||
+          passedEtaText ||
+          'ETA can not be calculated at this time';
+
+        if (subEl){
+          subEl.textContent =
+            `Operation threshold: ${threshold ?? '—'} • ` +
+            `Readiness now: ${readinessNow ?? '—'} • ` +
+            `ETA: ${finalEtaText}`;
+        }
+
+        if (body){
+          body.innerHTML = `
+            ${buildHelperText()}
+
+            ${buildSnapshotHtml({
+              opKey,
+              threshold,
+              readinessNow,
+              etaText: finalEtaText,
+              horizon,
+              source: backendEta.source,
+              backendEta
+            })}
+
+            ${buildDebugSummary(backendEta)}
+
+            ${buildEtaDaysTable(etaDays)}
+          `;
+        }
+      }catch(err){
+        console.warn('[ETA Helper] failed:', err);
+      }
     });
-  }catch(_){}
+  }catch(err){
+    console.warn('[ETA Helper] wire failed:', err);
+  }
 })();
