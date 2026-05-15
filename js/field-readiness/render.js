@@ -891,8 +891,8 @@ function buildWaitingTile(f, state, thr){
 
   if (String(state.selectedFieldId) === String(f.id)){
     tile.classList.add('fv-selected');
-    tile.style.border = '2px solid rgba(46,125,50,.95)';
-    tile.style.boxShadow = '0 0 0 2px rgba(46,125,50,.14)';
+    tile.style.border = '2px solid rgba(140,140,140,.85)';
+    tile.style.boxShadow = '0 0 0 2px rgba(140,140,140,.18)'; 
     tile.style.transform = 'translateY(-2px)';
   }
 
@@ -1444,7 +1444,13 @@ async function renderDetailsForSelected(state){
             Field Information
           </div>
           <div>• Field: ${esc(f.name || 'Unknown')}</div>
-          <div>• Acres: ${Number(f.acres || 0).toFixed(1)}</div>
+          <div>• Acres: ${Number(
+  f.acres ??
+  f.areaAcres ??
+  f.fieldAcres ??
+  f.totalAcres ??
+  0
+).toFixed(1)}</div>
           <div>• County: ${esc(rec.county || f.county || '—')}</div>
           <div>• Readiness: ${esc(rec.readiness ?? '—')}</div>
           <div>• Updated: ${esc(formatCentralTime(rec.updatedAtISO || rec.computedAtISO))}</div>
