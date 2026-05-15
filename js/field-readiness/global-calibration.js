@@ -321,125 +321,147 @@ function getPersistedStateForDeps(state, fieldId){
 ===================================================================== */
 function buildLatestReadinessRecord(raw, fallbackId){
   const d = (raw && typeof raw === 'object') ? raw : {};
-
-  const fieldId =
-    safeStr(d.fieldId || fallbackId);
-
+  const fieldId = safeStr(d.fieldId || fallbackId);
   if (!fieldId) return null;
 
   return {
     fieldId,
-
-    farmId:
-      safeStr(d.farmId),
-
-    farmName:
-      d.farmName == null
-        ? null
-        : safeStr(d.farmName),
-
-    fieldName:
-      safeStr(d.fieldName),
-
-    county:
-      safeStr(d.county),
-
-    state:
-      safeStr(d.state),
-
-    readiness:
-      safeInt(
-        d.readinessR ??
-        d.readiness
-      ),
-
-    wetness:
-      safeInt(
-        d.wetnessR ??
-        d.wetness
-      ),
-
-    soilWetness:
-      safeNum(d.soilWetness) ??
-      safeNum(d?.soil?.storage),
-
-    drainageIndex:
-      safeNum(d.drainageIndex) ??
-      50,
-
-    readinessCreditIn:
-      safeNum(d.readinessCreditIn) ?? 0,
-
-    storageFinal:
-      safeNum(d.storageFinal) ??
-      safeNum(d?.soil?.storage),
-
-    storageForReadiness:
-      safeNum(d.storageForReadiness),
-
-    storagePhysFinal:
-      safeNum(d.storagePhysFinal),
-
-    surfaceStorageFinal:
-      safeNum(d.surfaceStorageFinal) ??
-      safeNum(d?.surface?.water),
-
-    surfacePenaltyFinal:
-      safeNum(d.surfacePenaltyFinal) ??
-      safeNum(d?.surface?.penalty),
-
-    wetBiasApplied:
-      safeNum(d.wetBiasApplied) ?? 0,
-
-    runKey:
-      safeStr(d.runKey),
-
-    seedSource:
-      safeStr(d.seedMode ?? d.seedSource),
-
-    weatherSource:
-      safeStr(
-        d.weatherSource ??
-        d?.soil?.source
-      ),
-
-    timezone:
-      safeStr(d.timezone),
-
-    computedAtISO:
-      toIsoFromAny(d.computedAt),
-
-    weatherFetchedAtISO:
-      toIsoFromAny(d.weatherFetchedAt),
-
-    modelVersion:
-      safeStr(d.modelVersion),
-
-    status:
-      safeStr(d.status),
-
-    drydownPointsPerHour:
-      safeNum(
-        d.drydownPointsPerHour ??
-        d?.eta?.drydownPointsPerHour
-      ),
-
-    Smax:
-      safeNum(d?.soil?.Smax),
-
+    farmId: safeStr(d.farmId),
+    farmName: d.farmName == null ? null : safeStr(d.farmName),
+    fieldName: safeStr(d.fieldName),
+    county: safeStr(d.county),
+    state: safeStr(d.state),
+    readiness: safeInt(d.readiness),
+    wetness: safeInt(d.wetness),
+    soilWetness: safeNum(d.soilWetness),
+    drainageIndex: safeNum(d.drainageIndex),
+    readinessCreditIn: safeNum(d.readinessCreditIn) ?? 0,
+    storageFinal: safeNum(d.storageFinal),
+    storageForReadiness: safeNum(d.storageForReadiness),
+    storagePhysFinal: safeNum(d.storagePhysFinal),
+    surfaceStorageFinal: safeNum(d.surfaceStorageFinal),
+    surfacePenaltyFinal: safeNum(d.surfacePenaltyFinal),
+    wetBiasApplied: safeNum(d.wetBiasApplied),
+    runKey: safeStr(d.runKey),
+    seedSource: safeStr(d.seedSource),
+    weatherSource: safeStr(d.weatherSource),
+    timezone: safeStr(d.timezone),
+    computedAtISO: toIsoFromAny(d.computedAt),
+    weatherFetchedAtISO: toIsoFromAny(d.weatherFetchedAt),
     location: {
-      lat:
-        safeNum(
-          d?.location?.lat
-        ),
-
-      lng:
-        safeNum(
-          d?.location?.lng
-        )
+      lat: safeNum(d && d.location && d.location.lat),
+      lng: safeNum(d && d.location && d.location.lng)
     },
-
     _raw: d
+  };
+}
+
+async function loadLatestReadiness(state, { force=false } = {}){
+  try{
+    if (!state) return;
+
+    const now = Date.now();
+    const last = Number(state._latestReadinessLoadedAt || 0);
+    if (!force && state.latestReadinessByFieldId && (now - last) < LATEST_TTL_MS) return;
+
+    state.latestReadinessByFieldId = state.latestReadinessByFieldId || {};
+    const out = {};
+
+    const api = getAPI(state);
+    if (!api){
+      state.latestReadinessByFieldId = out;
+      state._latestReadinessLoadedAt = now;
+      return;
+    }
+
+    if (api.kind === 'compat' && window.firebase && window.firebase.firestore){
+      const db = window.firebase.firestore();
+      const snap = await db.collection(FR_LATEST_COLLECTION).get();
+
+      snap.forEach(doc=>{
+        const rec = buildLatestReadinessRecord(doc.data() || {}, doc.id);
+        if (!rec || !rec.fieldId) return;
+        out[rec.fieldId] = rec;
+      });
+
+      state.latestReadinessByFieldId = out;
+      state._latestReadinessLoadedAt = now;
+      return;
+    }
+
+    if (api.kind !== 'compat'){
+      const db = api.getFirestore();
+      const col = api.collection(db, FR_LATEST_COLLECTION);
+      const snap = await api.getDocs(col);
+
+      snap.forEach(doc=>{
+        const rec = buildLatestReadinessRecord(doc.data() || {}, doc.id);
+        if (!rec || !rec.fieldId) return;
+        out[rec.fieldId] = rec;
+      });
+
+      state.latestReadinessByFieldId = out;
+      state._latestReadinessLoadedAt = now;
+      return;
+    }
+  }catch(e){
+    console.warn('[FieldReadiness] latest readiness load failed:', e);
+    state.latestReadinessByFieldId = state.latestReadinessByFieldId || {};
+    state._latestReadinessLoadedAt = Date.now();
+  }
+}
+
+function getLatestReadinessForField(state, fieldId){
+  try{
+    const map = (state && state.latestReadinessByFieldId && typeof state.latestReadinessByFieldId === 'object')
+      ? state.latestReadinessByFieldId
+      : {};
+    const fid = safeStr(fieldId);
+    const rec = map[fid];
+    return (rec && typeof rec === 'object') ? rec : null;
+  }catch(_){
+    return null;
+  }
+}
+
+function buildSyntheticRunFromLatest(state, fieldObj, latestRec){
+  const f = fieldObj || {};
+  const rec = latestRec || getLatestReadinessForField(state, f.id);
+  if (!rec) return null;
+
+  const readinessR = safeInt(rec.readiness);
+  if (!Number.isFinite(readinessR)) return null;
+
+  return {
+    ok: true,
+    source: 'field_readiness_latest',
+    sourceLabel: 'field_readiness_latest',
+    fieldId: safeStr(rec.fieldId || f.id),
+    readinessR,
+    readiness: readinessR,
+    wetness: safeInt(rec.wetness),
+    wetnessR: safeInt(rec.wetness),
+    soilWetness: safeNum(rec.soilWetness),
+    drainageIndex: safeNum(rec.drainageIndex),
+    readinessCreditIn: safeNum(rec.readinessCreditIn) ?? 0,
+    storageFinal: safeNum(rec.storageFinal),
+    storageForReadiness: safeNum(rec.storageForReadiness),
+    storagePhysFinal: safeNum(rec.storagePhysFinal),
+    surfaceStorageFinal: safeNum(rec.surfaceStorageFinal),
+    surfacePenaltyFinal: safeNum(rec.surfacePenaltyFinal),
+    wetBiasApplied: safeNum(rec.wetBiasApplied),
+    runKey: safeStr(rec.runKey),
+    seedSource: safeStr(rec.seedSource),
+    weatherSource: safeStr(rec.weatherSource),
+    timezone: safeStr(rec.timezone),
+    computedAtISO: safeStr(rec.computedAtISO),
+    weatherFetchedAtISO: safeStr(rec.weatherFetchedAtISO),
+    county: safeStr(rec.county || f.county),
+    state: safeStr(rec.state || f.state),
+    factors: null,
+    trace: [],
+    rows: [],
+    _latest: rec
   };
 }
 
