@@ -2097,8 +2097,31 @@ async function openAdjust(state){
   state._adjStatus = status;
   state._adjFeel = null;
 
-  state._adjAnchorReadiness = clamp(Math.round(Number(runShown?.readinessR ?? 50)), 0, 100);
-  state._adjBaseReadiness = clamp(Math.round(Number(runModel?.readinessR ?? state._adjAnchorReadiness)), 0, 100);
+state._adjAnchorReadiness =
+  clamp(
+    Math.round(
+      Number(
+        runShown?.readinessR ??
+        runShown?.readiness ??
+        50
+      )
+    ),
+    0,
+    100
+  );
+
+state._adjBaseReadiness =
+  clamp(
+    Math.round(
+      Number(
+        runModel?.readinessR ??
+        runModel?.readiness ??
+        state._adjAnchorReadiness
+      )
+    ),
+    0,
+    100
+  );
 
   setAnchor(state, state._adjAnchorReadiness);
   setSliderVal(state._adjAnchorReadiness);
