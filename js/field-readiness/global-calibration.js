@@ -1984,6 +1984,19 @@ export async function openGlobalCalibration(state){
 export function initGlobalCalibration(state){
 
   ensureGlobalCalThemeCSSOnce();
+  const hot =
+  document.getElementById('fieldsTitle');
+
+if (hot){
+
+  hot.onclick = async (e)=>{
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    await openAdjust(state);
+  };
+}
 
   try{
     const hot = $('fieldsTitle');
