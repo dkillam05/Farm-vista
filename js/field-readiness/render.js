@@ -774,49 +774,15 @@ function ensureFieldsHelper(){
 
   el = document.createElement('div');
   el.id = 'frFieldsCountHelper';
-
-  el.className = 'fr-fields-helper muted';
-  el.style.marginTop = '6px';
-  el.style.fontSize = '12px';
-
-  grid.insertAdjacentElement('beforebegin', el);
-
-  return el;
-}
-
-function updateFieldsCount(showing, total){
-  const el = ensureFieldsHelper();
-  if (!el) return;
-
-  el.innerHTML = `
-    <div
-      id="fieldsTitle"
-      style="
-        font-weight:900;
-        font-size:20px;
-        cursor:pointer;
-      "
-    >
-      Fields
-    </div>
-
-    <div
-      style="
-        margin-top:4px;
-        font-size:12px;
-        opacity:.75;
-      "
-    >
-      Showing ${showing} of ${total} field${total === 1 ? '' : 's'}
-    </div>
-  `;
+  el.innerHTML = '<div id="fieldsTitle" style="font-weight:900;font-size:20px;cursor:pointer;">Fields</div>';
+   setTimeout(async ()=>{
 
   const hot =
     document.getElementById('fieldsTitle');
 
   if (!hot) return;
 
-  hot.onclick = async ()=>{
+  hot.addEventListener('click', async ()=>{
 
     const state = window.__FV_FR;
 
@@ -825,14 +791,28 @@ function updateFieldsCount(showing, total){
     const mod =
       await import('./global-calibration.js');
 
-    if (
-      mod &&
-      typeof mod.openGlobalCalibration === 'function'
-    ){
-      await mod.openGlobalCalibration(state);
-    }
+if (
+  mod &&
+  typeof mod.openGlobalCalibration === 'function'
+){
+  await mod.openGlobalCalibration(state);
+}
 
-  };
+  });
+
+}, 0);
+  el.className = 'fr-fields-helper muted';
+  el.style.marginTop = '6px';
+  el.style.fontSize = '12px';
+
+  grid.insertAdjacentElement('beforebegin', el);
+  return el;
+}
+
+function updateFieldsCount(showing, total){
+  const el = ensureFieldsHelper();
+  if (!el) return;
+  el.textContent = `Showing ${showing} of ${total} field${total === 1 ? '' : 's'}`;
 }
 
 function setEmptyMessage(showing){
