@@ -1978,7 +1978,16 @@ function wireOnce(state){
    Public init
 ===================================================================== */
 export async function openGlobalCalibration(state){
+
   await openAdjust(state);
+
+  const back =
+    document.getElementById('adjustBackdrop');
+
+  if (back){
+    back.classList.remove('pv-hide');
+  }
+
 }
 
 export function initGlobalCalibration(state){
