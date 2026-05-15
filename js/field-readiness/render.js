@@ -1763,7 +1763,202 @@ export async function selectField(state, id){
         await refreshAll(state);
       }catch(_){}
     });
+    // =========================================================
+    // ETA HELP POPUP
+    // =========================================================
+    document.addEventListener('fr:eta-help', e => {
 
+      try{
+
+        const d = e?.detail || {};
+
+        const etaDays =
+          Array.isArray(d.etaDays)
+            ? d.etaDays
+            : [];
+
+        let rowsHtml = '';
+
+        for (const day of etaDays){
+
+          rowsHtml += `
+            <tr>
+              <td style="padding:6px 8px;">${day.day}</td>
+
+              <td style="padding:6px 8px;">
+                ${day.dateISO || '—'}
+              </td>
+
+              <td style="padding:6px 8px;text-align:right;">
+                ${Number(day.readinessStart || 0).toFixed(1)}
+              </td>
+
+              <td style="padding:6px 8px;text-align:right;">
+                ${Number(day.readinessEnd || 0).toFixed(1)}
+              </td>
+
+              <td style="
+                padding:6px 8px;
+                text-align:right;
+                color:${Number(day.readinessGain || 0) >= 0 ? '#2e7d32' : '#c62828'};
+                font-weight:700;
+              ">
+                ${Number(day.readinessGain || 0).toFixed(2)}
+              </td>
+
+              <td style="padding:6px 8px;text-align:right;">
+                ${Number(day.drydownPointsPerHour || 0).toFixed(3)}
+              </td>
+
+              <td style="padding:6px 8px;text-align:right;">
+                ${Number(day.rainIn || 0).toFixed(2)}
+              </td>
+            </tr>
+          `;
+        }
+
+        const existing =
+          document.getElementById('fvEtaHelpModal');
+
+        if (existing){
+          existing.remove();
+        }
+
+        const modal = document.createElement('div');
+
+        modal.id = 'fvEtaHelpModal';
+
+        modal.innerHTML = `
+          <div
+            style="
+              position:fixed;
+              inset:0;
+              background:rgba(0,0,0,.55);
+              z-index:999999;
+              display:flex;
+              align-items:center;
+              justify-content:center;
+              padding:20px;
+            "
+          >
+
+            <div
+              style="
+                width:min(1000px,95vw);
+                max-height:90vh;
+                overflow:auto;
+                background:var(--surface);
+                color:var(--text);
+                border-radius:18px;
+                border:1px solid var(--border);
+                padding:18px;
+                box-shadow:0 20px 50px rgba(0,0,0,.35);
+              "
+            >
+
+              <div
+                style="
+                  display:flex;
+                  justify-content:space-between;
+                  align-items:center;
+                  margin-bottom:14px;
+                "
+              >
+                <div>
+                  <div style="font-size:20px;font-weight:900;">
+                    ETA Forecast Breakdown
+                  </div>
+
+                  <div style="margin-top:4px;opacity:.75;">
+                    ${d.fieldName || 'Field'}
+                  </div>
+                </div>
+
+                <button
+                  id="fvEtaHelpClose"
+                  style="
+                    border:0;
+                    background:#c62828;
+                    color:#fff;
+                    border-radius:10px;
+                    padding:8px 12px;
+                    cursor:pointer;
+                    font-weight:700;
+                  "
+                >
+                  Close
+                </button>
+              </div>
+
+              <div style="margin-bottom:16px;">
+                Current Readiness:
+                <strong>${Number(d.readinessNow || 0).toFixed(1)}</strong>
+
+                &nbsp;&nbsp;•&nbsp;&nbsp;
+
+                Operational Threshold:
+                <strong>${Number(d.threshold || 0).toFixed(0)}</strong>
+              </div>
+
+              <div style="overflow:auto;">
+
+                <table
+                  style="
+                    width:100%;
+                    border-collapse:collapse;
+                    font-size:13px;
+                  "
+                >
+
+                  <thead>
+                    <tr style="background:rgba(255,255,255,.06);">
+                      <th style="padding:8px;text-align:left;">Day</th>
+                      <th style="padding:8px;text-align:left;">Date</th>
+                      <th style="padding:8px;text-align:right;">Start</th>
+                      <th style="padding:8px;text-align:right;">End</th>
+                      <th style="padding:8px;text-align:right;">Gain</th>
+                      <th style="padding:8px;text-align:right;">Pts/Hr</th>
+                      <th style="padding:8px;text-align:right;">Rain</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    ${rowsHtml}
+                  </tbody>
+
+                </table>
+
+              </div>
+
+            </div>
+
+          </div>
+        `;
+
+        document.body.appendChild(modal);
+
+        document
+          .getElementById('fvEtaHelpClose')
+          ?.addEventListener('click', ()=>{
+            modal.remove();
+          });
+
+        modal.addEventListener('click', ev=>{
+          if (ev.target === modal.firstElementChild){
+            modal.remove();
+          }
+        });
+
+      }catch(err){
+
+        console.warn(
+          '[FieldReadiness] ETA popup failed:',
+          err
+        );
+      }
+
+    });
+     
     let searchTimer = null;
 
     document.addEventListener('input', e=>{
