@@ -13,6 +13,20 @@ import { getCurrentOp } from './thresholds.js';
 import { ensureFRModules, buildFRDeps } from './formula.js';
 
 function $(id){ return document.getElementById(id); }
+function setText(id, value){
+
+  const el =
+    $(id);
+
+  if (!el){
+    return;
+  }
+
+  el.textContent =
+    value == null
+      ? ''
+      : String(value);
+}
 function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
 
 function safeStr(x){
