@@ -1977,7 +1977,12 @@ function wireOnce(state){
 /* =====================================================================
    Public init
 ===================================================================== */
+export async function openGlobalCalibration(state){
+  await openAdjust(state);
+}
+
 export function initGlobalCalibration(state){
+
   ensureGlobalCalThemeCSSOnce();
 
   try{
