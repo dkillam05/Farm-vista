@@ -1674,10 +1674,16 @@ export async function selectField(state, id){
 
   try{
     document
-      .querySelectorAll('.tile.fv-selected')
-      .forEach(el=>{
-        el.classList.remove('fv-selected');
-      });
+  .querySelectorAll('.tile.fv-selected')
+  .forEach(el=>{
+
+    el.classList.remove('fv-selected');
+
+    el.style.border = '';
+    el.style.boxShadow = '';
+    el.style.transform = '';
+
+  });
 
     const tile =
       document.querySelector(
@@ -1688,11 +1694,11 @@ export async function selectField(state, id){
 
   tile.classList.add('fv-selected');
 
-  tile.style.border =
-    '4px solid #2e7d32';
+tile.style.border =
+  '2px solid rgba(46,125,50,.75)';
 
-  tile.style.boxShadow =
-    '0 0 0 4px rgba(46,125,50,.30)';
+tile.style.boxShadow =
+  '0 0 0 2px rgba(46,125,50,.16)';
 
   tile.style.transform =
     'translateY(-2px)';
