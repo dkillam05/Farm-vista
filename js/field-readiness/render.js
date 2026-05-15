@@ -774,38 +774,13 @@ function ensureFieldsHelper(){
 
   el = document.createElement('div');
   el.id = 'frFieldsCountHelper';
-  el.innerHTML = '<div id="fieldsTitle" style="font-weight:900;font-size:20px;cursor:pointer;">Fields</div>';
-   setTimeout(async ()=>{
 
-  const hot =
-    document.getElementById('fieldsTitle');
-
-  if (!hot) return;
-
-  hot.addEventListener('click', async ()=>{
-
-    const state = window.__FV_FR;
-
-    if (!state) return;
-
-    const mod =
-      await import('./global-calibration.js');
-
-if (
-  mod &&
-  typeof mod.openGlobalCalibration === 'function'
-){
-  await mod.openGlobalCalibration(state);
-}
-
-  });
-
-}, 0);
   el.className = 'fr-fields-helper muted';
   el.style.marginTop = '6px';
   el.style.fontSize = '12px';
 
   grid.insertAdjacentElement('beforebegin', el);
+
   return el;
 }
 
