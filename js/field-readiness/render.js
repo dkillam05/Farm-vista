@@ -791,12 +791,12 @@ function ensureFieldsHelper(){
     const mod =
       await import('./global-calibration.js');
 
-    if (
-      mod &&
-      typeof mod.initGlobalCalibration === 'function'
-    ){
-      mod.initGlobalCalibration(state);
-    }
+if (
+  mod &&
+  typeof mod.openGlobalCalibration === 'function'
+){
+  await mod.openGlobalCalibration(state);
+}
 
   });
 
