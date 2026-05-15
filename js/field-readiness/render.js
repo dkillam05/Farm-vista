@@ -1779,16 +1779,55 @@ export async function selectField(state, id){
     });
 
 document.addEventListener('fr:soft-reload', async ()=>{
+
   try{
+
     const state = window.__FV_FR;
+
     if (!state) return;
 
-    state._fieldConditionsLoadedAt = 0;
-    state._dailyRowsLoadedAt = {};
-    state.dailyRowsByFieldId = {};
+    // =========================================
+    // Prevent rapid duplicate reload storms
+    // =========================================
+    const now = Date.now();
 
-    await refreshAll(state);
-  }catch(_){}
+    if (
+      state.__softReloadRunning &&
+      now - Number(state.__softReloadStartedAt || 0) < 4000
+    ){
+      return;
+    }
+
+    state.__softReloadRunning = true;
+    state.__softReloadStartedAt = now;
+
+    // =========================================
+    // ONLY refresh tiles
+    // DO NOT nuke all caches repeatedly
+    // =========================================
+    state._fieldConditionsLoadedAt = 0;
+
+    await renderTilesInternal(state);
+
+  }catch(err){
+
+    console.warn(
+      '[FieldReadiness] soft reload failed:',
+      err
+    );
+
+  }finally{
+
+    try{
+      const state = window.__FV_FR;
+
+      if (state){
+        state.__softReloadRunning = false;
+      }
+    }catch(_){}
+
+  }
+
 });
 
 // =========================================================
