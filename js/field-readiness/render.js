@@ -1552,7 +1552,6 @@ async function renderTilesInternal(state){
   const wrap = $('fieldsGrid');
   if (!wrap) return;
 
-  showLoadingTiles();
 
   const opKey = getCurrentOp();
   const thr = getThresholdForOp(state, opKey);
