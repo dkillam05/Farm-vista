@@ -41,7 +41,7 @@ const STATE_TTL_MS = 30000;
 /* =====================================================================
    CENTRALIZED READINESS COLLECTION
 ===================================================================== */
-const FR_LATEST_COLLECTION = 'field_readiness_latest';
+const FR_LATEST_COLLECTION = 'field_conditions_current';
 const LATEST_TTL_MS = 30000;
 
 /* =====================================================================
