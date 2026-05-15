@@ -812,7 +812,52 @@ if (
 function updateFieldsCount(showing, total){
   const el = ensureFieldsHelper();
   if (!el) return;
-  el.textContent = `Showing ${showing} of ${total} field${total === 1 ? '' : 's'}`;
+
+  el.innerHTML = `
+    <div
+      id="fieldsTitle"
+      style="
+        font-weight:900;
+        font-size:20px;
+        cursor:pointer;
+      "
+    >
+      Fields
+    </div>
+
+    <div
+      style="
+        margin-top:4px;
+        font-size:12px;
+        opacity:.75;
+      "
+    >
+      Showing ${showing} of ${total} field${total === 1 ? '' : 's'}
+    </div>
+  `;
+
+  const hot =
+    document.getElementById('fieldsTitle');
+
+  if (!hot) return;
+
+  hot.onclick = async ()=>{
+
+    const state = window.__FV_FR;
+
+    if (!state) return;
+
+    const mod =
+      await import('./global-calibration.js');
+
+    if (
+      mod &&
+      typeof mod.openGlobalCalibration === 'function'
+    ){
+      await mod.openGlobalCalibration(state);
+    }
+
+  };
 }
 
 function setEmptyMessage(showing){
