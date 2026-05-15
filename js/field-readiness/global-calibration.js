@@ -1302,6 +1302,26 @@ function updatePills(state, run){
   const thr =
     currentThreshold(state);
 
+  const liveReadiness =
+    Number(
+      run?.readinessR ??
+      run?.readiness ??
+      latest?.readiness
+    );
+
+  if (!Number.isFinite(liveReadiness)){
+
+    state._adjStatus = null;
+
+  } else if (liveReadiness >= thr){
+
+    state._adjStatus = 'dry';
+
+  } else {
+
+    state._adjStatus = 'wet';
+  }
+
   const shownReadiness =
     Number.isFinite(
       Number(
@@ -1592,6 +1612,47 @@ function updateUI(state){
         0,
         10
       );
+
+    if (locked){
+      hint.textContent =
+        'Global shift is locked (72h rule).';
+
+    } else if (state._adjStatus === 'wet'){
+
+      hint.textContent =
+        `This reference field is WET for the current operation (Readiness below threshold ${thr}). ` +
+        `Only “Dry” is allowed. (Stability band ±${band} around threshold)`;
+
+    } else if (state._adjStatus === 'dry'){
+
+      hint.textContent =
+        `This reference field is DRY for the current operation (Readiness at/above threshold ${thr}). ` +
+        `Only “Wet” is allowed. (Stability band ±${band} around threshold)`;
+
+    } else {
+
+      hint.textContent =
+        'Choose Wet or Dry.';
+    }
+  }
+
+  if (applyBtn){
+
+    const hasChoice =
+      (
+        state._adjFeel === 'wet' ||
+        state._adjFeel === 'dry'
+      );
+
+    applyBtn.disabled =
+      locked ||
+      !hasChoice;
+  }
+
+  enforceSliderClamp(state);
+
+  updateGuardText(state);
+}
 
     if (locked){
 
