@@ -930,10 +930,15 @@ function buildReadyTile(f, state, rec, rainText, thr, etaInfo, opKey){
     tile.classList.add('fv-selected');
   }
 
-  const etaText =
-    Number(readiness) >= Number(thr)
-      ? ''
-      : safeStr(etaInfo?.text || ETA_UNAVAILABLE_TEXT);
+const etaText =
+  Number(readiness) >= Number(thr)
+    ? ''
+    : `ETA to operational threshold ${
+        safeStr(
+          etaInfo?.text ||
+          ETA_UNAVAILABLE_TEXT
+        )
+      }`;
 
   tile.innerHTML = `
     <div class="tile-top" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:nowrap;gap:10px;width:100%;min-width:0;">
