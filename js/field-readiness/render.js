@@ -774,6 +774,7 @@ function ensureFieldsHelper(){
 
   el = document.createElement('div');
   el.id = 'frFieldsCountHelper';
+  el.innerHTML = '<div id="fieldsTitle" style="font-weight:900;font-size:20px;cursor:pointer;">Fields</div>';
   el.className = 'fr-fields-helper muted';
   el.style.marginTop = '6px';
   el.style.fontSize = '12px';
@@ -1751,18 +1752,64 @@ export async function selectField(state, id){
       }catch(_){}
     });
 
-    document.addEventListener('fr:soft-reload', async ()=>{
-      try{
-        const state = window.__FV_FR;
-        if (!state) return;
+document.addEventListener('fr:soft-reload', async ()=>{
+  try{
+    const state = window.__FV_FR;
+    if (!state) return;
 
-        state._fieldConditionsLoadedAt = 0;
-        state._dailyRowsLoadedAt = {};
-        state.dailyRowsByFieldId = {};
+    state._fieldConditionsLoadedAt = 0;
+    state._dailyRowsLoadedAt = {};
+    state.dailyRowsByFieldId = {};
 
-        await refreshAll(state);
-      }catch(_){}
-    });
+    await refreshAll(state);
+  }catch(_){}
+});
+
+// =========================================================
+// GLOBAL CALIBRATION OPEN
+// =========================================================
+document.addEventListener('click', async e=>{
+
+  try{
+
+    const btn =
+      e?.target?.closest?.('.fvGlobalCalibrationBtn');
+
+    if (!btn) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const state = window.__FV_FR;
+
+    if (!state) return;
+
+    const mod =
+      await import('./global-calibration.js');
+
+    if (
+      mod &&
+      typeof mod.initGlobalCalibration === 'function'
+    ){
+      mod.initGlobalCalibration(state);
+    }
+
+    const hot =
+      document.getElementById('fieldsTitle');
+
+    if (hot){
+      hot.click();
+    }
+
+  }catch(err){
+
+    console.warn(
+      '[FieldReadiness] global calibration open failed:',
+      err
+    );
+  }
+
+});
     // =========================================================
     // ETA HELP POPUP
     // =========================================================
