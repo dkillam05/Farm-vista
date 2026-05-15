@@ -1278,15 +1278,23 @@ function updatePills(state, run){
 
   const thr = currentThreshold(state);
 
-  const shownReadiness =
-    run && Number.isFinite(Number(run.readinessR))
-      ? Math.round(Number(run.readinessR))
-      : '—';
+const shownReadiness =
+  run && Number.isFinite(Number(run.readinessR ?? run.readiness))
+    ? Math.round(Number(run.readinessR ?? run.readiness))
+    : (
+        latest && Number.isFinite(Number(latest.readiness))
+          ? Math.round(Number(latest.readiness))
+          : '—'
+      );
 
-  const shownWetness =
-    run && Number.isFinite(Number(run.wetnessR))
-      ? Math.round(Number(run.wetnessR))
-      : (latest && Number.isFinite(Number(latest.wetness)) ? Math.round(Number(latest.wetness)) : '—');
+const shownWetness =
+  run && Number.isFinite(Number(run.wetnessR ?? run.wetness))
+    ? Math.round(Number(run.wetnessR ?? run.wetness))
+    : (
+        latest && Number.isFinite(Number(latest.wetness))
+          ? Math.round(Number(latest.wetness))
+          : '—'
+      );
 
   const shownSoil =
     latest && safeNum(latest.soilWetness) != null
