@@ -1518,7 +1518,6 @@ import {
 
     const extrasOut = Object.assign({}, existingExtras, (p.extras || {}));
 
-    // Never wipe unitId (canonical extras.unitId) if blank
     const uid = String(p.unitIdFinal || "").trim();
     if(uid){
       extrasOut.unitId = uid;
@@ -1526,8 +1525,6 @@ import {
       if(!extrasOut.unitId) delete extrasOut.unitId;
     }
 
-    // Mirror type selectors to keep other parts of app working (root fields)
-    // (Also keep in extrasOut, since extras engine reads/writes them)
     if(p.implementTypeFinal){
       extrasOut.implementType = p.implementTypeFinal;
     }
@@ -1538,7 +1535,6 @@ import {
       extrasOut.attachmentType = p.attachmentTypeFinal;
     }
 
-    // Clean nulls
     Object.keys(extrasOut).forEach(k=>{
       if(extrasOut[k] === null) delete extrasOut[k];
     });
@@ -1556,7 +1552,50 @@ import {
       updatedAt: serverTimestamp()
     };
 
-    // Compatibility mirrors (ROOT)
+    // ✅ ROOT mirrors so the whole app sees the same saved values
+    const mirrorKeys = [
+      "unitId",
+      "placedInServiceDate",
+      "engineHours",
+      "separatorHours",
+      "odometerMiles",
+      "boomWidthFt",
+      "tankSizeGal",
+      "starfireCapable",
+      "workingWidthFt",
+      "numRows",
+      "rowSpacingIn",
+      "totalAcres",
+      "totalHours",
+      "bushelCapacityBu",
+      "augerDiameterIn",
+      "augerLengthFt",
+      "applicationType",
+      "licensePlate",
+      "licensePlateExp",
+      "insuranceExp",
+      "tireSizes",
+      "dotRequired",
+      "dotExpiration",
+      "trailerType",
+      "trailerPlate",
+      "trailerPlateExp",
+      "trailerDotRequired",
+      "lastDotInspection",
+      "gvwrLb",
+      "implementType",
+      "constructionType",
+      "attachmentType",
+      "activationLevel",
+      "firmwareVersion"
+    ];
+
+    mirrorKeys.forEach(k=>{
+      if(Object.prototype.hasOwnProperty.call(extrasOut, k)){
+        payload[k] = extrasOut[k];
+      }
+    });
+
     if(uid) payload.unitId = uid;
     if(p.implementTypeFinal) payload.implementType = p.implementTypeFinal;
     if(p.constructionTypeFinal) payload.constructionType = p.constructionTypeFinal;
@@ -1567,6 +1606,18 @@ import {
       await setDoc(doc(db,"equipment", state.editEqId), payload, { merge:true });
 
       state.editEqDoc = Object.assign({}, state.editEqDoc || {}, payload);
+
+      if(state.eq && state.eq.id === state.editEqId){
+        Object.assign(state.eq, payload);
+      }
+
+      window.dispatchEvent(new CustomEvent("fv-shop-equip:equipmentSaved", {
+        detail: {
+          id: state.editEqId,
+          equipment: Object.assign({}, state.editEqDoc || {}, payload)
+        }
+      }));
+
       showToast("Saved ✓");
       closeSheet(UI.editSheet);
     }catch(e){
