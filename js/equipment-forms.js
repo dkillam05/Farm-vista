@@ -209,7 +209,7 @@ Keeps:
         step: '0.1',
         inputmode: 'decimal',
         placeholder: 'Lifetime hours from monitor',
-        visibleForTypes: ['planter']
+        visibleForTypes: ['planter', 'corn-head', 'draper-head']
       }),
 
       // ✅ FIX: include 'tillage' so it shows for tillage implements
