@@ -677,13 +677,16 @@ import {
       });
     });
 
-    btnEdit.addEventListener("click", ()=>{
-      if(!state.eq) return;
-      closeSvcThen(async ()=>{
-        try{ await openEditModal(state.eq.id); }
-        catch(e){ console.error(e); alert(e?.message || "Failed to open editor."); }
-      });
-    });
+btnEdit.addEventListener("click", ()=>{
+  if(!state.eq) return;
+
+  const id = encodeURIComponent(state.eq.id || "");
+  const type = encodeURIComponent(detectTypeKeyFromEq(state.eq) || "equipment");
+
+  window.location.assign(
+    `/Farm-vista/pages/equipment/actions/edit.html?id=${id}&type=${type}&from=shop-equipment`
+  );
+});
 
     btnAddWO.addEventListener("click", ()=>{
       if(!state.eq) return;
