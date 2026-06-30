@@ -1,53 +1,59 @@
 <!-- =====================================================================
 /Farm-vista/pages/crop-production/crop-aerial-view.html  (FULL FILE)
-Rev: 2026-06-30a
-Update:
-✅ Main list is now grouped by FARM
-✅ Farm header shows total acres sprayed
-✅ Rows prioritize: Field Name, Acres, Crop, Trial
-✅ Job number is LAST and smaller
-✅ Search still supports farm, field, crop, trial, and job #
-✅ Keeps date/crop/year filters
-✅ Keeps job detail panel, edit, files/photos, field list, delete modal
+Rev: 2025-12-19g
+Fixes in this version:
+1) Jobs auto-load reliably (no more “must click Loading jobs…”)
+   - Boot does an immediate load + one automatic safety retry if still not loaded.
+2) Delete button moved to LOWER RIGHT of the details panel (like your screenshot)
+   - Edit stays aligned with Created (perfect as-is)
+   - Trash is now a bottom-right “floating” button inside the details card
+   - Disabled/greyed unless delete permission; disabled while editing; still uses YES modal
+Everything else kept from your last working version (Rev f):
+- Search + Crop + Crop Year + Date range picker
+- Default load last 50 by jobNumber desc
+- Filter loads up to 1000
+- No status in tiles
+- Trial info only when trialLink.assignments exist
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>FarmVista • Aerial Applications</title>
+  <title>FarmVista • Aerial Applications (View/Edit)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="theme-color" content="#3B7E46"/>
 
   <script src="/Farm-vista/js/theme-boot.js"></script>
 
+  <!-- ABSOLUTE PATHS -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
+  <!-- Firebase config before firebase-init -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
+
+  <!-- Date range picker (non-module) -->
   <script src="/Farm-vista/js/fv-date-range-picker.js"></script>
 
   <style>
     :root{
-      --card-max:1200px;
-      --page-bottom-gap:96px;
-      --accent:#2F6C3C;
-      --danger:#C53030;
+      --card-max: 1200px;
+      --page-bottom-gap: 96px;
+      --accent: #2F6C3C;
+      --danger: #C53030;
     }
 
     html{-webkit-text-size-adjust:100%}
-    body{
-      background:var(--app-bg,var(--surface));
-      overflow-x:hidden;
-    }
+    body{ background: var(--app-bg, var(--surface)); overflow-x:hidden; }
 
     .wrap{
-      max-width:var(--card-max);
-      margin:0 auto;
-      padding:clamp(14px,3vw,22px);
-      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
+      max-width: var(--card-max);
+      margin: 0 auto;
+      padding: clamp(14px,3vw,22px);
+      padding-bottom: calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + var(--page-bottom-gap)) !important;
       box-sizing:border-box;
       display:grid;
       gap:12px;
@@ -67,7 +73,7 @@ Update:
       gap:12px;
       align-items:center;
       padding:14px 16px;
-      background:linear-gradient(90deg,rgba(47,108,60,.12),transparent);
+      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
       border-bottom:1px solid var(--border);
     }
 
@@ -85,8 +91,9 @@ Update:
       line-height:1.2;
     }
 
-    .muted{color:var(--muted,#67706B)}
-    .body{padding:16px;display:grid;gap:12px}
+    .muted{ color:var(--muted,#67706B); }
+
+    .body{ padding:16px; display:grid; gap:12px; }
 
     .toolbar{
       display:flex;
@@ -96,17 +103,20 @@ Update:
       justify-content:space-between;
     }
 
-    .toolbar-left,
+    .toolbar-left{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+    }
+
     .toolbar-right{
       display:flex;
       flex-wrap:wrap;
       gap:8px;
       align-items:center;
-    }
-
-    .toolbar-right{
-      font-size:.9rem;
-      opacity:.9;
+      font-size:0.9rem;
+      opacity:0.9;
     }
 
     .btn{
@@ -123,27 +133,22 @@ Update:
       user-select:none;
       color:var(--text) !important;
       background:var(--card-surface,var(--surface));
-      font-size:.9rem;
+      font-size:0.9rem;
       gap:6px;
       -webkit-appearance:none;
       appearance:none;
     }
 
-    .btn-quiet{min-width:auto;padding-inline:10px}
+    .btn-quiet{ min-width:auto; padding-inline:10px; }
 
     .btn-primary{
       background:var(--accent);
       border-color:var(--accent);
       color:#fff !important;
     }
+    .btn-primary[disabled]{opacity:.6; cursor:not-allowed;}
 
-    .btn-primary[disabled]{
-      opacity:.6;
-      cursor:not-allowed;
-    }
-
-    .input,
-    .select{
+    .input, .select{
       width:100%;
       font:inherit;
       font-size:16px;
@@ -160,15 +165,16 @@ Update:
 
     .select{
       background-image:
-        linear-gradient(45deg,transparent 50%,var(--muted,#67706B) 50%),
-        linear-gradient(135deg,var(--muted,#67706B) 50%,transparent 50%);
+        linear-gradient(45deg, transparent 50%, var(--muted,#67706B) 50%),
+        linear-gradient(135deg, var(--muted,#67706B) 50%, transparent 50%);
       background-position:
         calc(100% - 16px) 50%,
         calc(100% - 11px) 50%;
-      background-size:5px 5px,5px 5px;
+      background-size:5px 5px, 5px 5px;
       background-repeat:no-repeat;
     }
 
+    /* Filters row */
     .filters-row{
       display:flex;
       flex-wrap:wrap;
@@ -179,23 +185,24 @@ Update:
       z-index:10;
     }
 
+    /* ✅ Fix dropdown issue: keep selects above popover */
     .filter-wrap{
       display:flex;
       flex-direction:column;
       gap:3px;
-      font-size:.85rem;
+      font-size:0.85rem;
       max-width:320px;
       position:relative;
-      z-index:50;
+      z-index:50; /* higher than calendar popover */
       flex:1 1 220px;
       min-width:220px;
     }
 
     .filter-label{
-      font-size:.78rem;
+      font-size:0.78rem;
       text-transform:uppercase;
-      letter-spacing:.06em;
-      opacity:.7;
+      letter-spacing:0.06em;
+      opacity:0.7;
     }
 
     .filters-actions{
@@ -205,170 +212,81 @@ Update:
       flex-wrap:wrap;
     }
 
+    /* List */
+    .aerial-list{ display:flex; flex-direction:column; gap:10px; margin-top:4px; }
+
     .aerial-empty{
       padding:14px 16px;
       border-radius:12px;
       border:1px dashed var(--border);
-      background:var(--card-surface,var(--surface));
-      font-size:.95rem;
-      opacity:.9;
+      background:var(--card-surface, var(--surface));
+      font-size:0.95rem;
+      opacity:0.9;
       cursor:pointer;
     }
 
-    .aerial-list{
+    .aerial-card{
+      position:relative;
+      border-radius:14px;
+      border:1px solid var(--card-border, var(--border));
+      background:var(--card-surface, var(--surface));
+      box-shadow:var(--shadow-soft, var(--shadow));
+      padding:12px 14px 10px;
       display:flex;
       flex-direction:column;
-      gap:12px;
-      margin-top:4px;
+      gap:6px;
+      transition:transform .06s, box-shadow .12s, border-color .12s, background .12s;
+      cursor:pointer;
     }
+    .aerial-card:active{ transform:scale(.995); box-shadow:var(--shadow); }
 
-    .farm-card{
-      border-radius:14px;
-      border:1px solid var(--card-border,var(--border));
-      background:var(--card-surface,var(--surface));
-      box-shadow:var(--shadow-soft,var(--shadow));
-      overflow:hidden;
-    }
+    .aerial-row-top{ display:flex; align-items:flex-start; gap:10px; }
+    .aerial-main{ flex:1 1 auto; min-width:0; padding-right:12px; }
+    .aerial-title{ font-weight:900; font-size:1.02rem; line-height:1.25; }
+    .aerial-sub{ font-size:0.88rem; opacity:0.9; margin-top:2px; }
 
-    .farm-head{
-      padding:12px 14px;
-      background:linear-gradient(90deg,rgba(47,108,60,.13),transparent);
-      border-bottom:1px solid var(--border);
-      display:flex;
-      align-items:flex-start;
-      justify-content:space-between;
-      gap:12px;
-    }
-
-    .farm-title{
-      font-weight:950;
-      font-size:1.05rem;
-      line-height:1.2;
-    }
-
-    .farm-sub{
-      margin-top:3px;
-      font-size:.84rem;
-      opacity:.82;
+    .aerial-meta{
+      font-size:0.8rem;
+      opacity:0.9;
+      margin-top:6px;
       display:flex;
       flex-wrap:wrap;
       gap:6px 10px;
     }
-
-    .farm-total{
-      text-align:right;
-      font-weight:950;
-      color:var(--accent);
-      white-space:nowrap;
-      font-size:1rem;
-    }
-
-    .farm-total small{
-      display:block;
-      font-size:.72rem;
-      text-transform:uppercase;
-      letter-spacing:.06em;
-      color:var(--muted,#67706B);
-      font-weight:900;
-    }
-
-    .farm-table{
-      width:100%;
-      border-collapse:collapse;
-    }
-
-    .farm-table th{
-      text-align:left;
-      padding:8px 10px;
-      font-size:.72rem;
-      text-transform:uppercase;
-      letter-spacing:.06em;
-      opacity:.7;
-      border-bottom:1px solid var(--border);
-      white-space:nowrap;
-    }
-
-    .farm-table td{
-      padding:9px 10px;
-      border-bottom:1px solid color-mix(in srgb,var(--border) 70%,transparent);
-      vertical-align:top;
-      font-size:.88rem;
-    }
-
-    .farm-table tr{
-      cursor:pointer;
-    }
-
-    .farm-table tr:hover{
-      background:color-mix(in srgb,var(--surface) 78%,var(--border) 22%);
-    }
-
-    .farm-table tr:last-child td{
-      border-bottom:none;
-    }
-
-    .col-field{
-      width:38%;
-      font-weight:950;
-    }
-
-    .col-acres{
-      width:100px;
-      font-weight:950;
-      white-space:nowrap;
-    }
-
-    .col-crop{
-      width:130px;
-      white-space:nowrap;
-    }
-
-    .col-trial{
-      width:auto;
-    }
-
-    .col-job{
-      width:80px;
-      text-align:right;
-      font-size:.78rem;
-      opacity:.72;
-      white-space:nowrap;
-    }
-
-    .trial-pill{
+    .aerial-meta span{
       display:inline-flex;
       align-items:center;
       gap:4px;
-      padding:3px 7px;
+      padding:2px 7px;
       border-radius:999px;
-      font-size:.78rem;
-      font-weight:900;
-      background:rgba(47,108,60,.12);
-      color:var(--accent);
-      max-width:100%;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+    }
+    .aerial-meta-label{ font-weight:900; }
+    .aerial-meta-value{ font-weight:900; }
+
+    .aerial-bottom-row{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      font-size:0.78rem;
+      opacity:0.8;
+      margin-top:4px;
+      flex-wrap:wrap;
     }
 
-    .trial-none{
-      opacity:.45;
-      font-size:.78rem;
-    }
-
-    .job-mini{
-      font-weight:900;
-      opacity:.82;
-    }
-
+    /* Detail panel */
     .detail-panel{
       margin-top:10px;
       border-radius:14px;
-      border:1px solid var(--card-border,var(--border));
-      background:var(--card-surface,var(--surface));
-      box-shadow:var(--shadow-soft,var(--shadow));
+      border:1px solid var(--card-border, var(--border));
+      background:var(--card-surface, var(--surface));
+      box-shadow:var(--shadow-soft, var(--shadow));
       padding:14px 16px 12px;
       display:none;
       flex-direction:column;
       gap:10px;
-      position:relative;
+      position:relative; /* ✅ for bottom-right delete button */
     }
 
     .detail-header{
@@ -386,11 +304,7 @@ Update:
       min-width:0;
     }
 
-    .detail-title{
-      font-weight:900;
-      font-size:1.05rem;
-      cursor:text;
-    }
+    .detail-title{ font-weight:900; font-size:1.05rem; cursor:text; }
 
     .detail-title-input{
       display:none;
@@ -399,16 +313,16 @@ Update:
       padding:4px 6px;
       border-radius:8px;
       border:1px solid var(--border);
-      background:var(--surface-strong,var(--surface));
+      background:var(--surface-strong, var(--surface));
       color:var(--text);
       max-width:100%;
     }
 
     .detail-edit-hint{
-      font-size:.72rem;
+      font-size:0.72rem;
       text-transform:uppercase;
-      letter-spacing:.08em;
-      opacity:.6;
+      letter-spacing:0.08em;
+      opacity:0.6;
     }
 
     .detail-close{
@@ -428,15 +342,11 @@ Update:
     }
 
     .detail-close:hover{
-      background:color-mix(in srgb,var(--surface) 60%,var(--border) 40%);
+      background:color-mix(in srgb, var(--surface) 60%, var(--border) 40%);
       color:var(--text);
     }
 
-    .detail-close svg{
-      width:16px;
-      height:16px;
-      display:block;
-    }
+    .detail-close svg{ width:16px; height:16px; display:block; }
 
     .visually-hidden{
       position:absolute;
@@ -456,38 +366,29 @@ Update:
       gap:8px 16px;
       align-items:start;
     }
-
     @media (min-width:700px){
-      .detail-grid{
-        grid-template-columns:repeat(2,minmax(0,1fr));
-      }
+      .detail-grid{ grid-template-columns:repeat(2, minmax(0,1fr)); }
     }
 
     .detail-item-label{
-      font-size:.8rem;
+      font-size:0.8rem;
       text-transform:uppercase;
-      letter-spacing:.06em;
-      opacity:.7;
+      letter-spacing:0.06em;
+      opacity:0.7;
       margin-bottom:1px;
     }
+    .detail-item-value{ font-size:0.94rem; }
 
-    .detail-item-value{
-      font-size:.94rem;
-    }
-
+    /* ✅ Controls aligned across from Created (always in the same row) */
     .created-actions-row{
-      grid-column:1 / -1;
+      grid-column: 1 / -1;
       display:flex;
       align-items:flex-start;
       justify-content:space-between;
       gap:16px;
       padding-top:2px;
     }
-
-    .created-actions-left{
-      min-width:0;
-    }
-
+    .created-actions-left{ min-width:0; }
     .created-actions-right{
       display:flex;
       justify-content:flex-end;
@@ -496,17 +397,19 @@ Update:
       flex-shrink:0;
     }
 
+    /* Small header-action buttons */
     #editBtn.edit-inline,
     #saveBtn.edit-inline,
     #cancelBtn.edit-inline{
       min-width:auto;
       padding:6px 10px;
       border-radius:10px;
-      font-size:.82rem;
+      font-size:0.82rem;
       font-weight:900;
       white-space:nowrap;
     }
 
+    /* Delete button moved to lower-right */
     .trash-fab{
       position:absolute;
       right:14px;
@@ -517,7 +420,7 @@ Update:
       border:1px solid var(--danger);
       background:transparent;
       color:var(--danger);
-      display:none;
+      display:none;          /* shown only when a job is selected */
       align-items:center;
       justify-content:center;
       cursor:pointer;
@@ -525,128 +428,107 @@ Update:
       appearance:none;
       box-shadow:0 6px 16px rgba(0,0,0,.10);
     }
-
-    .trash-fab svg{
-      width:16px;
-      height:16px;
-      display:block;
-      fill:currentColor;
-    }
-
-    .trash-fab:hover{
-      background:rgba(197,48,48,.08);
-    }
-
+    .trash-fab svg{ width:16px; height:16px; display:block; fill: currentColor; }
+    .trash-fab:hover{ background: rgba(197,48,48,0.08); }
     .trash-fab:disabled{
       opacity:.35;
       cursor:not-allowed;
-      border-color:color-mix(in srgb,var(--border) 70%,var(--danger) 30%);
-      color:color-mix(in srgb,var(--muted,#67706B) 75%,var(--danger) 25%);
+      border-color: color-mix(in srgb, var(--border) 70%, var(--danger) 30%);
+      color: color-mix(in srgb, var(--muted,#67706B) 75%, var(--danger) 25%);
       background:transparent;
       box-shadow:none;
     }
+    .trash-fab:disabled:hover{ background:transparent; }
 
+    /* Add a little padding so FAB never covers last content */
     .detail-panel.has-trash{
-      padding-bottom:64px;
-    }
-
-    .detail-notes,
-    .attachments,
-    .fields-block{
-      margin-top:2px;
-      padding-top:10px;
-      border-top:1px solid var(--border);
-      font-size:.9rem;
+      padding-bottom: 64px;
     }
 
     .detail-notes{
+      margin-top:2px;
+      padding-top:10px;
+      border-top:1px solid var(--border);
+      font-size:0.92rem;
       white-space:pre-wrap;
     }
-
-    .detail-notes-label,
-    .attachments-label,
-    .fields-label{
-      font-size:.8rem;
+    .detail-notes-label{
+      font-size:0.8rem;
       text-transform:uppercase;
-      letter-spacing:.06em;
-      opacity:.7;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:2px;
+    }
+
+    .attachments{
+      margin-top:2px;
+      padding-top:10px;
+      border-top:1px solid var(--border);
+      font-size:0.9rem;
+    }
+    .attachments-label{
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
       margin-bottom:4px;
     }
-
-    .attachments-grid{
-      display:flex;
-      flex-wrap:wrap;
-      gap:8px;
-    }
-
+    .attachments-grid{ display:flex; flex-wrap:wrap; gap:8px; }
     .attachment-thumb{
       width:64px;
       height:64px;
       border-radius:10px;
       overflow:hidden;
       border:1px solid var(--border);
-      background:color-mix(in srgb,var(--surface) 70%,var(--border) 30%);
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
       display:flex;
       align-items:center;
       justify-content:center;
-      font-size:.8rem;
+      font-size:0.8rem;
       cursor:pointer;
       padding:0;
     }
+    .attachment-thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+    .attachment-empty{ font-size:0.86rem; opacity:0.8; }
 
-    .attachment-thumb img{
-      width:100%;
-      height:100%;
-      object-fit:cover;
-      display:block;
+    .fields-block{
+      margin-top:2px;
+      padding-top:10px;
+      border-top:1px solid var(--border);
+      font-size:0.9rem;
     }
-
-    .attachment-empty{
-      font-size:.86rem;
-      opacity:.8;
+    .fields-label{
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+      opacity:0.7;
+      margin-bottom:4px;
     }
-
-    .fields-list{
-      display:flex;
-      flex-direction:column;
-      gap:4px;
-    }
-
+    .fields-list{ display:flex; flex-direction:column; gap:4px; }
     .field-row{
       padding:6px 8px;
       border-radius:8px;
-      background:color-mix(in srgb,var(--surface) 70%,var(--border) 30%);
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
     }
-
-    .field-name{
-      font-weight:900;
-      font-size:.92rem;
-    }
-
-    .field-meta{
-      font-size:.82rem;
-      opacity:.85;
-      margin-top:1px;
-    }
+    .field-name{ font-weight:900; font-size:0.92rem; }
+    .field-meta{ font-size:0.82rem; opacity:0.85; margin-top:1px; }
 
     .trial-block{
-      grid-column:1 / -1;
+      grid-column: 1 / -1;
       border-top:1px solid var(--border);
       padding-top:10px;
       margin-top:2px;
     }
-
     .trial-name{
       font-weight:900;
-      font-size:.98rem;
+      font-size:0.98rem;
       margin-top:2px;
     }
-
     .trial-field-line{
       padding:6px 8px;
       border-radius:8px;
-      background:color-mix(in srgb,var(--surface) 70%,var(--border) 30%);
-      font-size:.88rem;
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
+      font-size:0.88rem;
       font-weight:800;
       margin-top:6px;
     }
@@ -664,20 +546,11 @@ Update:
       z-index:99999;
       display:none;
     }
+    .toast.show{ display:block; animation:fadeout 5s forwards; }
+    @keyframes fadeout{ 0%{opacity:1} 85%{opacity:1} 100%{opacity:0} }
 
-    .toast.show{
-      display:block;
-      animation:fadeout 5s forwards;
-    }
-
-    @keyframes fadeout{
-      0%{opacity:1}
-      85%{opacity:1}
-      100%{opacity:0}
-    }
-
-    .file-modal,
-    .modal{
+    /* Attachment viewer modal */
+    .file-modal{
       position:fixed;
       inset:0;
       display:none;
@@ -685,60 +558,38 @@ Update:
       justify-content:center;
       z-index:100000;
     }
-
-    .modal{
-      z-index:100001;
-    }
-
-    .file-modal.show,
-    .modal.show{
-      display:flex;
-    }
-
-    .file-backdrop,
-    .modal .backdrop{
+    .file-modal.show{ display:flex; }
+    .file-backdrop{
       position:absolute;
       inset:0;
       background:rgba(0,0,0,.6);
     }
-
-    .file-sheet,
-    .modal .sheet{
+    .file-sheet{
       position:relative;
+      max-width:90vw;
+      max-height:90vh;
       background:var(--surface);
       border-radius:14px;
       border:1px solid var(--border);
       box-shadow:0 20px 40px rgba(0,0,0,.4);
-      z-index:1;
-    }
-
-    .file-sheet{
-      max-width:90vw;
-      max-height:90vh;
       padding:8px 10px 10px;
       display:flex;
       flex-direction:column;
       gap:6px;
+      z-index:1;
     }
-
-    .file-close-row{
-      display:flex;
-      justify-content:flex-end;
-      margin-bottom:4px;
-    }
-
+    .file-close-row{ display:flex; justify-content:flex-end; margin-bottom:4px; }
     .file-close-btn{
       border:none;
       border-radius:999px;
       padding:4px 10px;
-      font-size:.85rem;
+      font-size:0.85rem;
       cursor:pointer;
-      background:color-mix(in srgb,var(--surface) 70%,var(--border) 30%);
+      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
       color:var(--text);
       -webkit-appearance:none;
       appearance:none;
     }
-
     .file-content-wrap{
       border-radius:12px;
       overflow:hidden;
@@ -749,13 +600,7 @@ Update:
       align-items:center;
       justify-content:center;
     }
-
-    .file-content-wrap img{
-      max-width:100%;
-      max-height:100%;
-      display:block;
-    }
-
+    .file-content-wrap img{ max-width:100%; max-height:100%; display:block; }
     .file-content-wrap iframe{
       border:0;
       width:calc(90vw - 20px);
@@ -763,45 +608,20 @@ Update:
       background:#fff;
     }
 
-    .modal .sheet{
-      width:min(460px,92vw);
-      padding:10px 12px 12px;
-    }
-
-    .modal .title{
-      font-weight:900;
-      font-size:1.05rem;
-      line-height:1.2;
-      color:var(--danger);
-    }
-
-    .modal .hint{
-      font-size:.92rem;
-      line-height:1.35;
-      color:var(--muted,#67706B);
-    }
-
-    .modal .row-actions{
-      display:flex;
-      justify-content:flex-end;
-      gap:8px;
-      margin-top:12px;
-    }
-
+    /* Date range picker popover styles */
     .cal-pop{
       position:absolute;
-      top:calc(100% + 8px);
-      left:0;
-      width:min(360px,92vw);
+      top: calc(100% + 8px);
+      left: 0;
+      width: min(360px, 92vw);
       border-radius:14px;
       border:1px solid var(--border);
       background:var(--surface);
       box-shadow:0 18px 38px rgba(0,0,0,.22);
-      padding:10px;
+      padding:10px 10px 10px;
       display:none;
-      z-index:25;
+      z-index:25; /* lower than filter-wrap z-index */
     }
-
     .cal-pop-head{
       display:flex;
       align-items:center;
@@ -809,15 +629,7 @@ Update:
       gap:8px;
       margin-bottom:8px;
     }
-
-    .cal-pop-head .row{
-      display:flex;
-      gap:8px;
-      align-items:center;
-      flex:1 1 auto;
-      min-width:0;
-    }
-
+    .cal-pop-head .row{ display:flex; gap:8px; align-items:center; flex:1 1 auto; min-width:0; }
     .cal-pop select{
       flex:1 1 auto;
       min-width:0;
@@ -829,7 +641,6 @@ Update:
       font:inherit;
       font-size:14px;
     }
-
     .cal-close{
       width:32px;
       height:32px;
@@ -841,60 +652,52 @@ Update:
       display:grid;
       place-items:center;
     }
+    .cal-close:hover{ background:color-mix(in srgb, var(--surface) 65%, var(--border) 35%); }
 
     .cal-dow{
       display:grid;
-      grid-template-columns:repeat(7,1fr);
+      grid-template-columns:repeat(7, 1fr);
       gap:6px;
-      margin:6px 2px;
+      margin:6px 2px 6px;
       font-size:12px;
       opacity:.75;
       text-transform:uppercase;
       letter-spacing:.06em;
     }
-
-    .cal-dow div{
-      text-align:center;
-    }
+    .cal-dow div{ text-align:center; }
 
     #calDays{
       display:grid;
-      grid-template-columns:repeat(7,1fr);
+      grid-template-columns:repeat(7, 1fr);
       gap:6px;
       padding:2px;
     }
-
     .cal-day{
       height:38px;
       border-radius:10px;
-      border:1px solid color-mix(in srgb,var(--border) 65%,transparent);
+      border:1px solid color-mix(in srgb, var(--border) 65%, transparent);
       display:grid;
       place-items:center;
       cursor:pointer;
       user-select:none;
-      background:color-mix(in srgb,var(--surface) 75%,var(--border) 25%);
+      background:color-mix(in srgb, var(--surface) 75%, var(--border) 25%);
       color:var(--text);
       font-weight:900;
       font-size:13px;
     }
-
-    .cal-day.other-month{
-      opacity:.45;
-      font-weight:800;
-    }
-
+    .cal-day.other-month{ opacity:.45; font-weight:800; }
+    .cal-day:hover{ background:color-mix(in srgb, var(--surface) 60%, var(--border) 40%); }
     .cal-day.start-selected,
     .cal-day.range-start,
     .cal-day.range-end,
     .cal-day.single-day{
-      background:var(--accent);
-      border-color:var(--accent);
+      background: var(--accent);
+      border-color: var(--accent);
       color:#fff;
     }
-
     .cal-day.in-range{
-      background:color-mix(in srgb,var(--accent) 18%,var(--surface) 82%);
-      border-color:color-mix(in srgb,var(--accent) 40%,var(--border) 60%);
+      background: color-mix(in srgb, var(--accent) 18%, var(--surface) 82%);
+      border-color: color-mix(in srgb, var(--accent) 40%, var(--border) 60%);
     }
 
     .cal-pop-foot{
@@ -906,20 +709,8 @@ Update:
       justify-content:space-between;
       gap:10px;
     }
-
-    #rangeSummary{
-      font-size:13px;
-      opacity:.9;
-      min-width:0;
-    }
-
-    .cal-btns{
-      display:flex;
-      gap:8px;
-      align-items:center;
-      flex-shrink:0;
-    }
-
+    #rangeSummary{ font-size:13px; opacity:.9; min-width:0; }
+    .cal-btns{ display:flex; gap:8px; align-items:center; flex-shrink:0; }
     .cal-btn{
       min-width:auto;
       padding:8px 10px;
@@ -932,64 +723,66 @@ Update:
       -webkit-appearance:none;
       appearance:none;
     }
-
     .cal-btn.apply{
       background:var(--accent);
       border-color:var(--accent);
       color:#fff !important;
     }
 
-    @media (max-width:700px){
-      .farm-head{
-        flex-direction:column;
-        align-items:stretch;
-      }
+    /* Delete modal */
+    .modal{
+      position:fixed;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:100001;
+    }
+    .modal.show{ display:flex; }
+    .modal .backdrop{
+      position:absolute;
+      inset:0;
+      background:rgba(0,0,0,.6);
+    }
+    .modal .sheet{
+      position:relative;
+      width:min(460px, 92vw);
+      border-radius:14px;
+      border:1px solid var(--border);
+      background:var(--surface);
+      box-shadow:0 22px 46px rgba(0,0,0,.45);
+      padding:10px 12px 12px;
+      z-index:1;
+    }
+    .modal .head{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      margin-bottom:6px;
+    }
+    .modal .title{
+      font-weight:900;
+      font-size:1.05rem;
+      line-height:1.2;
+      color:var(--danger);
+    }
+    .modal .hint{
+      font-size:.92rem;
+      line-height:1.35;
+      color:var(--muted,#67706B);
+    }
+    .modal .row-actions{
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+      margin-top:12px;
+    }
 
-      .farm-total{
-        text-align:left;
-      }
-
-      .farm-table,
-      .farm-table tbody,
-      .farm-table tr,
-      .farm-table td{
-        display:block;
-        width:100%;
-      }
-
-      .farm-table thead{
-        display:none;
-      }
-
-      .farm-table tr{
-        padding:10px 12px;
-        border-bottom:1px solid var(--border);
-      }
-
-      .farm-table tr:last-child{
-        border-bottom:none;
-      }
-
-      .farm-table td{
-        border-bottom:none;
-        padding:2px 0;
-      }
-
-      .col-field{
-        font-size:1rem;
-      }
-
-      .col-job{
-        text-align:left;
-        font-size:.76rem;
-        margin-top:4px;
-      }
-
-      .col-acres,
-      .col-crop,
-      .col-trial{
-        font-size:.84rem;
-      }
+    @media (max-width: 600px){
+      .aerial-card{ padding:10px 12px; }
+      .aerial-meta{ display:none; }
+      .filter-wrap{ min-width: 180px; }
     }
   </style>
 
@@ -1023,83 +816,71 @@ Update:
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
     const CONFIG = {
-      COLLECTION_AERIAL:'aerial_applications',
-      COLLECTION_TRIALS:'fieldTrials',
-      BACK_URL:'/Farm-vista/pages/crop-production/crop-aerial.html',
-      DEFAULT_LIMIT:50
+      // ⚠️ VERIFY THIS MATCHES YOUR FIRESTORE COLLECTION NAME EXACTLY
+      COLLECTION_AERIAL: 'aerial_applications',
+      COLLECTION_TRIALS: 'fieldTrials',
+      BACK_URL: '/Farm-vista/pages/crop-production/crop-aerial.html',
+      DEFAULT_LIMIT: 50
     };
 
     const STORAGE_KEYS = {
-      SEARCH:'fv_aerialView_search',
-      RANGE:'fv_aerialView_rangeText',
-      CROP:'fv_aerialView_crop',
-      YEAR:'fv_aerialView_year'
+      SEARCH: 'fv_aerialView_search',
+      RANGE:  'fv_aerialView_rangeText',
+      CROP:   'fv_aerialView_crop',
+      YEAR:   'fv_aerialView_year'
     };
 
     const STATE = {
-      db:null,
-      loaded:false,
-      isLoading:false,
-      allItems:[],
-      items:[],
-      farmGroups:[],
-      selectedId:null,
-      search:'',
-      fromYmd:'',
-      toYmd:'',
-      crop:'all',
-      cropYear:'all',
-      isEditing:false,
-      isEditingTitle:false,
-      trialCache:{},
-      trialNameCache:{}
+      db: null,
+      loaded: false,
+      isLoading: false,
+      allItems: [],
+      items: [],
+      selectedId: null,
+      search: '',
+      fromYmd: '',
+      toYmd: '',
+      crop: 'all',
+      cropYear: 'all',
+      isEditing: false,
+      isEditingTitle: false,
+      trialCache: {}
     };
 
     const UI = {
-      editBtn:null,
-      saveBtn:null,
-      cancelBtn:null,
-      trashBtn:null,
-      canDelete:false
+      editBtn: null,
+      saveBtn: null,
+      cancelBtn: null,
+      trashBtn: null,
+      canDelete: false
     };
 
     async function safeReady(){
       if(typeof ready === 'function') return await ready();
       return await ready;
     }
+    function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
 
-    function sleep(ms){
-      return new Promise(r=>setTimeout(r,ms));
-    }
-
-    async function withRetry(fn,label='op',tries=2){
-      let lastErr=null;
+    async function withRetry(fn, label='op', tries=2){
+      let lastErr = null;
       for(let i=1;i<=tries;i++){
-        try{
-          return await fn(i);
-        }catch(err){
-          lastErr=err;
-          console.warn('[AerialView]',`${label}.retry`,{
-            attempt:i,
-            code:err?.code,
-            message:err?.message
-          });
-          await sleep(350*i);
+        try{ return await fn(i); }
+        catch(err){
+          lastErr = err;
+          console.warn('[AerialView]', `${label}.retry`, { attempt:i, code: err?.code, message: err?.message });
+          await sleep(350 * i);
         }
       }
       throw lastErr;
     }
 
     async function getDocsServerFirst(ref){
-      try{
-        return await getDocs(ref,{source:'server'});
-      }catch{
-        return await getDocs(ref);
-      }
+      try{ return await getDocs(ref, { source: 'server' }); }
+      catch{ return await getDocs(ref); }
     }
 
     function escapeHtml(str){
-      if(str===null || str===undefined) return '';
+      if(str === null || str === undefined) return '';
       return String(str)
         .replace(/&/g,'&amp;')
         .replace(/</g,'&lt;')
@@ -1108,16 +889,16 @@ Update:
         .replace(/'/g,'&#39;');
     }
 
-    function fmtNumber(value,decimals=1){
-      const n=Number(value);
+    function fmtNumber(value, decimals){
+      const n = Number(value);
       if(!isFinite(n)) return null;
       return n.toFixed(decimals);
     }
 
     function showToast(message){
-      const el=document.getElementById('toast');
+      const el = document.getElementById('toast');
       if(!el) return;
-      el.textContent=message || 'Saved.';
+      el.textContent = message || 'Saved.';
       el.classList.remove('show');
       void el.offsetWidth;
       el.classList.add('show');
@@ -1125,20 +906,18 @@ Update:
 
     function ymdFromDate(date){
       if(!(date instanceof Date) || isNaN(date.getTime())) return '';
-      const y=date.getFullYear();
-      const m=String(date.getMonth()+1).padStart(2,'0');
-      const d=String(date.getDate()).padStart(2,'0');
+      const y = date.getFullYear();
+      const m = String(date.getMonth()+1).padStart(2,'0');
+      const d = String(date.getDate()).padStart(2,'0');
       return `${y}-${m}-${d}`;
     }
 
     function parseYmdToTime(ymd){
       if(!ymd || typeof ymd !== 'string') return 0;
-      const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim());
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim());
       if(!m) return 0;
-      const y=Number(m[1]);
-      const mo=Number(m[2])-1;
-      const d=Number(m[3]);
-      return new Date(y,mo,d,12,0,0,0).getTime();
+      const y = Number(m[1]), mo = Number(m[2])-1, d = Number(m[3]);
+      return new Date(y, mo, d, 12, 0, 0, 0).getTime();
     }
 
     function getReleaseTime(d){
@@ -1146,710 +925,436 @@ Update:
     }
 
     function getFallbackTime(d){
-      const ts=d?.updatedAt || d?.createdAt || null;
+      const ts = d?.updatedAt || d?.createdAt || null;
       try{
         if(ts?.toMillis) return ts.toMillis();
         if(ts?.toDate) return ts.toDate().getTime();
       }catch{}
-      const t=Number(d?.t);
-      if(isFinite(t) && t>0) return t;
-      const iso=d?.timestampISO;
+      const t = Number(d?.t);
+      if(isFinite(t) && t > 0) return t;
+      const iso = d?.timestampISO;
       if(iso) return new Date(iso).getTime() || 0;
       return 0;
     }
 
-    function getFieldAcres(f){
-      const possible=[
-        f?.acres,
-        f?.sprayedAcres,
-        f?.releaseAcres,
-        f?.tillableAcres,
-        f?.fieldAcres
-      ];
-
-      for(const v of possible){
-        const n=Number(v);
-        if(isFinite(n)) return n;
-      }
-
-      return null;
-    }
-
-    function getFieldName(f){
-      return (
-        f?.field ||
-        f?.fieldName ||
-        f?.name ||
-        f?.label ||
-        'Unnamed Field'
-      ).toString();
-    }
-
-    function getFarmName(f,d){
-      return (
-        f?.farm ||
-        f?.farmName ||
-        d?.farm ||
-        d?.farmName ||
-        'No Farm Listed'
-      ).toString();
-    }
-
-    function getCropName(f,d){
-      return (
-        f?.crop ||
-        d?.crop ||
-        ''
-      ).toString();
-    }
-
-    function getTrialAssignmentsByFieldId(d){
-      const map=new Map();
-      const tl=d?.trialLink || null;
-
-      if(!tl?.enabled || !tl?.trialId || !Array.isArray(tl?.assignments)){
-        return map;
-      }
-
-      for(const a of tl.assignments){
-        if(!a?.fieldId) continue;
-        map.set(String(a.fieldId),{
-          trialId:tl.trialId,
-          trialName:tl.trialName || '',
-          assignment:a
-        });
-      }
-
-      return map;
-    }
-
-    function getTrialInfoForField(f,d){
-      const tl=d?.trialLink || null;
-
-      if(!tl?.enabled || !tl?.trialId){
-        return null;
-      }
-
-      const fieldId=f?.fieldId || f?.id || '';
-      const assignments=Array.isArray(tl?.assignments) ? tl.assignments : [];
-
-      if(assignments.length){
-        const match=assignments.find(a=>{
-          if(!a) return false;
-          return String(a.fieldId || '') === String(fieldId || '');
-        });
-
-        if(!match) return null;
-      }
-
-      return {
-        trialId:tl.trialId,
-        trialName:tl.trialName || STATE.trialNameCache[tl.trialId] || 'Trial'
-      };
-    }
-
     function buildSearchBlob(d){
-      const job=d?.jobNumber != null ? String(d.jobNumber) : '';
-      const crop=d?.crop || '';
-      const year=d?.cropYear != null ? String(d.cropYear) : (d?.year != null ? String(d.year) : '');
-      const farm=d?.farm || d?.farmName || '';
-      const fieldsArr=Array.isArray(d?.fields) ? d.fields : [];
-      const fieldNames=fieldsArr.map(f=>{
-        const trial=getTrialInfoForField(f,d);
-        return `${getFarmName(f,d)} ${getFieldName(f)} ${getCropName(f,d)} ${trial?.trialName || ''}`;
-      }).join(' ');
-
+      const job = d?.jobNumber != null ? String(d.jobNumber) : '';
+      const crop = d?.crop || '';
+      const year = d?.cropYear != null ? String(d.cropYear) : (d?.year != null ? String(d.year) : '');
+      const farm = d?.farm || '';
+      const fieldsArr = Array.isArray(d?.fields) ? d.fields : [];
+      const fieldNames = fieldsArr.map(f => `${f?.farm || ''} ${f?.field || ''}`.trim()).join(' ');
       return `${job} ${crop} ${year} ${farm} ${fieldNames}`.toLowerCase();
     }
 
     function parseLooseDate(str){
-      const d=new Date(str);
+      const d = new Date(str);
       if(isNaN(d.getTime())) return null;
       return d;
     }
 
     function deriveRangeFromPickerText(){
-      const jobInput=document.getElementById('jobRangeInput');
+      const jobInput = document.getElementById('jobRangeInput');
       if(!jobInput) return;
 
-      const raw=(jobInput.value || '').trim();
-
+      const raw = (jobInput.value || '').trim();
       if(!raw){
-        STATE.fromYmd='';
-        STATE.toYmd='';
+        STATE.fromYmd = '';
+        STATE.toYmd = '';
         return;
       }
 
       if(raw.includes('–')){
-        const parts=raw.split('–').map(s=>s.trim());
-        const a=parseLooseDate(parts[0]);
-        const b=parseLooseDate(parts[1]);
-        STATE.fromYmd=a ? ymdFromDate(a) : '';
-        STATE.toYmd=b ? ymdFromDate(b) : '';
+        const parts = raw.split('–').map(s=>s.trim());
+        const a = parseLooseDate(parts[0]);
+        const b = parseLooseDate(parts[1]);
+        STATE.fromYmd = a ? ymdFromDate(a) : '';
+        STATE.toYmd = b ? ymdFromDate(b) : '';
       }else if(raw.toLowerCase().startsWith('start:')){
-        const s=raw.replace(/^\s*start:\s*/i,'').trim();
-        const a=parseLooseDate(s);
-        STATE.fromYmd=a ? ymdFromDate(a) : '';
-        STATE.toYmd='';
+        const s = raw.replace(/^\s*start:\s*/i,'').trim();
+        const a = parseLooseDate(s);
+        STATE.fromYmd = a ? ymdFromDate(a) : '';
+        STATE.toYmd = '';
       }else{
-        const a=parseLooseDate(raw);
-        STATE.fromYmd=a ? ymdFromDate(a) : '';
-        STATE.toYmd='';
+        const a = parseLooseDate(raw);
+        STATE.fromYmd = a ? ymdFromDate(a) : '';
+        STATE.toYmd = '';
       }
     }
 
     function loadPrefs(){
       try{
-        STATE.search=(localStorage.getItem(STORAGE_KEYS.SEARCH) || '').toString();
-        STATE.crop=(localStorage.getItem(STORAGE_KEYS.CROP) || 'all').toString();
-        STATE.cropYear=(localStorage.getItem(STORAGE_KEYS.YEAR) || 'all').toString();
+        STATE.search = (localStorage.getItem(STORAGE_KEYS.SEARCH) || '').toString();
+        STATE.crop = (localStorage.getItem(STORAGE_KEYS.CROP) || 'all').toString();
+        STATE.cropYear = (localStorage.getItem(STORAGE_KEYS.YEAR) || 'all').toString();
 
-        const rangeText=(localStorage.getItem(STORAGE_KEYS.RANGE) || '').toString();
-        const jobInput=document.getElementById('jobRangeInput');
-        if(jobInput) jobInput.value=rangeText;
+        const rangeText = (localStorage.getItem(STORAGE_KEYS.RANGE) || '').toString();
+        const jobInput = document.getElementById('jobRangeInput');
+        if(jobInput) jobInput.value = rangeText;
 
         deriveRangeFromPickerText();
       }catch{
-        STATE.search='';
-        STATE.crop='all';
-        STATE.cropYear='all';
+        STATE.search = '';
+        STATE.crop = 'all';
+        STATE.cropYear = 'all';
       }
     }
 
     function savePrefs(){
       try{
-        localStorage.setItem(STORAGE_KEYS.SEARCH,STATE.search || '');
-        localStorage.setItem(STORAGE_KEYS.CROP,STATE.crop || 'all');
-        localStorage.setItem(STORAGE_KEYS.YEAR,STATE.cropYear || 'all');
-
-        const jobInput=document.getElementById('jobRangeInput');
-        localStorage.setItem(STORAGE_KEYS.RANGE,(jobInput?.value || '').toString());
+        localStorage.setItem(STORAGE_KEYS.SEARCH, STATE.search || '');
+        localStorage.setItem(STORAGE_KEYS.CROP, STATE.crop || 'all');
+        localStorage.setItem(STORAGE_KEYS.YEAR, STATE.cropYear || 'all');
+        const jobInput = document.getElementById('jobRangeInput');
+        localStorage.setItem(STORAGE_KEYS.RANGE, (jobInput?.value || '').toString());
       }catch{}
     }
 
     function hasServerFilters(){
       return !!(
-        STATE.fromYmd ||
+        (STATE.fromYmd && (STATE.toYmd || !STATE.toYmd)) ||
         (STATE.crop && STATE.crop !== 'all') ||
         (STATE.cropYear && STATE.cropYear !== 'all')
       );
     }
 
     function wireDateRangePickerEvents(){
-      const applyBtn=document.getElementById('applyRangeBtn');
-      const clearBtn=document.getElementById('clearRangeBtn');
+      const applyBtn = document.getElementById('applyRangeBtn');
+      const clearBtn = document.getElementById('clearRangeBtn');
 
-      const afterChange=async()=>{
+      const afterChange = async () => {
         deriveRangeFromPickerText();
         savePrefs();
         await loadAll();
       };
 
-      if(applyBtn) applyBtn.addEventListener('click',()=>setTimeout(afterChange,0));
-      if(clearBtn) clearBtn.addEventListener('click',()=>setTimeout(afterChange,0));
+      if(applyBtn) applyBtn.addEventListener('click', () => setTimeout(afterChange, 0));
+      if(clearBtn) clearBtn.addEventListener('click', () => setTimeout(afterChange, 0));
     }
 
     function sortItems(items){
       items.sort((a,b)=>{
-        const ra=getReleaseTime(a.data) || getFallbackTime(a.data);
-        const rb=getReleaseTime(b.data) || getFallbackTime(b.data);
-
+        const ra = getReleaseTime(a.data) || getFallbackTime(a.data);
+        const rb = getReleaseTime(b.data) || getFallbackTime(b.data);
         if(ra !== rb) return rb - ra;
-
-        const ja=Number(a.data?.jobNumber) || 0;
-        const jb=Number(b.data?.jobNumber) || 0;
-
+        const ja = Number(a.data?.jobNumber) || 0;
+        const jb = Number(b.data?.jobNumber) || 0;
         if(ja !== jb) return jb - ja;
-
         return getFallbackTime(b.data) - getFallbackTime(a.data);
       });
-
       return items;
     }
 
     async function fetchTrialName(trialId){
       if(!trialId) return '';
-
-      if(STATE.trialCache[trialId]?.trialName){
-        return STATE.trialCache[trialId].trialName;
-      }
-
+      if(STATE.trialCache[trialId]?.trialName) return STATE.trialCache[trialId].trialName;
       try{
-        const snap=await getDoc(doc(STATE.db,CONFIG.COLLECTION_TRIALS,trialId));
-        const d=snap.exists() ? (snap.data() || {}) : {};
-        const name=(d.trialName || 'Field Trial').toString();
-
-        STATE.trialCache[trialId]={trialName:name};
-        STATE.trialNameCache[trialId]=name;
-
+        const snap = await getDoc(doc(STATE.db, CONFIG.COLLECTION_TRIALS, trialId));
+        const d = snap.exists() ? (snap.data() || {}) : {};
+        const name = (d.trialName || 'Field Trial').toString();
+        STATE.trialCache[trialId] = { trialName: name };
         return name;
       }catch{
-        STATE.trialCache[trialId]={trialName:''};
+        STATE.trialCache[trialId] = { trialName: '' };
         return '';
       }
     }
 
-    async function hydrateTrialNames(items){
-      const trialIds=new Set();
-
-      for(const item of items){
-        const tl=item?.data?.trialLink || null;
-        if(tl?.enabled && tl?.trialId){
-          trialIds.add(tl.trialId);
-        }
-      }
-
-      await Promise.all([...trialIds].map(id=>fetchTrialName(id)));
-
-      for(const item of items){
-        item.searchBlob=buildSearchBlob(item.data);
-      }
-    }
-
     async function loadAll(){
-      const db=STATE.db;
+      const db = STATE.db;
       if(!db || STATE.isLoading) return;
+      STATE.isLoading = true;
 
-      STATE.isLoading=true;
+      const emptyEl = document.getElementById('listEmpty');
+      const countEl = document.getElementById('listCount');
+      const listEl  = document.getElementById('list');
 
-      const emptyEl=document.getElementById('listEmpty');
-      const countEl=document.getElementById('listCount');
-      const listEl=document.getElementById('list');
-
-      if(listEl && !STATE.allItems.length) listEl.innerHTML='';
-
+      if(listEl && !STATE.allItems.length) listEl.innerHTML = '';
       if(emptyEl){
-        emptyEl.style.display='block';
-        emptyEl.textContent=STATE.allItems.length ? 'Refreshing jobs…' : 'Loading jobs…';
+        emptyEl.style.display = 'block';
+        emptyEl.textContent = STATE.allItems.length ? 'Refreshing jobs…' : 'Loading jobs…';
       }
-
-      if(countEl) countEl.textContent='Loading…';
+      if(countEl) countEl.textContent = 'Loading…';
 
       try{
-        const colRef=collection(db,CONFIG.COLLECTION_AERIAL);
+        const colRef = collection(db, CONFIG.COLLECTION_AERIAL);
+
         let qRef;
 
         if(!hasServerFilters()){
-          qRef=query(colRef,orderBy('jobNumber','desc'),limit(CONFIG.DEFAULT_LIMIT));
+          qRef = query(colRef, orderBy('jobNumber','desc'), limit(CONFIG.DEFAULT_LIMIT));
         }else{
-          const clauses=[];
+          const clauses = [];
 
           if(STATE.crop && STATE.crop !== 'all'){
-            clauses.push(where('crop','==',STATE.crop));
+            clauses.push(where('crop','==', STATE.crop));
           }
 
           if(STATE.cropYear && STATE.cropYear !== 'all'){
-            const y=Number(STATE.cropYear);
-            if(isFinite(y)) clauses.push(where('cropYear','==',y));
+            const y = Number(STATE.cropYear);
+            if(isFinite(y)) clauses.push(where('cropYear','==', y));
           }
 
           if(STATE.fromYmd && STATE.toYmd){
-            clauses.push(where('releaseDate','>=',STATE.fromYmd));
-            clauses.push(where('releaseDate','<=',STATE.toYmd));
-            qRef=query(colRef,...clauses,orderBy('releaseDate','desc'),limit(1000));
+            clauses.push(where('releaseDate','>=', STATE.fromYmd));
+            clauses.push(where('releaseDate','<=', STATE.toYmd));
+            qRef = query(colRef, ...clauses, orderBy('releaseDate','desc'), limit(1000));
           }else if(STATE.fromYmd && !STATE.toYmd){
-            clauses.push(where('releaseDate','>=',STATE.fromYmd));
-            qRef=query(colRef,...clauses,orderBy('releaseDate','desc'),limit(1000));
+            clauses.push(where('releaseDate','>=', STATE.fromYmd));
+            qRef = query(colRef, ...clauses, orderBy('releaseDate','desc'), limit(1000));
           }else{
-            qRef=query(colRef,...clauses,orderBy('jobNumber','desc'),limit(1000));
+            qRef = query(colRef, ...clauses, orderBy('jobNumber','desc'), limit(1000));
           }
         }
 
-        const snap=await withRetry(async()=>await getDocsServerFirst(qRef),'loadAll',2);
-
-        const items=snap.docs.map(s=>{
-          const data=s.data() || {};
-          return {
-            id:s.id,
-            data,
-            searchBlob:buildSearchBlob(data)
-          };
+        const snap = await withRetry(async ()=> await getDocsServerFirst(qRef), 'loadAll', 2);
+        const items = snap.docs.map(s=>{
+          const data = s.data() || {};
+          return { id: s.id, data, searchBlob: buildSearchBlob(data) };
         });
 
         sortItems(items);
-        await hydrateTrialNames(items);
 
-        STATE.allItems=items;
-        STATE.loaded=true;
+        STATE.allItems = items;
+        STATE.loaded = true;
 
         applyFilters();
       }catch(err){
         console.error(err);
-
         if(emptyEl){
-          emptyEl.style.display='block';
-          emptyEl.textContent='Error loading jobs. Tap to retry.';
+          emptyEl.style.display = 'block';
+          emptyEl.textContent = 'Error loading jobs. Tap to retry.';
         }
-
-        if(countEl) countEl.textContent='Error';
-
+        if(countEl) countEl.textContent = 'Error';
         clearDetails();
       }finally{
-        STATE.isLoading=false;
+        STATE.isLoading = false;
       }
     }
 
     function applyFilters(){
-      const emptyEl=document.getElementById('listEmpty');
-      const countEl=document.getElementById('listCount');
+      const emptyEl = document.getElementById('listEmpty');
+      const countEl = document.getElementById('listCount');
 
       if(!STATE.loaded){
-        if(emptyEl){
-          emptyEl.style.display='block';
-          emptyEl.textContent='Loading jobs…';
-        }
-
+        if(emptyEl){ emptyEl.style.display='block'; emptyEl.textContent='Loading jobs…'; }
         if(countEl) countEl.textContent='Loading…';
-
         clearDetails();
         return;
       }
 
-      const q=(STATE.search || '').trim().toLowerCase();
+      const q = (STATE.search || '').trim().toLowerCase();
+      let filtered = STATE.allItems.slice();
+      if(q) filtered = filtered.filter(it => (it.searchBlob||'').includes(q));
 
-      let filtered=STATE.allItems.slice();
-
-      if(q){
-        filtered=filtered.filter(it=>(it.searchBlob || '').includes(q));
-      }
-
-      STATE.items=filtered;
-      STATE.farmGroups=buildFarmGroups(filtered);
-
+      STATE.items = filtered;
       clearDetails();
       renderList();
     }
 
-    function buildFarmGroups(items){
-      const map=new Map();
-
-      for(const item of items){
-        const d=item.data || {};
-        const job=d.jobNumber != null ? d.jobNumber : '—';
-        const cropYear=d.cropYear ?? d.year ?? '';
-        const releaseDate=d.releaseDate || '';
-        const fields=Array.isArray(d.fields) ? d.fields : [];
-
-        if(!fields.length){
-          const farm=d.farm || d.farmName || 'No Farm Listed';
-          const crop=d.crop || '';
-          const acres=Number(d.releaseAcres);
-
-          addFarmRow(map,farm,{
-            itemId:item.id,
-            field:'No fields attached',
-            acres:isFinite(acres) ? acres : null,
-            crop,
-            cropYear,
-            trialName:'',
-            job,
-            releaseDate
-          });
-
-          continue;
-        }
-
-        for(const f of fields){
-          const farm=getFarmName(f,d);
-          const field=getFieldName(f);
-          const acres=getFieldAcres(f);
-          const crop=getCropName(f,d);
-          const trial=getTrialInfoForField(f,d);
-
-          addFarmRow(map,farm,{
-            itemId:item.id,
-            field,
-            acres,
-            crop,
-            cropYear,
-            trialName:trial?.trialName || '',
-            trialId:trial?.trialId || '',
-            job,
-            releaseDate
-          });
-        }
-      }
-
-      const groups=[...map.values()];
-
-      for(const group of groups){
-        group.rows.sort((a,b)=>{
-          const fa=String(a.field || '').toLowerCase();
-          const fb=String(b.field || '').toLowerCase();
-          return fa.localeCompare(fb);
-        });
-
-        group.crops=[...new Set(group.rows.map(r=>r.crop).filter(Boolean))];
-        group.trialCount=group.rows.filter(r=>r.trialName).length;
-        group.jobCount=new Set(group.rows.map(r=>String(r.job || '')).filter(Boolean)).size;
-      }
-
-      groups.sort((a,b)=>a.farm.localeCompare(b.farm));
-
-      return groups;
-    }
-
-    function addFarmRow(map,farm,row){
-      const key=String(farm || 'No Farm Listed').trim() || 'No Farm Listed';
-
-      if(!map.has(key)){
-        map.set(key,{
-          farm:key,
-          totalAcres:0,
-          rows:[]
-        });
-      }
-
-      const group=map.get(key);
-
-      if(isFinite(Number(row.acres))){
-        group.totalAcres += Number(row.acres);
-      }
-
-      group.rows.push(row);
-    }
-
     function renderList(){
-      const listEl=document.getElementById('list');
-      const emptyEl=document.getElementById('listEmpty');
-      const countEl=document.getElementById('listCount');
-
+      const listEl  = document.getElementById('list');
+      const emptyEl = document.getElementById('listEmpty');
+      const countEl = document.getElementById('listCount');
       if(!listEl) return;
 
-      listEl.innerHTML='';
+      listEl.innerHTML = '';
 
-      const usingFilters=!!((STATE.search || '').trim() || hasServerFilters());
+      const usingFilters = !!((STATE.search||'').trim() || hasServerFilters());
 
-      if(!STATE.farmGroups.length){
+      if(!STATE.items.length){
         if(emptyEl){
           emptyEl.style.display='block';
-          emptyEl.textContent=usingFilters ? 'No jobs match your filters.' : 'No jobs yet.';
+          emptyEl.textContent = usingFilters ? 'No jobs match your filters.' : 'No jobs yet.';
         }
-
-        if(countEl) countEl.textContent='0 farms';
-
+        if(countEl) countEl.textContent = '0 jobs';
         return;
       }
 
-      if(emptyEl) emptyEl.style.display='none';
+      if(emptyEl) emptyEl.style.display = 'none';
 
-      let totalFields=0;
-      let totalAcres=0;
+      for(const item of STATE.items){
+        const d = item.data || {};
+        const id = item.id;
 
-      for(const group of STATE.farmGroups){
-        totalFields += group.rows.length;
-        totalAcres += group.totalAcres;
+        const job = d.jobNumber != null ? d.jobNumber : '—';
+        const cropYear = d.cropYear ?? d.year ?? null;
+        const crop = d.crop || '';
+        const releaseDate = d.releaseDate || '';
+        const releaseAcres = Number(d.releaseAcres);
+        const totalTill = Number(d.totalTillableAcres);
 
-        const card=document.createElement('article');
-        card.className='farm-card';
+        const submittedBy = d.submittedBy || d.submittedByEmail || '';
+        const fields = Array.isArray(d.fields) ? d.fields : [];
+        const fieldCount = fields.length;
 
-        const cropsText=group.crops.length ? group.crops.join(', ') : 'Crop not listed';
-        const acresText=fmtNumber(group.totalAcres,1) || '0.0';
+        const acresLineParts = [];
+        if(isFinite(releaseAcres)) acresLineParts.push(`${fmtNumber(releaseAcres, 1)} ac released`);
+        if(isFinite(totalTill)) acresLineParts.push(`${fmtNumber(totalTill, 1)} ac total`);
+        const acresLine = acresLineParts.join(' • ');
 
-        card.innerHTML=`
-          <div class="farm-head">
-            <div>
-              <div class="farm-title">📍 ${escapeHtml(group.farm)}</div>
-              <div class="farm-sub">
-                <span>${escapeHtml(cropsText)}</span>
-                <span>${group.rows.length} field${group.rows.length===1?'':'s'}</span>
-                <span>${group.jobCount} job${group.jobCount===1?'':'s'}</span>
-                <span>${group.trialCount} trial field${group.trialCount===1?'':'s'}</span>
+        const subtitleParts = [];
+        if(cropYear != null) subtitleParts.push(String(cropYear));
+        if(crop) subtitleParts.push(crop);
+        if(releaseDate) subtitleParts.push(`Release ${releaseDate}`);
+        const subtitle = subtitleParts.join(' • ');
+
+        const card = document.createElement('article');
+        card.className = 'aerial-card';
+        card.dataset.id = id;
+
+        card.innerHTML = `
+          <div class="aerial-row-top">
+            <div class="aerial-main">
+              <div class="aerial-title">Job #${escapeHtml(job)}</div>
+              <div class="aerial-sub">${escapeHtml(subtitle)}</div>
+
+              <div class="aerial-meta">
+                <span><span class="aerial-meta-label">Fields</span> <span class="aerial-meta-value">${fieldCount}</span></span>
+                ${acresLine ? `<span><span class="aerial-meta-label">Acres</span> <span class="aerial-meta-value">${escapeHtml(acresLine)}</span></span>` : ''}
+                ${submittedBy ? `<span><span class="aerial-meta-label">By</span> <span class="aerial-meta-value">${escapeHtml(submittedBy)}</span></span>` : ''}
               </div>
-            </div>
-            <div class="farm-total">
-              ${escapeHtml(acresText)} ac
-              <small>sprayed</small>
             </div>
           </div>
 
-          <table class="farm-table">
-            <thead>
-              <tr>
-                <th>Field</th>
-                <th>Acres</th>
-                <th>Crop</th>
-                <th>Trial</th>
-                <th style="text-align:right;">Job</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${group.rows.map(row=>{
-                const acres=isFinite(Number(row.acres)) ? `${escapeHtml(fmtNumber(row.acres,1))} ac` : '—';
-                const trial=row.trialName
-                  ? `<span class="trial-pill">🌱 ${escapeHtml(row.trialName)}</span>`
-                  : `<span class="trial-none">—</span>`;
-
-                return `
-                  <tr data-id="${escapeHtml(row.itemId)}">
-                    <td class="col-field">${escapeHtml(row.field)}</td>
-                    <td class="col-acres">${acres}</td>
-                    <td class="col-crop">${escapeHtml(row.crop || '—')}</td>
-                    <td class="col-trial">${trial}</td>
-                    <td class="col-job"><span class="job-mini">#${escapeHtml(row.job)}</span></td>
-                  </tr>
-                `;
-              }).join('')}
-            </tbody>
-          </table>
+          <div class="aerial-bottom-row">
+            <div>${releaseDate ? `Release ${escapeHtml(releaseDate)}` : ''}</div>
+          </div>
         `;
 
-        card.querySelectorAll('tr[data-id]').forEach(tr=>{
-          tr.addEventListener('click',()=>{
-            STATE.selectedId=tr.dataset.id;
-            STATE.isEditing=false;
-            renderDetails();
-            const panel=document.getElementById('detailPanel');
-            if(panel){
-              panel.scrollIntoView({behavior:'smooth',block:'start'});
-            }
-          });
+        card.addEventListener('click', () => {
+          STATE.selectedId = id;
+          STATE.isEditing = false;
+          renderDetails();
         });
 
         listEl.appendChild(card);
       }
 
       if(countEl){
-        const farmCount=STATE.farmGroups.length;
-        const acresText=fmtNumber(totalAcres,1) || '0.0';
-
-        countEl.textContent=`${farmCount} farm${farmCount===1?'':'s'} • ${totalFields} field${totalFields===1?'':'s'} • ${acresText} ac`;
+        const total = STATE.items.length;
+        countEl.textContent = usingFilters ? `${total} filtered job${total===1?'':'s'}` : `${total} job${total===1?'':'s'}`;
       }
     }
 
+    // ---------- Details ----------
     function clearDetails(){
-      const panel=document.getElementById('detailPanel');
-
+      const panel = document.getElementById('detailPanel');
       if(panel){
-        panel.style.display='none';
+        panel.style.display = 'none';
         panel.classList.remove('has-trash');
       }
 
-      const grid=document.getElementById('detailGrid');
-      if(grid) grid.innerHTML='';
+      const grid = document.getElementById('detailGrid');
+      if(grid) grid.innerHTML = '';
 
-      const notesBody=document.getElementById('detailNotesBody');
-      if(notesBody) notesBody.textContent='';
+      const notesBody = document.getElementById('detailNotesBody');
+      if(notesBody) notesBody.textContent = '';
 
-      const attGrid=document.getElementById('detailAttachments');
-      if(attGrid) attGrid.innerHTML='';
+      const attGrid = document.getElementById('detailAttachments');
+      if(attGrid) attGrid.innerHTML = '';
 
-      const fieldsList=document.getElementById('detailFieldsList');
-      if(fieldsList) fieldsList.innerHTML='';
+      const fieldsList = document.getElementById('detailFieldsList');
+      if(fieldsList) fieldsList.innerHTML = '';
 
-      const titleText=document.getElementById('detailTitleText');
-      const titleInput=document.getElementById('detailTitleInput');
-
+      const titleText = document.getElementById('detailTitleText');
+      const titleInput = document.getElementById('detailTitleInput');
       if(titleText){
-        titleText.textContent='Aerial Job Details';
-        titleText.style.display='block';
+        titleText.textContent = 'Aerial Job Details';
+        titleText.style.display = 'block';
       }
-
       if(titleInput){
-        titleInput.value='';
-        titleInput.style.display='none';
+        titleInput.value = '';
+        titleInput.style.display = 'none';
       }
 
-      if(UI.trashBtn) UI.trashBtn.style.display='none';
+      // Hide trash
+      if(UI.trashBtn) UI.trashBtn.style.display = 'none';
 
-      STATE.isEditing=false;
-      STATE.isEditingTitle=false;
+      STATE.isEditing = false;
+      STATE.isEditingTitle = false;
     }
 
     function setTitleView(title){
-      const textEl=document.getElementById('detailTitleText');
-      const inputEl=document.getElementById('detailTitleInput');
-
+      const textEl  = document.getElementById('detailTitleText');
+      const inputEl = document.getElementById('detailTitleInput');
       if(!textEl || !inputEl) return;
-
-      STATE.isEditingTitle=false;
-      textEl.textContent=title || 'Aerial Job';
-      textEl.style.display='block';
-      inputEl.style.display='none';
+      STATE.isEditingTitle = false;
+      textEl.textContent = title || 'Aerial Job';
+      textEl.style.display = 'block';
+      inputEl.style.display = 'none';
     }
 
     function beginEditTitle(){
       if(!STATE.selectedId || !STATE.db) return;
       if(STATE.isEditing) return;
 
-      const textEl=document.getElementById('detailTitleText');
-      const inputEl=document.getElementById('detailTitleInput');
-
+      const textEl  = document.getElementById('detailTitleText');
+      const inputEl = document.getElementById('detailTitleInput');
       if(!textEl || !inputEl) return;
 
-      STATE.isEditingTitle=true;
-      inputEl.value=(textEl.textContent || '').trim();
-      textEl.style.display='none';
-      inputEl.style.display='inline-block';
+      STATE.isEditingTitle = true;
+      inputEl.value = (textEl.textContent || '').trim();
+      textEl.style.display = 'none';
+      inputEl.style.display = 'inline-block';
       inputEl.focus();
       inputEl.select();
     }
 
     function cancelEditTitle(){
-      const id=STATE.selectedId;
-      const item=STATE.items.find(x=>x.id===id);
-      const job=item?.data?.jobNumber != null ? item.data.jobNumber : '';
+      const id = STATE.selectedId;
+      const item = STATE.items.find(x => x.id === id);
+      const job = item?.data?.jobNumber != null ? item.data.jobNumber : '';
       setTitleView(job ? `Job #${job}` : 'Aerial Job');
     }
 
     async function commitEditTitle(){
-      const id=STATE.selectedId;
-      const db=STATE.db;
+      const id = STATE.selectedId;
+      const db = STATE.db;
+      if(!id || !db){ cancelEditTitle(); return; }
 
-      if(!id || !db){
-        cancelEditTitle();
-        return;
-      }
+      const inputEl = document.getElementById('detailTitleInput');
+      if(!inputEl){ cancelEditTitle(); return; }
 
-      const inputEl=document.getElementById('detailTitleInput');
+      const raw = (inputEl.value || '').trim();
+      const m = raw.match(/(\d+)/);
+      const jobNum = m ? Number(m[1]) : NaN;
 
-      if(!inputEl){
-        cancelEditTitle();
-        return;
-      }
+      const itemAll = STATE.allItems.find(x => x.id === id);
+      const old = Number(itemAll?.data?.jobNumber);
 
-      const raw=(inputEl.value || '').trim();
-      const m=raw.match(/(\d+)/);
-      const jobNum=m ? Number(m[1]) : NaN;
-
-      const itemAll=STATE.allItems.find(x=>x.id===id);
-      const old=Number(itemAll?.data?.jobNumber);
-
-      if(!isFinite(jobNum) || jobNum<=0){
+      if(!isFinite(jobNum) || jobNum <= 0){
         showToast('Enter a valid job number.');
         cancelEditTitle();
         return;
       }
-
-      if(isFinite(old) && old===jobNum){
+      if(isFinite(old) && old === jobNum){
         setTitleView(`Job #${jobNum}`);
         return;
       }
 
-      inputEl.disabled=true;
-
+      inputEl.disabled = true;
       try{
-        await updateDoc(doc(db,CONFIG.COLLECTION_AERIAL,id),{jobNumber:jobNum});
+        await updateDoc(doc(db, CONFIG.COLLECTION_AERIAL, id), { jobNumber: jobNum });
 
-        const itemAll2=STATE.allItems.find(x=>x.id===id);
-        const itemFiltered=STATE.items.find(x=>x.id===id);
-
-        [itemAll2,itemFiltered].filter(Boolean).forEach(t=>{
-          t.data.jobNumber=jobNum;
-          t.searchBlob=buildSearchBlob(t.data);
+        const itemAll2 = STATE.allItems.find(x => x.id === id);
+        const itemFiltered = STATE.items.find(x => x.id === id);
+        [itemAll2, itemFiltered].filter(Boolean).forEach(t=>{
+          t.data.jobNumber = jobNum;
+          t.searchBlob = buildSearchBlob(t.data);
         });
 
         setTitleView(`Job #${jobNum}`);
         showToast('Job number updated.');
         applyFilters();
-        STATE.selectedId=id;
+        STATE.selectedId = id;
         await renderDetails();
       }catch(err){
         console.error(err);
         showToast('Error updating job number.');
         cancelEditTitle();
       }finally{
-        inputEl.disabled=false;
+        inputEl.disabled = false;
       }
     }
 
@@ -1859,88 +1364,77 @@ Update:
           return !!window.FV.can('crop-aerial:delete');
         }
       }catch{}
-
       return false;
     }
 
     function slotControls(mode){
-      const slot=document.getElementById('detailRightSlot');
-
+      const slot = document.getElementById('detailRightSlot');
       if(!slot) return;
-
-      slot.innerHTML='';
+      slot.innerHTML = '';
 
       if(mode === 'edit'){
         if(UI.saveBtn){
           UI.saveBtn.classList.add('edit-inline');
-          UI.saveBtn.style.display='inline-flex';
+          UI.saveBtn.style.display = 'inline-flex';
           slot.appendChild(UI.saveBtn);
         }
-
         if(UI.cancelBtn){
           UI.cancelBtn.classList.add('edit-inline');
-          UI.cancelBtn.style.display='inline-flex';
+          UI.cancelBtn.style.display = 'inline-flex';
           slot.appendChild(UI.cancelBtn);
         }
       }else{
         if(UI.editBtn){
           UI.editBtn.classList.add('edit-inline');
-          UI.editBtn.style.display='inline-flex';
+          UI.editBtn.style.display = 'inline-flex';
           slot.appendChild(UI.editBtn);
         }
       }
     }
 
     async function renderDetails(){
-      const panel=document.getElementById('detailPanel');
-
+      const panel = document.getElementById('detailPanel');
       if(!panel) return;
 
-      const item=STATE.items.find(x=>x.id===STATE.selectedId);
+      const item = STATE.items.find(x => x.id === STATE.selectedId);
+      if(!item){ clearDetails(); return; }
 
-      if(!item){
-        clearDetails();
-        return;
-      }
-
-      const d=item.data || {};
-      const job=d.jobNumber != null ? d.jobNumber : '';
-
+      const d = item.data || {};
+      const job = d.jobNumber != null ? d.jobNumber : '';
       setTitleView(job ? `Job #${job}` : 'Aerial Job');
 
-      const cropYear=d.cropYear ?? d.year ?? null;
-      const crop=d.crop || '';
-      const releaseDate=d.releaseDate || '';
-      const releaseAcres=d.releaseAcres;
-      const totalTill=d.totalTillableAcres;
-      const submittedBy=d.submittedBy || d.submittedByEmail || '';
-      const notes=d.notes || '';
-      const createdAt=d.createdAt?.toDate ? d.createdAt.toDate() : (d.createdAt ? new Date(d.createdAt) : null);
+      const cropYear = d.cropYear ?? d.year ?? null;
+      const crop = d.crop || '';
+      const releaseDate = d.releaseDate || '';
+      const releaseAcres = d.releaseAcres;
+      const totalTill = d.totalTillableAcres;
+      const submittedBy = d.submittedBy || d.submittedByEmail || '';
+      const notes = d.notes || '';
+      const createdAt = d.createdAt?.toDate ? d.createdAt.toDate() : (d.createdAt ? new Date(d.createdAt) : null);
 
-      const tl=d.trialLink || null;
-      const showTrial=!!(tl?.enabled && tl?.trialId && Array.isArray(tl?.assignments) && tl.assignments.length);
+      // Trial info only when assignments exist
+      const tl = d.trialLink || null;
+      const showTrial = !!(tl?.enabled && tl?.trialId && Array.isArray(tl?.assignments) && tl.assignments.length);
 
-      let trialName='';
-      let trialFieldNames=[];
-
+      let trialName = '';
+      let trialFieldNames = [];
       if(showTrial){
-        trialName=await fetchTrialName(tl.trialId);
+        trialName = await fetchTrialName(tl.trialId);
 
-        const jobFields=Array.isArray(d.fields) ? d.fields : [];
-        const fieldNameById=new Map(jobFields.map(f=>[
+        const jobFields = Array.isArray(d.fields) ? d.fields : [];
+        const fieldNameById = new Map(jobFields.map(f => [
           f.fieldId,
           `${f.farm || ''}${f.farm && f.field ? ' • ' : ''}${f.field || ''}`.trim()
         ]));
 
-        trialFieldNames=tl.assignments
-          .map(a=>fieldNameById.get(a?.fieldId) || a?.fieldId || '')
+        trialFieldNames = tl.assignments
+          .map(a => fieldNameById.get(a?.fieldId) || a?.fieldId || '')
           .filter(Boolean);
       }
 
-      const grid=document.getElementById('detailGrid');
-
+      const grid = document.getElementById('detailGrid');
       if(grid){
-        let html='';
+        let html = '';
 
         html += `
           <div>
@@ -1955,12 +1449,12 @@ Update:
 
           <div>
             <div class="detail-item-label">Release Acres</div>
-            <div class="detail-item-value">${isFinite(Number(releaseAcres)) ? escapeHtml(fmtNumber(releaseAcres,2)) + ' ac' : '—'}</div>
+            <div class="detail-item-value">${isFinite(Number(releaseAcres)) ? escapeHtml(fmtNumber(releaseAcres, 2)) + ' ac' : '—'}</div>
           </div>
 
           <div>
             <div class="detail-item-label">Total Tillable Acres</div>
-            <div class="detail-item-value">${isFinite(Number(totalTill)) ? escapeHtml(fmtNumber(totalTill,2)) + ' ac' : '—'}</div>
+            <div class="detail-item-value">${isFinite(Number(totalTill)) ? escapeHtml(fmtNumber(totalTill, 2)) + ' ac' : '—'}</div>
           </div>
 
           <div>
@@ -1969,8 +1463,7 @@ Update:
           </div>
         `;
 
-        const createdText=createdAt ? createdAt.toLocaleString() : '';
-
+        const createdText = createdAt ? createdAt.toLocaleString() : '';
         html += `
           <div class="created-actions-row">
             <div class="created-actions-left">
@@ -1991,71 +1484,68 @@ Update:
               <div class="detail-item-value">
                 <div class="trial-name">${escapeHtml(trialName || 'Field Trial')}</div>
                 <div class="detail-item-label" style="margin-top:10px;">Fields in this trial</div>
-                ${trialFieldNames.map(n=>`<div class="trial-field-line">${escapeHtml(n)}</div>`).join('')}
+                ${trialFieldNames.map(n => `<div class="trial-field-line">${escapeHtml(n)}</div>`).join('')}
               </div>
             </div>
           `;
         }
 
-        grid.innerHTML=html;
+        grid.innerHTML = html;
       }
 
-      const notesBody=document.getElementById('detailNotesBody');
-      if(notesBody) notesBody.textContent=notes || 'No notes recorded.';
+      const notesBody = document.getElementById('detailNotesBody');
+      if(notesBody) notesBody.textContent = notes || 'No notes recorded.';
 
       renderAttachments(d);
       renderFieldsList(d);
 
-      panel.style.display='flex';
+      // Show details
+      panel.style.display = 'flex';
 
+      // Slot buttons (Edit or Save/Cancel)
       slotControls('view');
 
-      UI.trashBtn.style.display='inline-flex';
-      UI.trashBtn.disabled=!(UI.canDelete && STATE.selectedId && !STATE.isEditing);
-
+      // Show bottom-right delete
+      UI.trashBtn.style.display = 'inline-flex';
+      UI.trashBtn.disabled = !(UI.canDelete && STATE.selectedId && !STATE.isEditing);
       panel.classList.add('has-trash');
     }
 
     function enterEdit(){
-      const id=STATE.selectedId;
-
+      const id = STATE.selectedId;
       if(!id || !STATE.db) return;
 
-      const item=STATE.items.find(x=>x.id===id);
-
+      const item = STATE.items.find(x => x.id === id);
       if(!item) return;
 
-      const d=item.data || {};
+      const d = item.data || {};
+      STATE.isEditing = true;
 
-      STATE.isEditing=true;
+      const cropYear = d.cropYear ?? d.year ?? '';
+      const crop = d.crop || '';
+      const releaseDate = d.releaseDate || '';
+      const releaseAcres = d.releaseAcres ?? '';
+      const notes = d.notes || '';
+      const createdAt = d.createdAt?.toDate ? d.createdAt.toDate() : (d.createdAt ? new Date(d.createdAt) : null);
 
-      const cropYear=d.cropYear ?? d.year ?? '';
-      const crop=d.crop || '';
-      const releaseDate=d.releaseDate || '';
-      const releaseAcres=d.releaseAcres ?? '';
-      const notes=d.notes || '';
-      const createdAt=d.createdAt?.toDate ? d.createdAt.toDate() : (d.createdAt ? new Date(d.createdAt) : null);
+      const thisYear = new Date().getFullYear();
+      const baseYears = [thisYear - 1, thisYear, thisYear + 1, thisYear + 2];
+      const baseCrops = ['Corn','Soybeans','Wheat'];
 
-      const thisYear=new Date().getFullYear();
-      const baseYears=[thisYear - 1,thisYear,thisYear + 1,thisYear + 2];
-      const baseCrops=['Corn','Soybeans','Wheat'];
+      const yearList = Array.from(new Set([...baseYears, cropYear].filter(v=>v!=='' && v!=null))).sort((a,b)=>Number(a)-Number(b));
+      const cropList = Array.from(new Set([...baseCrops, crop].filter(v=>String(v||'').trim()!==''))).sort((a,b)=>String(a).localeCompare(String(b)));
 
-      const yearList=Array.from(new Set([...baseYears,cropYear].filter(v=>v!=='' && v!=null))).sort((a,b)=>Number(a)-Number(b));
-      const cropList=Array.from(new Set([...baseCrops,crop].filter(v=>String(v || '').trim()!==''))).sort((a,b)=>String(a).localeCompare(String(b)));
-
-      const grid=document.getElementById('detailGrid');
-
+      const grid = document.getElementById('detailGrid');
       if(grid){
-        const createdText=createdAt ? createdAt.toLocaleString() : '';
-
-        grid.innerHTML=`
+        const createdText = createdAt ? createdAt.toLocaleString() : '';
+        grid.innerHTML = `
           <div>
             <div class="detail-item-label">Crop Year</div>
             <select id="editCropYear" class="select">
               <option value=""></option>
               ${yearList.map(y=>{
-                const val=String(y);
-                const sel=String(cropYear)===val ? ' selected' : '';
+                const val = String(y);
+                const sel = String(cropYear)===val ? ' selected' : '';
                 return `<option value="${escapeHtml(val)}"${sel}>${escapeHtml(val)}</option>`;
               }).join('')}
             </select>
@@ -2066,8 +1556,8 @@ Update:
             <select id="editCrop" class="select">
               <option value=""></option>
               ${cropList.map(c=>{
-                const val=String(c);
-                const sel=String(crop)===val ? ' selected' : '';
+                const val = String(c);
+                const sel = String(crop)===val ? ' selected' : '';
                 return `<option value="${escapeHtml(val)}"${sel}>${escapeHtml(val)}</option>`;
               }).join('')}
             </select>
@@ -2096,210 +1586,177 @@ Update:
         `;
       }
 
-      const notesBody=document.getElementById('detailNotesBody');
-
+      const notesBody = document.getElementById('detailNotesBody');
       if(notesBody){
-        notesBody.innerHTML='';
-        const ta=document.createElement('textarea');
-        ta.id='editNotes';
-        ta.className='input';
-        ta.style.minHeight='90px';
-        ta.style.resize='vertical';
-        ta.value=notes;
+        notesBody.innerHTML = '';
+        const ta = document.createElement('textarea');
+        ta.id = 'editNotes';
+        ta.className = 'input';
+        ta.style.minHeight = '90px';
+        ta.style.resize = 'vertical';
+        ta.value = notes;
         notesBody.appendChild(ta);
       }
 
       slotControls('edit');
 
-      UI.trashBtn.disabled=true;
+      // Disable delete while editing
+      UI.trashBtn.disabled = true;
     }
 
     async function saveEdit(){
-      const id=STATE.selectedId;
-      const db=STATE.db;
-
+      const id = STATE.selectedId;
+      const db = STATE.db;
       if(!id || !db) return;
 
-      const cropYearEl=document.getElementById('editCropYear');
-      const cropEl=document.getElementById('editCrop');
-      const releaseDateEl=document.getElementById('editReleaseDate');
+      const cropYearEl   = document.getElementById('editCropYear');
+      const cropEl       = document.getElementById('editCrop');
+      const releaseDateEl= document.getElementById('editReleaseDate');
       const releaseAcresEl=document.getElementById('editReleaseAcres');
-      const notesEl=document.getElementById('editNotes');
+      const notesEl      = document.getElementById('editNotes');
 
       if(!cropYearEl || !cropEl || !releaseDateEl || !releaseAcresEl || !notesEl){
-        STATE.isEditing=false;
+        STATE.isEditing = false;
         await renderDetails();
         return;
       }
 
-      if(UI.saveBtn){
-        UI.saveBtn.disabled=true;
-        UI.saveBtn.textContent='Saving...';
-      }
+      if(UI.saveBtn){ UI.saveBtn.disabled = true; UI.saveBtn.textContent = 'Saving...'; }
+      if(UI.cancelBtn) UI.cancelBtn.disabled = true;
 
-      if(UI.cancelBtn) UI.cancelBtn.disabled=true;
+      const cropYearRaw = (cropYearEl.value || '').trim();
+      const cropRaw = (cropEl.value || '').trim();
+      const releaseDateRaw = (releaseDateEl.value || '').trim();
+      const releaseAcresRaw = (releaseAcresEl.value || '').trim();
+      const notesRaw = notesEl.value || '';
 
-      const cropYearRaw=(cropYearEl.value || '').trim();
-      const cropRaw=(cropEl.value || '').trim();
-      const releaseDateRaw=(releaseDateEl.value || '').trim();
-      const releaseAcresRaw=(releaseAcresEl.value || '').trim();
-      const notesRaw=notesEl.value || '';
-
-      const updates={};
-
+      const updates = {};
       if(cropYearRaw){
-        const n=Number(cropYearRaw);
-        updates.cropYear=isFinite(n) ? n : null;
-        updates.year=isFinite(n) ? n : null;
+        const n = Number(cropYearRaw);
+        updates.cropYear = isFinite(n) ? n : null;
+        updates.year = isFinite(n) ? n : null;
       }else{
-        updates.cropYear=null;
-        updates.year=null;
+        updates.cropYear = null;
+        updates.year = null;
       }
 
-      updates.crop=cropRaw || '';
-      updates.releaseDate=releaseDateRaw || '';
+      updates.crop = cropRaw || '';
+      updates.releaseDate = releaseDateRaw || '';
 
       if(releaseAcresRaw === ''){
-        updates.releaseAcres=null;
+        updates.releaseAcres = null;
       }else{
-        const n=Number(releaseAcresRaw);
-        updates.releaseAcres=isFinite(n) ? n : null;
+        const n = Number(releaseAcresRaw);
+        updates.releaseAcres = isFinite(n) ? n : null;
       }
 
-      updates.notes=notesRaw;
+      updates.notes = notesRaw;
 
       try{
-        await updateDoc(doc(db,CONFIG.COLLECTION_AERIAL,id),updates);
+        await updateDoc(doc(db, CONFIG.COLLECTION_AERIAL, id), updates);
 
-        const itemAll=STATE.allItems.find(x=>x.id===id);
-        const itemFiltered=STATE.items.find(x=>x.id===id);
-
-        [itemAll,itemFiltered].filter(Boolean).forEach(t=>{
-          t.data.cropYear=updates.cropYear;
-          t.data.year=updates.year;
-          t.data.crop=updates.crop;
-          t.data.releaseDate=updates.releaseDate;
-          t.data.releaseAcres=updates.releaseAcres;
-          t.data.notes=updates.notes;
-          t.searchBlob=buildSearchBlob(t.data);
+        const itemAll = STATE.allItems.find(x => x.id === id);
+        const itemFiltered = STATE.items.find(x => x.id === id);
+        [itemAll, itemFiltered].filter(Boolean).forEach(t=>{
+          t.data.cropYear = updates.cropYear;
+          t.data.year = updates.year;
+          t.data.crop = updates.crop;
+          t.data.releaseDate = updates.releaseDate;
+          t.data.releaseAcres = updates.releaseAcres;
+          t.data.notes = updates.notes;
+          t.searchBlob = buildSearchBlob(t.data);
         });
 
-        STATE.isEditing=false;
-
+        STATE.isEditing = false;
         showToast('Job updated.');
         applyFilters();
-        STATE.selectedId=id;
+        STATE.selectedId = id;
         await renderDetails();
       }catch(err){
         console.error(err);
         showToast('Error saving job.');
-        STATE.isEditing=false;
+        STATE.isEditing = false;
         await renderDetails();
       }finally{
-        if(UI.saveBtn){
-          UI.saveBtn.disabled=false;
-          UI.saveBtn.textContent='Save';
-        }
-
-        if(UI.cancelBtn) UI.cancelBtn.disabled=false;
+        if(UI.saveBtn){ UI.saveBtn.disabled = false; UI.saveBtn.textContent = 'Save'; }
+        if(UI.cancelBtn) UI.cancelBtn.disabled = false;
       }
     }
 
     async function cancelEdit(){
-      STATE.isEditing=false;
+      STATE.isEditing = false;
       await renderDetails();
     }
 
+    // Delete modal
     function openDeleteModal(){
       if(!UI.canDelete || !STATE.selectedId) return;
 
-      const modal=document.getElementById('deleteModal');
-      const inputEl=document.getElementById('deleteConfirmInput');
-      const confirmBtn=document.getElementById('deleteConfirmBtn');
-      const cancelBtn=document.getElementById('deleteCancelBtn');
-      const backdrop=document.getElementById('deleteBackdrop');
+      const modal = document.getElementById('deleteModal');
+      const inputEl = document.getElementById('deleteConfirmInput');
+      const confirmBtn = document.getElementById('deleteConfirmBtn');
+      const cancelBtn = document.getElementById('deleteCancelBtn');
+      const backdrop = document.getElementById('deleteBackdrop');
 
       if(!modal || !inputEl || !confirmBtn || !cancelBtn) return;
 
-      inputEl.value='';
-      confirmBtn.disabled=true;
+      inputEl.value = '';
+      confirmBtn.disabled = true;
 
-      const onInput=()=>{
-        confirmBtn.disabled=(inputEl.value || '').trim().toUpperCase() !== 'YES';
+      const onInput = () => { confirmBtn.disabled = (inputEl.value||'').trim().toUpperCase() !== 'YES'; };
+
+      const cleanup = () => {
+        try{ inputEl.removeEventListener('input', onInput); }catch{}
+        try{ cancelBtn.removeEventListener('click', onCancel); }catch{}
+        try{ confirmBtn.removeEventListener('click', onConfirm); }catch{}
+        try{ backdrop && backdrop.removeEventListener('click', onCancel); }catch{}
+        try{ document.removeEventListener('keydown', onKey, true); }catch{}
       };
 
-      const cleanup=()=>{
-        try{inputEl.removeEventListener('input',onInput)}catch{}
-        try{cancelBtn.removeEventListener('click',onCancel)}catch{}
-        try{confirmBtn.removeEventListener('click',onConfirm)}catch{}
-        try{backdrop && backdrop.removeEventListener('click',onCancel)}catch{}
-        try{document.removeEventListener('keydown',onKey,true)}catch{}
-      };
-
-      const close=()=>{
+      const close = () => {
         modal.classList.remove('show');
-        document.body.style.overflow='';
+        document.body.style.overflow = '';
       };
 
-      const onCancel=()=>{
-        cleanup();
-        close();
-      };
+      const onCancel = () => { cleanup(); close(); };
 
-      const onConfirm=async()=>{
-        if(!UI.canDelete){
-          cleanup();
-          close();
-          return;
-        }
-
-        confirmBtn.disabled=true;
+      const onConfirm = async () => {
+        if(!UI.canDelete) { cleanup(); close(); return; }
+        confirmBtn.disabled = true;
         cleanup();
         close();
         await doDeleteSelected();
       };
 
-      const onKey=(e)=>{
-        if(e.key === 'Escape'){
-          e.preventDefault();
-          onCancel();
-        }else if(e.key === 'Enter' && !confirmBtn.disabled){
-          e.preventDefault();
-          confirmBtn.click();
-        }
+      const onKey = (e) => {
+        if(e.key === 'Escape'){ e.preventDefault(); onCancel(); }
+        else if(e.key === 'Enter' && !confirmBtn.disabled){ e.preventDefault(); confirmBtn.click(); }
       };
 
-      inputEl.addEventListener('input',onInput);
-      cancelBtn.addEventListener('click',onCancel);
-      confirmBtn.addEventListener('click',onConfirm);
-
-      if(backdrop) backdrop.addEventListener('click',onCancel);
-
-      document.addEventListener('keydown',onKey,true);
+      inputEl.addEventListener('input', onInput);
+      cancelBtn.addEventListener('click', onCancel);
+      confirmBtn.addEventListener('click', onConfirm);
+      if(backdrop) backdrop.addEventListener('click', onCancel);
+      document.addEventListener('keydown', onKey, true);
 
       modal.classList.add('show');
-      document.body.style.overflow='hidden';
-
-      setTimeout(()=>{
-        try{inputEl.focus()}catch{}
-      },0);
+      document.body.style.overflow = 'hidden';
+      setTimeout(()=>{ try{ inputEl.focus(); }catch{} }, 0);
     }
 
     async function doDeleteSelected(){
-      const id=STATE.selectedId;
-
+      const id = STATE.selectedId;
       if(!id || !STATE.db || !UI.canDelete) return;
 
       try{
-        await deleteDoc(doc(STATE.db,CONFIG.COLLECTION_AERIAL,id));
+        await deleteDoc(doc(STATE.db, CONFIG.COLLECTION_AERIAL, id));
 
-        STATE.allItems=STATE.allItems.filter(x=>x.id !== id);
-        STATE.items=STATE.items.filter(x=>x.id !== id);
-        STATE.selectedId=null;
+        STATE.allItems = STATE.allItems.filter(x => x.id !== id);
+        STATE.items = STATE.items.filter(x => x.id !== id);
+        STATE.selectedId = null;
 
         applyFilters();
         clearDetails();
-
         showToast('Job deleted.');
       }catch(err){
         console.error(err);
@@ -2307,96 +1764,73 @@ Update:
       }
     }
 
+    // File viewer
     function isImageUrl(url){
       if(!url || typeof url !== 'string') return false;
-
-      const u=url.split('?')[0].toLowerCase();
-
-      return (
-        u.endsWith('.jpg') ||
-        u.endsWith('.jpeg') ||
-        u.endsWith('.png') ||
-        u.endsWith('.gif') ||
-        u.endsWith('.webp') ||
-        u.endsWith('.heic')
-      );
+      const u = url.split('?')[0].toLowerCase();
+      return u.endsWith('.jpg') || u.endsWith('.jpeg') || u.endsWith('.png') ||
+             u.endsWith('.gif') || u.endsWith('.webp') || u.endsWith('.heic');
     }
 
-    let fileModal;
-    let fileBackdrop;
-    let fileCloseBtn;
-    let fileContentWrap;
+    let fileModal, fileBackdrop, fileCloseBtn, fileContentWrap;
 
     function openFileViewer(att){
       if(!fileModal || !fileContentWrap || !att || !att.url) return;
-
-      fileContentWrap.innerHTML='';
-
+      fileContentWrap.innerHTML = '';
       if(isImageUrl(att.url)){
-        const img=document.createElement('img');
-        img.src=att.url;
-        img.alt=att.name || 'Attachment';
+        const img = document.createElement('img');
+        img.src = att.url;
+        img.alt = att.name || 'Attachment';
         fileContentWrap.appendChild(img);
       }else{
-        const iframe=document.createElement('iframe');
-        iframe.src=att.url;
+        const iframe = document.createElement('iframe');
+        iframe.src = att.url;
         fileContentWrap.appendChild(iframe);
       }
-
       fileModal.classList.add('show');
-      document.body.style.overflow='hidden';
+      document.body.style.overflow = 'hidden';
     }
 
     function closeFileViewer(){
       if(!fileModal) return;
-
       fileModal.classList.remove('show');
-
-      if(fileContentWrap) fileContentWrap.innerHTML='';
-
-      document.body.style.overflow='';
+      if(fileContentWrap) fileContentWrap.innerHTML = '';
+      document.body.style.overflow = '';
     }
 
     function renderAttachments(d){
-      const grid=document.getElementById('detailAttachments');
-
+      const grid = document.getElementById('detailAttachments');
       if(!grid) return;
+      grid.innerHTML = '';
 
-      grid.innerHTML='';
-
-      const files=Array.isArray(d.files) ? d.files : [];
-
+      const files = Array.isArray(d.files) ? d.files : [];
       if(!files.length){
-        const empty=document.createElement('div');
-        empty.className='attachment-empty';
-        empty.textContent='No files or photos attached.';
+        const empty = document.createElement('div');
+        empty.className = 'attachment-empty';
+        empty.textContent = 'No files or photos attached.';
         grid.appendChild(empty);
         return;
       }
 
       files.forEach(raw=>{
         if(!raw || !raw.url) return;
+        const att = { url: raw.url, name: raw.name || raw.path || 'Attachment' };
 
-        const att={
-          url:raw.url,
-          name:raw.name || raw.path || 'Attachment'
-        };
-
-        const btn=document.createElement('button');
-        btn.type='button';
-        btn.className='attachment-thumb';
-        btn.title=att.name;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'attachment-thumb';
+        btn.title = att.name;
 
         if(isImageUrl(att.url)){
-          const img=document.createElement('img');
-          img.src=att.url;
-          img.alt=att.name;
+          const img = document.createElement('img');
+          img.src = att.url;
+          img.alt = att.name;
           btn.appendChild(img);
         }else{
-          btn.textContent='FILE';
+          btn.textContent = 'FILE';
         }
 
-        btn.addEventListener('click',(ev)=>{
+        btn.addEventListener('click', (ev)=>{
           ev.stopPropagation();
           openFileViewer(att);
         });
@@ -2406,127 +1840,108 @@ Update:
     }
 
     function renderFieldsList(d){
-      const listEl=document.getElementById('detailFieldsList');
-
+      const listEl = document.getElementById('detailFieldsList');
       if(!listEl) return;
+      listEl.innerHTML = '';
 
-      listEl.innerHTML='';
-
-      const fields=Array.isArray(d.fields) ? d.fields : [];
-
+      const fields = Array.isArray(d.fields) ? d.fields : [];
       if(!fields.length){
-        const empty=document.createElement('div');
-        empty.className='attachment-empty';
-        empty.textContent='No fields attached.';
+        const empty = document.createElement('div');
+        empty.className = 'attachment-empty';
+        empty.textContent = 'No fields attached.';
         listEl.appendChild(empty);
         return;
       }
 
       fields.forEach(f=>{
-        const row=document.createElement('div');
-        row.className='field-row';
+        const row = document.createElement('div');
+        row.className = 'field-row';
 
-        const farm=getFarmName(f,d);
-        const field=getFieldName(f);
-        const acres=getFieldAcres(f);
-        const crop=getCropName(f,d);
-        const trial=getTrialInfoForField(f,d);
+        const farm = f?.farm || '';
+        const field = f?.field || '';
+        const till = Number(f?.tillableAcres);
 
-        const meta=[
-          isFinite(Number(acres)) ? `${fmtNumber(acres,2)} ac` : '',
-          crop || '',
-          trial?.trialName ? `Trial: ${trial.trialName}` : ''
-        ].filter(Boolean).join(' • ');
-
-        row.innerHTML=`
+        row.innerHTML = `
           <div class="field-name">${escapeHtml(farm)}${farm && field ? ' • ' : ''}${escapeHtml(field)}</div>
-          <div class="field-meta">${escapeHtml(meta)}</div>
+          <div class="field-meta">${isFinite(till) ? `${fmtNumber(till, 2)} ac tillable` : ''}</div>
         `;
-
         listEl.appendChild(row);
       });
     }
 
-    let _resumeTimer=null;
-
+    // Resume refresh
+    let _resumeTimer = null;
     function resume(){
       if(_resumeTimer) return;
-
-      _resumeTimer=setTimeout(async()=>{
-        _resumeTimer=null;
-
+      _resumeTimer = setTimeout(async ()=>{
+        _resumeTimer = null;
         if(!STATE.db) return;
         if(STATE.isLoading) return;
-
-        try{
-          await loadAll();
-        }catch{}
-      },300);
+        try{ await loadAll(); }catch{}
+      }, 300);
     }
 
     (async function boot(){
       await safeReady();
 
-      STATE.db=getFirestore();
+      STATE.db = getFirestore();
 
-      const shell=document.querySelector('fv-shell');
+      const shell = document.querySelector('fv-shell');
+      if(shell) shell.nav = NAV_MENU;
 
-      if(shell) shell.nav=NAV_MENU;
+      UI.editBtn = document.getElementById('editBtn');
+      UI.saveBtn = document.getElementById('saveBtn');
+      UI.cancelBtn = document.getElementById('cancelBtn');
+      UI.trashBtn = document.getElementById('trashBtn');
 
-      UI.editBtn=document.getElementById('editBtn');
-      UI.saveBtn=document.getElementById('saveBtn');
-      UI.cancelBtn=document.getElementById('cancelBtn');
-      UI.trashBtn=document.getElementById('trashBtn');
-
-      UI.canDelete=computeDeletePermission();
-
+      UI.canDelete = computeDeletePermission();
       if(UI.trashBtn){
-        UI.trashBtn.disabled=!UI.canDelete;
-        UI.trashBtn.title=UI.canDelete ? 'Delete job' : 'No permission to delete';
-        UI.trashBtn.style.display='none';
+        UI.trashBtn.disabled = !UI.canDelete;
+        UI.trashBtn.title = UI.canDelete ? 'Delete job' : 'No permission to delete';
+        UI.trashBtn.style.display = 'none';
       }
 
-      const backBtn=document.getElementById('btnBack');
-
+      // Back (history-first)
+      const backBtn = document.getElementById('btnBack');
       if(backBtn){
-        backBtn.addEventListener('click',()=>{
-          if(window.history && window.history.length > 1){
+        backBtn.addEventListener('click', () => {
+          if (window.history && window.history.length > 1) {
             window.history.back();
             return;
           }
-
-          location.href=CONFIG.BACK_URL || '/Farm-vista/pages/crop-production/';
+          location.href = CONFIG.BACK_URL || '/Farm-vista/pages/crop-production/';
         });
       }
 
+      // Filters
       loadPrefs();
 
-      const searchEl=document.getElementById('filterSearch');
-      const cropEl=document.getElementById('filterCrop');
-      const yearEl=document.getElementById('filterYear');
+      const searchEl = document.getElementById('filterSearch');
+      const cropEl   = document.getElementById('filterCrop');
+      const yearEl   = document.getElementById('filterYear');
 
       if(searchEl){
-        searchEl.value=STATE.search || '';
-        searchEl.addEventListener('input',()=>{
-          STATE.search=searchEl.value || '';
+        searchEl.value = STATE.search || '';
+        searchEl.addEventListener('input', ()=>{
+          STATE.search = searchEl.value || '';
           savePrefs();
           applyFilters();
         });
       }
 
       if(cropEl){
-        cropEl.value=STATE.crop || 'all';
-        cropEl.addEventListener('change',async()=>{
-          STATE.crop=cropEl.value || 'all';
+        cropEl.value = STATE.crop || 'all';
+        cropEl.addEventListener('change', async ()=>{
+          STATE.crop = cropEl.value || 'all';
           savePrefs();
           await loadAll();
         });
       }
 
       if(yearEl){
-        yearEl.value=STATE.cropYear || 'all';
-        yearEl.addEventListener('change',async()=>{
-          STATE.cropYear=yearEl.value || 'all';
+        yearEl.value = STATE.cropYear || 'all';
+        yearEl.addEventListener('change', async ()=>{
+          STATE.cropYear = yearEl.value || 'all';
           savePrefs();
           await loadAll();
         });
@@ -2534,125 +1949,102 @@ Update:
 
       wireDateRangePickerEvents();
 
-      const clearBtn=document.getElementById('btnClearFilters');
-
+      const clearBtn = document.getElementById('btnClearFilters');
       if(clearBtn){
-        clearBtn.addEventListener('click',async()=>{
-          STATE.search='';
-          STATE.fromYmd='';
-          STATE.toYmd='';
-          STATE.crop='all';
-          STATE.cropYear='all';
+        clearBtn.addEventListener('click', async ()=>{
+          STATE.search = '';
+          STATE.fromYmd = '';
+          STATE.toYmd = '';
+          STATE.crop = 'all';
+          STATE.cropYear = 'all';
 
-          if(searchEl) searchEl.value='';
-          if(cropEl) cropEl.value='all';
-          if(yearEl) yearEl.value='all';
+          if(searchEl) searchEl.value = '';
+          if(cropEl) cropEl.value = 'all';
+          if(yearEl) yearEl.value = 'all';
 
-          const jobInput=document.getElementById('jobRangeInput');
-          if(jobInput) jobInput.value='';
+          const jobInput = document.getElementById('jobRangeInput');
+          if(jobInput) jobInput.value = '';
 
           savePrefs();
-
           await loadAll();
         });
       }
 
-      const emptyEl=document.getElementById('listEmpty');
-
+      // Retry (still okay to keep, but not required anymore)
+      const emptyEl = document.getElementById('listEmpty');
       if(emptyEl){
-        emptyEl.addEventListener('click',()=>{
+        emptyEl.addEventListener('click', ()=>{
           if(!STATE.db || STATE.isLoading) return;
           loadAll();
         });
       }
 
-      const closeBtn=document.getElementById('detailClose');
-
+      // Close details
+      const closeBtn = document.getElementById('detailClose');
       if(closeBtn){
-        closeBtn.addEventListener('click',()=>{
-          STATE.selectedId=null;
+        closeBtn.addEventListener('click', ()=>{
+          STATE.selectedId = null;
           clearDetails();
         });
       }
 
-      if(UI.editBtn){
-        UI.editBtn.addEventListener('click',()=>{
-          if(STATE.selectedId) enterEdit();
-        });
-      }
+      // Edit / Save / Cancel
+      if(UI.editBtn) UI.editBtn.addEventListener('click', ()=> { if(STATE.selectedId) enterEdit(); });
+      if(UI.saveBtn) UI.saveBtn.addEventListener('click', ()=> { if(STATE.selectedId) saveEdit(); });
+      if(UI.cancelBtn) UI.cancelBtn.addEventListener('click', ()=> { if(STATE.selectedId) cancelEdit(); });
 
-      if(UI.saveBtn){
-        UI.saveBtn.addEventListener('click',()=>{
-          if(STATE.selectedId) saveEdit();
-        });
-      }
-
-      if(UI.cancelBtn){
-        UI.cancelBtn.addEventListener('click',()=>{
-          if(STATE.selectedId) cancelEdit();
-        });
-      }
-
+      // Delete (now bottom-right)
       if(UI.trashBtn){
-        UI.trashBtn.addEventListener('click',(e)=>{
+        UI.trashBtn.addEventListener('click', (e)=>{
           e.stopPropagation();
-
           if(!UI.canDelete) return;
           if(!STATE.selectedId) return;
           if(STATE.isEditing) return;
-
           openDeleteModal();
         });
       }
 
-      const titleTextEl=document.getElementById('detailTitleText');
-      const titleInputEl=document.getElementById('detailTitleInput');
-
+      // Title edit (job # quick edit)
+      const titleTextEl = document.getElementById('detailTitleText');
+      const titleInputEl = document.getElementById('detailTitleInput');
       if(titleTextEl && titleInputEl){
-        titleTextEl.addEventListener('click',()=>{
+        titleTextEl.addEventListener('click', ()=>{
           if(!STATE.selectedId) return;
           beginEditTitle();
         });
 
-        titleInputEl.addEventListener('blur',()=>{
+        titleInputEl.addEventListener('blur', ()=>{
           if(!STATE.isEditingTitle) return;
           commitEditTitle();
         });
 
-        titleInputEl.addEventListener('keydown',(ev)=>{
-          if(ev.key === 'Enter'){
-            ev.preventDefault();
-            titleInputEl.blur();
-          }else if(ev.key === 'Escape'){
-            ev.preventDefault();
-            cancelEditTitle();
-          }
+        titleInputEl.addEventListener('keydown', (ev)=>{
+          if(ev.key === 'Enter'){ ev.preventDefault(); titleInputEl.blur(); }
+          else if(ev.key === 'Escape'){ ev.preventDefault(); cancelEditTitle(); }
         });
       }
 
-      fileModal=document.getElementById('fileModal');
-      fileBackdrop=document.getElementById('fileBackdrop');
-      fileCloseBtn=document.getElementById('fileModalClose');
-      fileContentWrap=document.getElementById('fileContentWrap');
+      // File modal
+      fileModal = document.getElementById('fileModal');
+      fileBackdrop = document.getElementById('fileBackdrop');
+      fileCloseBtn = document.getElementById('fileModalClose');
+      fileContentWrap = document.getElementById('fileContentWrap');
+      if(fileBackdrop) fileBackdrop.addEventListener('click', closeFileViewer);
+      if(fileCloseBtn) fileCloseBtn.addEventListener('click', closeFileViewer);
 
-      if(fileBackdrop) fileBackdrop.addEventListener('click',closeFileViewer);
-      if(fileCloseBtn) fileCloseBtn.addEventListener('click',closeFileViewer);
-
+      // ✅ FIX: force auto-load + safety retry (no more “click Loading jobs…”)
       await loadAll();
-
-      setTimeout(()=>{
+      setTimeout(() => {
+        // If we’re still not loaded (or still showing Loading…), try one more time automatically.
         if(!STATE.loaded && !STATE.isLoading){
           loadAll();
         }
-      },700);
+      }, 700);
     })();
 
-    window.addEventListener('focus',()=>resume());
-    window.addEventListener('pageshow',()=>resume());
-
-    document.addEventListener('visibilitychange',()=>{
-      if(document.visibilityState === 'visible') resume();
-    });
+    window.addEventListener('focus', () => resume());
+    window.addEventListener('pageshow', () => resume());
+    document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') resume(); });
   </script>
 </head>
 
@@ -2664,7 +2056,7 @@ Update:
           <div class="icon" aria-hidden="true">🚁</div>
           <div>
             <h1>Aerial Applications</h1>
-            <p class="muted">Grouped by farm with field, acres, crop, trial info, and job number last.</p>
+            <p class="muted">Loads the most recent 50 jobs by default. Use crop/year or date range to pull more.</p>
           </div>
         </header>
 
@@ -2679,12 +2071,12 @@ Update:
           </div>
 
           <div class="filters-row">
-            <div class="filter-wrap" style="flex:2 1 320px;min-width:260px;">
+            <div class="filter-wrap" style="flex:2 1 320px; min-width:260px;">
               <label class="filter-label" for="filterSearch">Search</label>
-              <input id="filterSearch" class="input" type="search" placeholder="Search field, farm, crop, trial, job #..." autocomplete="off"/>
+              <input id="filterSearch" class="input" type="search" placeholder="Search fields, farms, job #..." autocomplete="off"/>
             </div>
 
-            <div class="filter-wrap" style="max-width:220px;min-width:200px;">
+            <div class="filter-wrap" style="max-width:220px; min-width:200px;">
               <label class="filter-label" for="filterCrop">Crop</label>
               <select id="filterCrop" class="select">
                 <option value="all">All crops</option>
@@ -2694,7 +2086,7 @@ Update:
               </select>
             </div>
 
-            <div class="filter-wrap" style="max-width:180px;min-width:160px;">
+            <div class="filter-wrap" style="max-width:180px; min-width:160px;">
               <label class="filter-label" for="filterYear">Crop Year</label>
               <select id="filterYear" class="select">
                 <option value="all">All years</option>
@@ -2706,9 +2098,9 @@ Update:
               </select>
             </div>
 
-            <div class="filter-wrap" style="max-width:360px;min-width:260px;">
+            <!-- Date range picker standard markup IDs -->
+            <div class="filter-wrap" style="max-width:360px; min-width:260px;">
               <label class="filter-label" for="jobRangeInput">Release Date Range</label>
-
               <div style="position:relative;">
                 <input id="jobRangeInput" class="input" type="text" readonly placeholder="Pick a date range…"/>
 
@@ -2722,13 +2114,7 @@ Update:
                   </div>
 
                   <div class="cal-dow" aria-hidden="true">
-                    <div>Sun</div>
-                    <div>Mon</div>
-                    <div>Tue</div>
-                    <div>Wed</div>
-                    <div>Thu</div>
-                    <div>Fri</div>
-                    <div>Sat</div>
+                    <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
                   </div>
 
                   <div id="calDays" aria-label="Calendar days"></div>
@@ -2749,7 +2135,7 @@ Update:
             </div>
           </div>
 
-          <section aria-label="Aerial jobs by farm">
+          <section aria-label="Aerial jobs">
             <div id="listEmpty" class="aerial-empty">Loading jobs…</div>
             <div id="list" class="aerial-list"></div>
           </section>
@@ -2789,10 +2175,12 @@ Update:
           <div id="detailFieldsList" class="fields-list"></div>
         </div>
 
+        <!-- Buttons live here; they get slotted into #detailRightSlot -->
         <button type="button" id="editBtn" class="btn btn-quiet" style="display:none;">Edit</button>
         <button type="button" id="saveBtn" class="btn btn-quiet" style="display:none;">Save</button>
         <button type="button" id="cancelBtn" class="btn btn-quiet" style="display:none;">Cancel</button>
 
+        <!-- Delete button now lower-right -->
         <button type="button" id="trashBtn" class="trash-fab" aria-label="Delete job" title="Delete job">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M9 3a1 1 0 0 0-.894.553L7.382 5H5a1 1 0 1 0 0 2h.293l.853 11.093A2 2 0 0 0 8.14 20h7.72a2 2 0 0 0 1.994-1.907L18.707 7H19a1 1 0 1 0 0-2h-2.382l-.724-1.447A1 1 0 0 0 15 3H9Zm1.118 4a1 1 0 0 0-.996 1.09l.5 8a1 1 0 1 0 1.996-.124l-.5-8A1 1 0 0 0 10.118 7Zm3.764 0a1 1 0 0 0-.882 1.09l.5 8a1 1 0 0 0 1.996-.124l-.5-8A1 1 0 0 0 13.882 7Z" fill="currentColor"/>
@@ -2804,6 +2192,7 @@ Update:
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
+  <!-- File viewer -->
   <div id="fileModal" class="file-modal" role="dialog" aria-modal="true" aria-label="Aerial attachment">
     <div id="fileBackdrop" class="file-backdrop"></div>
     <div class="file-sheet">
@@ -2814,6 +2203,7 @@ Update:
     </div>
   </div>
 
+  <!-- Delete confirmation modal -->
   <div id="deleteModal" class="modal" role="dialog" aria-modal="true" aria-label="Delete job confirmation">
     <div id="deleteBackdrop" class="backdrop"></div>
     <div class="sheet">
@@ -2844,5 +2234,6 @@ Update:
       </div>
     </div>
   </div>
+
 </body>
 </html>
