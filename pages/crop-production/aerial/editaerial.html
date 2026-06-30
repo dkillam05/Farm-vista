@@ -1,19 +1,14 @@
 <!-- =====================================================================
-/Farm-vista/pages/crop-production/crop-aerial-view.html  (FULL FILE)
-Rev: 2025-12-19g
-Fixes in this version:
-1) Jobs auto-load reliably (no more “must click Loading jobs…”)
-   - Boot does an immediate load + one automatic safety retry if still not loaded.
-2) Delete button moved to LOWER RIGHT of the details panel (like your screenshot)
-   - Edit stays aligned with Created (perfect as-is)
-   - Trash is now a bottom-right “floating” button inside the details card
-   - Disabled/greyed unless delete permission; disabled while editing; still uses YES modal
-Everything else kept from your last working version (Rev f):
-- Search + Crop + Crop Year + Date range picker
-- Default load last 50 by jobNumber desc
-- Filter loads up to 1000
-- No status in tiles
-- Trial info only when trialLink.assignments exist
+/Farm-vista/pages/crop-production/aerial/editaerial.html  (FULL FILE)
+Rev: 2026-06-30 FARM-GROUPED
+Base: Rev 2025-12-19g working file
+Update:
+✅ Jobs still auto-load the same way
+✅ Filters/search/date picker/edit/delete/details remain
+✅ Main list now renders by Farm → Crop → Field
+✅ Farm crop headers show acres sprayed by crop
+✅ Field rows show Field Name, Acres, Trial indicator, Job # last
+✅ Search still works by job number, farm, field, crop, crop year, and trial name
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -25,17 +20,13 @@ Everything else kept from your last working version (Rev f):
 
   <script src="/Farm-vista/js/theme-boot.js"></script>
 
-  <!-- ABSOLUTE PATHS -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
 
-  <!-- Firebase config before firebase-init -->
   <script src="/Farm-vista/js/firebase-config.js"></script>
-
-  <!-- Date range picker (non-module) -->
   <script src="/Farm-vista/js/fv-date-range-picker.js"></script>
 
   <style>
@@ -174,7 +165,6 @@ Everything else kept from your last working version (Rev f):
       background-repeat:no-repeat;
     }
 
-    /* Filters row */
     .filters-row{
       display:flex;
       flex-wrap:wrap;
@@ -185,7 +175,6 @@ Everything else kept from your last working version (Rev f):
       z-index:10;
     }
 
-    /* ✅ Fix dropdown issue: keep selects above popover */
     .filter-wrap{
       display:flex;
       flex-direction:column;
@@ -193,7 +182,7 @@ Everything else kept from your last working version (Rev f):
       font-size:0.85rem;
       max-width:320px;
       position:relative;
-      z-index:50; /* higher than calendar popover */
+      z-index:50;
       flex:1 1 220px;
       min-width:220px;
     }
@@ -212,8 +201,7 @@ Everything else kept from your last working version (Rev f):
       flex-wrap:wrap;
     }
 
-    /* List */
-    .aerial-list{ display:flex; flex-direction:column; gap:10px; margin-top:4px; }
+    .aerial-list{ display:flex; flex-direction:column; gap:12px; margin-top:4px; }
 
     .aerial-empty{
       padding:14px 16px;
@@ -225,57 +213,153 @@ Everything else kept from your last working version (Rev f):
       cursor:pointer;
     }
 
-    .aerial-card{
-      position:relative;
+    .farm-card{
       border-radius:14px;
       border:1px solid var(--card-border, var(--border));
       background:var(--card-surface, var(--surface));
       box-shadow:var(--shadow-soft, var(--shadow));
-      padding:12px 14px 10px;
-      display:flex;
-      flex-direction:column;
-      gap:6px;
-      transition:transform .06s, box-shadow .12s, border-color .12s, background .12s;
-      cursor:pointer;
+      overflow:hidden;
     }
-    .aerial-card:active{ transform:scale(.995); box-shadow:var(--shadow); }
 
-    .aerial-row-top{ display:flex; align-items:flex-start; gap:10px; }
-    .aerial-main{ flex:1 1 auto; min-width:0; padding-right:12px; }
-    .aerial-title{ font-weight:900; font-size:1.02rem; line-height:1.25; }
-    .aerial-sub{ font-size:0.88rem; opacity:0.9; margin-top:2px; }
+    .farm-head{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:12px;
+      padding:12px 14px;
+      background:linear-gradient(90deg, rgba(47,108,60,.14), transparent);
+      border-bottom:1px solid var(--border);
+    }
 
-    .aerial-meta{
-      font-size:0.8rem;
-      opacity:0.9;
-      margin-top:6px;
+    .farm-name{
+      font-weight:950;
+      font-size:1.08rem;
+      line-height:1.2;
+    }
+
+    .farm-summary{
+      margin-top:4px;
+      font-size:0.82rem;
+      opacity:0.82;
       display:flex;
       flex-wrap:wrap;
       gap:6px 10px;
     }
-    .aerial-meta span{
-      display:inline-flex;
-      align-items:center;
-      gap:4px;
-      padding:2px 7px;
-      border-radius:999px;
-      background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
-    }
-    .aerial-meta-label{ font-weight:900; }
-    .aerial-meta-value{ font-weight:900; }
 
-    .aerial-bottom-row{
+    .farm-total{
+      text-align:right;
+      white-space:nowrap;
+      color:var(--accent);
+      font-weight:950;
+      font-size:1.05rem;
+    }
+
+    .farm-total small{
+      display:block;
+      color:var(--muted,#67706B);
+      font-size:0.72rem;
+      letter-spacing:0.06em;
+      text-transform:uppercase;
+      font-weight:900;
+    }
+
+    .crop-group{
+      border-top:1px solid color-mix(in srgb, var(--border) 75%, transparent);
+    }
+
+    .crop-group:first-of-type{ border-top:none; }
+
+    .crop-head{
       display:flex;
       justify-content:space-between;
       align-items:center;
       gap:10px;
-      font-size:0.78rem;
-      opacity:0.8;
-      margin-top:4px;
-      flex-wrap:wrap;
+      padding:9px 14px;
+      background:color-mix(in srgb, var(--surface) 78%, var(--border) 22%);
+      font-weight:950;
     }
 
-    /* Detail panel */
+    .crop-name{
+      font-size:0.95rem;
+    }
+
+    .crop-acres{
+      color:var(--accent);
+      white-space:nowrap;
+      font-weight:950;
+    }
+
+    .field-row-app{
+      display:grid;
+      grid-template-columns:minmax(0,1.35fr) 100px minmax(0,1fr) 78px;
+      gap:10px;
+      align-items:center;
+      padding:10px 14px;
+      border-top:1px solid color-mix(in srgb, var(--border) 65%, transparent);
+      cursor:pointer;
+      transition:background .12s, transform .06s;
+    }
+
+    .field-row-app:hover{
+      background:color-mix(in srgb, var(--surface) 76%, var(--border) 24%);
+    }
+
+    .field-row-app:active{
+      transform:scale(.997);
+    }
+
+    .field-main{
+      min-width:0;
+    }
+
+    .field-name-app{
+      font-weight:950;
+      font-size:0.94rem;
+      line-height:1.2;
+    }
+
+    .field-sub-app{
+      margin-top:2px;
+      font-size:0.76rem;
+      opacity:0.72;
+    }
+
+    .field-acres-app{
+      font-weight:950;
+      white-space:nowrap;
+      color:var(--text);
+    }
+
+    .trial-pill{
+      display:inline-flex;
+      max-width:100%;
+      align-items:center;
+      gap:5px;
+      padding:3px 8px;
+      border-radius:999px;
+      font-size:0.76rem;
+      font-weight:950;
+      color:var(--accent);
+      background:rgba(47,108,60,.13);
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+
+    .trial-none{
+      font-size:0.76rem;
+      opacity:0.45;
+      font-weight:800;
+    }
+
+    .job-ref{
+      text-align:right;
+      font-size:0.78rem;
+      opacity:0.72;
+      font-weight:950;
+      white-space:nowrap;
+    }
+
     .detail-panel{
       margin-top:10px;
       border-radius:14px;
@@ -286,7 +370,7 @@ Everything else kept from your last working version (Rev f):
       display:none;
       flex-direction:column;
       gap:10px;
-      position:relative; /* ✅ for bottom-right delete button */
+      position:relative;
     }
 
     .detail-header{
@@ -366,6 +450,7 @@ Everything else kept from your last working version (Rev f):
       gap:8px 16px;
       align-items:start;
     }
+
     @media (min-width:700px){
       .detail-grid{ grid-template-columns:repeat(2, minmax(0,1fr)); }
     }
@@ -377,9 +462,9 @@ Everything else kept from your last working version (Rev f):
       opacity:0.7;
       margin-bottom:1px;
     }
+
     .detail-item-value{ font-size:0.94rem; }
 
-    /* ✅ Controls aligned across from Created (always in the same row) */
     .created-actions-row{
       grid-column: 1 / -1;
       display:flex;
@@ -388,7 +473,9 @@ Everything else kept from your last working version (Rev f):
       gap:16px;
       padding-top:2px;
     }
+
     .created-actions-left{ min-width:0; }
+
     .created-actions-right{
       display:flex;
       justify-content:flex-end;
@@ -397,7 +484,6 @@ Everything else kept from your last working version (Rev f):
       flex-shrink:0;
     }
 
-    /* Small header-action buttons */
     #editBtn.edit-inline,
     #saveBtn.edit-inline,
     #cancelBtn.edit-inline{
@@ -409,7 +495,6 @@ Everything else kept from your last working version (Rev f):
       white-space:nowrap;
     }
 
-    /* Delete button moved to lower-right */
     .trash-fab{
       position:absolute;
       right:14px;
@@ -420,7 +505,7 @@ Everything else kept from your last working version (Rev f):
       border:1px solid var(--danger);
       background:transparent;
       color:var(--danger);
-      display:none;          /* shown only when a job is selected */
+      display:none;
       align-items:center;
       justify-content:center;
       cursor:pointer;
@@ -428,8 +513,11 @@ Everything else kept from your last working version (Rev f):
       appearance:none;
       box-shadow:0 6px 16px rgba(0,0,0,.10);
     }
+
     .trash-fab svg{ width:16px; height:16px; display:block; fill: currentColor; }
+
     .trash-fab:hover{ background: rgba(197,48,48,0.08); }
+
     .trash-fab:disabled{
       opacity:.35;
       cursor:not-allowed;
@@ -438,9 +526,9 @@ Everything else kept from your last working version (Rev f):
       background:transparent;
       box-shadow:none;
     }
+
     .trash-fab:disabled:hover{ background:transparent; }
 
-    /* Add a little padding so FAB never covers last content */
     .detail-panel.has-trash{
       padding-bottom: 64px;
     }
@@ -452,6 +540,7 @@ Everything else kept from your last working version (Rev f):
       font-size:0.92rem;
       white-space:pre-wrap;
     }
+
     .detail-notes-label{
       font-size:0.8rem;
       text-transform:uppercase;
@@ -466,6 +555,7 @@ Everything else kept from your last working version (Rev f):
       border-top:1px solid var(--border);
       font-size:0.9rem;
     }
+
     .attachments-label{
       font-size:0.8rem;
       text-transform:uppercase;
@@ -473,7 +563,9 @@ Everything else kept from your last working version (Rev f):
       opacity:0.7;
       margin-bottom:4px;
     }
+
     .attachments-grid{ display:flex; flex-wrap:wrap; gap:8px; }
+
     .attachment-thumb{
       width:64px;
       height:64px;
@@ -488,7 +580,9 @@ Everything else kept from your last working version (Rev f):
       cursor:pointer;
       padding:0;
     }
+
     .attachment-thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+
     .attachment-empty{ font-size:0.86rem; opacity:0.8; }
 
     .fields-block{
@@ -497,6 +591,7 @@ Everything else kept from your last working version (Rev f):
       border-top:1px solid var(--border);
       font-size:0.9rem;
     }
+
     .fields-label{
       font-size:0.8rem;
       text-transform:uppercase;
@@ -504,13 +599,17 @@ Everything else kept from your last working version (Rev f):
       opacity:0.7;
       margin-bottom:4px;
     }
+
     .fields-list{ display:flex; flex-direction:column; gap:4px; }
+
     .field-row{
       padding:6px 8px;
       border-radius:8px;
       background:color-mix(in srgb, var(--surface) 70%, var(--border) 30%);
     }
+
     .field-name{ font-weight:900; font-size:0.92rem; }
+
     .field-meta{ font-size:0.82rem; opacity:0.85; margin-top:1px; }
 
     .trial-block{
@@ -519,11 +618,13 @@ Everything else kept from your last working version (Rev f):
       padding-top:10px;
       margin-top:2px;
     }
+
     .trial-name{
       font-weight:900;
       font-size:0.98rem;
       margin-top:2px;
     }
+
     .trial-field-line{
       padding:6px 8px;
       border-radius:8px;
@@ -546,10 +647,11 @@ Everything else kept from your last working version (Rev f):
       z-index:99999;
       display:none;
     }
+
     .toast.show{ display:block; animation:fadeout 5s forwards; }
+
     @keyframes fadeout{ 0%{opacity:1} 85%{opacity:1} 100%{opacity:0} }
 
-    /* Attachment viewer modal */
     .file-modal{
       position:fixed;
       inset:0;
@@ -558,12 +660,15 @@ Everything else kept from your last working version (Rev f):
       justify-content:center;
       z-index:100000;
     }
+
     .file-modal.show{ display:flex; }
+
     .file-backdrop{
       position:absolute;
       inset:0;
       background:rgba(0,0,0,.6);
     }
+
     .file-sheet{
       position:relative;
       max-width:90vw;
@@ -578,7 +683,9 @@ Everything else kept from your last working version (Rev f):
       gap:6px;
       z-index:1;
     }
+
     .file-close-row{ display:flex; justify-content:flex-end; margin-bottom:4px; }
+
     .file-close-btn{
       border:none;
       border-radius:999px;
@@ -590,6 +697,7 @@ Everything else kept from your last working version (Rev f):
       -webkit-appearance:none;
       appearance:none;
     }
+
     .file-content-wrap{
       border-radius:12px;
       overflow:hidden;
@@ -600,7 +708,9 @@ Everything else kept from your last working version (Rev f):
       align-items:center;
       justify-content:center;
     }
+
     .file-content-wrap img{ max-width:100%; max-height:100%; display:block; }
+
     .file-content-wrap iframe{
       border:0;
       width:calc(90vw - 20px);
@@ -608,7 +718,6 @@ Everything else kept from your last working version (Rev f):
       background:#fff;
     }
 
-    /* Date range picker popover styles */
     .cal-pop{
       position:absolute;
       top: calc(100% + 8px);
@@ -620,8 +729,9 @@ Everything else kept from your last working version (Rev f):
       box-shadow:0 18px 38px rgba(0,0,0,.22);
       padding:10px 10px 10px;
       display:none;
-      z-index:25; /* lower than filter-wrap z-index */
+      z-index:25;
     }
+
     .cal-pop-head{
       display:flex;
       align-items:center;
@@ -629,7 +739,9 @@ Everything else kept from your last working version (Rev f):
       gap:8px;
       margin-bottom:8px;
     }
+
     .cal-pop-head .row{ display:flex; gap:8px; align-items:center; flex:1 1 auto; min-width:0; }
+
     .cal-pop select{
       flex:1 1 auto;
       min-width:0;
@@ -641,6 +753,7 @@ Everything else kept from your last working version (Rev f):
       font:inherit;
       font-size:14px;
     }
+
     .cal-close{
       width:32px;
       height:32px;
@@ -652,6 +765,7 @@ Everything else kept from your last working version (Rev f):
       display:grid;
       place-items:center;
     }
+
     .cal-close:hover{ background:color-mix(in srgb, var(--surface) 65%, var(--border) 35%); }
 
     .cal-dow{
@@ -664,6 +778,7 @@ Everything else kept from your last working version (Rev f):
       text-transform:uppercase;
       letter-spacing:.06em;
     }
+
     .cal-dow div{ text-align:center; }
 
     #calDays{
@@ -672,6 +787,7 @@ Everything else kept from your last working version (Rev f):
       gap:6px;
       padding:2px;
     }
+
     .cal-day{
       height:38px;
       border-radius:10px;
@@ -685,8 +801,11 @@ Everything else kept from your last working version (Rev f):
       font-weight:900;
       font-size:13px;
     }
+
     .cal-day.other-month{ opacity:.45; font-weight:800; }
+
     .cal-day:hover{ background:color-mix(in srgb, var(--surface) 60%, var(--border) 40%); }
+
     .cal-day.start-selected,
     .cal-day.range-start,
     .cal-day.range-end,
@@ -695,6 +814,7 @@ Everything else kept from your last working version (Rev f):
       border-color: var(--accent);
       color:#fff;
     }
+
     .cal-day.in-range{
       background: color-mix(in srgb, var(--accent) 18%, var(--surface) 82%);
       border-color: color-mix(in srgb, var(--accent) 40%, var(--border) 60%);
@@ -709,8 +829,11 @@ Everything else kept from your last working version (Rev f):
       justify-content:space-between;
       gap:10px;
     }
+
     #rangeSummary{ font-size:13px; opacity:.9; min-width:0; }
+
     .cal-btns{ display:flex; gap:8px; align-items:center; flex-shrink:0; }
+
     .cal-btn{
       min-width:auto;
       padding:8px 10px;
@@ -723,13 +846,13 @@ Everything else kept from your last working version (Rev f):
       -webkit-appearance:none;
       appearance:none;
     }
+
     .cal-btn.apply{
       background:var(--accent);
       border-color:var(--accent);
       color:#fff !important;
     }
 
-    /* Delete modal */
     .modal{
       position:fixed;
       inset:0;
@@ -738,12 +861,15 @@ Everything else kept from your last working version (Rev f):
       justify-content:center;
       z-index:100001;
     }
+
     .modal.show{ display:flex; }
+
     .modal .backdrop{
       position:absolute;
       inset:0;
       background:rgba(0,0,0,.6);
     }
+
     .modal .sheet{
       position:relative;
       width:min(460px, 92vw);
@@ -754,6 +880,7 @@ Everything else kept from your last working version (Rev f):
       padding:10px 12px 12px;
       z-index:1;
     }
+
     .modal .head{
       display:flex;
       justify-content:space-between;
@@ -761,17 +888,20 @@ Everything else kept from your last working version (Rev f):
       gap:10px;
       margin-bottom:6px;
     }
+
     .modal .title{
       font-weight:900;
       font-size:1.05rem;
       line-height:1.2;
       color:var(--danger);
     }
+
     .modal .hint{
       font-size:.92rem;
       line-height:1.35;
       color:var(--muted,#67706B);
     }
+
     .modal .row-actions{
       display:flex;
       justify-content:flex-end;
@@ -779,9 +909,34 @@ Everything else kept from your last working version (Rev f):
       margin-top:12px;
     }
 
+    @media (max-width: 700px){
+      .farm-head{
+        flex-direction:column;
+        align-items:stretch;
+      }
+
+      .farm-total{
+        text-align:left;
+      }
+
+      .field-row-app{
+        grid-template-columns:1fr;
+        gap:4px;
+        padding:10px 14px;
+      }
+
+      .field-acres-app,
+      .job-ref{
+        text-align:left;
+      }
+
+      .trial-pill{
+        width:max-content;
+        max-width:100%;
+      }
+    }
+
     @media (max-width: 600px){
-      .aerial-card{ padding:10px 12px; }
-      .aerial-meta{ display:none; }
       .filter-wrap{ min-width: 180px; }
     }
   </style>
@@ -816,7 +971,6 @@ Everything else kept from your last working version (Rev f):
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
     const CONFIG = {
-      // ⚠️ VERIFY THIS MATCHES YOUR FIRESTORE COLLECTION NAME EXACTLY
       COLLECTION_AERIAL: 'aerial_applications',
       COLLECTION_TRIALS: 'fieldTrials',
       BACK_URL: '/Farm-vista/pages/crop-production/crop-aerial.html',
@@ -859,6 +1013,7 @@ Everything else kept from your last working version (Rev f):
       if(typeof ready === 'function') return await ready();
       return await ready;
     }
+
     function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
 
     async function withRetry(fn, label='op', tries=2){
@@ -937,14 +1092,76 @@ Everything else kept from your last working version (Rev f):
       return 0;
     }
 
+    function getFieldName(f){
+      return String(f?.field || f?.fieldName || f?.name || 'Unnamed Field');
+    }
+
+    function getFarmName(f, d){
+      return String(f?.farm || f?.farmName || d?.farm || d?.farmName || 'No Farm Listed');
+    }
+
+    function getCropName(d){
+      return String(d?.crop || 'Crop Not Listed');
+    }
+
+    function getFieldAcres(f){
+      const options = [
+        f?.sprayedAcres,
+        f?.releaseAcres,
+        f?.acres,
+        f?.tillableAcres,
+        f?.totalTillableAcres
+      ];
+
+      for(const v of options){
+        const n = Number(v);
+        if(isFinite(n)) return n;
+      }
+
+      return null;
+    }
+
+    function isFieldInTrial(d, f){
+      const tl = d?.trialLink || null;
+      if(!tl?.enabled || !tl?.trialId) return false;
+
+      const assignments = Array.isArray(tl.assignments) ? tl.assignments : [];
+      if(!assignments.length) return false;
+
+      const fieldId = String(f?.fieldId || f?.id || '').trim();
+      const fieldName = getFieldName(f).trim().toLowerCase();
+
+      return assignments.some(a=>{
+        const aFieldId = String(a?.fieldId || '').trim();
+        const aFieldName = String(a?.fieldName || a?.field || '').trim().toLowerCase();
+
+        if(fieldId && aFieldId && fieldId === aFieldId) return true;
+        if(fieldName && aFieldName && fieldName === aFieldName) return true;
+
+        return false;
+      });
+    }
+
+    function getTrialNameFromJob(d){
+      const tl = d?.trialLink || null;
+      if(!tl?.enabled || !tl?.trialId) return '';
+      const cached = STATE.trialCache[tl.trialId]?.trialName || '';
+      return tl.trialName || cached || 'Field Trial';
+    }
+
     function buildSearchBlob(d){
       const job = d?.jobNumber != null ? String(d.jobNumber) : '';
       const crop = d?.crop || '';
       const year = d?.cropYear != null ? String(d.cropYear) : (d?.year != null ? String(d.year) : '');
-      const farm = d?.farm || '';
+      const farm = d?.farm || d?.farmName || '';
+      const trialName = getTrialNameFromJob(d);
       const fieldsArr = Array.isArray(d?.fields) ? d.fields : [];
-      const fieldNames = fieldsArr.map(f => `${f?.farm || ''} ${f?.field || ''}`.trim()).join(' ');
-      return `${job} ${crop} ${year} ${farm} ${fieldNames}`.toLowerCase();
+      const fieldNames = fieldsArr.map(f => {
+        const inTrial = isFieldInTrial(d, f) ? trialName : '';
+        return `${getFarmName(f, d)} ${getFieldName(f)} ${inTrial}`.trim();
+      }).join(' ');
+
+      return `${job} ${crop} ${year} ${farm} ${trialName} ${fieldNames}`.toLowerCase();
     }
 
     function parseLooseDate(str){
@@ -1037,9 +1254,11 @@ Everything else kept from your last working version (Rev f):
         const ra = getReleaseTime(a.data) || getFallbackTime(a.data);
         const rb = getReleaseTime(b.data) || getFallbackTime(b.data);
         if(ra !== rb) return rb - ra;
+
         const ja = Number(a.data?.jobNumber) || 0;
         const jb = Number(b.data?.jobNumber) || 0;
         if(ja !== jb) return jb - ja;
+
         return getFallbackTime(b.data) - getFallbackTime(a.data);
       });
       return items;
@@ -1048,6 +1267,7 @@ Everything else kept from your last working version (Rev f):
     async function fetchTrialName(trialId){
       if(!trialId) return '';
       if(STATE.trialCache[trialId]?.trialName) return STATE.trialCache[trialId].trialName;
+
       try{
         const snap = await getDoc(doc(STATE.db, CONFIG.COLLECTION_TRIALS, trialId));
         const d = snap.exists() ? (snap.data() || {}) : {};
@@ -1057,6 +1277,24 @@ Everything else kept from your last working version (Rev f):
       }catch{
         STATE.trialCache[trialId] = { trialName: '' };
         return '';
+      }
+    }
+
+    async function hydrateTrialNames(items){
+      const ids = new Set();
+
+      for(const item of items){
+        const tl = item?.data?.trialLink || null;
+        const assignments = Array.isArray(tl?.assignments) ? tl.assignments : [];
+        if(tl?.enabled && tl?.trialId && assignments.length){
+          ids.add(tl.trialId);
+        }
+      }
+
+      await Promise.all([...ids].map(id => fetchTrialName(id)));
+
+      for(const item of items){
+        item.searchBlob = buildSearchBlob(item.data);
       }
     }
 
@@ -1078,7 +1316,6 @@ Everything else kept from your last working version (Rev f):
 
       try{
         const colRef = collection(db, CONFIG.COLLECTION_AERIAL);
-
         let qRef;
 
         if(!hasServerFilters()){
@@ -1114,6 +1351,7 @@ Everything else kept from your last working version (Rev f):
         });
 
         sortItems(items);
+        await hydrateTrialNames(items);
 
         STATE.allItems = items;
         STATE.loaded = true;
@@ -1152,6 +1390,105 @@ Everything else kept from your last working version (Rev f):
       renderList();
     }
 
+    function buildFarmGroups(items){
+      const farms = new Map();
+
+      for(const item of items){
+        const d = item.data || {};
+        const fields = Array.isArray(d.fields) ? d.fields : [];
+        const job = d.jobNumber != null ? d.jobNumber : '—';
+        const crop = getCropName(d);
+        const cropYear = d.cropYear ?? d.year ?? '';
+        const releaseDate = d.releaseDate || '';
+        const trialName = getTrialNameFromJob(d);
+
+        if(!fields.length){
+          const farmName = String(d.farm || d.farmName || 'No Farm Listed');
+          const acres = Number(d.releaseAcres);
+          addFarmRow(farms, farmName, crop, {
+            itemId: item.id,
+            field: 'No fields attached',
+            acres: isFinite(acres) ? acres : null,
+            crop,
+            cropYear,
+            releaseDate,
+            trialName: '',
+            job
+          });
+          continue;
+        }
+
+        for(const f of fields){
+          const farmName = getFarmName(f, d);
+          const fieldName = getFieldName(f);
+          const acres = getFieldAcres(f);
+          const inTrial = isFieldInTrial(d, f);
+
+          addFarmRow(farms, farmName, crop, {
+            itemId: item.id,
+            field: fieldName,
+            acres,
+            crop,
+            cropYear,
+            releaseDate,
+            trialName: inTrial ? trialName : '',
+            job
+          });
+        }
+      }
+
+      const farmGroups = [...farms.values()];
+
+      for(const farm of farmGroups){
+        farm.cropGroups = [...farm.crops.values()];
+
+        for(const cropGroup of farm.cropGroups){
+          cropGroup.rows.sort((a,b)=>String(a.field).localeCompare(String(b.field)));
+        }
+
+        farm.cropGroups.sort((a,b)=>String(a.crop).localeCompare(String(b.crop)));
+        farm.fieldCount = farm.cropGroups.reduce((sum,c)=>sum + c.rows.length, 0);
+        farm.trialCount = farm.cropGroups.reduce((sum,c)=>sum + c.rows.filter(r=>r.trialName).length, 0);
+        farm.jobCount = new Set(farm.cropGroups.flatMap(c=>c.rows.map(r=>String(r.job)))).size;
+      }
+
+      farmGroups.sort((a,b)=>String(a.farm).localeCompare(String(b.farm)));
+      return farmGroups;
+    }
+
+    function addFarmRow(farms, farmName, cropName, row){
+      const farmKey = String(farmName || 'No Farm Listed').trim() || 'No Farm Listed';
+      const cropKey = String(cropName || 'Crop Not Listed').trim() || 'Crop Not Listed';
+
+      if(!farms.has(farmKey)){
+        farms.set(farmKey, {
+          farm: farmKey,
+          totalAcres: 0,
+          crops: new Map()
+        });
+      }
+
+      const farm = farms.get(farmKey);
+
+      if(!farm.crops.has(cropKey)){
+        farm.crops.set(cropKey, {
+          crop: cropKey,
+          totalAcres: 0,
+          rows: []
+        });
+      }
+
+      const crop = farm.crops.get(cropKey);
+      const acres = Number(row.acres);
+
+      if(isFinite(acres)){
+        crop.totalAcres += acres;
+        farm.totalAcres += acres;
+      }
+
+      crop.rows.push(row);
+    }
+
     function renderList(){
       const listEl  = document.getElementById('list');
       const emptyEl = document.getElementById('listEmpty');
@@ -1173,71 +1510,84 @@ Everything else kept from your last working version (Rev f):
 
       if(emptyEl) emptyEl.style.display = 'none';
 
-      for(const item of STATE.items){
-        const d = item.data || {};
-        const id = item.id;
+      const farmGroups = buildFarmGroups(STATE.items);
+      let totalFields = 0;
+      let totalAcres = 0;
 
-        const job = d.jobNumber != null ? d.jobNumber : '—';
-        const cropYear = d.cropYear ?? d.year ?? null;
-        const crop = d.crop || '';
-        const releaseDate = d.releaseDate || '';
-        const releaseAcres = Number(d.releaseAcres);
-        const totalTill = Number(d.totalTillableAcres);
-
-        const submittedBy = d.submittedBy || d.submittedByEmail || '';
-        const fields = Array.isArray(d.fields) ? d.fields : [];
-        const fieldCount = fields.length;
-
-        const acresLineParts = [];
-        if(isFinite(releaseAcres)) acresLineParts.push(`${fmtNumber(releaseAcres, 1)} ac released`);
-        if(isFinite(totalTill)) acresLineParts.push(`${fmtNumber(totalTill, 1)} ac total`);
-        const acresLine = acresLineParts.join(' • ');
-
-        const subtitleParts = [];
-        if(cropYear != null) subtitleParts.push(String(cropYear));
-        if(crop) subtitleParts.push(crop);
-        if(releaseDate) subtitleParts.push(`Release ${releaseDate}`);
-        const subtitle = subtitleParts.join(' • ');
+      for(const farm of farmGroups){
+        totalFields += farm.fieldCount;
+        totalAcres += farm.totalAcres;
 
         const card = document.createElement('article');
-        card.className = 'aerial-card';
-        card.dataset.id = id;
+        card.className = 'farm-card';
+
+        const cropSummary = farm.cropGroups
+          .map(c => `${c.crop}: ${fmtNumber(c.totalAcres, 1) || '0.0'} ac`)
+          .join(' • ');
 
         card.innerHTML = `
-          <div class="aerial-row-top">
-            <div class="aerial-main">
-              <div class="aerial-title">Job #${escapeHtml(job)}</div>
-              <div class="aerial-sub">${escapeHtml(subtitle)}</div>
-
-              <div class="aerial-meta">
-                <span><span class="aerial-meta-label">Fields</span> <span class="aerial-meta-value">${fieldCount}</span></span>
-                ${acresLine ? `<span><span class="aerial-meta-label">Acres</span> <span class="aerial-meta-value">${escapeHtml(acresLine)}</span></span>` : ''}
-                ${submittedBy ? `<span><span class="aerial-meta-label">By</span> <span class="aerial-meta-value">${escapeHtml(submittedBy)}</span></span>` : ''}
+          <div class="farm-head">
+            <div>
+              <div class="farm-name">📍 ${escapeHtml(farm.farm)}</div>
+              <div class="farm-summary">
+                <span>${farm.fieldCount} field${farm.fieldCount===1?'':'s'}</span>
+                <span>${farm.jobCount} job${farm.jobCount===1?'':'s'}</span>
+                <span>${farm.trialCount} trial field${farm.trialCount===1?'':'s'}</span>
               </div>
             </div>
+            <div class="farm-total">
+              ${escapeHtml(fmtNumber(farm.totalAcres, 1) || '0.0')} ac
+              <small>sprayed</small>
+            </div>
           </div>
+          ${cropSummary ? `<div class="farm-summary" style="padding:8px 14px;border-bottom:1px solid var(--border);">${escapeHtml(cropSummary)}</div>` : ''}
+          ${farm.cropGroups.map(cropGroup => `
+            <div class="crop-group">
+              <div class="crop-head">
+                <div class="crop-name">${escapeHtml(cropGroup.crop)}</div>
+                <div class="crop-acres">${escapeHtml(fmtNumber(cropGroup.totalAcres, 1) || '0.0')} ac</div>
+              </div>
+              ${cropGroup.rows.map(row => {
+                const acresText = isFinite(Number(row.acres)) ? `${fmtNumber(row.acres, 1)} ac` : '—';
+                const trialHtml = row.trialName
+                  ? `<span class="trial-pill">🌱 ${escapeHtml(row.trialName)}</span>`
+                  : `<span class="trial-none">Full field / no trial</span>`;
 
-          <div class="aerial-bottom-row">
-            <div>${releaseDate ? `Release ${escapeHtml(releaseDate)}` : ''}</div>
-          </div>
+                return `
+                  <div class="field-row-app" data-id="${escapeHtml(row.itemId)}">
+                    <div class="field-main">
+                      <div class="field-name-app">${escapeHtml(row.field)}</div>
+                      <div class="field-sub-app">${escapeHtml(row.cropYear || '')}${row.releaseDate ? ` • Release ${escapeHtml(row.releaseDate)}` : ''}</div>
+                    </div>
+                    <div class="field-acres-app">${escapeHtml(acresText)}</div>
+                    <div>${trialHtml}</div>
+                    <div class="job-ref">#${escapeHtml(row.job)}</div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          `).join('')}
         `;
 
-        card.addEventListener('click', () => {
-          STATE.selectedId = id;
-          STATE.isEditing = false;
-          renderDetails();
+        card.querySelectorAll('.field-row-app[data-id]').forEach(rowEl => {
+          rowEl.addEventListener('click', () => {
+            const id = rowEl.dataset.id;
+            STATE.selectedId = id;
+            STATE.isEditing = false;
+            renderDetails();
+          });
         });
 
         listEl.appendChild(card);
       }
 
       if(countEl){
-        const total = STATE.items.length;
-        countEl.textContent = usingFilters ? `${total} filtered job${total===1?'':'s'}` : `${total} job${total===1?'':'s'}`;
+        const farmCount = farmGroups.length;
+        const acresText = fmtNumber(totalAcres, 1) || '0.0';
+        countEl.textContent = `${farmCount} farm${farmCount===1?'':'s'} • ${totalFields} field${totalFields===1?'':'s'} • ${acresText} ac`;
       }
     }
 
-    // ---------- Details ----------
     function clearDetails(){
       const panel = document.getElementById('detailPanel');
       if(panel){
@@ -1268,7 +1618,6 @@ Everything else kept from your last working version (Rev f):
         titleInput.style.display = 'none';
       }
 
-      // Hide trash
       if(UI.trashBtn) UI.trashBtn.style.display = 'none';
 
       STATE.isEditing = false;
@@ -1412,7 +1761,6 @@ Everything else kept from your last working version (Rev f):
       const notes = d.notes || '';
       const createdAt = d.createdAt?.toDate ? d.createdAt.toDate() : (d.createdAt ? new Date(d.createdAt) : null);
 
-      // Trial info only when assignments exist
       const tl = d.trialLink || null;
       const showTrial = !!(tl?.enabled && tl?.trialId && Array.isArray(tl?.assignments) && tl.assignments.length);
 
@@ -1499,13 +1847,9 @@ Everything else kept from your last working version (Rev f):
       renderAttachments(d);
       renderFieldsList(d);
 
-      // Show details
       panel.style.display = 'flex';
-
-      // Slot buttons (Edit or Save/Cancel)
       slotControls('view');
 
-      // Show bottom-right delete
       UI.trashBtn.style.display = 'inline-flex';
       UI.trashBtn.disabled = !(UI.canDelete && STATE.selectedId && !STATE.isEditing);
       panel.classList.add('has-trash');
@@ -1599,8 +1943,6 @@ Everything else kept from your last working version (Rev f):
       }
 
       slotControls('edit');
-
-      // Disable delete while editing
       UI.trashBtn.disabled = true;
     }
 
@@ -1688,7 +2030,6 @@ Everything else kept from your last working version (Rev f):
       await renderDetails();
     }
 
-    // Delete modal
     function openDeleteModal(){
       if(!UI.canDelete || !STATE.selectedId) return;
 
@@ -1764,7 +2105,6 @@ Everything else kept from your last working version (Rev f):
       }
     }
 
-    // File viewer
     function isImageUrl(url){
       if(!url || typeof url !== 'string') return false;
       const u = url.split('?')[0].toLowerCase();
@@ -1857,19 +2197,25 @@ Everything else kept from your last working version (Rev f):
         const row = document.createElement('div');
         row.className = 'field-row';
 
-        const farm = f?.farm || '';
-        const field = f?.field || '';
-        const till = Number(f?.tillableAcres);
+        const farm = getFarmName(f, d);
+        const field = getFieldName(f);
+        const acres = getFieldAcres(f);
+        const crop = getCropName(d);
+        const trialName = isFieldInTrial(d, f) ? getTrialNameFromJob(d) : '';
+
+        const metaParts = [];
+        if(isFinite(Number(acres))) metaParts.push(`${fmtNumber(acres, 2)} ac`);
+        if(crop) metaParts.push(crop);
+        if(trialName) metaParts.push(`Trial: ${trialName}`);
 
         row.innerHTML = `
           <div class="field-name">${escapeHtml(farm)}${farm && field ? ' • ' : ''}${escapeHtml(field)}</div>
-          <div class="field-meta">${isFinite(till) ? `${fmtNumber(till, 2)} ac tillable` : ''}</div>
+          <div class="field-meta">${escapeHtml(metaParts.join(' • '))}</div>
         `;
         listEl.appendChild(row);
       });
     }
 
-    // Resume refresh
     let _resumeTimer = null;
     function resume(){
       if(_resumeTimer) return;
@@ -1901,7 +2247,6 @@ Everything else kept from your last working version (Rev f):
         UI.trashBtn.style.display = 'none';
       }
 
-      // Back (history-first)
       const backBtn = document.getElementById('btnBack');
       if(backBtn){
         backBtn.addEventListener('click', () => {
@@ -1913,7 +2258,6 @@ Everything else kept from your last working version (Rev f):
         });
       }
 
-      // Filters
       loadPrefs();
 
       const searchEl = document.getElementById('filterSearch');
@@ -1970,7 +2314,6 @@ Everything else kept from your last working version (Rev f):
         });
       }
 
-      // Retry (still okay to keep, but not required anymore)
       const emptyEl = document.getElementById('listEmpty');
       if(emptyEl){
         emptyEl.addEventListener('click', ()=>{
@@ -1979,7 +2322,6 @@ Everything else kept from your last working version (Rev f):
         });
       }
 
-      // Close details
       const closeBtn = document.getElementById('detailClose');
       if(closeBtn){
         closeBtn.addEventListener('click', ()=>{
@@ -1988,12 +2330,10 @@ Everything else kept from your last working version (Rev f):
         });
       }
 
-      // Edit / Save / Cancel
       if(UI.editBtn) UI.editBtn.addEventListener('click', ()=> { if(STATE.selectedId) enterEdit(); });
       if(UI.saveBtn) UI.saveBtn.addEventListener('click', ()=> { if(STATE.selectedId) saveEdit(); });
       if(UI.cancelBtn) UI.cancelBtn.addEventListener('click', ()=> { if(STATE.selectedId) cancelEdit(); });
 
-      // Delete (now bottom-right)
       if(UI.trashBtn){
         UI.trashBtn.addEventListener('click', (e)=>{
           e.stopPropagation();
@@ -2004,7 +2344,6 @@ Everything else kept from your last working version (Rev f):
         });
       }
 
-      // Title edit (job # quick edit)
       const titleTextEl = document.getElementById('detailTitleText');
       const titleInputEl = document.getElementById('detailTitleInput');
       if(titleTextEl && titleInputEl){
@@ -2024,7 +2363,6 @@ Everything else kept from your last working version (Rev f):
         });
       }
 
-      // File modal
       fileModal = document.getElementById('fileModal');
       fileBackdrop = document.getElementById('fileBackdrop');
       fileCloseBtn = document.getElementById('fileModalClose');
@@ -2032,10 +2370,8 @@ Everything else kept from your last working version (Rev f):
       if(fileBackdrop) fileBackdrop.addEventListener('click', closeFileViewer);
       if(fileCloseBtn) fileCloseBtn.addEventListener('click', closeFileViewer);
 
-      // ✅ FIX: force auto-load + safety retry (no more “click Loading jobs…”)
       await loadAll();
       setTimeout(() => {
-        // If we’re still not loaded (or still showing Loading…), try one more time automatically.
         if(!STATE.loaded && !STATE.isLoading){
           loadAll();
         }
@@ -2056,7 +2392,7 @@ Everything else kept from your last working version (Rev f):
           <div class="icon" aria-hidden="true">🚁</div>
           <div>
             <h1>Aerial Applications</h1>
-            <p class="muted">Loads the most recent 50 jobs by default. Use crop/year or date range to pull more.</p>
+            <p class="muted">Grouped by farm and crop. Shows fields, sprayed acres, trial status, and job reference.</p>
           </div>
         </header>
 
@@ -2073,7 +2409,7 @@ Everything else kept from your last working version (Rev f):
           <div class="filters-row">
             <div class="filter-wrap" style="flex:2 1 320px; min-width:260px;">
               <label class="filter-label" for="filterSearch">Search</label>
-              <input id="filterSearch" class="input" type="search" placeholder="Search fields, farms, job #..." autocomplete="off"/>
+              <input id="filterSearch" class="input" type="search" placeholder="Search fields, farms, trial, crop, job #..." autocomplete="off"/>
             </div>
 
             <div class="filter-wrap" style="max-width:220px; min-width:200px;">
@@ -2098,7 +2434,6 @@ Everything else kept from your last working version (Rev f):
               </select>
             </div>
 
-            <!-- Date range picker standard markup IDs -->
             <div class="filter-wrap" style="max-width:360px; min-width:260px;">
               <label class="filter-label" for="jobRangeInput">Release Date Range</label>
               <div style="position:relative;">
@@ -2175,12 +2510,10 @@ Everything else kept from your last working version (Rev f):
           <div id="detailFieldsList" class="fields-list"></div>
         </div>
 
-        <!-- Buttons live here; they get slotted into #detailRightSlot -->
         <button type="button" id="editBtn" class="btn btn-quiet" style="display:none;">Edit</button>
         <button type="button" id="saveBtn" class="btn btn-quiet" style="display:none;">Save</button>
         <button type="button" id="cancelBtn" class="btn btn-quiet" style="display:none;">Cancel</button>
 
-        <!-- Delete button now lower-right -->
         <button type="button" id="trashBtn" class="trash-fab" aria-label="Delete job" title="Delete job">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M9 3a1 1 0 0 0-.894.553L7.382 5H5a1 1 0 1 0 0 2h.293l.853 11.093A2 2 0 0 0 8.14 20h7.72a2 2 0 0 0 1.994-1.907L18.707 7H19a1 1 0 1 0 0-2h-2.382l-.724-1.447A1 1 0 0 0 15 3H9Zm1.118 4a1 1 0 0 0-.996 1.09l.5 8a1 1 0 1 0 1.996-.124l-.5-8A1 1 0 0 0 10.118 7Zm3.764 0a1 1 0 0 0-.882 1.09l.5 8a1 1 0 0 0 1.996-.124l-.5-8A1 1 0 0 0 13.882 7Z" fill="currentColor"/>
@@ -2192,7 +2525,6 @@ Everything else kept from your last working version (Rev f):
 
   <div id="toast" class="toast" role="status" aria-live="polite">Saved.</div>
 
-  <!-- File viewer -->
   <div id="fileModal" class="file-modal" role="dialog" aria-modal="true" aria-label="Aerial attachment">
     <div id="fileBackdrop" class="file-backdrop"></div>
     <div class="file-sheet">
@@ -2203,7 +2535,6 @@ Everything else kept from your last working version (Rev f):
     </div>
   </div>
 
-  <!-- Delete confirmation modal -->
   <div id="deleteModal" class="modal" role="dialog" aria-modal="true" aria-label="Delete job confirmation">
     <div id="deleteBackdrop" class="backdrop"></div>
     <div class="sheet">
@@ -2234,6 +2565,5 @@ Everything else kept from your last working version (Rev f):
       </div>
     </div>
   </div>
-
 </body>
 </html>
