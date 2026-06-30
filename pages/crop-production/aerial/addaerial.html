@@ -1460,25 +1460,56 @@ Purpose:
       trialHelp.textContent = `Loading trials for ${cropVal} • ${year}…`;
 
       try{
-        const qy = query(
-          collection(db,'fieldTrials'),
-          where('crop','==',cropVal),
-          where('cropYear','==',year),
-          where('operationTask','==','Aerial Application')
-        );
-        const snap = await getDocs(qy);
+const qy = query(
+  collection(db, "fieldTrials"),
+  where("cropYear", "==", year),
+  where("operationTask", "==", "Aerial Application")
+);
 
-        const items = [];
-        snap.forEach(d=>{
-          const x = d.data()||{};
-          const name = String(x.trialName || x.name || x.title || `Trial ${d.id}`).trim();
-          if(!name) return;
-          items.push({
-            id: d.id,
-            name,
-            status: String(x.status || "").trim()
-          });
-        });
+const snap = await getDocs(qy);
+
+function normalizeCrop(crop) {
+  switch (String(crop || "").trim().toLowerCase()) {
+    case "soybean":
+    case "soybeans":
+      return "soybean";
+
+    case "corn":
+      return "corn";
+
+    case "wheat":
+      return "wheat";
+
+    default:
+      return String(crop || "").trim().toLowerCase();
+  }
+}
+
+const selectedCrop = normalizeCrop(cropVal);
+
+const items = [];
+
+snap.forEach(d => {
+  const x = d.data() || {};
+
+  // Skip crops that don't match after normalization
+  if (normalizeCrop(x.crop) !== selectedCrop) return;
+
+  const name = String(
+    x.trialName ||
+    x.name ||
+    x.title ||
+    `Trial ${d.id}`
+  ).trim();
+
+  if (!name) return;
+
+  items.push({
+    id: d.id,
+    name,
+    status: String(x.status || "").trim()
+  });
+});
 
         items.sort((a,b)=> a.name.localeCompare(b.name));
         trialItems = items;
