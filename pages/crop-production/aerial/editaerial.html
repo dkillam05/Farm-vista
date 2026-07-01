@@ -40,6 +40,21 @@ Update:
   html{-webkit-text-size-adjust:100%}
   body{ background: var(--app-bg, var(--surface)); overflow-x:hidden; }
 
+  .farm-toggle,
+.crop-toggle{
+  cursor:pointer;
+  user-select:none;
+}
+
+.farm-toggle:active,
+.crop-toggle:active{
+  transform:scale(.998);
+}
+
+.crop-toggle:hover{
+  background:color-mix(in srgb, var(--surface) 68%, var(--border) 32%);
+}
+
   .wrap{
     max-width: var(--card-max);
     margin: 0 auto;
@@ -1610,6 +1625,9 @@ function renderList(){
     totalFields += farm.fieldCount;
     totalAcres += farm.totalAcres;
 
+    const farmKey = farm.farm;
+    const farmClosed = STATE.collapsedFarms.has(farmKey);
+
     const card = document.createElement('article');
     card.className = 'farm-card';
 
@@ -1618,9 +1636,9 @@ function renderList(){
       .join(' • ');
 
     card.innerHTML = `
-      <div class="farm-head">
+      <div class="farm-head farm-toggle" data-farm-key="${escapeHtml(encodeURIComponent(farmKey))}">
         <div>
-          <div class="farm-name">📍 ${escapeHtml(farm.farm)}</div>
+          <div class="farm-name">${farmClosed ? '▶' : '▼'} 📍 ${escapeHtml(farm.farm)}</div>
           <div class="farm-summary">
             <span>${farm.fieldCount} field${farm.fieldCount===1?'':'s'}</span>
             <span>${farm.jobCount} job${farm.jobCount===1?'':'s'}</span>
@@ -1633,53 +1651,77 @@ function renderList(){
         </div>
       </div>
 
-      ${cropSummary ? `<div class="farm-summary" style="padding:8px 14px;border-bottom:1px solid var(--border);">${escapeHtml(cropSummary)}</div>` : ''}
+      ${!farmClosed && cropSummary ? `<div class="farm-summary" style="padding:8px 14px;border-bottom:1px solid var(--border);">${escapeHtml(cropSummary)}</div>` : ''}
 
-      ${farm.cropGroups.map(cropGroup => `
-        <div class="crop-group">
-          <div class="crop-head">
-            <div class="crop-name">${escapeHtml(cropGroup.crop)}</div>
-            <div class="crop-acres">${escapeHtml(fmtNumber(cropGroup.totalAcres, 1) || '0.0')} ac</div>
-          </div>
+      ${farmClosed ? '' : farm.cropGroups.map(cropGroup => {
+        const cropKey = `${farm.farm}||${cropGroup.crop}`;
+        const cropClosed = STATE.collapsedCrops.has(cropKey);
 
-          ${cropGroup.yearGroups.map(yearGroup => `
-            <div class="crop-head" style="font-size:0.84rem;opacity:.82;">
-              <div>${escapeHtml(yearGroup.cropYear)}</div>
-              <div>${escapeHtml(fmtNumber(yearGroup.totalAcres, 1) || '0.0')} ac</div>
+        return `
+          <div class="crop-group">
+            <div class="crop-head crop-toggle" data-crop-key="${escapeHtml(encodeURIComponent(cropKey))}">
+              <div class="crop-name">${cropClosed ? '▶' : '▼'} ${escapeHtml(cropGroup.crop)}</div>
+              <div class="crop-acres">${escapeHtml(fmtNumber(cropGroup.totalAcres, 1) || '0.0')} ac</div>
             </div>
 
-            ${yearGroup.fields.map(field => `
-              <div class="field-history-block">
-                <div class="field-history-head">
-                  <div>
-                    <div class="field-name-app">${escapeHtml(field.field)}</div>
-                    <div class="field-sub-app">
-                      ${field.totalApplications} application${field.totalApplications===1?'':'s'} • ${escapeHtml(fmtNumber(field.totalAcres, 1) || '0.0')} total ac
+            ${cropClosed ? '' : cropGroup.yearGroups.map(yearGroup => `
+              <div class="crop-head" style="font-size:0.84rem;opacity:.82;">
+                <div>${escapeHtml(yearGroup.cropYear)}</div>
+                <div>${escapeHtml(fmtNumber(yearGroup.totalAcres, 1) || '0.0')} ac</div>
+              </div>
+
+              ${yearGroup.fields.map(field => `
+                <div class="field-history-block">
+                  <div class="field-history-head">
+                    <div>
+                      <div class="field-name-app">${escapeHtml(field.field)}</div>
+                      <div class="field-sub-app">
+                        ${field.totalApplications} application${field.totalApplications===1?'':'s'} • ${escapeHtml(fmtNumber(field.totalAcres, 1) || '0.0')} total ac
+                      </div>
                     </div>
                   </div>
+
+                  ${field.jobs.map(job => {
+                    const acresText = isFinite(Number(job.acres)) ? `${fmtNumber(job.acres, 1)} ac` : '—';
+                    const trialHtml = job.trialName
+                      ? `<span class="trial-pill">🌱 ${escapeHtml(job.trialName)}</span>`
+                      : `<span class="trial-none">Full field / no trial</span>`;
+
+                    return `
+                      <div class="field-row-app job-history-row" data-id="${escapeHtml(job.itemId)}">
+                        <div class="job-ref">#${escapeHtml(job.job)}</div>
+                        <div class="field-sub-app">${job.releaseDate ? `Release ${escapeHtml(job.releaseDate)}` : 'No release date'}</div>
+                        <div class="field-acres-app">${escapeHtml(acresText)}</div>
+                        <div>${trialHtml}</div>
+                      </div>
+                    `;
+                  }).join('')}
                 </div>
-
-                ${field.jobs.map(job => {
-                  const acresText = isFinite(Number(job.acres)) ? `${fmtNumber(job.acres, 1)} ac` : '—';
-                  const trialHtml = job.trialName
-                    ? `<span class="trial-pill">🌱 ${escapeHtml(job.trialName)}</span>`
-                    : `<span class="trial-none">Full field / no trial</span>`;
-
-                  return `
-                    <div class="field-row-app job-history-row" data-id="${escapeHtml(job.itemId)}">
-                      <div class="job-ref">#${escapeHtml(job.job)}</div>
-                      <div class="field-sub-app">${job.releaseDate ? `Release ${escapeHtml(job.releaseDate)}` : 'No release date'}</div>
-                      <div class="field-acres-app">${escapeHtml(acresText)}</div>
-                      <div>${trialHtml}</div>
-                    </div>
-                  `;
-                }).join('')}
-              </div>
+              `).join('')}
             `).join('')}
-          `).join('')}
-        </div>
-      `).join('')}
+          </div>
+        `;
+      }).join('')}
     `;
+
+    card.querySelectorAll('.farm-toggle[data-farm-key]').forEach(el=>{
+      el.addEventListener('click',()=>{
+        const key = decodeURIComponent(el.dataset.farmKey || '');
+        if(STATE.collapsedFarms.has(key)) STATE.collapsedFarms.delete(key);
+        else STATE.collapsedFarms.add(key);
+        renderList();
+      });
+    });
+
+    card.querySelectorAll('.crop-toggle[data-crop-key]').forEach(el=>{
+      el.addEventListener('click',(e)=>{
+        e.stopPropagation();
+        const key = decodeURIComponent(el.dataset.cropKey || '');
+        if(STATE.collapsedCrops.has(key)) STATE.collapsedCrops.delete(key);
+        else STATE.collapsedCrops.add(key);
+        renderList();
+      });
+    });
 
     card.querySelectorAll('.job-history-row[data-id]').forEach(rowEl => {
       rowEl.addEventListener('click', () => {
