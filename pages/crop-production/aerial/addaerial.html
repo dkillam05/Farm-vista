@@ -1779,90 +1779,110 @@ Purpose:
       return "";
     }
 
-    function collectPayload(){
-      const meOpt = submittedBy.options[submittedBy.selectedIndex];
-      const submittedByEmail = (meOpt?.dataset?.email || "").trim();
+function collectPayload(){
+  const meOpt = submittedBy.options[submittedBy.selectedIndex];
+  const submittedByEmail = (meOpt?.dataset?.email || "").trim();
 
-      const cropVal = String(crop.value||"").trim();
-      const cropYear = cropYearFromReleaseDate();
+  const cropVal = String(crop.value||"").trim();
+  const cropYear = cropYearFromReleaseDate();
 
-      const selected = allFields.filter(f=> selectedFieldIds.has(f.id)).map(f=>({
-        fieldId: f.id,
-        field: f.name,
-        farmId: f.farmId || "",
-        farm: f.farmName || "",
-        tillableAcres: Number(f.tillable)||0
-      }));
+  const selectedRaw = allFields.filter(f=> selectedFieldIds.has(f.id));
 
-      const totalTillable = selected.reduce((s,x)=> s + (Number(x.tillableAcres)||0), 0);
+  const selected = selectedRaw.map(f=>{
+    const resolvedFarmId = String(f.farmId || "").trim();
 
-      const releasedAcresNum = Number(parseNum(releaseAcres.value));
-      const allowedReleaseAcresNoNote = totalTillable * (1 + RELEASE_OVERAGE_RATE);
-      const releaseOverageAcres = releasedAcresNum - totalTillable;
-      const releaseOveragePct = totalTillable > 0
-        ? (releaseOverageAcres / totalTillable) * 100
-        : 0;
-
-      const releaseIsOverTillable = releaseOverageAcres > 1e-9;
-      const releaseOverageRequiresNote = releasedAcresNum > allowedReleaseAcresNoNote + 1e-9;
-
-      const trialYes = document.querySelector('input[name="isTrial"]:checked')?.value === "yes";
-      const trialId = String(trialSelect.value||"").trim();
-
-      const trialAssignmentsOut = [];
-      for(const f of selected){
-        const a = trialAssignments[f.fieldId];
-        if(a && a.included){
-          trialAssignmentsOut.push({
-            fieldId: f.fieldId,
-            trialAcres: Number.isFinite(a.trialAcres) ? Number(a.trialAcres) : null
-          });
-        }
-      }
-
-      return {
-        jobNumber: Number(jobNumber.value),
-        crop: cropVal,
-        cropYear,
-
-        farmId: String(farmId.value||""),
-        farm: String(farmName.value||""),
-
-        fields: selected,
-        fieldIds: selected.map(x=>x.fieldId),
-        totalTillableAcres: Number(totalTillable),
-
-        releaseAcres: releasedAcresNum,
-        releaseDate: String(releaseDate.value||""),
-
-        releaseOverageAllowedPct: RELEASE_OVERAGE_ALLOWED_PCT,
-        releaseAllowedAcresNoNote: Number(allowedReleaseAcresNoNote),
-        releaseIsOverTillable,
-        releaseOverageAcres: Number(releaseOverageAcres),
-        releaseOveragePct: Number(releaseOveragePct),
-        releaseOverageRequiresNote,
-        releaseOverageNote: releaseOverageRequiresNote ? String(notes.value || "").trim() : "",
-
-        submittedBy: String(submittedBy.value||""),
-        submittedByEmail,
-
-        notes: String(notes.value||"").trim(),
-
-        trialLink: trialYes ? {
-          enabled: true,
-          trialId,
-          assignments: trialAssignmentsOut,
-          assignFieldIds: trialAssignmentsOut.map(x=>x.fieldId)
-        } : { enabled:false },
-
-        year: cropYear,
-        status: "Open",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        t: Date.now(),
-        timestampISO: new Date().toISOString()
-      };
+    let resolvedFarmName = String(f.farmName || "").trim();
+    if(!resolvedFarmName && resolvedFarmId){
+      const farmDoc = allFarms.find(x => String(x.id) === resolvedFarmId);
+      resolvedFarmName = String(farmDoc?.name || "").trim();
     }
+
+    return {
+      fieldId: f.id,
+      field: f.name,
+      farmId: resolvedFarmId,
+      farm: resolvedFarmName,
+      farmName: resolvedFarmName,
+      tillableAcres: Number(f.tillable)||0
+    };
+  });
+
+  const uniqueFarmIds = [...new Set(selected.map(x => String(x.farmId || "").trim()).filter(Boolean))];
+  const uniqueFarmNames = [...new Set(selected.map(x => String(x.farm || "").trim()).filter(Boolean))];
+
+  const topFarmId = String(farmId.value || "").trim() || (uniqueFarmIds.length === 1 ? uniqueFarmIds[0] : "");
+  const topFarmName = String(farmName.value || "").trim() || (uniqueFarmNames.length === 1 ? uniqueFarmNames[0] : "");
+
+  const totalTillable = selected.reduce((s,x)=> s + (Number(x.tillableAcres)||0), 0);
+
+  const releasedAcresNum = Number(parseNum(releaseAcres.value));
+  const allowedReleaseAcresNoNote = totalTillable * (1 + RELEASE_OVERAGE_RATE);
+  const releaseOverageAcres = releasedAcresNum - totalTillable;
+  const releaseOveragePct = totalTillable > 0
+    ? (releaseOverageAcres / totalTillable) * 100
+    : 0;
+
+  const releaseIsOverTillable = releaseOverageAcres > 1e-9;
+  const releaseOverageRequiresNote = releasedAcresNum > allowedReleaseAcresNoNote + 1e-9;
+
+  const trialYes = document.querySelector('input[name="isTrial"]:checked')?.value === "yes";
+  const trialId = String(trialSelect.value||"").trim();
+
+  const trialAssignmentsOut = [];
+  for(const f of selected){
+    const a = trialAssignments[f.fieldId];
+    if(a && a.included){
+      trialAssignmentsOut.push({
+        fieldId: f.fieldId,
+        trialAcres: Number.isFinite(a.trialAcres) ? Number(a.trialAcres) : null
+      });
+    }
+  }
+
+  return {
+    jobNumber: Number(jobNumber.value),
+    crop: cropVal,
+    cropYear,
+
+    farmId: topFarmId,
+    farm: topFarmName,
+    farmName: topFarmName,
+
+    fields: selected,
+    fieldIds: selected.map(x=>x.fieldId),
+    totalTillableAcres: Number(totalTillable),
+
+    releaseAcres: releasedAcresNum,
+    releaseDate: String(releaseDate.value||""),
+
+    releaseOverageAllowedPct: RELEASE_OVERAGE_ALLOWED_PCT,
+    releaseAllowedAcresNoNote: Number(allowedReleaseAcresNoNote),
+    releaseIsOverTillable,
+    releaseOverageAcres: Number(releaseOverageAcres),
+    releaseOveragePct: Number(releaseOveragePct),
+    releaseOverageRequiresNote,
+    releaseOverageNote: releaseOverageRequiresNote ? String(notes.value || "").trim() : "",
+
+    submittedBy: String(submittedBy.value||""),
+    submittedByEmail,
+
+    notes: String(notes.value||"").trim(),
+
+    trialLink: trialYes ? {
+      enabled: true,
+      trialId,
+      assignments: trialAssignmentsOut,
+      assignFieldIds: trialAssignmentsOut.map(x=>x.fieldId)
+    } : { enabled:false },
+
+    year: cropYear,
+    status: "Open",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    t: Date.now(),
+    timestampISO: new Date().toISOString()
+  };
+}
 
     async function resolveFarmName(farmIdStr){
       const fid = String(farmIdStr||"").trim();
