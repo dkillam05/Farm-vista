@@ -1057,7 +1057,9 @@ Update:
       cropYear: 'all',
       isEditing: false,
       isEditingTitle: false,
-      trialCache: {}
+      trialCache: {},
+      collapsedFarms: new Set(),
+      collapsedCrops: new Set()
     };
 
     const UI = {
@@ -1422,7 +1424,6 @@ function applyFilters(){
   }
 
   const q = (STATE.search || '').trim().toLowerCase();
-
   let filtered = STATE.allItems.slice();
 
   if(STATE.crop && STATE.crop !== 'all'){
@@ -1431,12 +1432,27 @@ function applyFilters(){
     filtered = filtered.filter(it => {
       const crop = String(it.data?.crop || '').trim().toLowerCase();
 
-      // Handles Soybeans, Soybean, bean, beans
       if(selectedCrop === 'soybeans'){
         return crop === 'soybeans' || crop === 'soybean' || crop === 'beans' || crop === 'bean';
       }
 
       return crop === selectedCrop;
+    });
+  }
+
+  if(STATE.cropYear && STATE.cropYear !== 'all'){
+    filtered = filtered.filter(it => {
+      const y = String(it.data?.cropYear ?? it.data?.year ?? '').trim();
+      return y === String(STATE.cropYear);
+    });
+  }
+
+  if(STATE.fromYmd){
+    filtered = filtered.filter(it => {
+      const rd = String(it.data?.releaseDate || '').trim();
+      if(!rd) return false;
+      if(STATE.toYmd) return rd >= STATE.fromYmd && rd <= STATE.toYmd;
+      return rd >= STATE.fromYmd;
     });
   }
 
