@@ -1,12 +1,14 @@
 <!-- =====================================================================
 /Farm-vista/pages/crop-production/crop-aerial-add.html  (FULL FILE)
-Rev: 2025-12-19d
+Rev: 2026-07-01a
 Purpose:
  • Add Aerial Application Job (multi-field)
  • Farm filters field list (farm is for narrowing only)
  • Multi-select fields (10+)
  • Auto-sum tillable acres from selected fields
- • Release acres (2 decimals) must be <= total tillable acres
+ • Release acres (2 decimals)
+ • Allows release acres up to 2% over tillable with no note required
+ • Allows release acres over 2% only when Notes has text entered
  • Release date defaults to today
  • Submitted by defaults to logged-in user (still selectable)
  • Notes w/ dictation mic (Web Speech API if supported)
@@ -20,8 +22,7 @@ Purpose:
     - Trial assignment UI supports per-field Trial Acres (<= tillable)
     - On Save: if Trial=Yes and fields assigned, writes to:
         fieldTrials/{trialId}/fields/{fieldId}  (merge)
- • NEW:
-    - On Save: marks all selected fields as used:true (prevents delete in Setup → Fields)
+ • On Save: marks all selected fields as used:true (prevents delete in Setup → Fields)
 ===================================================================== -->
 <!doctype html>
 <html lang="en">
@@ -33,7 +34,6 @@ Purpose:
 
   <script src="/Farm-vista/js/theme-boot.js"></script>
 
-  <!-- Standard includes (ABSOLUTE paths) -->
   <link rel="manifest" href="/Farm-vista/manifest.webmanifest" />
   <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png" />
   <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png" />
@@ -41,7 +41,6 @@ Purpose:
   <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css" />
   <link rel="stylesheet" href="/Farm-vista/assets/css/app.css" />
 
-  <!-- Ensure fv-shell -->
   <script>
     (function(){
       if(!customElements.get('fv-shell')){
@@ -61,7 +60,6 @@ Purpose:
       --hero-icon-col:36px;
       --hero-icon-size:24px;
 
-      /* FV Combo vars */
       --combo-gap:4px;
       --combo-radius:12px;
       --combo-btn-radius:10px;
@@ -166,7 +164,7 @@ Purpose:
     .textarea{
       min-height:120px;
       resize:vertical;
-      padding-right:48px; /* room for mic */
+      padding-right:48px;
     }
 
     .buttonish{
@@ -254,7 +252,7 @@ Purpose:
     .btn-primary{
       border-color:transparent;
       background:#2F6C3C;
-      color:#fff!important; /* ✅ green button always white font */
+      color:#fff!important;
     }
 
     .btn:disabled{
@@ -267,7 +265,6 @@ Purpose:
       font-weight:800;
     }
 
-    /* Combo core */
     .combo{ position:relative; }
     .combo .combo-anchor{
       position:relative;
@@ -357,7 +354,6 @@ Purpose:
       color:var(--muted,#67706B);
     }
 
-    /* Selected chips */
     .chips{
       display:flex;
       gap:8px;
@@ -391,11 +387,10 @@ Purpose:
       font-weight:900;
     }
 
-    /* Notes mic */
     .mic-btn{
       position:absolute;
       right:10px;
-      bottom:22px; /* ✅ moved up */
+      bottom:22px;
       width:34px;
       height:34px;
       border-radius:12px;
@@ -414,7 +409,6 @@ Purpose:
     }
     .mic-btn svg{ width:18px; height:18px; }
 
-    /* Upload thumbs */
     .thumbs{
       display:flex;
       gap:10px;
@@ -452,7 +446,6 @@ Purpose:
       color:var(--text);
     }
 
-    /* Trial toggle box */
     .trialbox{
       border:1px solid var(--border);
       border-radius:14px;
@@ -478,7 +471,6 @@ Purpose:
       accent-color:#2F6C3C;
     }
 
-    /* Trial helper */
     .trial-head{
       display:flex;
       align-items:center;
@@ -509,7 +501,6 @@ Purpose:
     .helpbox ul{ margin:8px 0 0 18px; padding:0; }
     .helpbox li{ margin:6px 0; }
 
-    /* Trial assignment list with acres */
     .trial-assign{
       display:grid;
       gap:8px;
@@ -585,7 +576,6 @@ Purpose:
       text-align:right;
     }
 
-    /* Toast */
     #fv-toast{
       position:fixed;
       left:50%;
@@ -605,7 +595,6 @@ Purpose:
     }
     #fv-toast.show{ opacity:1; transform:translate(-50%,0); }
 
-    /* no-scroll helper */
     .no-scroll{ overflow:hidden !important; }
   </style>
 </head>
@@ -628,7 +617,6 @@ Purpose:
         </header>
 
         <div class="body">
-          <!-- Row: Job + Crop -->
           <div class="row">
             <div class="field">
               <label for="jobNumber">Job Number</label>
@@ -648,9 +636,7 @@ Purpose:
             </div>
           </div>
 
-          <!-- Farm + Fields (multi) -->
           <div class="row">
-            <!-- Farm combo -->
             <div class="field combo">
               <label for="farmBtn">Farm (for narrowing fields)</label>
               <div class="combo-anchor">
@@ -667,7 +653,6 @@ Purpose:
               <input type="hidden" id="farmName" />
             </div>
 
-            <!-- Fields multi-select combo -->
             <div class="field combo">
               <label for="fieldsBtn">Fields (multi-select)</label>
               <div class="combo-anchor">
@@ -685,12 +670,10 @@ Purpose:
                 </div>
               </div>
               <div class="help" id="fieldsHelp">0 fields</div>
-
               <div class="chips" id="fieldChips" aria-live="polite"></div>
             </div>
           </div>
 
-          <!-- Acres summary -->
           <div class="kpi-line" role="status" aria-live="polite">
             <div class="kpi">
               <div class="v" id="kpiFields">0</div>
@@ -706,13 +689,12 @@ Purpose:
             </div>
           </div>
 
-          <!-- Release acres + date + submitted by -->
           <div class="row3">
             <div class="field">
               <label for="releaseAcres">Released Area (acres)</label>
               <input id="releaseAcres" class="input" inputmode="decimal" autocomplete="off"
                      placeholder="0.00" />
-              <div class="help">Number only, forced to <strong>2 decimals</strong>. Must be ≤ total tillable acres.</div>
+              <div class="help">Number only, forced to <strong>2 decimals</strong>. Up to <strong>2%</strong> over tillable is allowed. Over 2% requires a note.</div>
             </div>
 
             <div class="field">
@@ -728,10 +710,9 @@ Purpose:
             </div>
           </div>
 
-          <!-- Notes -->
           <div class="field">
             <label for="notes">Notes</label>
-            <textarea id="notes" class="textarea" placeholder="Notes for the pilot / vendor / job (e.g., products, timing, wind, obstacles)"></textarea>
+            <textarea id="notes" class="textarea" placeholder="Notes for the pilot / vendor / job (required if release acres are more than 2% over tillable)"></textarea>
             <button id="micBtn" class="mic-btn" type="button" aria-label="Dictate notes" aria-pressed="false" title="Dictate">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3z"></path>
@@ -743,7 +724,6 @@ Purpose:
             <div class="help" id="micHelp">Mic uses your device dictation (if supported).</div>
           </div>
 
-          <!-- Files + Photos -->
           <div class="row">
             <div class="field">
               <label for="attachments">Files / Photos</label>
@@ -810,7 +790,6 @@ Purpose:
             </div>
           </div>
 
-          <!-- Actions -->
           <div class="actions">
             <button id="cancel" class="btn" type="button">Cancel</button>
             <button id="save" class="btn btn-primary" type="button">Save Aerial Job</button>
@@ -831,6 +810,9 @@ Purpose:
       collection, getDocs, addDoc, updateDoc, setDoc, doc, getDoc, serverTimestamp,
       query, where
     } from '/Farm-vista/js/firebase-init.js';
+
+    const RELEASE_OVERAGE_RATE = 0.02;
+    const RELEASE_OVERAGE_ALLOWED_PCT = 2;
 
     /* ========== Helpers ========== */
     const $ = id => document.getElementById(id);
@@ -907,15 +889,14 @@ Purpose:
     /* ========== State ========== */
     let db = null;
 
-    let allFarms = [];   // {id,name}
-    let allFields = [];  // {id,name,farmId,farmName,tillable}
+    let allFarms = [];
+    let allFields = [];
     let fieldsShown = [];
     let selectedFieldIds = new Set();
 
-    let selectedFiles = []; // File[]
+    let selectedFiles = [];
     let trialItems = [];
 
-    // trialAssignments[fieldId] = { included: bool, trialAcres: number|null, err: string }
     const trialAssignments = Object.create(null);
 
     /* ========== UI refs ========== */
@@ -969,20 +950,42 @@ Purpose:
     const saveBtn = $("save");
     const cancelBtn = $("cancel");
 
-    /* ========== Boot defaults ========== */
     releaseDate.value = todayISO();
 
-    /* Trial help toggle */
     trialHelpBtn.addEventListener('click', ()=>{
       trialHelpBox.hidden = !trialHelpBox.hidden;
     });
 
-    /* Job number: whole numbers only */
     jobNumber.addEventListener('input', ()=>{
       jobNumber.value = String(jobNumber.value||"").replace(/[^\d]/g,"");
     });
 
-    /* Release acres format + KPI */
+    /* ========== Release acres overage helpers ========== */
+    function getTotalTillableSelected(){
+      const selected = allFields.filter(f=> selectedFieldIds.has(f.id));
+      return selected.reduce((sum,f)=> sum + (Number(f.tillable)||0), 0);
+    }
+
+    function getReleaseOverageInfo(){
+      const total = getTotalTillableSelected();
+      const released = parseNum(releaseAcres.value);
+      const allowedMax = total * (1 + RELEASE_OVERAGE_RATE);
+      const overAcres = Number.isFinite(released) ? released - total : 0;
+      const overPct = total > 0 && Number.isFinite(released)
+        ? ((released - total) / total) * 100
+        : 0;
+
+      return {
+        total,
+        released,
+        allowedMax,
+        overAcres,
+        overPct,
+        isOverTillable: total > 0 && Number.isFinite(released) && released > total + 1e-9,
+        isOverAllowedPct: total > 0 && Number.isFinite(released) && released > allowedMax + 1e-9
+      };
+    }
+
     function updateReleaseKPI(){
       const r = parseNum(releaseAcres.value);
       if(isFinite(r)){
@@ -1014,7 +1017,7 @@ Purpose:
     });
     releaseAcres.addEventListener('blur', formatReleaseTo2);
 
-    /* ========== Farms combo (single select) ========== */
+    /* ========== Farms combo ========== */
     function openFarmPanel(){
       closeAllCombos(farmPanel);
       farmPanel.classList.add('show');
@@ -1183,14 +1186,9 @@ Purpose:
       renderTrialAssignUI();
     });
 
-    function getTotalTillableSelected(){
-      const selected = allFields.filter(f=> selectedFieldIds.has(f.id));
-      return selected.reduce((sum,f)=> sum + (Number(f.tillable)||0), 0);
-    }
-
     function validateReleaseAgainstTillable(){
-      const total = getTotalTillableSelected();
-      const r = parseNum(releaseAcres.value);
+      const info = getReleaseOverageInfo();
+      const r = info.released;
 
       if(isFinite(r)) kpiRelease.textContent = to2(r);
       else kpiRelease.textContent = "—";
@@ -1198,11 +1196,17 @@ Purpose:
       let warn = false;
       if(isFinite(r)){
         if(r < 0) warn = true;
-        if(total > 0 && r > total + 1e-9) warn = true;
-        if(total === 0 && r > 0) warn = true;
+        if(info.total > 0 && r > info.total + 1e-9) warn = true;
+        if(info.total === 0 && r > 0) warn = true;
       }
+
       kpiReleaseWrap.classList.toggle('warn', warn);
-      return !warn;
+
+      if(!isFinite(r)) return false;
+      if(r < 0) return false;
+      if(info.total <= 0 && r > 0) return false;
+
+      return true;
     }
 
     /* ========== Employees / Submitted By ========== */
@@ -1460,56 +1464,54 @@ Purpose:
       trialHelp.textContent = `Loading trials for ${cropVal} • ${year}…`;
 
       try{
-const qy = query(
-  collection(db, "fieldTrials"),
-  where("cropYear", "==", year),
-  where("operationTask", "==", "Aerial Application")
-);
+        const qy = query(
+          collection(db, "fieldTrials"),
+          where("cropYear", "==", year),
+          where("operationTask", "==", "Aerial Application")
+        );
 
-const snap = await getDocs(qy);
+        const snap = await getDocs(qy);
 
-function normalizeCrop(crop) {
-  switch (String(crop || "").trim().toLowerCase()) {
-    case "soybean":
-    case "soybeans":
-      return "soybean";
+        function normalizeCrop(crop) {
+          switch (String(crop || "").trim().toLowerCase()) {
+            case "soybean":
+            case "soybeans":
+              return "soybean";
 
-    case "corn":
-      return "corn";
+            case "corn":
+              return "corn";
 
-    case "wheat":
-      return "wheat";
+            case "wheat":
+              return "wheat";
 
-    default:
-      return String(crop || "").trim().toLowerCase();
-  }
-}
+            default:
+              return String(crop || "").trim().toLowerCase();
+          }
+        }
 
-const selectedCrop = normalizeCrop(cropVal);
+        const selectedCrop = normalizeCrop(cropVal);
+        const items = [];
 
-const items = [];
+        snap.forEach(d => {
+          const x = d.data() || {};
 
-snap.forEach(d => {
-  const x = d.data() || {};
+          if (normalizeCrop(x.crop) !== selectedCrop) return;
 
-  // Skip crops that don't match after normalization
-  if (normalizeCrop(x.crop) !== selectedCrop) return;
+          const name = String(
+            x.trialName ||
+            x.name ||
+            x.title ||
+            `Trial ${d.id}`
+          ).trim();
 
-  const name = String(
-    x.trialName ||
-    x.name ||
-    x.title ||
-    `Trial ${d.id}`
-  ).trim();
+          if (!name) return;
 
-  if (!name) return;
-
-  items.push({
-    id: d.id,
-    name,
-    status: String(x.status || "").trim()
-  });
-});
+          items.push({
+            id: d.id,
+            name,
+            status: String(x.status || "").trim()
+          });
+        });
 
         items.sort((a,b)=> a.name.localeCompare(b.name));
         trialItems = items;
@@ -1746,7 +1748,13 @@ snap.forEach(d => {
       const r = parseNum(releaseAcres.value);
       if(!isFinite(r)) return "Please enter Release Acres (number, 2 decimals).";
       if(r <= 0) return "Release Acres must be greater than 0.";
-      if(r > total + 1e-9) return "Release Acres must be less than or equal to the total tillable acres for this job.";
+
+      const info = getReleaseOverageInfo();
+      const noteTxt = String(notes.value || "").trim();
+
+      if(info.isOverAllowedPct && !noteTxt){
+        return `Release Acres is more than 2% over tillable acres. A note is required to save. Max before note is required: ${to2(info.allowedMax)} acres.`;
+      }
 
       if(!String(releaseDate.value||"").trim()) return "Please set a Release Date.";
 
@@ -1788,6 +1796,16 @@ snap.forEach(d => {
 
       const totalTillable = selected.reduce((s,x)=> s + (Number(x.tillableAcres)||0), 0);
 
+      const releasedAcresNum = Number(parseNum(releaseAcres.value));
+      const allowedReleaseAcresNoNote = totalTillable * (1 + RELEASE_OVERAGE_RATE);
+      const releaseOverageAcres = releasedAcresNum - totalTillable;
+      const releaseOveragePct = totalTillable > 0
+        ? (releaseOverageAcres / totalTillable) * 100
+        : 0;
+
+      const releaseIsOverTillable = releaseOverageAcres > 1e-9;
+      const releaseOverageRequiresNote = releasedAcresNum > allowedReleaseAcresNoNote + 1e-9;
+
       const trialYes = document.querySelector('input[name="isTrial"]:checked')?.value === "yes";
       const trialId = String(trialSelect.value||"").trim();
 
@@ -1814,8 +1832,16 @@ snap.forEach(d => {
         fieldIds: selected.map(x=>x.fieldId),
         totalTillableAcres: Number(totalTillable),
 
-        releaseAcres: Number(parseNum(releaseAcres.value)),
+        releaseAcres: releasedAcresNum,
         releaseDate: String(releaseDate.value||""),
+
+        releaseOverageAllowedPct: RELEASE_OVERAGE_ALLOWED_PCT,
+        releaseAllowedAcresNoNote: Number(allowedReleaseAcresNoNote),
+        releaseIsOverTillable,
+        releaseOverageAcres: Number(releaseOverageAcres),
+        releaseOveragePct: Number(releaseOveragePct),
+        releaseOverageRequiresNote,
+        releaseOverageNote: releaseOverageRequiresNote ? String(notes.value || "").trim() : "",
 
         submittedBy: String(submittedBy.value||""),
         submittedByEmail,
@@ -1853,7 +1879,6 @@ snap.forEach(d => {
       return "";
     }
 
-    // ✅ Mark fields as USED so they can never be deleted (only archived)
     async function markFieldsUsed(fieldIds, contextLabel="aerialApplication"){
       const ids = Array.isArray(fieldIds) ? fieldIds.map(x=>String(x||"").trim()).filter(Boolean) : [];
       if(!ids.length) return;
@@ -1923,7 +1948,6 @@ snap.forEach(d => {
         const refDoc = await addDoc(collection(db, 'aerial_applications'), payload);
         const id = refDoc.id;
 
-        // ✅ LOCK: mark selected fields as used so they can't be deleted later
         try{
           await markFieldsUsed(payload.fieldIds, "aerialApplication");
         }catch(lockErr){
@@ -1950,7 +1974,6 @@ snap.forEach(d => {
           }
         }
 
-        // ✅ LINK: add selected fields into the trial subcollection
         try{
           await linkFieldsIntoTrial(payload, id);
         }catch(linkErr){
