@@ -909,6 +909,27 @@ Update:
       margin-top:12px;
     }
 
+    .field-history-block{
+      border-top:1px solid color-mix(in srgb, var(--border) 70%, transparent);
+      padding:10px 14px;
+    }
+
+    .field-history-head{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:10px;
+      margin-bottom:8px;
+    }
+
+    .job-history-row{
+      margin-left:10px;
+      border-radius:10px;
+      border-top:none;
+      background:color-mix(in srgb, var(--surface) 82%, var(--border) 18%);
+      margin-top:6px;
+    }
+
     @media (max-width: 700px){
       .farm-head{
         flex-direction:column;
@@ -933,6 +954,10 @@ Update:
       .trial-pill{
         width:max-content;
         max-width:100%;
+      }
+
+      .job-history-row{
+        margin-left:0;
       }
     }
 
@@ -1390,203 +1415,271 @@ Update:
       renderList();
     }
 
-    function buildFarmGroups(items){
-      const farms = new Map();
+function buildFarmGroups(items){
+  const farms = new Map();
 
-      for(const item of items){
-        const d = item.data || {};
-        const fields = Array.isArray(d.fields) ? d.fields : [];
-        const job = d.jobNumber != null ? d.jobNumber : '—';
-        const crop = getCropName(d);
-        const cropYear = d.cropYear ?? d.year ?? '';
-        const releaseDate = d.releaseDate || '';
-        const trialName = getTrialNameFromJob(d);
+  for(const item of items){
+    const d = item.data || {};
+    const fields = Array.isArray(d.fields) ? d.fields : [];
+    const job = d.jobNumber != null ? d.jobNumber : '—';
+    const crop = getCropName(d);
+    const cropYear = d.cropYear ?? d.year ?? '';
+    const releaseDate = d.releaseDate || '';
+    const trialName = getTrialNameFromJob(d);
 
-        if(!fields.length){
-          const farmName = String(d.farm || d.farmName || 'No Farm Listed');
-          const acres = Number(d.releaseAcres);
-          addFarmRow(farms, farmName, crop, {
-            itemId: item.id,
-            field: 'No fields attached',
-            acres: isFinite(acres) ? acres : null,
-            crop,
-            cropYear,
-            releaseDate,
-            trialName: '',
-            job
+    for(const f of fields){
+      const farmName = getFarmName(f, d);
+      const fieldName = getFieldName(f);
+      const acres = getFieldAcres(f);
+      const inTrial = isFieldInTrial(d, f);
+
+      addFarmRow(farms, farmName, crop, cropYear, fieldName, {
+        itemId: item.id,
+        job,
+        releaseDate,
+        acres,
+        trialName: inTrial ? trialName : '',
+        crop,
+        cropYear,
+        field: fieldName
+      });
+    }
+  }
+
+  const farmGroups = [...farms.values()];
+
+  for(const farm of farmGroups){
+    farm.cropGroups = [...farm.crops.values()];
+
+    for(const cropGroup of farm.cropGroups){
+      cropGroup.yearGroups = [...cropGroup.years.values()];
+
+      for(const yearGroup of cropGroup.yearGroups){
+        yearGroup.fields = [...yearGroup.fieldsMap.values()];
+
+        for(const field of yearGroup.fields){
+          field.jobs.sort((a,b)=>{
+            const da = parseYmdToTime(a.releaseDate || '');
+            const db = parseYmdToTime(b.releaseDate || '');
+            if(da !== db) return da - db;
+            return Number(a.job) - Number(b.job);
           });
-          continue;
+
+          field.totalApplications = field.jobs.length;
+          field.totalAcres = field.jobs.reduce((sum,j)=>{
+            const n = Number(j.acres);
+            return sum + (isFinite(n) ? n : 0);
+          }, 0);
+          field.hasTrial = field.jobs.some(j=>j.trialName);
         }
 
-        for(const f of fields){
-          const farmName = getFarmName(f, d);
-          const fieldName = getFieldName(f);
-          const acres = getFieldAcres(f);
-          const inTrial = isFieldInTrial(d, f);
-
-          addFarmRow(farms, farmName, crop, {
-            itemId: item.id,
-            field: fieldName,
-            acres,
-            crop,
-            cropYear,
-            releaseDate,
-            trialName: inTrial ? trialName : '',
-            job
-          });
-        }
+        yearGroup.fields.sort((a,b)=>String(a.field).localeCompare(String(b.field)));
       }
 
-      const farmGroups = [...farms.values()];
-
-      for(const farm of farmGroups){
-        farm.cropGroups = [...farm.crops.values()];
-
-        for(const cropGroup of farm.cropGroups){
-          cropGroup.rows.sort((a,b)=>String(a.field).localeCompare(String(b.field)));
-        }
-
-        farm.cropGroups.sort((a,b)=>String(a.crop).localeCompare(String(b.crop)));
-        farm.fieldCount = farm.cropGroups.reduce((sum,c)=>sum + c.rows.length, 0);
-        farm.trialCount = farm.cropGroups.reduce((sum,c)=>sum + c.rows.filter(r=>r.trialName).length, 0);
-        farm.jobCount = new Set(farm.cropGroups.flatMap(c=>c.rows.map(r=>String(r.job)))).size;
-      }
-
-      farmGroups.sort((a,b)=>String(a.farm).localeCompare(String(b.farm)));
-      return farmGroups;
+      cropGroup.yearGroups.sort((a,b)=>String(a.cropYear).localeCompare(String(b.cropYear)));
     }
 
-    function addFarmRow(farms, farmName, cropName, row){
-      const farmKey = String(farmName || 'No Farm Listed').trim() || 'No Farm Listed';
-      const cropKey = String(cropName || 'Crop Not Listed').trim() || 'Crop Not Listed';
+    farm.cropGroups.sort((a,b)=>String(a.crop).localeCompare(String(b.crop)));
 
-      if(!farms.has(farmKey)){
-        farms.set(farmKey, {
-          farm: farmKey,
-          totalAcres: 0,
-          crops: new Map()
-        });
-      }
+    farm.fieldCount = farm.cropGroups.reduce((sum,c)=>
+      sum + c.yearGroups.reduce((ys,y)=>ys + y.fields.length,0),0
+    );
 
-      const farm = farms.get(farmKey);
+    farm.trialCount = farm.cropGroups.reduce((sum,c)=>
+      sum + c.yearGroups.reduce((ys,y)=>
+        ys + y.fields.filter(f=>f.hasTrial).length,0),0
+    );
 
-      if(!farm.crops.has(cropKey)){
-        farm.crops.set(cropKey, {
-          crop: cropKey,
-          totalAcres: 0,
-          rows: []
-        });
-      }
+    farm.jobCount = new Set(
+      farm.cropGroups.flatMap(c =>
+        c.yearGroups.flatMap(y =>
+          y.fields.flatMap(f =>
+            f.jobs.map(j => String(j.job))
+          )
+        )
+      )
+    ).size;
+  }
 
-      const crop = farm.crops.get(cropKey);
-      const acres = Number(row.acres);
+  farmGroups.sort((a,b)=>String(a.farm).localeCompare(String(b.farm)));
+  return farmGroups;
+}
 
-      if(isFinite(acres)){
-        crop.totalAcres += acres;
-        farm.totalAcres += acres;
-      }
+function addFarmRow(farms, farmName, cropName, cropYear, fieldName, jobRow){
+  const farmKey = String(farmName || 'No Farm Listed').trim() || 'No Farm Listed';
+  const cropKey = String(cropName || 'Crop Not Listed').trim() || 'Crop Not Listed';
+  const yearKey = String(cropYear || 'Year Not Listed').trim() || 'Year Not Listed';
+  const fieldKey = String(fieldName || 'Unnamed Field').trim() || 'Unnamed Field';
 
-      crop.rows.push(row);
+  if(!farms.has(farmKey)){
+    farms.set(farmKey, {
+      farm: farmKey,
+      totalAcres: 0,
+      crops: new Map()
+    });
+  }
+
+  const farm = farms.get(farmKey);
+
+  if(!farm.crops.has(cropKey)){
+    farm.crops.set(cropKey, {
+      crop: cropKey,
+      totalAcres: 0,
+      years: new Map()
+    });
+  }
+
+  const crop = farm.crops.get(cropKey);
+
+  if(!crop.years.has(yearKey)){
+    crop.years.set(yearKey, {
+      cropYear: yearKey,
+      totalAcres: 0,
+      fieldsMap: new Map()
+    });
+  }
+
+  const year = crop.years.get(yearKey);
+
+  if(!year.fieldsMap.has(fieldKey)){
+    year.fieldsMap.set(fieldKey, {
+      field: fieldKey,
+      totalAcres: 0,
+      jobs: []
+    });
+  }
+
+  const field = year.fieldsMap.get(fieldKey);
+  const acres = Number(jobRow.acres);
+
+  if(isFinite(acres)){
+    field.totalAcres += acres;
+    year.totalAcres += acres;
+    crop.totalAcres += acres;
+    farm.totalAcres += acres;
+  }
+
+  field.jobs.push(jobRow);
+}
+
+function renderList(){
+  const listEl  = document.getElementById('list');
+  const emptyEl = document.getElementById('listEmpty');
+  const countEl = document.getElementById('listCount');
+  if(!listEl) return;
+
+  listEl.innerHTML = '';
+
+  const usingFilters = !!((STATE.search||'').trim() || hasServerFilters());
+
+  if(!STATE.items.length){
+    if(emptyEl){
+      emptyEl.style.display='block';
+      emptyEl.textContent = usingFilters ? 'No jobs match your filters.' : 'No jobs yet.';
     }
+    if(countEl) countEl.textContent = '0 jobs';
+    return;
+  }
 
-    function renderList(){
-      const listEl  = document.getElementById('list');
-      const emptyEl = document.getElementById('listEmpty');
-      const countEl = document.getElementById('listCount');
-      if(!listEl) return;
+  if(emptyEl) emptyEl.style.display = 'none';
 
-      listEl.innerHTML = '';
+  const farmGroups = buildFarmGroups(STATE.items);
+  let totalFields = 0;
+  let totalAcres = 0;
 
-      const usingFilters = !!((STATE.search||'').trim() || hasServerFilters());
+  for(const farm of farmGroups){
+    totalFields += farm.fieldCount;
+    totalAcres += farm.totalAcres;
 
-      if(!STATE.items.length){
-        if(emptyEl){
-          emptyEl.style.display='block';
-          emptyEl.textContent = usingFilters ? 'No jobs match your filters.' : 'No jobs yet.';
-        }
-        if(countEl) countEl.textContent = '0 jobs';
-        return;
-      }
+    const card = document.createElement('article');
+    card.className = 'farm-card';
 
-      if(emptyEl) emptyEl.style.display = 'none';
+    const cropSummary = farm.cropGroups
+      .map(c => `${c.crop}: ${fmtNumber(c.totalAcres, 1) || '0.0'} ac`)
+      .join(' • ');
 
-      const farmGroups = buildFarmGroups(STATE.items);
-      let totalFields = 0;
-      let totalAcres = 0;
-
-      for(const farm of farmGroups){
-        totalFields += farm.fieldCount;
-        totalAcres += farm.totalAcres;
-
-        const card = document.createElement('article');
-        card.className = 'farm-card';
-
-        const cropSummary = farm.cropGroups
-          .map(c => `${c.crop}: ${fmtNumber(c.totalAcres, 1) || '0.0'} ac`)
-          .join(' • ');
-
-        card.innerHTML = `
-          <div class="farm-head">
-            <div>
-              <div class="farm-name">📍 ${escapeHtml(farm.farm)}</div>
-              <div class="farm-summary">
-                <span>${farm.fieldCount} field${farm.fieldCount===1?'':'s'}</span>
-                <span>${farm.jobCount} job${farm.jobCount===1?'':'s'}</span>
-                <span>${farm.trialCount} trial field${farm.trialCount===1?'':'s'}</span>
-              </div>
-            </div>
-            <div class="farm-total">
-              ${escapeHtml(fmtNumber(farm.totalAcres, 1) || '0.0')} ac
-              <small>sprayed</small>
-            </div>
+    card.innerHTML = `
+      <div class="farm-head">
+        <div>
+          <div class="farm-name">📍 ${escapeHtml(farm.farm)}</div>
+          <div class="farm-summary">
+            <span>${farm.fieldCount} field${farm.fieldCount===1?'':'s'}</span>
+            <span>${farm.jobCount} job${farm.jobCount===1?'':'s'}</span>
+            <span>${farm.trialCount} trial field${farm.trialCount===1?'':'s'}</span>
           </div>
-          ${cropSummary ? `<div class="farm-summary" style="padding:8px 14px;border-bottom:1px solid var(--border);">${escapeHtml(cropSummary)}</div>` : ''}
-          ${farm.cropGroups.map(cropGroup => `
-            <div class="crop-group">
-              <div class="crop-head">
-                <div class="crop-name">${escapeHtml(cropGroup.crop)}</div>
-                <div class="crop-acres">${escapeHtml(fmtNumber(cropGroup.totalAcres, 1) || '0.0')} ac</div>
-              </div>
-              ${cropGroup.rows.map(row => {
-                const acresText = isFinite(Number(row.acres)) ? `${fmtNumber(row.acres, 1)} ac` : '—';
-                const trialHtml = row.trialName
-                  ? `<span class="trial-pill">🌱 ${escapeHtml(row.trialName)}</span>`
-                  : `<span class="trial-none">Full field / no trial</span>`;
+        </div>
+        <div class="farm-total">
+          ${escapeHtml(fmtNumber(farm.totalAcres, 1) || '0.0')} ac
+          <small>sprayed</small>
+        </div>
+      </div>
 
-                return `
-                  <div class="field-row-app" data-id="${escapeHtml(row.itemId)}">
-                    <div class="field-main">
-                      <div class="field-name-app">${escapeHtml(row.field)}</div>
-                      <div class="field-sub-app">${escapeHtml(row.cropYear || '')}${row.releaseDate ? ` • Release ${escapeHtml(row.releaseDate)}` : ''}</div>
-                    </div>
-                    <div class="field-acres-app">${escapeHtml(acresText)}</div>
-                    <div>${trialHtml}</div>
-                    <div class="job-ref">#${escapeHtml(row.job)}</div>
-                  </div>
-                `;
-              }).join('')}
+      ${cropSummary ? `<div class="farm-summary" style="padding:8px 14px;border-bottom:1px solid var(--border);">${escapeHtml(cropSummary)}</div>` : ''}
+
+      ${farm.cropGroups.map(cropGroup => `
+        <div class="crop-group">
+          <div class="crop-head">
+            <div class="crop-name">${escapeHtml(cropGroup.crop)}</div>
+            <div class="crop-acres">${escapeHtml(fmtNumber(cropGroup.totalAcres, 1) || '0.0')} ac</div>
+          </div>
+
+          ${cropGroup.yearGroups.map(yearGroup => `
+            <div class="crop-head" style="font-size:0.84rem;opacity:.82;">
+              <div>${escapeHtml(yearGroup.cropYear)}</div>
+              <div>${escapeHtml(fmtNumber(yearGroup.totalAcres, 1) || '0.0')} ac</div>
             </div>
+
+            ${yearGroup.fields.map(field => `
+              <div class="field-history-block">
+                <div class="field-history-head">
+                  <div>
+                    <div class="field-name-app">${escapeHtml(field.field)}</div>
+                    <div class="field-sub-app">
+                      ${field.totalApplications} application${field.totalApplications===1?'':'s'} • ${escapeHtml(fmtNumber(field.totalAcres, 1) || '0.0')} total ac
+                    </div>
+                  </div>
+                </div>
+
+                ${field.jobs.map(job => {
+                  const acresText = isFinite(Number(job.acres)) ? `${fmtNumber(job.acres, 1)} ac` : '—';
+                  const trialHtml = job.trialName
+                    ? `<span class="trial-pill">🌱 ${escapeHtml(job.trialName)}</span>`
+                    : `<span class="trial-none">Full field / no trial</span>`;
+
+                  return `
+                    <div class="field-row-app job-history-row" data-id="${escapeHtml(job.itemId)}">
+                      <div class="job-ref">#${escapeHtml(job.job)}</div>
+                      <div class="field-sub-app">${job.releaseDate ? `Release ${escapeHtml(job.releaseDate)}` : 'No release date'}</div>
+                      <div class="field-acres-app">${escapeHtml(acresText)}</div>
+                      <div>${trialHtml}</div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            `).join('')}
           `).join('')}
-        `;
+        </div>
+      `).join('')}
+    `;
 
-        card.querySelectorAll('.field-row-app[data-id]').forEach(rowEl => {
-          rowEl.addEventListener('click', () => {
-            const id = rowEl.dataset.id;
-            STATE.selectedId = id;
-            STATE.isEditing = false;
-            renderDetails();
-          });
-        });
+    card.querySelectorAll('.job-history-row[data-id]').forEach(rowEl => {
+      rowEl.addEventListener('click', () => {
+        const id = rowEl.dataset.id;
+        STATE.selectedId = id;
+        STATE.isEditing = false;
+        renderDetails();
+      });
+    });
 
-        listEl.appendChild(card);
-      }
+    listEl.appendChild(card);
+  }
 
-      if(countEl){
-        const farmCount = farmGroups.length;
-        const acresText = fmtNumber(totalAcres, 1) || '0.0';
-        countEl.textContent = `${farmCount} farm${farmCount===1?'':'s'} • ${totalFields} field${totalFields===1?'':'s'} • ${acresText} ac`;
-      }
-    }
+  if(countEl){
+    const farmCount = farmGroups.length;
+    const acresText = fmtNumber(totalAcres, 1) || '0.0';
+    countEl.textContent = `${farmCount} farm${farmCount===1?'':'s'} • ${totalFields} field${totalFields===1?'':'s'} • ${acresText} ac`;
+  }
+}
 
     function clearDetails(){
       const panel = document.getElementById('detailPanel');
