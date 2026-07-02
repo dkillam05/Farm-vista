@@ -1491,6 +1491,98 @@ function applyFilters(){
   renderList();
 }
 
+function fieldKeyForAcres(f){
+  return String(f?.fieldId || f?.id || getFieldName(f)).trim();
+}
+
+function getTrialAcresForField(d, f){
+  const tl = d?.trialLink || null;
+  const assignments = Array.isArray(tl?.assignments) ? tl.assignments : [];
+  if(!assignments.length) return null;
+
+  const fieldId = String(f?.fieldId || f?.id || '').trim();
+  const fieldName = getFieldName(f).trim().toLowerCase();
+
+  for(const a of assignments){
+    const aFieldId = String(a?.fieldId || '').trim();
+    const aFieldName = String(a?.fieldName || a?.field || '').trim().toLowerCase();
+
+    const matches =
+      (fieldId && aFieldId && fieldId === aFieldId) ||
+      (fieldName && aFieldName && fieldName === aFieldName);
+
+    if(!matches) continue;
+
+    const options = [
+      a?.trialAcres,
+      a?.releaseAcres,
+      a?.releasedAcres,
+      a?.sprayedAcres,
+      a?.appliedAcres,
+      a?.acres
+    ];
+
+    for(const v of options){
+      const n = Number(v);
+      if(isFinite(n) && n > 0) return n;
+    }
+  }
+
+  return null;
+}
+
+function buildReleasedAcresByField(d, fields){
+  const releasedTotal = Number(d?.releaseAcres);
+  const map = new Map();
+
+  if(!Array.isArray(fields) || !fields.length) return map;
+
+  if(!isFinite(releasedTotal) || releasedTotal <= 0){
+    fields.forEach(f => map.set(fieldKeyForAcres(f), getFieldAcres(f)));
+    return map;
+  }
+
+  let knownReleased = 0;
+  let remainingTillable = 0;
+  const remaining = [];
+
+  fields.forEach(f => {
+    const key = fieldKeyForAcres(f);
+    const trialAcres = getTrialAcresForField(d, f);
+
+    if(isFinite(Number(trialAcres)) && Number(trialAcres) > 0){
+      map.set(key, Number(trialAcres));
+      knownReleased += Number(trialAcres);
+      return;
+    }
+
+    const till = Number(getFieldAcres(f));
+    if(isFinite(till) && till > 0){
+      remainingTillable += till;
+      remaining.push({ key, till });
+    }else{
+      remaining.push({ key, till: null });
+    }
+  });
+
+  const remainingReleased = Math.max(0, releasedTotal - knownReleased);
+
+  if(remainingTillable > 0){
+    remaining.forEach(r => {
+      if(isFinite(Number(r.till)) && Number(r.till) > 0){
+        map.set(r.key, remainingReleased * (Number(r.till) / remainingTillable));
+      }else{
+        map.set(r.key, null);
+      }
+    });
+  }else if(remaining.length){
+    const each = remainingReleased / remaining.length;
+    remaining.forEach(r => map.set(r.key, each));
+  }
+
+  return map;
+}
+
 function buildFarmGroups(items){
   const farms = new Map();
 
@@ -1502,14 +1594,13 @@ function buildFarmGroups(items){
     const cropYear = d.cropYear ?? d.year ?? '';
     const releaseDate = d.releaseDate || '';
     const trialName = getTrialNameFromJob(d);
+    const releasedByField = buildReleasedAcresByField(d, fields);
 
     for(const f of fields){
       const farmName = getFarmName(f, d);
       const fieldName = getFieldName(f);
-      const fieldAcres = getFieldAcres(f);
-      const jobReleaseAcres = Number(d.releaseAcres);
-      const jobFieldCount = fields.length || 1;
-      const acres = isFinite(jobReleaseAcres) ? (jobReleaseAcres / jobFieldCount) : fieldAcres;
+      const fieldKey = fieldKeyForAcres(f);
+      const acres = releasedByField.get(fieldKey);
       const inTrial = isFieldInTrial(d, f);
 
       addFarmRow(farms, farmName, crop, cropYear, fieldName, {
@@ -1549,6 +1640,7 @@ function buildFarmGroups(items){
             const n = Number(j.acres);
             return sum + (isFinite(n) ? n : 0);
           }, 0);
+
           field.hasTrial = field.jobs.some(j=>j.trialName);
         }
 
