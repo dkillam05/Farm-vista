@@ -161,7 +161,7 @@
 
     .overview{
       display:grid;
-      grid-template-columns:repeat(4,minmax(0,1fr));
+      grid-template-columns:repeat(6,minmax(0,1fr));
       gap:10px;
     }
 
@@ -829,7 +829,13 @@
       if(!el) return;
 
       const openItems = items.filter(it => normalizeStatus(it.data.status) === 'open');
+      const completedItems = items.filter(it => {
+        const s = normalizeStatus(it.data.status);
+        return s === 'completed' || s === 'complete';
+      });
+
       const openAcres = sumReleaseAcres(openItems);
+      const completedAcres = sumReleaseAcres(completedItems);
       const totalAcres = sumReleaseAcres(items);
 
       const farms = new Set();
@@ -840,17 +846,19 @@
         crops.add(cropFromJob(it.data));
       });
 
+      const pct = items.length ? Math.round((completedItems.length / items.length) * 100) : 0;
+
       el.innerHTML = `
         <div class="overview-card">
           <div class="overview-label">Open Jobs</div>
           <div class="overview-value">${escapeHtml(formatNum(openItems.length,0))}</div>
-          <div class="overview-note">Ready to complete</div>
+          <div class="overview-note">${escapeHtml(formatNum(openAcres,0))} open acres</div>
         </div>
 
         <div class="overview-card">
-          <div class="overview-label">Open Acres</div>
-          <div class="overview-value">${escapeHtml(formatNum(openAcres,0))}</div>
-          <div class="overview-note">Release acres open</div>
+          <div class="overview-label">Completed Jobs</div>
+          <div class="overview-value">${escapeHtml(formatNum(completedItems.length,0))}</div>
+          <div class="overview-note">${escapeHtml(formatNum(completedAcres,0))} completed acres</div>
         </div>
 
         <div class="overview-card">
@@ -860,8 +868,20 @@
         </div>
 
         <div class="overview-card">
-          <div class="overview-label">Farms / Crops</div>
-          <div class="overview-value">${escapeHtml(formatNum(farms.size,0))} / ${escapeHtml(formatNum(crops.size,0))}</div>
+          <div class="overview-label">Completion</div>
+          <div class="overview-value">${escapeHtml(formatNum(pct,0))}%</div>
+          <div class="overview-note">${escapeHtml(formatNum(completedItems.length,0))} of ${escapeHtml(formatNum(items.length,0))} jobs done</div>
+        </div>
+
+        <div class="overview-card">
+          <div class="overview-label">Farms</div>
+          <div class="overview-value">${escapeHtml(formatNum(farms.size,0))}</div>
+          <div class="overview-note">Current filtered set</div>
+        </div>
+
+        <div class="overview-card">
+          <div class="overview-label">Crops</div>
+          <div class="overview-value">${escapeHtml(formatNum(crops.size,0))}</div>
           <div class="overview-note">Current filtered set</div>
         </div>
       `;
@@ -924,10 +944,16 @@
 
       const items = getWorkingItems();
       const openItems = items.filter(it => normalizeStatus(it.data.status) === 'open');
+      const completedItems = items.filter(it=>{
+        const s = normalizeStatus(it.data.status);
+        return s === 'completed' || s === 'complete';
+      });
       const openAcres = sumReleaseAcres(openItems);
+      const completedAcres = sumReleaseAcres(completedItems);
+      const pct = items.length ? Math.round((completedItems.length / items.length) * 100) : 0;
 
       if(countEl){
-        countEl.textContent = `${openItems.length} open · ${formatNum(openAcres,0)} acres · ${items.length} total`;
+        countEl.textContent = `${openItems.length} open · ${completedItems.length} completed · ${items.length} total · ${pct}% done`;
       }
 
       renderOverview(items);
@@ -1354,11 +1380,13 @@ Most likely this report is looking at the wrong Firestore collection name, or no
     async function applyFilters(){
       const farmSel = $('#filterFarm');
       const cropSel = $('#filterCrop');
+      const statusSel = $('#filterStatus');
       const yearSel = $('#filterYear');
       const searchEl = $('#filterSearch');
 
       const farmFilter = farmSel?.value || 'all';
       const cropFilter = (cropSel?.value || 'all').toLowerCase();
+      const statusFilter = (statusSel?.value || 'all').toLowerCase();
       const yearFilter = yearSel?.value || 'all';
       const q = (searchEl?.value || '').trim().toLowerCase();
 
@@ -1373,6 +1401,16 @@ Most likely this report is looking at the wrong Firestore collection name, or no
         if(cropFilter !== 'all'){
           const c = cropFromJob(d).toLowerCase();
           if(c !== cropFilter) return false;
+        }
+
+        if(statusFilter !== 'all'){
+          const s = normalizeStatus(d.status);
+
+          if(statusFilter === 'completed'){
+            if(s !== 'completed' && s !== 'complete') return false;
+          }else if(s !== statusFilter){
+            return false;
+          }
         }
 
         if(yearFilter !== 'all'){
@@ -1502,6 +1540,7 @@ Most likely this report is looking at the wrong Firestore collection name, or no
     function summarizeFilters(){
       const farmSel = $('#filterFarm');
       const cropSel = $('#filterCrop');
+      const statusSel = $('#filterStatus');
       const yearSel = $('#filterYear');
       const searchEl = $('#filterSearch');
 
@@ -1514,12 +1553,19 @@ Most likely this report is looking at the wrong Firestore collection name, or no
       }
 
       const cropLabel = cropSel && cropSel.value !== 'all' ? cropSel.value : 'All crops';
+
+      let statusLabel = 'All jobs';
+      if(statusSel && statusSel.value !== 'all'){
+        const opt = statusSel.options[statusSel.selectedIndex];
+        statusLabel = opt?.textContent || statusSel.value;
+      }
+
       const yearLabel = yearSel && yearSel.value !== 'all' ? yearSel.value : 'All years';
 
       const searchVal = (searchEl?.value || '').trim();
       const searchLabel = searchVal ? `Search: "${searchVal}"` : 'No text filter';
 
-      return `${farmLabel} • ${cropLabel} • ${yearLabel} • ${searchLabel}`;
+      return `${farmLabel} • ${cropLabel} • ${statusLabel} • ${yearLabel} • ${searchLabel}`;
     }
 
     function computeDateRange(items){
@@ -1564,10 +1610,18 @@ Most likely this report is looking at the wrong Firestore collection name, or no
       const runDateOnly = formatDate(now);
 
       const openItems = items.filter(it=>normalizeStatus(it.data.status) === 'open');
+      const completedItems = items.filter(it=>{
+        const s = normalizeStatus(it.data.status);
+        return s === 'completed' || s === 'complete';
+      });
+
       const openCount = openItems.length;
+      const completedCount = completedItems.length;
       const totalCount = items.length;
       const openAcres = sumReleaseAcres(openItems);
+      const completedAcres = sumReleaseAcres(completedItems);
       const totalAcres = sumReleaseAcres(items);
+      const completionPct = totalCount ? Math.round((completedCount / totalCount) * 100) : 0;
       const uniqueFarms = new Set(items.map(it=>farmKeyFromJob(it.data)).filter(Boolean)).size;
       const uniqueCrops = new Set(items.map(it=>cropFromJob(it.data)).filter(Boolean)).size;
 
@@ -1582,10 +1636,13 @@ Most likely this report is looking at the wrong Firestore collection name, or no
         filterSummary,
         totalCount,
         openCount,
+        completedCount,
         uniqueFarms,
         uniqueCrops,
         totalAcres,
         openAcres,
+        completedAcres,
+        completionPct,
         grouped
       });
 
@@ -1623,10 +1680,13 @@ Most likely this report is looking at the wrong Firestore collection name, or no
       filterSummary,
       totalCount,
       openCount,
+      completedCount,
       uniqueFarms,
       uniqueCrops,
       totalAcres,
       openAcres,
+      completedAcres,
+      completionPct,
       grouped
     }){
       return `<!doctype html>
@@ -1765,7 +1825,7 @@ Most likely this report is looking at the wrong Firestore collection name, or no
     .kpis{
       margin-top:12px;
       display:grid;
-      grid-template-columns:repeat(5,minmax(0,1fr));
+      grid-template-columns:repeat(6,minmax(0,1fr));
       gap:10px;
     }
 
@@ -2006,9 +2066,33 @@ Most likely this report is looking at the wrong Firestore collection name, or no
       </div>
 
       <div class="kpi">
+        <div class="lab">Completed Jobs</div>
+        <div class="val">${escapeHtml(formatNum(completedCount,0))}</div>
+        <div class="note">Status Completed</div>
+      </div>
+
+      <div class="kpi">
+        <div class="lab">Total Jobs</div>
+        <div class="val">${escapeHtml(formatNum(totalCount,0))}</div>
+        <div class="note">All matching jobs</div>
+      </div>
+
+      <div class="kpi">
         <div class="lab">Open Acres</div>
         <div class="val">${escapeHtml(formatNum(openAcres,0))}</div>
         <div class="note">Open release acres</div>
+      </div>
+
+      <div class="kpi">
+        <div class="lab">Completed Acres</div>
+        <div class="val">${escapeHtml(formatNum(completedAcres,0))}</div>
+        <div class="note">Completed release acres</div>
+      </div>
+
+      <div class="kpi">
+        <div class="lab">Completion</div>
+        <div class="val">${escapeHtml(formatNum(completionPct,0))}%</div>
+        <div class="note">${escapeHtml(formatNum(completedCount,0))} of ${escapeHtml(formatNum(totalCount,0))} jobs done</div>
       </div>
 
       <div class="kpi">
@@ -2272,12 +2356,14 @@ Most likely this report is looking at the wrong Firestore collection name, or no
 
       const farmSel = $('#filterFarm');
       const cropSel = $('#filterCrop');
+      const statusSel = $('#filterStatus');
       const yearSel = $('#filterYear');
       const searchEl = $('#filterSearch');
       const clearBtn = $('#filterClear');
 
       if(farmSel) farmSel.addEventListener('change',()=>applyFilters());
       if(cropSel) cropSel.addEventListener('change',()=>applyFilters());
+      if(statusSel) statusSel.addEventListener('change',()=>applyFilters());
       if(yearSel) yearSel.addEventListener('change',()=>applyFilters());
       if(searchEl) searchEl.addEventListener('input',()=>applyFilters());
 
@@ -2285,6 +2371,7 @@ Most likely this report is looking at the wrong Firestore collection name, or no
         clearBtn.addEventListener('click',()=>{
           if(farmSel) farmSel.value = 'all';
           if(cropSel) cropSel.value = 'all';
+          if(statusSel) statusSel.value = 'all';
           if(yearSel) yearSel.value = 'all';
           if(searchEl) searchEl.value = '';
 
@@ -2335,7 +2422,7 @@ Most likely this report is looking at the wrong Firestore collection name, or no
               <span id="sourcePill" class="src-pill" style="display:none;"></span>
             </div>
 
-            <div class="page-header-meta" id="brCount">0 open · 0 acres · 0 total</div>
+            <div class="page-header-meta" id="brCount">0 open · 0 completed · 0 total · 0% done</div>
           </div>
 
           <section id="overview" class="overview" aria-label="Aerial application overview"></section>
@@ -2352,6 +2439,15 @@ Most likely this report is looking at the wrong Firestore collection name, or no
               <label class="filter-label" for="filterCrop">Crop</label>
               <select id="filterCrop" class="filter-select">
                 <option value="all">All crops</option>
+              </select>
+            </div>
+
+            <div class="filter-field">
+              <label class="filter-label" for="filterStatus">Status</label>
+              <select id="filterStatus" class="filter-select">
+                <option value="all">All jobs</option>
+                <option value="open">Open</option>
+                <option value="completed">Completed</option>
               </select>
             </div>
 
