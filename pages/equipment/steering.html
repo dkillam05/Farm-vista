@@ -1,0 +1,1413 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+
+  <title>FarmVista • Steering</title>
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1,
+    viewport-fit=cover, maximum-scale=1, user-scalable=no"
+  />
+
+  <meta name="theme-color" content="#3B7E46" />
+
+  <!-- Make relative links resolve from the FarmVista root -->
+  <base href="/Farm-vista/" />
+
+  <!-- FarmVista theme/auth boot -->
+  <script src="js/theme-boot.js"></script>
+
+  <!-- Standard FarmVista includes -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png" />
+  <link rel="icon" href="assets/icons/icon-192.png" />
+
+  <link rel="stylesheet" href="assets/css/theme.css?v=PV1" />
+  <link rel="stylesheet" href="assets/css/app.css?v=PV1" />
+
+  <script src="js/firebase-config.js"></script>
+  <script src="js/fv-data.js"></script>
+  <script src="js/core.js?v=PV1"></script>
+  <script src="js/fv-shell.js?v=PV1" defer></script>
+
+  <style>
+    :root{
+      --steer-green:#3B7E46;
+      --steer-green-dark:#285d32;
+      --steer-red:#c93636;
+      --steer-red-dark:#9f2525;
+      --steer-blue:#315f9d;
+      --steer-blue-dark:#244a7c;
+    }
+
+    *{
+      box-sizing:border-box;
+      -webkit-tap-highlight-color:transparent;
+    }
+
+    html,
+    body{
+      min-height:100%;
+      overscroll-behavior:none;
+    }
+
+    body{
+      margin:0;
+      background:var(--app-bg,var(--surface));
+      color:var(--text,#18201b);
+    }
+
+    button,
+    a{
+      font:inherit;
+    }
+
+    .page{
+      width:100%;
+      max-width:1000px;
+      margin:0 auto;
+      padding:clamp(12px,3vw,22px);
+      padding-bottom:
+        calc(
+          env(safe-area-inset-bottom,0px)
+          + var(--ftr-h,42px)
+          + 94px
+        ) !important;
+    }
+
+    .page-heading{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:14px;
+      margin-bottom:12px;
+    }
+
+    .page-heading-text{
+      min-width:0;
+    }
+
+    .page-title{
+      margin:0;
+      font-size:clamp(25px,5vw,34px);
+      line-height:1.1;
+    }
+
+    .page-subtitle{
+      margin:6px 0 0;
+      color:var(--muted,#67706B);
+      font-size:14px;
+      line-height:1.4;
+    }
+
+    .back-link{
+      flex:0 0 auto;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-height:40px;
+      padding:8px 13px;
+      border:1px solid var(--border);
+      border-radius:999px;
+      background:var(--surface);
+      color:inherit;
+      text-decoration:none;
+      font-size:14px;
+      font-weight:700;
+    }
+
+    .panel{
+      border:1px solid var(--border);
+      border-radius:18px;
+      background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+      overflow:hidden;
+    }
+
+    .panel + .panel{
+      margin-top:14px;
+    }
+
+    .panel-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      padding:14px 16px;
+      border-bottom:1px solid var(--border);
+      background:
+        linear-gradient(
+          90deg,
+          rgba(47,108,60,.12),
+          transparent
+        );
+    }
+
+    .panel-title-wrap{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      min-width:0;
+    }
+
+    .panel-icon{
+      width:34px;
+      height:34px;
+      flex:0 0 auto;
+      display:grid;
+      place-items:center;
+      border-radius:999px;
+      background:rgba(59,126,70,.12);
+      font-size:18px;
+    }
+
+    .panel-title{
+      margin:0;
+      font-size:17px;
+      font-weight:800;
+    }
+
+    .panel-subtitle{
+      margin-top:2px;
+      color:var(--muted,#67706B);
+      font-size:12px;
+    }
+
+    .panel-body{
+      padding:16px;
+    }
+
+    /* ==========================
+       Connection status
+       ========================== */
+
+    .connection-row{
+      display:grid;
+      grid-template-columns:1fr auto;
+      align-items:center;
+      gap:14px;
+    }
+
+    .connection-main{
+      display:flex;
+      align-items:center;
+      gap:12px;
+      min-width:0;
+    }
+
+    .status-dot{
+      width:16px;
+      height:16px;
+      flex:0 0 auto;
+      border-radius:999px;
+      background:#9aa19d;
+      box-shadow:0 0 0 5px rgba(154,161,157,.14);
+    }
+
+    .status-dot.checking{
+      background:#d29322;
+      box-shadow:0 0 0 5px rgba(210,147,34,.15);
+      animation:statusPulse 1.1s infinite;
+    }
+
+    .status-dot.connected{
+      background:#2f9b4b;
+      box-shadow:0 0 0 5px rgba(47,155,75,.16);
+    }
+
+    .status-dot.disconnected{
+      background:#c93636;
+      box-shadow:0 0 0 5px rgba(201,54,54,.14);
+    }
+
+    @keyframes statusPulse{
+      0%,100%{
+        transform:scale(1);
+        opacity:1;
+      }
+
+      50%{
+        transform:scale(.82);
+        opacity:.65;
+      }
+    }
+
+    .status-copy{
+      min-width:0;
+    }
+
+    .status-title{
+      font-size:16px;
+      font-weight:800;
+      line-height:1.2;
+    }
+
+    .status-detail{
+      margin-top:3px;
+      color:var(--muted,#67706B);
+      font-size:13px;
+      line-height:1.35;
+      word-break:break-word;
+    }
+
+    .small-button{
+      min-height:40px;
+      padding:8px 13px;
+      border:1px solid var(--border);
+      border-radius:999px;
+      background:var(--surface);
+      color:inherit;
+      font-weight:700;
+      cursor:pointer;
+    }
+
+    .small-button:active{
+      transform:scale(.97);
+    }
+
+    /* ==========================
+       Steering controls
+       ========================== */
+
+    .controls-panel{
+      touch-action:none;
+      user-select:none;
+      -webkit-user-select:none;
+    }
+
+    .steering-instructions{
+      margin:0 0 14px;
+      color:var(--muted,#67706B);
+      font-size:14px;
+      text-align:center;
+      line-height:1.4;
+    }
+
+    .steering-grid{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:12px;
+    }
+
+    .steer-button{
+      position:relative;
+      width:100%;
+      min-height:clamp(150px,28vh,245px);
+      padding:18px 12px;
+      border:1px solid rgba(0,0,0,.15);
+      border-radius:22px;
+      color:#fff;
+      cursor:pointer;
+      overflow:hidden;
+      touch-action:none;
+      user-select:none;
+      -webkit-user-select:none;
+      box-shadow:
+        inset 0 -7px 0 rgba(0,0,0,.14),
+        0 10px 22px rgba(0,0,0,.13);
+      transition:
+        transform .06s ease,
+        filter .06s ease,
+        box-shadow .06s ease;
+    }
+
+    .steer-button:active,
+    .steer-button.active{
+      transform:translateY(4px) scale(.985);
+      filter:brightness(.92);
+      box-shadow:
+        inset 0 -3px 0 rgba(0,0,0,.15),
+        0 5px 12px rgba(0,0,0,.12);
+    }
+
+    .steer-button:disabled{
+      cursor:not-allowed;
+      opacity:.46;
+      filter:grayscale(.25);
+      transform:none;
+    }
+
+    .steer-left{
+      background:
+        linear-gradient(
+          145deg,
+          var(--steer-blue),
+          var(--steer-blue-dark)
+        );
+    }
+
+    .steer-right{
+      background:
+        linear-gradient(
+          145deg,
+          var(--steer-blue),
+          var(--steer-blue-dark)
+        );
+    }
+
+    .steer-arrow{
+      display:block;
+      font-size:clamp(52px,14vw,92px);
+      font-weight:900;
+      line-height:.9;
+    }
+
+    .steer-label{
+      display:block;
+      margin-top:12px;
+      font-size:clamp(21px,5vw,31px);
+      font-weight:900;
+      letter-spacing:.04em;
+    }
+
+    .steer-help{
+      display:block;
+      margin-top:6px;
+      font-size:12px;
+      font-weight:600;
+      opacity:.86;
+    }
+
+    .stop-button{
+      width:100%;
+      min-height:82px;
+      margin-top:14px;
+      padding:14px;
+      border:1px solid rgba(0,0,0,.18);
+      border-radius:18px;
+      background:
+        linear-gradient(
+          145deg,
+          var(--steer-red),
+          var(--steer-red-dark)
+        );
+      color:#fff;
+      font-size:24px;
+      font-weight:900;
+      letter-spacing:.04em;
+      cursor:pointer;
+      touch-action:manipulation;
+      box-shadow:
+        inset 0 -5px 0 rgba(0,0,0,.15),
+        0 8px 18px rgba(0,0,0,.13);
+    }
+
+    .stop-button:active{
+      transform:translateY(3px) scale(.99);
+      box-shadow:
+        inset 0 -2px 0 rgba(0,0,0,.15),
+        0 4px 10px rgba(0,0,0,.12);
+    }
+
+    .stop-button:disabled{
+      cursor:not-allowed;
+      opacity:.48;
+    }
+
+    .command-status{
+      min-height:45px;
+      margin-top:14px;
+      padding:11px 13px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      border:1px solid var(--border);
+      border-radius:13px;
+      background:var(--card-surface,var(--surface));
+      color:var(--muted,#67706B);
+      font-size:14px;
+      font-weight:700;
+      text-align:center;
+    }
+
+    .command-status.left,
+    .command-status.right{
+      color:var(--steer-blue);
+      border-color:rgba(49,95,157,.35);
+      background:rgba(49,95,157,.08);
+    }
+
+    .command-status.stop{
+      color:var(--steer-red);
+      border-color:rgba(201,54,54,.35);
+      background:rgba(201,54,54,.08);
+    }
+
+    .command-status.error{
+      color:var(--steer-red);
+      border-color:rgba(201,54,54,.35);
+      background:rgba(201,54,54,.08);
+    }
+
+    /* ==========================
+       Setup/help
+       ========================== */
+
+    .setup-list{
+      margin:0;
+      padding-left:22px;
+      line-height:1.65;
+      font-size:14px;
+    }
+
+    .setup-list strong{
+      font-weight:800;
+    }
+
+    .network-card{
+      margin-top:14px;
+      padding:13px;
+      border:1px solid var(--border);
+      border-radius:13px;
+      background:var(--card-surface,var(--surface));
+    }
+
+    .network-line{
+      display:grid;
+      grid-template-columns:110px 1fr;
+      gap:10px;
+      padding:4px 0;
+      font-size:13px;
+    }
+
+    .network-label{
+      color:var(--muted,#67706B);
+    }
+
+    .network-value{
+      font-weight:800;
+      word-break:break-word;
+    }
+
+    .action-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      margin-top:14px;
+    }
+
+    .action-button{
+      flex:1 1 210px;
+      min-height:46px;
+      padding:10px 14px;
+      border:1px solid var(--border);
+      border-radius:13px;
+      background:var(--surface);
+      color:inherit;
+      font-weight:800;
+      text-align:center;
+      text-decoration:none;
+      cursor:pointer;
+    }
+
+    .action-button.primary{
+      border-color:rgba(59,126,70,.45);
+      background:rgba(59,126,70,.10);
+      color:var(--steer-green-dark);
+    }
+
+    .action-button:active{
+      transform:scale(.985);
+    }
+
+    .safety-note{
+      margin-top:14px;
+      padding:12px 13px;
+      border:1px solid rgba(201,54,54,.28);
+      border-radius:13px;
+      background:rgba(201,54,54,.06);
+      font-size:13px;
+      line-height:1.45;
+    }
+
+    .safety-note strong{
+      color:var(--steer-red);
+    }
+
+    @media (max-width:560px){
+      .page-heading{
+        align-items:center;
+      }
+
+      .back-link{
+        padding:8px 11px;
+        font-size:13px;
+      }
+
+      .connection-row{
+        grid-template-columns:1fr;
+      }
+
+      .connection-row .small-button{
+        width:100%;
+      }
+
+      .panel-body{
+        padding:13px;
+      }
+
+      .steering-grid{
+        gap:9px;
+      }
+
+      .steer-button{
+        border-radius:18px;
+        min-height:175px;
+      }
+
+      .network-line{
+        grid-template-columns:94px 1fr;
+      }
+    }
+
+    @media (orientation:landscape) and (max-height:600px){
+      .page{
+        padding-top:9px;
+      }
+
+      .page-heading{
+        margin-bottom:8px;
+      }
+
+      .page-subtitle{
+        display:none;
+      }
+
+      .panel-head{
+        padding:9px 13px;
+      }
+
+      .panel-body{
+        padding:10px 13px;
+      }
+
+      .steer-button{
+        min-height:125px;
+      }
+
+      .steer-arrow{
+        font-size:50px;
+      }
+
+      .steer-label{
+        margin-top:5px;
+        font-size:20px;
+      }
+
+      .steer-help{
+        display:none;
+      }
+
+      .stop-button{
+        min-height:58px;
+        margin-top:9px;
+      }
+
+      .command-status{
+        min-height:36px;
+        margin-top:9px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <fv-shell>
+    <main class="page container">
+
+      <div class="page-heading">
+        <div class="page-heading-text">
+          <h1 class="page-title">FarmVista Steering</h1>
+
+          <p class="page-subtitle">
+            Wireless steering control through the FarmVista-Steering controller.
+          </p>
+        </div>
+
+        <a
+          href="index.html"
+          class="back-link"
+          aria-label="Return to dashboard"
+        >
+          ← Dashboard
+        </a>
+      </div>
+
+      <!-- ==========================
+           Connection
+           ========================== -->
+
+      <section class="panel" aria-labelledby="connection-title">
+        <header class="panel-head">
+          <div class="panel-title-wrap">
+            <div class="panel-icon" aria-hidden="true">📡</div>
+
+            <div>
+              <h2 class="panel-title" id="connection-title">
+                Steering Connection
+              </h2>
+
+              <div class="panel-subtitle">
+                ESP32 controller at 192.168.4.1
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <div class="panel-body">
+          <div class="connection-row">
+
+            <div class="connection-main">
+              <div
+                id="status-dot"
+                class="status-dot checking"
+                aria-hidden="true"
+              ></div>
+
+              <div class="status-copy">
+                <div
+                  id="status-title"
+                  class="status-title"
+                  aria-live="polite"
+                >
+                  Checking connection…
+                </div>
+
+                <div
+                  id="status-detail"
+                  class="status-detail"
+                >
+                  Looking for FarmVista-Steering.
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              id="reconnect-button"
+              class="small-button"
+            >
+              Reconnect
+            </button>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- ==========================
+           Steering buttons
+           ========================== -->
+
+      <section
+        class="panel controls-panel"
+        aria-labelledby="controls-title"
+      >
+        <header class="panel-head">
+          <div class="panel-title-wrap">
+            <div class="panel-icon" aria-hidden="true">🚜</div>
+
+            <div>
+              <h2 class="panel-title" id="controls-title">
+                Steering Controls
+              </h2>
+
+              <div class="panel-subtitle">
+                Tap for one bump or hold to continue
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <div class="panel-body">
+
+          <p class="steering-instructions">
+            Press and hold a direction. Releasing the button immediately sends
+            a stop command.
+          </p>
+
+          <div class="steering-grid">
+
+            <button
+              type="button"
+              id="left-button"
+              class="steer-button steer-left"
+              aria-label="Steer left"
+              disabled
+            >
+              <span class="steer-arrow" aria-hidden="true">←</span>
+              <span class="steer-label">LEFT</span>
+              <span class="steer-help">Tap or hold</span>
+            </button>
+
+            <button
+              type="button"
+              id="right-button"
+              class="steer-button steer-right"
+              aria-label="Steer right"
+              disabled
+            >
+              <span class="steer-arrow" aria-hidden="true">→</span>
+              <span class="steer-label">RIGHT</span>
+              <span class="steer-help">Tap or hold</span>
+            </button>
+
+          </div>
+
+          <button
+            type="button"
+            id="stop-button"
+            class="stop-button"
+            disabled
+          >
+            ■ EMERGENCY STOP
+          </button>
+
+          <div
+            id="command-status"
+            class="command-status"
+            aria-live="polite"
+          >
+            Waiting for steering controller…
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ==========================
+           Setup and troubleshooting
+           ========================== -->
+
+      <section class="panel" aria-labelledby="setup-title">
+        <header class="panel-head">
+          <div class="panel-title-wrap">
+            <div class="panel-icon" aria-hidden="true">⚙️</div>
+
+            <div>
+              <h2 class="panel-title" id="setup-title">
+                Connection Setup
+              </h2>
+
+              <div class="panel-subtitle">
+                One-time setup for each phone
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <div class="panel-body">
+
+          <ol class="setup-list">
+            <li>Open the phone’s <strong>Wi-Fi settings</strong>.</li>
+            <li>Select <strong>FarmVista-Steering</strong>.</li>
+            <li>Enter the controller password.</li>
+            <li>Return to FarmVista and press <strong>Reconnect</strong>.</li>
+          </ol>
+
+          <div class="network-card">
+            <div class="network-line">
+              <div class="network-label">Network</div>
+              <div class="network-value">FarmVista-Steering</div>
+            </div>
+
+            <div class="network-line">
+              <div class="network-label">Password</div>
+              <div class="network-value">FarmVista26</div>
+            </div>
+
+            <div class="network-line">
+              <div class="network-label">Controller</div>
+              <div class="network-value">192.168.4.1</div>
+            </div>
+
+            <div class="network-line">
+              <div class="network-label">IP setup</div>
+              <div class="network-value">Automatic</div>
+            </div>
+          </div>
+
+          <div class="action-row">
+            <button
+              type="button"
+              id="test-connection-button"
+              class="action-button primary"
+            >
+              Test Connection
+            </button>
+
+            <a
+              href="http://192.168.4.1/"
+              class="action-button"
+              id="open-controller-link"
+            >
+              Open Direct Controller
+            </a>
+          </div>
+
+          <div class="safety-note">
+            <strong>Safety:</strong>
+            Only use the steering controls while seated in the operator’s
+            position and able to take immediate manual control. Test direction
+            and motor response at low speed before field use.
+          </div>
+
+        </div>
+      </section>
+
+    </main>
+  </fv-shell>
+
+  <script>
+    (function(){
+      "use strict";
+
+      /* =====================================================
+         Controller configuration
+         ===================================================== */
+
+      const CONTROLLER_BASE = "http://192.168.4.1";
+
+      /*
+       * The ESP32 currently performs one approximately 200 ms bump
+       * for every /left or /right request.
+       *
+       * While a button is held, another request is sent after the
+       * previous request finishes.
+       */
+      const CONNECTION_TIMEOUT_MS = 2500;
+      const HOLD_REPEAT_DELAY_MS = 35;
+      const CONNECTION_CHECK_INTERVAL_MS = 10000;
+
+      /* =====================================================
+         Elements
+         ===================================================== */
+
+      const statusDot =
+        document.getElementById("status-dot");
+
+      const statusTitle =
+        document.getElementById("status-title");
+
+      const statusDetail =
+        document.getElementById("status-detail");
+
+      const reconnectButton =
+        document.getElementById("reconnect-button");
+
+      const testConnectionButton =
+        document.getElementById("test-connection-button");
+
+      const leftButton =
+        document.getElementById("left-button");
+
+      const rightButton =
+        document.getElementById("right-button");
+
+      const stopButton =
+        document.getElementById("stop-button");
+
+      const commandStatus =
+        document.getElementById("command-status");
+
+      /* =====================================================
+         State
+         ===================================================== */
+
+      let controllerConnected = false;
+      let heldDirection = null;
+      let holdRequestRunning = false;
+      let connectionTimer = null;
+
+      /* =====================================================
+         Display helpers
+         ===================================================== */
+
+      function setControlsEnabled(enabled){
+        leftButton.disabled = !enabled;
+        rightButton.disabled = !enabled;
+        stopButton.disabled = !enabled;
+      }
+
+      function setConnectionState(state, detail){
+        statusDot.classList.remove(
+          "checking",
+          "connected",
+          "disconnected"
+        );
+
+        if (state === "checking"){
+          controllerConnected = false;
+          statusDot.classList.add("checking");
+          statusTitle.textContent = "Checking connection…";
+          statusDetail.textContent =
+            detail || "Looking for FarmVista-Steering.";
+          setControlsEnabled(false);
+          return;
+        }
+
+        if (state === "connected"){
+          controllerConnected = true;
+          statusDot.classList.add("connected");
+          statusTitle.textContent = "Steering connected";
+          statusDetail.textContent =
+            detail || "Controller is online and ready.";
+          setControlsEnabled(true);
+          return;
+        }
+
+        controllerConnected = false;
+        statusDot.classList.add("disconnected");
+        statusTitle.textContent = "Steering not connected";
+        statusDetail.textContent =
+          detail ||
+          'Connect the phone to the "FarmVista-Steering" Wi-Fi network.';
+        setControlsEnabled(false);
+      }
+
+      function setCommandMessage(message, type){
+        commandStatus.className = "command-status";
+
+        if (type){
+          commandStatus.classList.add(type);
+        }
+
+        commandStatus.textContent = message;
+      }
+
+      /* =====================================================
+         Request helper
+         ===================================================== */
+
+      async function controllerRequest(path, timeoutMs){
+        const controller = new AbortController();
+
+        const timeout = window.setTimeout(
+          function(){
+            controller.abort();
+          },
+          timeoutMs || CONNECTION_TIMEOUT_MS
+        );
+
+        try{
+          const response = await fetch(
+            CONTROLLER_BASE + path + "?t=" + Date.now(),
+            {
+              method:"GET",
+              mode:"cors",
+              cache:"no-store",
+              signal:controller.signal
+            }
+          );
+
+          if (!response.ok){
+            throw new Error(
+              "Controller returned HTTP " + response.status
+            );
+          }
+
+          return response;
+
+        } finally {
+          window.clearTimeout(timeout);
+        }
+      }
+
+      /* =====================================================
+         Connection checking
+         ===================================================== */
+
+      async function checkConnection(showCheckingState){
+        if (showCheckingState !== false){
+          setConnectionState(
+            "checking",
+            "Checking 192.168.4.1…"
+          );
+        }
+
+        try{
+          const response = await controllerRequest(
+            "/status",
+            CONNECTION_TIMEOUT_MS
+          );
+
+          const data = await response.json();
+
+          if (!data || data.connected !== true){
+            throw new Error("Invalid controller response");
+          }
+
+          setConnectionState(
+            "connected",
+            "FarmVista-Steering is online at " +
+              (data.ip || "192.168.4.1") +
+              "."
+          );
+
+          setCommandMessage(
+            "Controller ready. Tap or hold a direction.",
+            ""
+          );
+
+          return true;
+
+        } catch(error){
+          console.warn(
+            "[FarmVista Steering] connection check failed:",
+            error
+          );
+
+          setConnectionState(
+            "disconnected",
+            'Join the "FarmVista-Steering" Wi-Fi network, then press Reconnect.'
+          );
+
+          setCommandMessage(
+            "Controller unavailable.",
+            "error"
+          );
+
+          return false;
+        }
+      }
+
+      function startConnectionMonitor(){
+        if (connectionTimer){
+          window.clearInterval(connectionTimer);
+        }
+
+        connectionTimer = window.setInterval(
+          function(){
+            if (!heldDirection){
+              checkConnection(false);
+            }
+          },
+          CONNECTION_CHECK_INTERVAL_MS
+        );
+      }
+
+      /* =====================================================
+         Motor commands
+         ===================================================== */
+
+      async function sendStop(options){
+        const settings = options || {};
+
+        heldDirection = null;
+        holdRequestRunning = false;
+
+        leftButton.classList.remove("active");
+        rightButton.classList.remove("active");
+
+        if (!controllerConnected && !settings.force){
+          return;
+        }
+
+        try{
+          await controllerRequest("/stop", 1500);
+
+          if (!settings.silent){
+            setCommandMessage(
+              "Motor stopped.",
+              "stop"
+            );
+          }
+
+        } catch(error){
+          console.warn(
+            "[FarmVista Steering] stop failed:",
+            error
+          );
+
+          if (!settings.silent){
+            setCommandMessage(
+              "Stop command could not reach the controller.",
+              "error"
+            );
+          }
+        }
+      }
+
+      async function runHeldDirection(direction){
+        if (
+          !controllerConnected ||
+          heldDirection !== direction ||
+          holdRequestRunning
+        ){
+          return;
+        }
+
+        holdRequestRunning = true;
+
+        const path =
+          direction === "left"
+            ? "/left"
+            : "/right";
+
+        try{
+          await controllerRequest(path, 3000);
+
+        } catch(error){
+          console.warn(
+            "[FarmVista Steering] direction command failed:",
+            error
+          );
+
+          heldDirection = null;
+
+          leftButton.classList.remove("active");
+          rightButton.classList.remove("active");
+
+          setCommandMessage(
+            "Steering command failed. Check the connection.",
+            "error"
+          );
+
+          await checkConnection(false);
+
+        } finally {
+          holdRequestRunning = false;
+        }
+
+        if (
+          heldDirection === direction &&
+          controllerConnected
+        ){
+          window.setTimeout(
+            function(){
+              runHeldDirection(direction);
+            },
+            HOLD_REPEAT_DELAY_MS
+          );
+        }
+      }
+
+      function beginSteering(direction, event){
+        if (event){
+          event.preventDefault();
+        }
+
+        if (!controllerConnected){
+          setCommandMessage(
+            "Steering controller is not connected.",
+            "error"
+          );
+          return;
+        }
+
+        if (heldDirection){
+          return;
+        }
+
+        heldDirection = direction;
+
+        if (direction === "left"){
+          leftButton.classList.add("active");
+          rightButton.classList.remove("active");
+
+          setCommandMessage(
+            "Steering left…",
+            "left"
+          );
+
+        } else {
+          rightButton.classList.add("active");
+          leftButton.classList.remove("active");
+
+          setCommandMessage(
+            "Steering right…",
+            "right"
+          );
+        }
+
+        if (
+          event &&
+          event.pointerId !== undefined &&
+          event.currentTarget &&
+          typeof event.currentTarget.setPointerCapture === "function"
+        ){
+          try{
+            event.currentTarget.setPointerCapture(
+              event.pointerId
+            );
+          } catch(error){
+            // Pointer capture is helpful but not required.
+          }
+        }
+
+        runHeldDirection(direction);
+      }
+
+      function endSteering(event){
+        if (event){
+          event.preventDefault();
+        }
+
+        if (!heldDirection){
+          return;
+        }
+
+        sendStop();
+      }
+
+      /* =====================================================
+         Button wiring
+         ===================================================== */
+
+      leftButton.addEventListener(
+        "pointerdown",
+        function(event){
+          beginSteering("left", event);
+        }
+      );
+
+      rightButton.addEventListener(
+        "pointerdown",
+        function(event){
+          beginSteering("right", event);
+        }
+      );
+
+      leftButton.addEventListener(
+        "pointerup",
+        endSteering
+      );
+
+      rightButton.addEventListener(
+        "pointerup",
+        endSteering
+      );
+
+      leftButton.addEventListener(
+        "pointercancel",
+        endSteering
+      );
+
+      rightButton.addEventListener(
+        "pointercancel",
+        endSteering
+      );
+
+      leftButton.addEventListener(
+        "lostpointercapture",
+        endSteering
+      );
+
+      rightButton.addEventListener(
+        "lostpointercapture",
+        endSteering
+      );
+
+      leftButton.addEventListener(
+        "contextmenu",
+        function(event){
+          event.preventDefault();
+        }
+      );
+
+      rightButton.addEventListener(
+        "contextmenu",
+        function(event){
+          event.preventDefault();
+        }
+      );
+
+      stopButton.addEventListener(
+        "click",
+        function(){
+          sendStop({ force:true });
+        }
+      );
+
+      reconnectButton.addEventListener(
+        "click",
+        function(){
+          checkConnection(true);
+        }
+      );
+
+      testConnectionButton.addEventListener(
+        "click",
+        function(){
+          checkConnection(true);
+        }
+      );
+
+      /* =====================================================
+         Safety stop events
+         ===================================================== */
+
+      window.addEventListener(
+        "blur",
+        function(){
+          if (heldDirection){
+            sendStop({
+              force:true,
+              silent:true
+            });
+          }
+        }
+      );
+
+      document.addEventListener(
+        "visibilitychange",
+        function(){
+          if (
+            document.hidden &&
+            heldDirection
+          ){
+            sendStop({
+              force:true,
+              silent:true
+            });
+          }
+        }
+      );
+
+      window.addEventListener(
+        "pagehide",
+        function(){
+          if (heldDirection){
+            /*
+             * sendBeacon normally uses POST, while the current ESP32
+             * endpoint accepts GET, so use fetch and do not wait for it.
+             */
+            fetch(
+              CONTROLLER_BASE + "/stop?t=" + Date.now(),
+              {
+                method:"GET",
+                mode:"cors",
+                cache:"no-store",
+                keepalive:true
+              }
+            ).catch(function(){
+              // Page is closing; no UI action is possible.
+            });
+          }
+        }
+      );
+
+      /* =====================================================
+         Start
+         ===================================================== */
+
+      function initialize(){
+        setControlsEnabled(false);
+        checkConnection(true);
+        startConnectionMonitor();
+      }
+
+      if (document.readyState === "loading"){
+        document.addEventListener(
+          "DOMContentLoaded",
+          initialize,
+          { once:true }
+        );
+      } else {
+        initialize();
+      }
+
+    })();
+  </script>
+</body>
+</html>
