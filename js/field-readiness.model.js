@@ -843,6 +843,7 @@ function computeReadinessFromState(storagePhys, surfaceStorage, f, deps, tune){
    Shared step simulation
 ===================================================================== */
 function simulateOneStep(state, row, stepFrac, f, deps, tune, rate){
+  console.log("simulateOneStep CALLED"); 
   let storagePhys = clamp(Number(state.storagePhys || 0), 0, f.Smax);
   let surfaceStorage = clamp(Number(state.surfaceStorage || 0), 0, tune.SURFACE_CAP_IN);
 
