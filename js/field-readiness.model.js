@@ -906,16 +906,27 @@ function simulateOneStep(state, row, stepFrac, f, deps, tune, rate){
 
   storagePhys = clamp(after, 0, f.Smax);
 
-  const stateNow = computeReadinessFromState(storagePhys, surfaceStorage, f, deps, tune);
+const stateNow = computeReadinessFromState(storagePhys, surfaceStorage, f, deps, tune);
 
-  return {
-    storagePhys,
-    surfaceStorage,
-    readiness: clamp(Number(stateNow.readiness || 0), 0, 100),
-    wetness: clamp(Number(stateNow.wetness || 0), 0, 100),
-    baseReadiness: clamp(Number(stateNow.baseReadiness || 0), 0, 100),
-    surfacePenalty: clamp(Number(stateNow.surfacePenalty || 0), 0, 100)
-  };
+console.log("SIM STEP", {
+  before,
+  add,
+  loss,
+  after,
+  storageFloor,
+  surfaceBefore,
+  surfaceStorage,
+  storagePhys
+});
+
+return {
+  storagePhys,
+  surfaceStorage,
+  readiness: clamp(Number(stateNow.readiness || 0), 0, 100),
+  wetness: clamp(Number(stateNow.wetness || 0), 0, 100),
+  baseReadiness: clamp(Number(stateNow.baseReadiness || 0), 0, 100),
+  surfacePenalty: clamp(Number(stateNow.surfacePenalty || 0), 0, 100)
+};
 }
 
 /* =====================================================================
