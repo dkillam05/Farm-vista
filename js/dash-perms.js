@@ -185,20 +185,27 @@
     setVisible(els.mobileQuickLinks, mobileHasLinks);
   }
 
-  function updateDesktopLayout(els) {
-    if (!els.desktopDashboard || !els.desktopRight) return;
+function updateDesktopLayout(els) {
+  if (!els.desktopDashboard || !els.desktopRight) return;
 
-    const visibleRightSections = Array
-      .from(els.desktopRight.children)
-      .filter(isVisible);
+  const heading = document.querySelector(".dashboard-heading");
 
-    const singleColumn = visibleRightSections.length === 0;
+  const visibleRightSections = Array
+    .from(els.desktopRight.children)
+    .filter(isVisible);
 
-    els.desktopDashboard.classList.toggle(
-      "dashboard-single-column",
-      singleColumn
-    );
-  }
+  const singleColumn = visibleRightSections.length === 0;
+
+  els.desktopDashboard.classList.toggle(
+    "dashboard-single-column",
+    singleColumn
+  );
+
+  heading?.classList.toggle(
+    "dashboard-single-column",
+    singleColumn
+  );
+}
 
   function dispatchReady(permsKnown) {
     document.dispatchEvent(
