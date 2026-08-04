@@ -566,7 +566,6 @@ import {
   addDoc,
   serverTimestamp,
   getAuth,
-  onAuthStateChanged
 } from "/Farm-vista/js/firebase-init.js";
 
     const db = getFirestore();
@@ -1376,25 +1375,54 @@ function selectedTrailer() {
       renderChecklist();
     }
 
-    function initializeUser() {
-      onAuthStateChanged(auth, user => {
-        state.user = user || null;
+async function initializeUser() {
+  elements.driverName.value = "Loading driver…";
 
-        if (user) {
-          elements.driverName.value =
-            user.displayName ||
-            user.email ||
-            "FarmVista User";
-        } else {
-          elements.driverName.value = "Not signed in";
+  let attempts = 0;
+  const maxAttempts = 40;
 
-          showMessage(
-            "You must be signed in to submit an inspection.",
-            "error"
-          );
-        }
-      });
-    }
+  return new Promise(resolve => {
+    const checkUser = () => {
+      attempts += 1;
+
+      const user = auth?.currentUser || null;
+
+      if (user) {
+        state.user = user;
+
+        elements.driverName.value =
+          user.displayName ||
+          user.email ||
+          "FarmVista User";
+
+        console.log(
+          "[Logistics] Driver loaded:",
+          elements.driverName.value
+        );
+
+        resolve(user);
+        return;
+      }
+
+      if (attempts >= maxAttempts) {
+        state.user = null;
+        elements.driverName.value = "Not signed in";
+
+        showMessage(
+          "Your FarmVista user account could not be loaded. Refresh the page or sign in again.",
+          "error"
+        );
+
+        resolve(null);
+        return;
+      }
+
+      setTimeout(checkUser, 250);
+    };
+
+    checkUser();
+  });
+}
 
     elements.checklist.addEventListener("click", event => {
       const button = event.target.closest(".status-button");
@@ -1445,11 +1473,25 @@ function selectedTrailer() {
       submitInspection
     );
 
-    elements.inspectionDate.value = todayLocal();
+elements.inspectionDate.value = todayLocal();
 
-    initializeUser();
-    renderChecklist();
-    loadEquipment();
+renderChecklist();
+
+loadEquipment().catch(error => {
+  console.error(
+    "[Logistics] Initial equipment load failed:",
+    error
+  );
+});
+
+initializeUser().catch(error => {
+  console.error(
+    "[Logistics] Initial driver load failed:",
+    error
+  );
+
+  elements.driverName.value = "Unable to load driver";
+});
   </script>
 </body>
 </html>
