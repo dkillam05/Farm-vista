@@ -408,6 +408,33 @@
       display: block;
     }
 
+    .defect-photo-wrap {
+  margin-top: 9px;
+}
+
+.defect-photo-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted, #68716c);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.defect-photo-input {
+  width: 100%;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.defect-photo-name {
+  margin-top: 5px;
+  color: var(--muted, #68716c);
+  font-size: 12px;
+}
+
     .summary {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -720,7 +747,11 @@ import {
   getDocs,
   addDoc,
   serverTimestamp,
-  getAuth
+  getAuth,
+  getStorage,
+  ref,
+  uploadBytes,
+  getDownloadURL
 } from "/Farm-vista/js/firebase-init.js";
 
 await ready;
@@ -731,13 +762,14 @@ const auth = getAuth();
     const EQUIPMENT_COLLECTION = "equipment";
     const INSPECTION_COLLECTION = "logisticsInspections";
 
-    const state = {
-      user: null,
-      trucks: [],
-      trailers: [],
-      responses: new Map(),
-      saving: false
-    };
+const state = {
+  user: null,
+  trucks: [],
+  trailers: [],
+  responses: new Map(),
+  defectPhotos: new Map(),
+  saving: false
+};
 
     const truckItems = [
       "Air Lines",
@@ -1341,13 +1373,37 @@ function chooseTrailer(trailerId) {
                   </div>
                 </div>
 
-                <div class="defect-note-wrap">
-                  <textarea
-                    class="control defect-note"
-                    data-item-id="${escapeHtml(item.id)}"
-                    placeholder="Describe the defect"
-                  >${escapeHtml(response.note)}</textarea>
-                </div>
+<div class="defect-note-wrap">
+  <textarea
+    class="control defect-note"
+    data-item-id="${escapeHtml(item.id)}"
+    placeholder="Describe the defect"
+  >${escapeHtml(response.note)}</textarea>
+
+  <div class="defect-photo-wrap">
+    <label class="defect-photo-label">
+      Defect photo (optional)
+    </label>
+
+    <input
+      class="defect-photo-input"
+      type="file"
+      accept="image/*"
+      capture="environment"
+      data-item-id="${escapeHtml(item.id)}"
+    />
+
+    <div class="defect-photo-name">
+      ${
+        state.defectPhotos.get(item.id)?.name
+          ? escapeHtml(
+              state.defectPhotos.get(item.id).name
+            )
+          : "No photo selected"
+      }
+    </div>
+  </div>
+</div>
               </div>
             `;
           }).join("");
@@ -1401,9 +1457,10 @@ function chooseTrailer(trailerId) {
 
       response.status = status;
 
-      if (status !== "defect") {
-        response.note = "";
-      }
+if (status !== "defect") {
+  response.note = "";
+  state.defectPhotos.delete(itemId);
+}
 
       renderChecklist();
     }
@@ -1546,6 +1603,45 @@ function selectedTrailer() {
       return true;
     }
 
+   async function uploadDefectPhoto(itemId, file) {
+  if (!file) {
+    return null;
+  }
+
+  if (!window.FV_HAS_STORAGE) {
+    throw new Error(
+      "Firebase Storage is not available."
+    );
+  }
+
+  const storage = getStorage();
+
+  if (!storage) {
+    throw new Error(
+      "Firebase Storage could not be loaded."
+    );
+  }
+
+  const safeName = String(file.name || "defect-photo.jpg")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-");
+
+  const safeItemId = String(itemId)
+    .replace(/[^a-zA-Z0-9_-]+/g, "-");
+
+  const storagePath = [
+    "logisticsInspections",
+    elements.inspectionDate.value,
+    state.user.uid,
+    `${Date.now()}-${safeItemId}-${safeName}`
+  ].join("/");
+
+  const photoRef = ref(storage, storagePath);
+
+  await uploadBytes(photoRef, file);
+
+  return getDownloadURL(photoRef);
+} 
+
     async function submitInspection(event) {
       event.preventDefault();
 
@@ -1560,17 +1656,36 @@ function selectedTrailer() {
       const truck = selectedTruck();
       const trailer = selectedTrailer();
 
-      const responses = visibleItems().map(item => {
-        const response = ensureResponse(item);
+const responses = [];
 
-        return {
-          itemId: response.itemId,
-          section: response.section,
-          label: response.label,
-          status: response.status,
-          note: clean(response.note) || null
-        };
-      });
+for (const item of visibleItems()) {
+  const response = ensureResponse(item);
+  const photoFile = state.defectPhotos.get(item.id) || null;
+
+  let photoUrl = null;
+
+  if (
+    response.status === "defect" &&
+    photoFile
+  ) {
+    elements.submitButton.textContent =
+      "Uploading photo…";
+
+    photoUrl = await uploadDefectPhoto(
+      item.id,
+      photoFile
+    );
+  }
+
+  responses.push({
+    itemId: response.itemId,
+    section: response.section,
+    label: response.label,
+    status: response.status,
+    note: clean(response.note) || null,
+    photoUrl
+  });
+}
 
       const defects = responses.filter(
         response => response.status === "defect"
@@ -1673,6 +1788,7 @@ function selectedTrailer() {
 
     function resetForm() {
       state.responses.clear();
+      state.defectPhotos.clear();
 
       elements.truckSelect.value = "";
       elements.trailerSelect.value = "";
@@ -1763,6 +1879,27 @@ async function initializeUser() {
         response.note = noteField.value;
       }
     });
+
+    elements.checklist.addEventListener("change", event => {
+  const photoInput = event.target.closest(
+    ".defect-photo-input"
+  );
+
+  if (!photoInput) {
+    return;
+  }
+
+  const itemId = photoInput.dataset.itemId;
+  const file = photoInput.files?.[0] || null;
+
+  if (file) {
+    state.defectPhotos.set(itemId, file);
+  } else {
+    state.defectPhotos.delete(itemId);
+  }
+
+  renderChecklist();
+});
 
 elements.truckComboButton.addEventListener(
   "click",
