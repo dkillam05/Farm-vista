@@ -144,7 +144,6 @@ export const NAV_MENU = {
       perm: 'logistics',
       icon: '🚛',
       label: 'Logistics',
-      //href: '/Farm-vista/pages/logistics/index.html',
       collapsible: true,
       initialOpen: false,
       children: [
