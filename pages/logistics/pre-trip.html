@@ -569,16 +569,19 @@
 
   <script type="module">
 import {
+  ready,
   getFirestore,
   collection,
   getDocs,
   addDoc,
   serverTimestamp,
-  getAuth,
+  getAuth
 } from "/Farm-vista/js/firebase-init.js";
 
-    const db = getFirestore();
-    const auth = getAuth();
+await ready;
+
+const db = getFirestore();
+const auth = getAuth();
 
     const EQUIPMENT_COLLECTION = "equipment";
     const INSPECTION_COLLECTION = "logisticsInspections";
@@ -1482,24 +1485,35 @@ async function initializeUser() {
       submitInspection
     );
 
-elements.inspectionDate.value = todayLocal();
+async function startPage() {
+  elements.inspectionDate.value = todayLocal();
 
-renderChecklist();
+  renderChecklist();
 
-loadEquipment().catch(error => {
+  await Promise.all([
+    initializeUser(),
+    loadEquipment()
+  ]);
+}
+
+startPage().catch(error => {
   console.error(
-    "[Logistics] Initial equipment load failed:",
-    error
-  );
-});
-
-initializeUser().catch(error => {
-  console.error(
-    "[Logistics] Initial driver load failed:",
+    "[Logistics] Pre-trip page startup failed:",
     error
   );
 
   elements.driverName.value = "Unable to load driver";
+
+  elements.truckSelect.innerHTML =
+    `<option value="">Unable to load trucks</option>`;
+
+  elements.trailerSelect.innerHTML =
+    `<option value="">Unable to load trailers</option>`;
+
+  showMessage(
+    "The pre-trip page could not finish loading. Refresh the page and try again.",
+    "error"
+  );
 });
   </script>
 </body>
