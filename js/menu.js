@@ -137,6 +137,29 @@ export const NAV_MENU = {
       ]
     },
 
+         /* ===== Logistics ===== */
+    {
+      type: 'group',
+      id: 'logistics',
+      perm: 'logistics',
+      icon: '🚛',
+      label: 'Logistics',
+      href: '/Farm-vista/pages/logistics/index.html',
+      collapsible: true,
+      initialOpen: false,
+      children: [
+        {
+          type: 'link',
+          id: 'logistics-pre-trip',
+          perm: 'logistics-pre-trip',
+          icon: '✅',
+          label: 'Pre-Trip Inspection',
+          href: '/Farm-vista/pages/logistics/pre-trip.html',
+          activeMatch: 'starts-with'
+        }
+      ]
+    },
+
     /* ===== Grain ===== */
     {
       type: 'group',
