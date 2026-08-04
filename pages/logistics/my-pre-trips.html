@@ -1,0 +1,1782 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+
+  <title>FarmVista • My Pre-Trips</title>
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, viewport-fit=cover"
+  />
+
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <link
+    rel="manifest"
+    href="/Farm-vista/manifest.webmanifest"
+  />
+
+  <link
+    rel="apple-touch-icon"
+    href="/Farm-vista/assets/icons/apple-touch-icon.png"
+  />
+
+  <link
+    rel="icon"
+    href="/Farm-vista/assets/icons/icon-192.png"
+  />
+
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+
+  <link
+    rel="stylesheet"
+    href="/Farm-vista/assets/css/theme.css"
+  />
+
+  <link
+    rel="stylesheet"
+    href="/Farm-vista/assets/css/app.css"
+  />
+
+  <script src="/Farm-vista/js/fv-shell.js"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--app-bg, var(--bg));
+      color: var(--text);
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    .page {
+      width: min(1000px, 100%);
+      margin: 0 auto;
+      padding: 14px;
+      padding-bottom:
+        calc(
+          env(safe-area-inset-bottom, 0px)
+          + var(--ftr-h, 42px)
+          + 32px
+        );
+    }
+
+    .page-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 14px;
+      margin: 6px 0 16px;
+    }
+
+    .page-header h1 {
+      margin: 0 0 5px;
+      font-size: clamp(25px, 5vw, 34px);
+      line-height: 1.1;
+    }
+
+    .page-header p {
+      margin: 0;
+      color: var(--muted, #68716c);
+      line-height: 1.4;
+    }
+
+    .header-actions {
+      display: flex;
+      flex: 0 0 auto;
+      gap: 8px;
+    }
+
+    .button {
+      display: inline-flex;
+      min-height: 44px;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 14px;
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      background: var(--surface);
+      color: var(--text);
+      font-weight: 850;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    .button-primary {
+      border-color: transparent;
+      background: var(--brand-green, #3B7E46);
+      color: #fff;
+    }
+
+    .button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    .message {
+      display: none;
+      margin-bottom: 14px;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--surface);
+      font-weight: 750;
+      line-height: 1.4;
+    }
+
+    .message.show {
+      display: block;
+    }
+
+    .message.error {
+      border-color: rgba(180, 35, 24, 0.45);
+      color: #b42318;
+    }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns:
+        minmax(0, 1fr)
+        minmax(150px, 190px);
+      gap: 10px;
+      margin-bottom: 14px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--surface);
+      box-shadow:
+        var(--shadow, 0 8px 22px rgba(0, 0, 0, 0.06));
+    }
+
+    .control {
+      width: 100%;
+      min-height: 46px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      background: var(--surface);
+      color: var(--text);
+      outline: none;
+    }
+
+    .control:focus {
+      border-color: var(--brand-green, #3B7E46);
+      box-shadow: 0 0 0 3px rgba(59, 126, 70, 0.14);
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 9px;
+      margin-bottom: 14px;
+    }
+
+    .summary-card {
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      background: var(--surface);
+      text-align: center;
+    }
+
+    .summary-value {
+      font-size: 24px;
+      font-weight: 950;
+      line-height: 1;
+    }
+
+    .summary-label {
+      margin-top: 5px;
+      color: var(--muted, #68716c);
+      font-size: 11px;
+      font-weight: 850;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .records {
+      display: grid;
+      gap: 10px;
+    }
+
+    .record {
+      width: 100%;
+      padding: 0;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 15px;
+      background: var(--surface);
+      color: var(--text);
+      text-align: left;
+      box-shadow:
+        var(--shadow, 0 8px 22px rgba(0, 0, 0, 0.06));
+      cursor: pointer;
+    }
+
+    .record:hover {
+      border-color: rgba(59, 126, 70, 0.45);
+    }
+
+    .record-main {
+      display: grid;
+      grid-template-columns:
+        14px
+        minmax(0, 1fr)
+        auto;
+      gap: 11px;
+      align-items: center;
+      padding: 14px;
+    }
+
+    .status-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      background: #98a2b3;
+    }
+
+    .record.good .status-dot {
+      background: #3B7E46;
+    }
+
+    .record.defect .status-dot {
+      background: #b42318;
+    }
+
+    .record-content {
+      min-width: 0;
+    }
+
+    .record-title {
+      font-size: 15px;
+      font-weight: 900;
+      line-height: 1.25;
+    }
+
+    .record-equipment {
+      margin-top: 3px;
+      overflow: hidden;
+      color: var(--muted, #68716c);
+      font-size: 12px;
+      font-weight: 700;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .record-meta {
+      text-align: right;
+    }
+
+    .record-result {
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .record.defect .record-result {
+      color: #b42318;
+    }
+
+    .record-time {
+      margin-top: 3px;
+      color: var(--muted, #68716c);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .empty-state {
+      padding: 30px 18px;
+      border: 1px dashed var(--border);
+      border-radius: 15px;
+      background: var(--surface);
+      color: var(--muted, #68716c);
+      text-align: center;
+    }
+
+    .empty-icon {
+      margin-bottom: 8px;
+      font-size: 34px;
+    }
+
+    .empty-title {
+      color: var(--text);
+      font-size: 17px;
+      font-weight: 900;
+    }
+
+    .empty-text {
+      margin-top: 5px;
+      line-height: 1.45;
+    }
+
+    .loading {
+      padding: 24px;
+      color: var(--muted, #68716c);
+      text-align: center;
+      font-weight: 750;
+    }
+
+    /* Detail dialog */
+
+    .modal {
+      position: fixed;
+      z-index: 10000;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding:
+        calc(var(--hdr-h, 56px) + 12px)
+        12px
+        calc(
+          var(--ftr-h, 42px)
+          + env(safe-area-inset-bottom, 0px)
+          + 12px
+        );
+      background: rgba(15, 23, 42, 0.55);
+    }
+
+    .modal-card {
+      display: flex;
+      width: min(850px, 100%);
+      max-height: 100%;
+      flex-direction: column;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: var(--surface);
+      box-shadow: 0 22px 55px rgba(0, 0, 0, 0.35);
+    }
+
+    .modal-header {
+      display: flex;
+      flex: 0 0 auto;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 13px 15px;
+      border-bottom: 1px solid var(--border);
+      background:
+        linear-gradient(
+          90deg,
+          rgba(59, 126, 70, 0.12),
+          transparent
+        );
+    }
+
+    .modal-title {
+      min-width: 0;
+    }
+
+    .modal-title h2 {
+      margin: 0;
+      font-size: 20px;
+    }
+
+    .modal-subtitle {
+      margin-top: 3px;
+      color: var(--muted, #68716c);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .modal-actions {
+      display: flex;
+      flex: 0 0 auto;
+      gap: 7px;
+    }
+
+    .icon-button {
+      display: grid;
+      width: 42px;
+      height: 42px;
+      place-items: center;
+      padding: 0;
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      background: var(--surface);
+      color: var(--text);
+      font-size: 19px;
+      cursor: pointer;
+    }
+
+    .modal-body {
+      min-height: 0;
+      padding: 15px;
+      overflow-y: auto;
+    }
+
+    .report {
+      color: var(--text);
+    }
+
+    .report-heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 15px;
+      padding-bottom: 13px;
+      border-bottom: 2px solid var(--brand-green, #3B7E46);
+    }
+
+    .report-brand {
+      font-size: 21px;
+      font-weight: 950;
+    }
+
+    .report-name {
+      margin-top: 3px;
+      font-size: 15px;
+      font-weight: 850;
+    }
+
+    .report-status {
+      flex: 0 0 auto;
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: rgba(59, 126, 70, 0.11);
+      color: #2f6c3c;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .report-status.defect {
+      background: rgba(180, 35, 24, 0.1);
+      color: #b42318;
+    }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns:
+        repeat(2, minmax(0, 1fr));
+      gap: 9px;
+      margin-bottom: 14px;
+    }
+
+    .detail-box {
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      background:
+        var(--surface-2, rgba(127, 127, 127, 0.05));
+    }
+
+    .detail-label {
+      color: var(--muted, #68716c);
+      font-size: 10px;
+      font-weight: 850;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .detail-value {
+      margin-top: 4px;
+      overflow-wrap: anywhere;
+      font-size: 13px;
+      font-weight: 850;
+    }
+
+    .report-section {
+      margin-top: 15px;
+    }
+
+    .report-section h3 {
+      margin: 0 0 8px;
+      font-size: 15px;
+    }
+
+    .checklist-table {
+      width: 100%;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      border-collapse: separate;
+      border-spacing: 0;
+    }
+
+    .checklist-table th,
+    .checklist-table td {
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .checklist-table th {
+      background:
+        var(--surface-2, rgba(127, 127, 127, 0.06));
+      font-weight: 900;
+    }
+
+    .checklist-table tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .check-status {
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .check-status.pass {
+      color: #2f6c3c;
+    }
+
+    .check-status.defect {
+      color: #b42318;
+    }
+
+    .check-status.na {
+      color: #667085;
+    }
+
+    .defect-note {
+      margin-top: 4px;
+      color: #b42318;
+      line-height: 1.4;
+    }
+
+    .photo-link {
+      display: inline-flex;
+      margin-top: 6px;
+      color: var(--brand-green, #3B7E46);
+      font-weight: 850;
+      text-decoration: none;
+    }
+
+    .remarks-box {
+      padding: 11px;
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      background:
+        var(--surface-2, rgba(127, 127, 127, 0.05));
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+
+    .certification {
+      margin-top: 15px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 650px) {
+      .page-header {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .header-actions {
+        width: 100%;
+      }
+
+      .header-actions .button {
+        flex: 1;
+      }
+
+      .toolbar {
+        grid-template-columns: 1fr;
+      }
+
+      .summary {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .record-main {
+        grid-template-columns:
+          12px
+          minmax(0, 1fr);
+      }
+
+      .record-meta {
+        grid-column: 2;
+        text-align: left;
+      }
+
+      .detail-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .modal {
+        align-items: stretch;
+        padding:
+          calc(var(--hdr-h, 56px) + 7px)
+          7px
+          calc(
+            var(--ftr-h, 42px)
+            + env(safe-area-inset-bottom, 0px)
+            + 7px
+          );
+      }
+
+      .modal-card {
+        width: 100%;
+      }
+
+      .modal-header {
+        padding: 10px;
+      }
+
+      .modal-body {
+        padding: 11px;
+      }
+
+      .checklist-table th:nth-child(1),
+      .checklist-table td:nth-child(1) {
+        display: none;
+      }
+    }
+
+    @media print {
+      body {
+        background: #fff !important;
+        color: #000 !important;
+      }
+
+      fv-shell,
+      .page,
+      .modal-header,
+      .no-print {
+        display: none !important;
+      }
+
+      .modal {
+        position: static;
+        display: block !important;
+        padding: 0;
+        background: #fff;
+      }
+
+      .modal-card {
+        display: block;
+        width: 100%;
+        max-height: none;
+        overflow: visible;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+      }
+
+      .modal-body {
+        padding: 0;
+        overflow: visible;
+      }
+
+      .report {
+        color: #000;
+      }
+
+      .detail-box,
+      .remarks-box {
+        background: #fff !important;
+      }
+
+      .checklist-table {
+        border-color: #777;
+      }
+
+      .checklist-table th,
+      .checklist-table td {
+        border-color: #aaa;
+      }
+
+      a {
+        color: #000 !important;
+        text-decoration: none !important;
+      }
+
+      @page {
+        size: auto;
+        margin: 0.45in;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <fv-shell>
+    <main
+      class="page"
+      data-perm="logistics-pre-trip:view"
+    >
+      <header class="page-header">
+        <div>
+          <h1>My Pre-Trips</h1>
+
+          <p>
+            View and print your personal pre-trip inspection records.
+          </p>
+        </div>
+
+        <div class="header-actions">
+          <a
+            class="button button-primary"
+            href="/Farm-vista/pages/logistics/pre-trip.html"
+            data-perm="logistics-pre-trip:add"
+          >
+            New Pre-Trip
+          </a>
+        </div>
+      </header>
+
+      <div
+        id="message"
+        class="message"
+        role="status"
+        aria-live="polite"
+      ></div>
+
+      <section
+        class="toolbar"
+        aria-label="Filter inspections"
+      >
+        <input
+          id="searchInput"
+          class="control"
+          type="search"
+          placeholder="Search truck, trailer, or date"
+          autocomplete="off"
+        />
+
+        <select
+          id="statusFilter"
+          class="control"
+          aria-label="Filter by result"
+        >
+          <option value="all">All Results</option>
+          <option value="satisfactory">Passed</option>
+          <option value="defects">Defects Reported</option>
+        </select>
+      </section>
+
+      <section
+        class="summary"
+        aria-label="Inspection summary"
+      >
+        <div class="summary-card">
+          <div
+            id="totalCount"
+            class="summary-value"
+          >
+            –
+          </div>
+
+          <div class="summary-label">
+            Total
+          </div>
+        </div>
+
+        <div class="summary-card">
+          <div
+            id="passedCount"
+            class="summary-value"
+          >
+            –
+          </div>
+
+          <div class="summary-label">
+            Passed
+          </div>
+        </div>
+
+        <div class="summary-card">
+          <div
+            id="defectCount"
+            class="summary-value"
+          >
+            –
+          </div>
+
+          <div class="summary-label">
+            Defects
+          </div>
+        </div>
+      </section>
+
+      <div
+        id="records"
+        class="records"
+      >
+        <div class="loading">
+          Loading your pre-trip records…
+        </div>
+      </div>
+    </main>
+  </fv-shell>
+
+  <div
+    id="detailModal"
+    class="modal"
+    hidden
+  >
+    <article
+      class="modal-card"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="detailTitle"
+    >
+      <header class="modal-header">
+        <div class="modal-title">
+          <h2 id="detailTitle">
+            Pre-Trip Report
+          </h2>
+
+          <div
+            id="detailSubtitle"
+            class="modal-subtitle"
+          ></div>
+        </div>
+
+        <div class="modal-actions">
+          <button
+            id="printButton"
+            class="icon-button"
+            type="button"
+            title="Print or save as PDF"
+            aria-label="Print or save as PDF"
+          >
+            🖨️
+          </button>
+
+          <button
+            id="closeButton"
+            class="icon-button"
+            type="button"
+            title="Close"
+            aria-label="Close report"
+          >
+            ×
+          </button>
+        </div>
+      </header>
+
+      <div class="modal-body">
+        <div
+          id="reportContent"
+          class="report"
+        ></div>
+      </div>
+    </article>
+  </div>
+
+  <script type="module">
+    import {
+      ready,
+      getAuth,
+      getFirestore,
+      collection,
+      getDocs
+    } from "/Farm-vista/js/firebase-init.js";
+
+    await ready;
+
+    const COLLECTION = "logisticsInspections";
+
+    const auth = getAuth();
+    const db = getFirestore();
+
+    const state = {
+      user: null,
+      rows: [],
+      filteredRows: [],
+      selectedId: null
+    };
+
+    const elements = {
+      message: document.getElementById("message"),
+      searchInput: document.getElementById("searchInput"),
+      statusFilter: document.getElementById("statusFilter"),
+
+      totalCount: document.getElementById("totalCount"),
+      passedCount: document.getElementById("passedCount"),
+      defectCount: document.getElementById("defectCount"),
+
+      records: document.getElementById("records"),
+
+      modal: document.getElementById("detailModal"),
+      detailTitle: document.getElementById("detailTitle"),
+      detailSubtitle: document.getElementById("detailSubtitle"),
+      reportContent: document.getElementById("reportContent"),
+
+      printButton: document.getElementById("printButton"),
+      closeButton: document.getElementById("closeButton")
+    };
+
+    function clean(value) {
+      return String(value ?? "").trim();
+    }
+
+    function normalized(value) {
+      return clean(value).toLowerCase();
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(
+        /[&<>"']/g,
+        character => ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;"
+        })[character]
+      );
+    }
+
+    function toDate(value) {
+      if (!value) return null;
+
+      if (value instanceof Date) {
+        return value;
+      }
+
+      if (typeof value.toDate === "function") {
+        return value.toDate();
+      }
+
+      if (typeof value.seconds === "number") {
+        return new Date(value.seconds * 1000);
+      }
+
+      const parsed = new Date(value);
+
+      return Number.isNaN(parsed.getTime())
+        ? null
+        : parsed;
+    }
+
+    function formatDate(value) {
+      const raw = clean(value);
+
+      if (!raw) return "Date not listed";
+
+      const parts = raw.slice(0, 10).split("-");
+
+      if (parts.length === 3) {
+        const date = new Date(
+          Number(parts[0]),
+          Number(parts[1]) - 1,
+          Number(parts[2])
+        );
+
+        return new Intl.DateTimeFormat(
+          "en-US",
+          {
+            weekday: "short",
+            month: "short",
+            day: "numeric",
+            year: "numeric"
+          }
+        ).format(date);
+      }
+
+      return raw;
+    }
+
+    function formatDateTime(value) {
+      const date = toDate(value);
+
+      if (!date) return "Time not listed";
+
+      return new Intl.DateTimeFormat(
+        "en-US",
+        {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+          hour: "numeric",
+          minute: "2-digit"
+        }
+      ).format(date);
+    }
+
+    function formatNumber(value) {
+      const number = Number(value);
+
+      return Number.isFinite(number)
+        ? number.toLocaleString()
+        : "Not listed";
+    }
+
+    function defectCount(row) {
+      const direct = Number(row.defectCount);
+
+      if (Number.isFinite(direct)) {
+        return direct;
+      }
+
+      return Array.isArray(row.responses)
+        ? row.responses.filter(
+            response =>
+              normalized(response.status) === "defect"
+          ).length
+        : 0;
+    }
+
+    function hasDefects(row) {
+      return (
+        row.hasDefects === true ||
+        defectCount(row) > 0 ||
+        normalized(row.overallStatus) ===
+          "defectsreported"
+      );
+    }
+
+    function truckLabel(row) {
+      return clean(
+        row.truckLabel ||
+        row.truck?.label ||
+        row.truckUnitId ||
+        row.truck?.unitId ||
+        "Truck not listed"
+      );
+    }
+
+    function trailerLabel(row) {
+      if (
+        row.trailerHookedOn === false ||
+        (
+          !row.trailerId &&
+          !row.trailerLabel &&
+          !row.trailer
+        )
+      ) {
+        return "No Trailer Hooked On";
+      }
+
+      return clean(
+        row.trailerLabel ||
+        row.trailer?.label ||
+        row.trailerUnitId ||
+        row.trailer?.unitId ||
+        "Trailer not listed"
+      );
+    }
+
+    function ownsInspection(row, user) {
+      if (!row || !user) return false;
+
+      const userUid = clean(user.uid);
+      const userEmail = normalized(user.email);
+
+      const rowUid = clean(
+        row.driverUid ||
+        row.submittedByUid ||
+        row.userUid
+      );
+
+      const rowEmail = normalized(
+        row.driverEmail ||
+        row.submittedByEmail ||
+        row.userEmail
+      );
+
+      /*
+       * UID is the preferred ownership key.
+       * Email fallback keeps older records visible.
+       */
+      if (rowUid) {
+        return rowUid === userUid;
+      }
+
+      return Boolean(
+        rowEmail &&
+        userEmail &&
+        rowEmail === userEmail
+      );
+    }
+
+    function showMessage(text, type = "") {
+      elements.message.textContent = text;
+      elements.message.className =
+        `message show ${type}`;
+    }
+
+    function clearMessage() {
+      elements.message.textContent = "";
+      elements.message.className = "message";
+    }
+
+    function waitForUser() {
+      return new Promise(resolve => {
+        let attempts = 0;
+        const maximumAttempts = 40;
+
+        function check() {
+          attempts += 1;
+
+          const user = auth?.currentUser || null;
+
+          if (user) {
+            resolve(user);
+            return;
+          }
+
+          if (attempts >= maximumAttempts) {
+            resolve(null);
+            return;
+          }
+
+          setTimeout(check, 250);
+        }
+
+        check();
+      });
+    }
+
+    function sortRows(rows) {
+      return rows.slice().sort((a, b) => {
+        const aTime =
+          toDate(
+            a.submittedAt ||
+            a.createdAt ||
+            a.updatedAt
+          )?.getTime() || 0;
+
+        const bTime =
+          toDate(
+            b.submittedAt ||
+            b.createdAt ||
+            b.updatedAt
+          )?.getTime() || 0;
+
+        if (aTime !== bTime) {
+          return bTime - aTime;
+        }
+
+        return clean(b.inspectionDate)
+          .localeCompare(clean(a.inspectionDate));
+      });
+    }
+
+    function updateSummary() {
+      const total = state.rows.length;
+
+      const defects = state.rows.filter(
+        hasDefects
+      ).length;
+
+      const passed = total - defects;
+
+      elements.totalCount.textContent =
+        String(total);
+
+      elements.passedCount.textContent =
+        String(passed);
+
+      elements.defectCount.textContent =
+        String(defects);
+    }
+
+    function applyFilters() {
+      const search =
+        normalized(elements.searchInput.value);
+
+      const status =
+        elements.statusFilter.value;
+
+      state.filteredRows = state.rows.filter(row => {
+        if (
+          status === "satisfactory" &&
+          hasDefects(row)
+        ) {
+          return false;
+        }
+
+        if (
+          status === "defects" &&
+          !hasDefects(row)
+        ) {
+          return false;
+        }
+
+        if (!search) {
+          return true;
+        }
+
+        const haystack = normalized([
+          row.inspectionDate,
+          formatDate(row.inspectionDate),
+          truckLabel(row),
+          trailerLabel(row),
+          row.odometerMiles,
+          row.remarks
+        ].join(" "));
+
+        return haystack.includes(search);
+      });
+
+      renderRecords();
+    }
+
+    function renderRecords() {
+      if (!state.filteredRows.length) {
+        const hasAnyRows = state.rows.length > 0;
+
+        elements.records.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">
+              ${hasAnyRows ? "🔎" : "📋"}
+            </div>
+
+            <div class="empty-title">
+              ${
+                hasAnyRows
+                  ? "No matching pre-trips"
+                  : "No pre-trips found"
+              }
+            </div>
+
+            <div class="empty-text">
+              ${
+                hasAnyRows
+                  ? "Try changing your search or result filter."
+                  : "Your submitted inspections will appear here."
+              }
+            </div>
+          </div>
+        `;
+
+        return;
+      }
+
+      elements.records.innerHTML =
+        state.filteredRows.map(row => {
+          const defects = defectCount(row);
+          const defective = hasDefects(row);
+
+          const equipment = [
+            truckLabel(row),
+            trailerLabel(row)
+          ].filter(Boolean).join(" • ");
+
+          const submitted =
+            formatDateTime(
+              row.submittedAt ||
+              row.createdAt
+            );
+
+          return `
+            <button
+              class="record ${
+                defective ? "defect" : "good"
+              }"
+              type="button"
+              data-inspection-id="${escapeHtml(row.id)}"
+            >
+              <span class="record-main">
+                <span
+                  class="status-dot"
+                  aria-hidden="true"
+                ></span>
+
+                <span class="record-content">
+                  <span class="record-title">
+                    ${escapeHtml(
+                      formatDate(row.inspectionDate)
+                    )}
+                  </span>
+
+                  <span class="record-equipment">
+                    ${escapeHtml(equipment)}
+                  </span>
+                </span>
+
+                <span class="record-meta">
+                  <span class="record-result">
+                    ${
+                      defective
+                        ? `${defects} defect${
+                            defects === 1 ? "" : "s"
+                          }`
+                        : "Passed"
+                    }
+                  </span>
+
+                  <span class="record-time">
+                    ${escapeHtml(submitted)}
+                  </span>
+                </span>
+              </span>
+            </button>
+          `;
+        }).join("");
+    }
+
+    function statusLabel(status) {
+      const value = normalized(status);
+
+      if (value === "pass") return "Good";
+      if (value === "defect") return "Defect";
+      if (value === "na") return "N/A";
+
+      return clean(status) || "Not answered";
+    }
+
+    function renderChecklistRows(row) {
+      const responses = Array.isArray(row.responses)
+        ? row.responses
+        : [];
+
+      if (!responses.length) {
+        return `
+          <div class="empty-state">
+            Checklist details were not saved with this record.
+          </div>
+        `;
+      }
+
+      return `
+        <table class="checklist-table">
+          <thead>
+            <tr>
+              <th>Section</th>
+              <th>Inspection Item</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            ${responses.map(response => {
+              const status =
+                normalized(response.status);
+
+              return `
+                <tr>
+                  <td>
+                    ${escapeHtml(response.section || "")}
+                  </td>
+
+                  <td>
+                    <strong>
+                      ${escapeHtml(
+                        response.label ||
+                        response.itemId ||
+                        "Inspection item"
+                      )}
+                    </strong>
+
+                    ${
+                      status === "defect" &&
+                      response.note
+                        ? `
+                          <div class="defect-note">
+                            ${escapeHtml(response.note)}
+                          </div>
+                        `
+                        : ""
+                    }
+
+                    ${
+                      response.photoUrl
+                        ? `
+                          <a
+                            class="photo-link no-print"
+                            href="${escapeHtml(response.photoUrl)}"
+                            target="_blank"
+                            rel="noopener"
+                          >
+                            View attached photo or file
+                          </a>
+                        `
+                        : ""
+                    }
+                  </td>
+
+                  <td>
+                    <span
+                      class="check-status ${escapeHtml(status)}"
+                    >
+                      ${escapeHtml(
+                        statusLabel(response.status)
+                      )}
+                    </span>
+                  </td>
+                </tr>
+              `;
+            }).join("")}
+          </tbody>
+        </table>
+      `;
+    }
+
+    function renderReport(row) {
+      const defective = hasDefects(row);
+      const defects = defectCount(row);
+
+      const submitted = formatDateTime(
+        row.submittedAt ||
+        row.createdAt
+      );
+
+      elements.detailTitle.textContent =
+        "Pre-Trip Inspection";
+
+      elements.detailSubtitle.textContent =
+        `${formatDate(row.inspectionDate)} • ${truckLabel(row)}`;
+
+      elements.reportContent.innerHTML = `
+        <section class="report-heading">
+          <div>
+            <div class="report-brand">
+              FarmVista
+            </div>
+
+            <div class="report-name">
+              Driver Vehicle Pre-Trip Inspection Report
+            </div>
+          </div>
+
+          <div
+            class="report-status ${
+              defective ? "defect" : ""
+            }"
+          >
+            ${
+              defective
+                ? `${defects} Defect${
+                    defects === 1 ? "" : "s"
+                  } Reported`
+                : "Satisfactory"
+            }
+          </div>
+        </section>
+
+        <section class="detail-grid">
+          <div class="detail-box">
+            <div class="detail-label">
+              Driver
+            </div>
+
+            <div class="detail-value">
+              ${escapeHtml(
+                row.driverName ||
+                state.user?.displayName ||
+                state.user?.email ||
+                "FarmVista User"
+              )}
+            </div>
+          </div>
+
+          <div class="detail-box">
+            <div class="detail-label">
+              Inspection Date
+            </div>
+
+            <div class="detail-value">
+              ${escapeHtml(
+                formatDate(row.inspectionDate)
+              )}
+            </div>
+          </div>
+
+          <div class="detail-box">
+            <div class="detail-label">
+              Truck / Semi
+            </div>
+
+            <div class="detail-value">
+              ${escapeHtml(truckLabel(row))}
+            </div>
+          </div>
+
+          <div class="detail-box">
+            <div class="detail-label">
+              Trailer
+            </div>
+
+            <div class="detail-value">
+              ${escapeHtml(trailerLabel(row))}
+            </div>
+          </div>
+
+          <div class="detail-box">
+            <div class="detail-label">
+              Odometer
+            </div>
+
+            <div class="detail-value">
+              ${escapeHtml(
+                formatNumber(row.odometerMiles)
+              )} miles
+            </div>
+          </div>
+
+          <div class="detail-box">
+            <div class="detail-label">
+              Submitted
+            </div>
+
+            <div class="detail-value">
+              ${escapeHtml(submitted)}
+            </div>
+          </div>
+        </section>
+
+        <section class="report-section">
+          <h3>
+            Inspection Checklist
+          </h3>
+
+          ${renderChecklistRows(row)}
+        </section>
+
+        <section class="report-section">
+          <h3>
+            Driver Remarks
+          </h3>
+
+          <div class="remarks-box">
+            ${escapeHtml(
+              row.remarks ||
+              "No additional remarks."
+            )}
+          </div>
+        </section>
+
+        <section class="certification">
+          <strong>Driver Certification:</strong>
+          This inspection was electronically certified and
+          submitted by the driver through FarmVista.
+
+          <br><br>
+
+          <strong>Inspection Record ID:</strong>
+          ${escapeHtml(row.id)}
+        </section>
+      `;
+    }
+
+    function openReport(id, updateUrl = true) {
+      const row = state.rows.find(
+        record => record.id === id
+      );
+
+      if (!row) {
+        showMessage(
+          "That inspection record could not be found.",
+          "error"
+        );
+
+        return;
+      }
+
+      /*
+       * Safety check: never display a record that does not
+       * belong to the signed-in driver.
+       */
+      if (!ownsInspection(row, state.user)) {
+        showMessage(
+          "You do not have access to that inspection.",
+          "error"
+        );
+
+        return;
+      }
+
+      state.selectedId = id;
+
+      renderReport(row);
+
+      elements.modal.hidden = false;
+      document.body.style.overflow = "hidden";
+
+      if (updateUrl) {
+        const url = new URL(window.location.href);
+        url.searchParams.set("id", id);
+
+        history.replaceState(
+          {},
+          "",
+          url.pathname + url.search
+        );
+      }
+    }
+
+    function closeReport() {
+      elements.modal.hidden = true;
+      document.body.style.overflow = "";
+      state.selectedId = null;
+
+      const url = new URL(window.location.href);
+      url.searchParams.delete("id");
+
+      history.replaceState(
+        {},
+        "",
+        url.pathname + url.search
+      );
+    }
+
+    async function loadRecords() {
+      clearMessage();
+
+      elements.records.innerHTML = `
+        <div class="loading">
+          Loading your pre-trip records…
+        </div>
+      `;
+
+      state.user = await waitForUser();
+
+      if (!state.user) {
+        showMessage(
+          "Your FarmVista account could not be loaded. Refresh the page or sign in again.",
+          "error"
+        );
+
+        elements.records.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">🔒</div>
+
+            <div class="empty-title">
+              Account not available
+            </div>
+
+            <div class="empty-text">
+              Sign in again to view your records.
+            </div>
+          </div>
+        `;
+
+        return;
+      }
+
+      try {
+        const snapshot = await getDocs(
+          collection(db, COLLECTION)
+        );
+
+        const allRows = snapshot.docs.map(
+          documentSnapshot => ({
+            id: documentSnapshot.id,
+            ...documentSnapshot.data()
+          })
+        );
+
+        /*
+         * Only keep inspections owned by the current driver.
+         */
+        state.rows = sortRows(
+          allRows.filter(row =>
+            ownsInspection(row, state.user)
+          )
+        );
+
+        state.filteredRows = state.rows.slice();
+
+        updateSummary();
+        renderRecords();
+
+        const requestedId =
+          new URLSearchParams(
+            window.location.search
+          ).get("id");
+
+        if (requestedId) {
+          openReport(requestedId, false);
+        }
+      } catch (error) {
+        console.error(
+          "[My Pre-Trips] Records failed to load:",
+          error
+        );
+
+        showMessage(
+          "FarmVista could not load your pre-trip records.",
+          "error"
+        );
+
+        elements.records.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">⚠️</div>
+
+            <div class="empty-title">
+              Records unavailable
+            </div>
+
+            <div class="empty-text">
+              Refresh the page and try again.
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    elements.searchInput.addEventListener(
+      "input",
+      applyFilters
+    );
+
+    elements.statusFilter.addEventListener(
+      "change",
+      applyFilters
+    );
+
+    elements.records.addEventListener(
+      "click",
+      event => {
+        const row = event.target.closest(
+          "[data-inspection-id]"
+        );
+
+        if (!row) return;
+
+        openReport(
+          row.dataset.inspectionId
+        );
+      }
+    );
+
+    elements.closeButton.addEventListener(
+      "click",
+      closeReport
+    );
+
+    elements.printButton.addEventListener(
+      "click",
+      () => window.print()
+    );
+
+    elements.modal.addEventListener(
+      "click",
+      event => {
+        if (event.target === elements.modal) {
+          closeReport();
+        }
+      }
+    );
+
+    document.addEventListener(
+      "keydown",
+      event => {
+        if (
+          event.key === "Escape" &&
+          !elements.modal.hidden
+        ) {
+          closeReport();
+        }
+      }
+    );
+
+    loadRecords();
+  </script>
+</body>
+</html>
