@@ -465,10 +465,77 @@
   color: var(--text);
 }
 
+.defect-photo-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 9px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.defect-photo-link {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.defect-photo-thumbnail {
+  width: 64px;
+  height: 64px;
+  flex: 0 0 auto;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.defect-photo-file-icon {
+  display: grid;
+  width: 64px;
+  height: 64px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2, rgba(127, 127, 127, 0.06));
+  font-size: 28px;
+}
+
 .defect-photo-name {
-  margin-top: 5px;
-  color: var(--muted, #68716c);
-  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.defect-photo-remove {
+  min-width: 76px;
+  min-height: 40px;
+  flex: 0 0 auto;
+  padding: 8px 10px;
+  border: 1px solid rgba(180, 35, 24, 0.45);
+  border-radius: 9px;
+  background: rgba(180, 35, 24, 0.07);
+  color: #b42318;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+@media (max-width: 520px) {
+  .defect-photo-preview {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .defect-photo-remove {
+    width: 100%;
+  }
 }
 
     .summary {
@@ -831,6 +898,7 @@ const state = {
   trailers: [],
   responses: new Map(),
   defectPhotos: new Map(),
+  defectPhotoUrls: new Map(),
   saving: false
 };
 
@@ -1538,29 +1606,75 @@ function chooseTrailer(trailerId) {
     placeholder="Describe the defect"
   >${escapeHtml(response.note)}</textarea>
 
-  <div class="defect-photo-wrap">
-    <label class="defect-photo-label">
-      Defect photo (optional)
-    </label>
+<div class="defect-photo-wrap">
+  <label class="defect-photo-label">
+    Defect photo or file (optional)
+  </label>
 
-    <input
-      class="defect-photo-input"
-      type="file"
-      accept="image/*"
-      capture="environment"
-      data-item-id="${escapeHtml(item.id)}"
-    />
+  <input
+    class="defect-photo-input"
+    type="file"
+    accept="image/*,application/pdf"
+    capture="environment"
+    data-item-id="${escapeHtml(item.id)}"
+  />
 
-    <div class="defect-photo-name">
-      ${
-        state.defectPhotos.get(item.id)?.name
-          ? escapeHtml(
-              state.defectPhotos.get(item.id).name
-            )
-          : "No photo selected"
-      }
-    </div>
-  </div>
+  ${
+    state.defectPhotos.has(item.id)
+      ? `
+        <div class="defect-photo-preview">
+          <a
+            class="defect-photo-link"
+            href="${escapeHtml(
+              state.defectPhotoUrls.get(item.id) || "#"
+            )}"
+            target="_blank"
+            rel="noopener"
+          >
+            ${
+              state.defectPhotos
+                .get(item.id)
+                .type
+                .startsWith("image/")
+                ? `
+                  <img
+                    class="defect-photo-thumbnail"
+                    src="${escapeHtml(
+                      state.defectPhotoUrls.get(item.id) || ""
+                    )}"
+                    alt="Defect photo preview"
+                  />
+                `
+                : `
+                  <span class="defect-photo-file-icon">
+                    📄
+                  </span>
+                `
+            }
+
+            <span class="defect-photo-name">
+              ${escapeHtml(
+                state.defectPhotos.get(item.id).name
+              )}
+            </span>
+          </a>
+
+          <button
+            class="defect-photo-remove"
+            type="button"
+            data-item-id="${escapeHtml(item.id)}"
+          >
+            Remove
+          </button>
+        </div>
+      `
+      : `
+        <div class="defect-photo-name">
+          No photo or file selected
+        </div>
+      `
+  }
+</div>
 </div>
               </div>
             `;
@@ -1617,7 +1731,15 @@ function chooseTrailer(trailerId) {
 
 if (status !== "defect") {
   response.note = "";
+
+  const oldUrl = state.defectPhotoUrls.get(itemId);
+
+  if (oldUrl) {
+    URL.revokeObjectURL(oldUrl);
+  }
+
   state.defectPhotos.delete(itemId);
+  state.defectPhotoUrls.delete(itemId);
 }
 
       renderChecklist();
@@ -1631,6 +1753,13 @@ if (status !== "defect") {
         response.note = "";
       });
 
+      state.defectPhotoUrls.forEach(url => {
+  URL.revokeObjectURL(url);
+});
+
+state.defectPhotos.clear();
+state.defectPhotoUrls.clear();
+      
       renderChecklist();
     }
 
@@ -2036,8 +2165,14 @@ console.info(
     }
 
     function resetForm() {
-      state.responses.clear();
-      state.defectPhotos.clear();
+state.responses.clear();
+
+state.defectPhotoUrls.forEach(url => {
+  URL.revokeObjectURL(url);
+});
+
+state.defectPhotos.clear();
+state.defectPhotoUrls.clear();
 
       elements.truckSelect.value = "";
       elements.trailerSelect.value = "";
@@ -2107,18 +2242,39 @@ async function initializeUser() {
   });
 }
 
-    elements.checklist.addEventListener("click", event => {
-      const button = event.target.closest(".status-button");
+elements.checklist.addEventListener("click", event => {
+  const removePhotoButton = event.target.closest(
+    ".defect-photo-remove"
+  );
 
-      if (!button) {
-        return;
-      }
+  if (removePhotoButton) {
+    const itemId = removePhotoButton.dataset.itemId;
+    const oldUrl = state.defectPhotoUrls.get(itemId);
 
-      setStatus(
-        button.dataset.itemId,
-        button.dataset.status
-      );
-    });
+    if (oldUrl) {
+      URL.revokeObjectURL(oldUrl);
+    }
+
+    state.defectPhotos.delete(itemId);
+    state.defectPhotoUrls.delete(itemId);
+
+    renderChecklist();
+    return;
+  }
+
+  const statusButton = event.target.closest(
+    ".status-button"
+  );
+
+  if (!statusButton) {
+    return;
+  }
+
+  setStatus(
+    statusButton.dataset.itemId,
+    statusButton.dataset.status
+  );
+});
 
     elements.checklist.addEventListener("input", event => {
       const noteField = event.target.closest(".defect-note");
@@ -2136,7 +2292,7 @@ async function initializeUser() {
       }
     });
 
-    elements.checklist.addEventListener("change", event => {
+elements.checklist.addEventListener("change", event => {
   const photoInput = event.target.closest(
     ".defect-photo-input"
   );
@@ -2148,15 +2304,27 @@ async function initializeUser() {
   const itemId = photoInput.dataset.itemId;
   const file = photoInput.files?.[0] || null;
 
+  const oldUrl = state.defectPhotoUrls.get(itemId);
+
+  if (oldUrl) {
+    URL.revokeObjectURL(oldUrl);
+    state.defectPhotoUrls.delete(itemId);
+  }
+
   if (file) {
     state.defectPhotos.set(itemId, file);
+
+    state.defectPhotoUrls.set(
+      itemId,
+      URL.createObjectURL(file)
+    );
   } else {
     state.defectPhotos.delete(itemId);
   }
 
   renderChecklist();
-});
-
+}); 
+    
 elements.truckComboButton.addEventListener(
   "click",
   event => {
