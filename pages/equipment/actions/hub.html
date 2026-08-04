@@ -539,11 +539,28 @@ Updates:
             </div>
           </div>
 
-          <div class="actions" id="fnLinks" hidden>
-            <a id="linkReq" class="btn btn-accent-outline" href="#">Add Service Request</a>
-            <a id="linkMetric" class="btn" href="#">Update Usage</a>
-            <a id="linkMaint"  class="btn" href="#">Service Records</a>
-          </div>
+<div class="actions" id="fnLinks" hidden>
+  <a
+    id="linkPreTrip"
+    class="btn btn-primary"
+    href="#"
+    hidden
+  >
+    Daily Pre-Trip Inspection
+  </a>
+
+  <a id="linkReq" class="btn btn-accent-outline" href="#">
+    Add Service Request
+  </a>
+
+  <a id="linkMetric" class="btn" href="#">
+    Update Usage
+  </a>
+
+  <a id="linkMaint" class="btn" href="#">
+    Service Records
+  </a>
+</div>
 
           <div class="card" id="combineCalcs" hidden>
             <div>
@@ -2621,9 +2638,23 @@ Updates:
         return;
       }
 
-      const d = snap.data() || {}; d.id = id;
-      const typeKey = String(d.type || 'equipment').toLowerCase();
-      const cfg = resolveEffectiveCfg(typeKey, d);
+const d = snap.data() || {};
+d.id = id;
+
+const typeKey = String(d.type || 'equipment')
+  .trim()
+  .toLowerCase();
+
+const cfg = resolveEffectiveCfg(typeKey, d);
+
+const isDotRequired =
+  String(d.dotRequired || '')
+    .trim()
+    .toLowerCase() === 'yes';
+
+const showPreTrip =
+  isDotRequired &&
+  (typeKey === 'truck' || typeKey === 'trailer');
 
       const hubTitle = `${cfg.display} Hub`;
       setText('pageTitle', hubTitle);
@@ -2655,9 +2686,27 @@ Updates:
         $('archivedMsg').textContent = `“${name}${ls ? ' • SN …'+ls : ''}” is archived and not available for new entries.`;
         $('archivedCard').hidden = false;
         if (calcCard) calcCard.hidden = true;
-      }else{
-        setText('linkReq', 'Add Service Request');
-        $('linkReq').hidden = false;
+}else{
+  const preTripLink = $('linkPreTrip');
+
+  if(preTripLink){
+    if(showPreTrip){
+      preTripLink.textContent = 'Daily Pre-Trip Inspection';
+
+      preTripLink.href =
+        `/Farm-vista/pages/logistics/pre-trip.html` +
+        `?equipmentId=${encodeURIComponent(id)}` +
+        `&type=${encodeURIComponent(typeKey)}`;
+
+      preTripLink.hidden = false;
+    }else{
+      preTripLink.href = '#';
+      preTripLink.hidden = true;
+    }
+  }
+
+  setText('linkReq', 'Add Service Request');
+  $('linkReq').hidden = false;
 
         if(Array.isArray(cfg.metricFields) && cfg.metricFields.length > 0 && cfg.updateLabel){
           setText('linkMetric', cfg.updateLabel);
