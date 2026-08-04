@@ -783,9 +783,22 @@ body.printing-report {
   background: #fff !important;
 }
 
-body.printing-report fv-shell,
+body.printing-report fv-shell {
+  visibility: hidden !important;
+}
+
 body.printing-report .modal {
   display: none !important;
+}
+
+body.printing-report .print-host {
+  display: block !important;
+  visibility: visible !important;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  background: #fff;
+  z-index: 999999;
 }
 
 body.printing-report .print-host {
@@ -2031,69 +2044,178 @@ function printReport() {
     return;
   }
 
-  const previousTitle = document.title;
+  /*
+   * Open the new window immediately from the button click.
+   * This keeps iPhone Safari from blocking it as a popup.
+   */
+  const printWindow = window.open(
+    "",
+    "_blank"
+  );
+
+  if (!printWindow) {
+    showMessage(
+      "FarmVista could not open the print report. Allow pop-ups for this site and try again.",
+      "error"
+    );
+
+    return;
+  }
+
   const safeDate =
     clean(row.inspectionDate) || "inspection";
 
-  document.title =
-    `FarmVista Pre-Trip ${safeDate}`;
-
-  elements.printHost.innerHTML = `
-    <div class="report">
-      ${elements.reportContent.innerHTML}
-    </div>
-  `;
-
-  elements.printHost.setAttribute(
-    "aria-hidden",
-    "false"
-  );
+  const reportHtml =
+    elements.reportContent.innerHTML;
 
   /*
-   * Make the printable report visible before Safari
-   * builds its print preview.
+   * Copy the page's report styling into the standalone
+   * print window.
    */
-  document.body.classList.add(
-    "printing-report"
-  );
+  const pageStyles = Array
+    .from(document.querySelectorAll("head style"))
+    .map(style => style.textContent)
+    .join("\n");
 
-  function cleanupPrint() {
-    document.title = previousTitle;
+  printWindow.document.open();
 
-    document.body.classList.remove(
-      "printing-report"
-    );
+  printWindow.document.write(`
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8">
 
-    elements.printHost.innerHTML = "";
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1"
+        >
 
-    elements.printHost.setAttribute(
-      "aria-hidden",
-      "true"
-    );
+        <title>
+          FarmVista Pre-Trip ${escapeHtml(safeDate)}
+        </title>
 
-    window.removeEventListener(
-      "afterprint",
-      cleanupPrint
-    );
-  }
+        <link
+          rel="stylesheet"
+          href="/Farm-vista/assets/css/theme.css"
+        >
 
-  window.addEventListener(
-    "afterprint",
-    cleanupPrint,
-    { once: true }
-  );
+        <style>
+          ${pageStyles}
 
-  /*
-   * Safari needs time to lay out the now-visible
-   * standalone report before opening print preview.
-   */
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      setTimeout(() => {
-        window.print();
-      }, 400);
-    });
-  });
+          html,
+          body {
+            width: 100%;
+            height: auto;
+            min-height: 0;
+            margin: 0;
+            overflow: visible;
+            background: #fff;
+            color: #000;
+          }
+
+          body {
+            padding: 18px;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+
+          .standalone-report {
+            display: block;
+            width: 100%;
+            height: auto;
+            min-height: 0;
+            overflow: visible;
+            color: #000;
+          }
+
+          .inspection-block {
+            break-inside: auto;
+            page-break-inside: auto;
+          }
+
+          .inspection-table {
+            display: table;
+            width: 100%;
+            height: auto;
+            overflow: visible;
+            border-collapse: collapse;
+            table-layout: fixed;
+            break-inside: auto;
+            page-break-inside: auto;
+          }
+
+          .inspection-table thead {
+            display: table-header-group;
+          }
+
+          .inspection-table tbody {
+            display: table-row-group;
+          }
+
+          .inspection-table tr {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+
+          .report-heading,
+          .report-meta,
+          .inspection-title,
+          .defect-card,
+          .remarks-box,
+          .certification {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+
+          @media print {
+            html,
+            body {
+              width: 100% !important;
+              height: auto !important;
+              min-height: 0 !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              overflow: visible !important;
+              background: #fff !important;
+            }
+
+            .standalone-report {
+              display: block !important;
+              width: 100% !important;
+              height: auto !important;
+              min-height: 0 !important;
+              overflow: visible !important;
+            }
+
+            @page {
+              size: auto;
+              margin: 0.38in;
+            }
+          }
+        </style>
+      </head>
+
+      <body>
+        <main class="report standalone-report">
+          ${reportHtml}
+        </main>
+
+        <script>
+          window.addEventListener("load", function () {
+            setTimeout(function () {
+              window.print();
+            }, 500);
+          });
+
+          window.addEventListener("afterprint", function () {
+            window.close();
+          });
+        <\/script>
+      </body>
+    </html>
+  `);
+
+  printWindow.document.close();
 }
 
     async function loadRecords() {
