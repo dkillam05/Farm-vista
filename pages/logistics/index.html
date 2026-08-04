@@ -1,0 +1,1346 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+
+  <title>FarmVista • Pre-Trip Inspection</title>
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, viewport-fit=cover"
+  />
+
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link
+    rel="apple-touch-icon"
+    href="/Farm-vista/assets/icons/apple-touch-icon.png"
+  />
+  <link
+    rel="icon"
+    href="/Farm-vista/assets/icons/icon-192.png"
+  />
+
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+
+  <link
+    rel="stylesheet"
+    href="/Farm-vista/assets/css/theme.css"
+  />
+
+  <link
+    rel="stylesheet"
+    href="/Farm-vista/assets/css/app.css"
+  />
+
+  <script src="/Farm-vista/js/fv-shell.js"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--app-bg, var(--bg));
+      color: var(--text);
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    .page {
+      width: min(900px, 100%);
+      margin: 0 auto;
+      padding: 14px;
+      padding-bottom:
+        calc(
+          env(safe-area-inset-bottom, 0px)
+          + var(--ftr-h, 42px)
+          + 110px
+        );
+    }
+
+    .page-header {
+      margin: 6px 0 16px;
+    }
+
+    .page-header h1 {
+      margin: 0 0 5px;
+      font-size: clamp(25px, 5vw, 34px);
+      line-height: 1.1;
+    }
+
+    .page-header p {
+      margin: 0;
+      color: var(--muted, #68716c);
+      line-height: 1.4;
+    }
+
+    .message {
+      display: none;
+      margin-bottom: 14px;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--surface);
+      font-weight: 750;
+      line-height: 1.4;
+    }
+
+    .message.show {
+      display: block;
+    }
+
+    .message.error {
+      border-color: rgba(180, 35, 24, 0.45);
+      color: #b42318;
+    }
+
+    .message.success {
+      border-color: rgba(59, 126, 70, 0.5);
+      color: var(--brand-green, #3B7E46);
+    }
+
+    .card {
+      margin-bottom: 14px;
+      padding: 15px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--surface);
+      box-shadow: var(--shadow, 0 8px 22px rgba(0, 0, 0, 0.07));
+    }
+
+    .card h2 {
+      margin: 0 0 5px;
+      font-size: 19px;
+    }
+
+    .card-subtitle {
+      margin: 0 0 14px;
+      color: var(--muted, #68716c);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 13px;
+    }
+
+    @media (min-width: 700px) {
+      .form-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    .field label {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--muted, #68716c);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .required::after {
+      content: " *";
+      color: #b42318;
+    }
+
+    .control {
+      width: 100%;
+      min-height: 48px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--surface);
+      color: var(--text);
+      outline: none;
+    }
+
+    .control:focus {
+      border-color: var(--brand-green, #3B7E46);
+      box-shadow: 0 0 0 3px rgba(59, 126, 70, 0.14);
+    }
+
+    .control[readonly] {
+      background: var(--surface-2, rgba(127, 127, 127, 0.06));
+    }
+
+    textarea.control {
+      min-height: 84px;
+      resize: vertical;
+      line-height: 1.4;
+    }
+
+    .quick-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 9px;
+      margin-bottom: 13px;
+    }
+
+    .button {
+      min-height: 44px;
+      padding: 10px 14px;
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      background: var(--surface);
+      color: var(--text);
+      font-weight: 850;
+      cursor: pointer;
+    }
+
+    .button-good {
+      border-color: rgba(59, 126, 70, 0.35);
+      background: rgba(59, 126, 70, 0.1);
+      color: var(--brand-green, #3B7E46);
+    }
+
+    .section {
+      margin-top: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+    }
+
+    .section-header {
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface-2, rgba(127, 127, 127, 0.06));
+      font-weight: 900;
+    }
+
+    .check-item {
+      padding: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .check-item:last-child {
+      border-bottom: 0;
+    }
+
+    .check-item.defect {
+      background: rgba(180, 35, 24, 0.045);
+    }
+
+    .check-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 9px;
+    }
+
+    @media (min-width: 700px) {
+      .check-row {
+        grid-template-columns: minmax(200px, 1fr) 250px;
+        align-items: center;
+      }
+    }
+
+    .check-label {
+      font-weight: 800;
+      line-height: 1.3;
+    }
+
+    .status-buttons {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .status-button {
+      min-height: 42px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: var(--surface);
+      color: var(--muted, #68716c);
+      font-size: 13px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    .status-button.pass.active {
+      border-color: #3B7E46;
+      background: #3B7E46;
+      color: #fff;
+    }
+
+    .status-button.defect.active {
+      border-color: #b42318;
+      background: #b42318;
+      color: #fff;
+    }
+
+    .status-button.na.active {
+      border-color: #667085;
+      background: #667085;
+      color: #fff;
+    }
+
+    .defect-note-wrap {
+      display: none;
+      margin-top: 9px;
+    }
+
+    .check-item.defect .defect-note-wrap {
+      display: block;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 13px;
+    }
+
+    .summary-box {
+      padding: 10px 6px;
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      background: var(--surface-2, rgba(127, 127, 127, 0.05));
+      text-align: center;
+    }
+
+    .summary-number {
+      display: block;
+      font-size: 22px;
+      font-weight: 900;
+      line-height: 1;
+    }
+
+    .summary-label {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted, #68716c);
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .certify {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-top: 13px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--surface-2, rgba(127, 127, 127, 0.05));
+    }
+
+    .certify input {
+      width: 21px;
+      height: 21px;
+      margin: 1px 0 0;
+      accent-color: var(--brand-green, #3B7E46);
+      flex: 0 0 auto;
+    }
+
+    .certify label {
+      line-height: 1.4;
+      font-weight: 750;
+    }
+
+    .submit-bar {
+      position: sticky;
+      z-index: 5;
+      bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 15px;
+      background: var(--surface);
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.16);
+    }
+
+    .submit-button {
+      width: 100%;
+      min-height: 54px;
+      border: 0;
+      border-radius: 12px;
+      background: var(--brand-green, #3B7E46);
+      color: #fff;
+      font-size: 17px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    .submit-button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+
+<body>
+  <fv-shell>
+    <main class="page">
+      <header class="page-header">
+        <h1>Pre-Trip Inspection</h1>
+
+        <p>
+          Select your truck and trailer, complete the checklist,
+          and submit the daily inspection.
+        </p>
+      </header>
+
+      <div
+        id="message"
+        class="message"
+        role="status"
+        aria-live="polite"
+      ></div>
+
+      <form id="inspectionForm">
+        <section class="card">
+          <h2>Driver and Equipment</h2>
+
+          <p class="card-subtitle">
+            Driver and date are filled in automatically.
+          </p>
+
+          <div class="form-grid">
+            <div class="field">
+              <label for="driverName">Driver</label>
+
+              <input
+                id="driverName"
+                class="control"
+                type="text"
+                readonly
+              />
+            </div>
+
+            <div class="field">
+              <label for="inspectionDate" class="required">
+                Date
+              </label>
+
+              <input
+                id="inspectionDate"
+                class="control"
+                type="date"
+                required
+              />
+            </div>
+
+            <div class="field">
+              <label for="truckSelect" class="required">
+                Truck / Semi
+              </label>
+
+              <select
+                id="truckSelect"
+                class="control"
+                required
+              >
+                <option value="">Loading trucks…</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="trailerSelect">
+                Trailer
+              </label>
+
+              <select
+                id="trailerSelect"
+                class="control"
+              >
+                <option value="">Loading trailers…</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="odometer">
+                Odometer
+              </label>
+
+              <input
+                id="odometer"
+                class="control"
+                type="number"
+                min="0"
+                step="1"
+                inputmode="numeric"
+                placeholder="Optional"
+              />
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Inspection Checklist</h2>
+
+          <p class="card-subtitle">
+            Tap Mark All Good, then change any problem items.
+          </p>
+
+          <div class="quick-actions">
+            <button
+              id="markAllGood"
+              class="button button-good"
+              type="button"
+            >
+              ✓ Mark All Good
+            </button>
+
+            <button
+              id="clearChecklist"
+              class="button"
+              type="button"
+            >
+              Clear
+            </button>
+          </div>
+
+          <div id="checklist"></div>
+
+          <div class="summary">
+            <div class="summary-box">
+              <span id="passCount" class="summary-number">0</span>
+              <span class="summary-label">Good</span>
+            </div>
+
+            <div class="summary-box">
+              <span id="defectCount" class="summary-number">0</span>
+              <span class="summary-label">Defects</span>
+            </div>
+
+            <div class="summary-box">
+              <span id="remainingCount" class="summary-number">0</span>
+              <span class="summary-label">Remaining</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Remarks</h2>
+
+          <p class="card-subtitle">
+            Add any additional information for the office or mechanic.
+          </p>
+
+          <textarea
+            id="remarks"
+            class="control"
+            placeholder="Optional remarks"
+          ></textarea>
+
+          <div class="certify">
+            <input
+              id="certify"
+              type="checkbox"
+            />
+
+            <label for="certify">
+              I certify that I completed this inspection and the
+              information is accurate.
+            </label>
+          </div>
+        </section>
+
+        <div class="submit-bar">
+          <button
+            id="submitButton"
+            class="submit-button"
+            type="submit"
+          >
+            Submit Inspection
+          </button>
+        </div>
+      </form>
+    </main>
+  </fv-shell>
+
+  <script type="module">
+    import {
+      getFirestore,
+      collection,
+      getDocs,
+      addDoc,
+      serverTimestamp,
+      getAuth,
+      onAuthStateChanged
+    } from "/Farm-vista/js/firebase-init.js";
+
+    const db = getFirestore();
+    const auth = getAuth();
+
+    const EQUIPMENT_COLLECTION = "equipment";
+    const INSPECTION_COLLECTION = "logisticsInspections";
+
+    const state = {
+      user: null,
+      trucks: [],
+      trailers: [],
+      responses: new Map(),
+      saving: false
+    };
+
+    const truckItems = [
+      "Air Lines",
+      "Brakes",
+      "Brake Connections",
+      "Engine",
+      "Fifth Wheel",
+      "Fire Extinguisher",
+      "Horn",
+      "Lights",
+      "Mirrors",
+      "Oil Pressure",
+      "Steering",
+      "Tires",
+      "Wheels and Lug Nuts",
+      "Windows",
+      "Windshield Wipers"
+    ];
+
+    const trailerItems = [
+      "Brake Connections",
+      "Brakes",
+      "Coupling",
+      "King Pin",
+      "Doors",
+      "Landing Gear",
+      "Lights",
+      "Reflectors",
+      "Springs / Air Bags",
+      "Tires",
+      "Wheels and Lug Nuts"
+    ];
+
+    const elements = {
+      form: document.getElementById("inspectionForm"),
+      message: document.getElementById("message"),
+      driverName: document.getElementById("driverName"),
+      inspectionDate: document.getElementById("inspectionDate"),
+      truckSelect: document.getElementById("truckSelect"),
+      trailerSelect: document.getElementById("trailerSelect"),
+      odometer: document.getElementById("odometer"),
+      checklist: document.getElementById("checklist"),
+      markAllGood: document.getElementById("markAllGood"),
+      clearChecklist: document.getElementById("clearChecklist"),
+      passCount: document.getElementById("passCount"),
+      defectCount: document.getElementById("defectCount"),
+      remainingCount: document.getElementById("remainingCount"),
+      remarks: document.getElementById("remarks"),
+      certify: document.getElementById("certify"),
+      submitButton: document.getElementById("submitButton")
+    };
+
+    function clean(value) {
+      return String(value ?? "").trim();
+    }
+
+    function normalized(value) {
+      return clean(value).toLowerCase();
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(
+        /[&<>"']/g,
+        character => ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          "\"": "&quot;",
+          "'": "&#39;"
+        })[character]
+      );
+    }
+
+    function todayLocal() {
+      const now = new Date();
+
+      return [
+        now.getFullYear(),
+        String(now.getMonth() + 1).padStart(2, "0"),
+        String(now.getDate()).padStart(2, "0")
+      ].join("-");
+    }
+
+    function showMessage(text, type = "") {
+      elements.message.textContent = text;
+      elements.message.className = `message show ${type}`;
+
+      elements.message.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest"
+      });
+    }
+
+    function clearMessage() {
+      elements.message.textContent = "";
+      elements.message.className = "message";
+    }
+
+    function isActive(record) {
+      return normalized(record.status) === "active";
+    }
+
+    function isTruck(record) {
+      return (
+        normalized(record.type) === "truck" &&
+        normalized(record.dotRequired) === "yes" &&
+        isActive(record)
+      );
+    }
+
+    function isTrailer(record) {
+      return (
+        normalized(record.type) === "trailer" &&
+        normalized(record.trailerDotRequired) === "yes" &&
+        isActive(record)
+      );
+    }
+
+    function equipmentUnit(record) {
+      return clean(
+        record.unitId ||
+        record.unitNumber ||
+        record.number ||
+        record.extras?.unitId
+      );
+    }
+
+    function equipmentYear(record) {
+      return clean(record.year);
+    }
+
+    function equipmentMake(record) {
+      return clean(
+        record.makeName ||
+        record.make ||
+        record.manufacturer
+      );
+    }
+
+    function equipmentModel(record) {
+      return clean(
+        record.modelName ||
+        record.model
+      );
+    }
+
+    function equipmentLabel(record) {
+      const unit = equipmentUnit(record);
+
+      const description = [
+        equipmentYear(record),
+        equipmentMake(record),
+        equipmentModel(record)
+      ].filter(Boolean).join(" ");
+
+      if (unit && description) {
+        return `${unit} • ${description}`;
+      }
+
+      return (
+        unit ||
+        description ||
+        clean(record.name) ||
+        record.id
+      );
+    }
+
+    function sortEquipment(a, b) {
+      return equipmentLabel(a).localeCompare(
+        equipmentLabel(b),
+        undefined,
+        {
+          numeric: true,
+          sensitivity: "base"
+        }
+      );
+    }
+
+    async function loadEquipment() {
+      try {
+        const snapshot = await getDocs(
+          collection(db, EQUIPMENT_COLLECTION)
+        );
+
+        const records = snapshot.docs.map(documentSnapshot => ({
+          id: documentSnapshot.id,
+          ...documentSnapshot.data()
+        }));
+
+        state.trucks = records
+          .filter(isTruck)
+          .sort(sortEquipment);
+
+        state.trailers = records
+          .filter(isTrailer)
+          .sort(sortEquipment);
+
+        renderEquipmentDropdowns();
+
+        if (!state.trucks.length) {
+          showMessage(
+            "No active DOT-required trucks were found.",
+            "error"
+          );
+        }
+      } catch (error) {
+        console.error("[Logistics] Equipment load failed:", error);
+
+        elements.truckSelect.innerHTML =
+          `<option value="">Unable to load trucks</option>`;
+
+        elements.trailerSelect.innerHTML =
+          `<option value="">Unable to load trailers</option>`;
+
+        showMessage(
+          "FarmVista could not load the equipment list.",
+          "error"
+        );
+      }
+    }
+
+    function renderEquipmentDropdowns() {
+      elements.truckSelect.innerHTML = [
+        `<option value="">Select truck / semi</option>`,
+        ...state.trucks.map(record => `
+          <option value="${escapeHtml(record.id)}">
+            ${escapeHtml(equipmentLabel(record))}
+          </option>
+        `)
+      ].join("");
+
+      elements.trailerSelect.innerHTML = [
+        `<option value="">No trailer selected</option>`,
+        ...state.trailers.map(record => `
+          <option value="${escapeHtml(record.id)}">
+            ${escapeHtml(equipmentLabel(record))}
+          </option>
+        `)
+      ].join("");
+    }
+
+    function slug(value) {
+      return value
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "");
+    }
+
+    function visibleSections() {
+      const sections = [
+        {
+          id: "truck",
+          title: "Truck / Semi",
+          items: truckItems
+        }
+      ];
+
+      if (elements.trailerSelect.value) {
+        sections.push({
+          id: "trailer",
+          title: "Trailer",
+          items: trailerItems
+        });
+      }
+
+      return sections;
+    }
+
+    function visibleItems() {
+      return visibleSections().flatMap(section => {
+        return section.items.map(label => ({
+          id: `${section.id}-${slug(label)}`,
+          section: section.title,
+          label
+        }));
+      });
+    }
+
+    function ensureResponse(item) {
+      if (!state.responses.has(item.id)) {
+        state.responses.set(item.id, {
+          itemId: item.id,
+          section: item.section,
+          label: item.label,
+          status: "",
+          note: ""
+        });
+      }
+
+      return state.responses.get(item.id);
+    }
+
+    function renderChecklist() {
+      elements.checklist.innerHTML =
+        visibleSections().map(section => {
+          const itemsHtml = section.items.map(label => {
+            const item = {
+              id: `${section.id}-${slug(label)}`,
+              section: section.title,
+              label
+            };
+
+            const response = ensureResponse(item);
+            const defectClass =
+              response.status === "defect" ? " defect" : "";
+
+            return `
+              <div
+                class="check-item${defectClass}"
+                data-item-id="${escapeHtml(item.id)}"
+              >
+                <div class="check-row">
+                  <div class="check-label">
+                    ${escapeHtml(label)}
+                  </div>
+
+                  <div class="status-buttons">
+                    <button
+                      type="button"
+                      class="status-button pass ${
+                        response.status === "pass"
+                          ? "active"
+                          : ""
+                      }"
+                      data-item-id="${escapeHtml(item.id)}"
+                      data-status="pass"
+                    >
+                      Good
+                    </button>
+
+                    <button
+                      type="button"
+                      class="status-button defect ${
+                        response.status === "defect"
+                          ? "active"
+                          : ""
+                      }"
+                      data-item-id="${escapeHtml(item.id)}"
+                      data-status="defect"
+                    >
+                      Defect
+                    </button>
+
+                    <button
+                      type="button"
+                      class="status-button na ${
+                        response.status === "na"
+                          ? "active"
+                          : ""
+                      }"
+                      data-item-id="${escapeHtml(item.id)}"
+                      data-status="na"
+                    >
+                      N/A
+                    </button>
+                  </div>
+                </div>
+
+                <div class="defect-note-wrap">
+                  <textarea
+                    class="control defect-note"
+                    data-item-id="${escapeHtml(item.id)}"
+                    placeholder="Describe the defect"
+                  >${escapeHtml(response.note)}</textarea>
+                </div>
+              </div>
+            `;
+          }).join("");
+
+          return `
+            <section class="section">
+              <div class="section-header">
+                ${escapeHtml(section.title)}
+              </div>
+
+              ${itemsHtml}
+            </section>
+          `;
+        }).join("");
+
+      updateSummary();
+    }
+
+    function updateSummary() {
+      const items = visibleItems();
+      const responses = items.map(ensureResponse);
+
+      const passCount = responses.filter(
+        response => response.status === "pass"
+      ).length;
+
+      const defectCount = responses.filter(
+        response => response.status === "defect"
+      ).length;
+
+      const completedCount = responses.filter(
+        response => Boolean(response.status)
+      ).length;
+
+      elements.passCount.textContent = String(passCount);
+      elements.defectCount.textContent = String(defectCount);
+      elements.remainingCount.textContent =
+        String(items.length - completedCount);
+    }
+
+    function setStatus(itemId, status) {
+      const item = visibleItems().find(
+        currentItem => currentItem.id === itemId
+      );
+
+      if (!item) {
+        return;
+      }
+
+      const response = ensureResponse(item);
+
+      response.status = status;
+
+      if (status !== "defect") {
+        response.note = "";
+      }
+
+      renderChecklist();
+    }
+
+    function markAllGood() {
+      visibleItems().forEach(item => {
+        const response = ensureResponse(item);
+
+        response.status = "pass";
+        response.note = "";
+      });
+
+      renderChecklist();
+    }
+
+    function clearChecklist() {
+      visibleItems().forEach(item => {
+        const response = ensureResponse(item);
+
+        response.status = "";
+        response.note = "";
+      });
+
+      renderChecklist();
+    }
+
+    function selectedTruck() {
+      return state.trucks.find(
+        record => record.id === elements.truckSelect.value
+      ) || null;
+    }
+
+    function selectedTrailer() {
+      return state.trailers.find(
+        record => record.id === elements.trailerSelect.value
+      ) || null;
+    }
+
+    function equipmentSnapshot(record) {
+      if (!record) {
+        return null;
+      }
+
+      return {
+        id: record.id,
+        label: equipmentLabel(record),
+        unitId: equipmentUnit(record) || null,
+        year: equipmentYear(record) || null,
+        makeName: equipmentMake(record) || null,
+        modelName: equipmentModel(record) || null,
+        serial: clean(record.serial) || null,
+        type: clean(record.type) || null
+      };
+    }
+
+    function validateInspection() {
+      clearMessage();
+
+      if (!state.user) {
+        showMessage(
+          "Your FarmVista user account is not loaded.",
+          "error"
+        );
+
+        return false;
+      }
+
+      if (!elements.inspectionDate.value) {
+        showMessage(
+          "Choose the inspection date.",
+          "error"
+        );
+
+        return false;
+      }
+
+      if (!elements.truckSelect.value) {
+        showMessage(
+          "Select the truck or semi.",
+          "error"
+        );
+
+        return false;
+      }
+
+      const responses = visibleItems().map(ensureResponse);
+
+      const remaining = responses.filter(
+        response => !response.status
+      );
+
+      if (remaining.length) {
+        showMessage(
+          `Complete the remaining ${remaining.length} checklist item` +
+          `${remaining.length === 1 ? "" : "s"}.`,
+          "error"
+        );
+
+        return false;
+      }
+
+      const missingNotes = responses.filter(response => {
+        return (
+          response.status === "defect" &&
+          !clean(response.note)
+        );
+      });
+
+      if (missingNotes.length) {
+        showMessage(
+          "Every defect must include a description.",
+          "error"
+        );
+
+        return false;
+      }
+
+      if (!elements.certify.checked) {
+        showMessage(
+          "Check the driver certification before submitting.",
+          "error"
+        );
+
+        return false;
+      }
+
+      return true;
+    }
+
+    async function submitInspection(event) {
+      event.preventDefault();
+
+      if (state.saving || !validateInspection()) {
+        return;
+      }
+
+      state.saving = true;
+      elements.submitButton.disabled = true;
+      elements.submitButton.textContent = "Submitting…";
+
+      const truck = selectedTruck();
+      const trailer = selectedTrailer();
+
+      const responses = visibleItems().map(item => {
+        const response = ensureResponse(item);
+
+        return {
+          itemId: response.itemId,
+          section: response.section,
+          label: response.label,
+          status: response.status,
+          note: clean(response.note) || null
+        };
+      });
+
+      const defects = responses.filter(
+        response => response.status === "defect"
+      );
+
+      const payload = {
+        inspectionDate: elements.inspectionDate.value,
+        inspectionType: "preTrip",
+
+        driverUid: state.user.uid,
+        driverName:
+          state.user.displayName ||
+          state.user.email ||
+          "FarmVista User",
+        driverEmail: state.user.email || null,
+
+        truckId: truck.id,
+        truckLabel: equipmentLabel(truck),
+        truckUnitId: equipmentUnit(truck) || null,
+        truck: equipmentSnapshot(truck),
+
+        trailerId: trailer?.id || null,
+        trailerLabel:
+          trailer ? equipmentLabel(trailer) : null,
+        trailerUnitId:
+          trailer ? equipmentUnit(trailer) || null : null,
+        trailer: equipmentSnapshot(trailer),
+
+        odometerMiles:
+          elements.odometer.value
+            ? Number(elements.odometer.value)
+            : null,
+
+        responses,
+        itemCount: responses.length,
+        passCount: responses.filter(
+          response => response.status === "pass"
+        ).length,
+        defectCount: defects.length,
+        notApplicableCount: responses.filter(
+          response => response.status === "na"
+        ).length,
+
+        hasDefects: defects.length > 0,
+        overallStatus:
+          defects.length > 0
+            ? "defectsReported"
+            : "satisfactory",
+
+        remarks: clean(elements.remarks.value) || null,
+
+        driverCertified: true,
+        reviewStatus:
+          defects.length > 0
+            ? "reviewRequired"
+            : "notRequired",
+
+        submittedAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+
+      try {
+        const savedInspection = await addDoc(
+          collection(db, INSPECTION_COLLECTION),
+          payload
+        );
+
+        console.info(
+          "[Logistics] Inspection saved:",
+          savedInspection.id
+        );
+
+        showMessage(
+          defects.length
+            ? "Inspection submitted with defects reported."
+            : "Inspection submitted successfully.",
+          "success"
+        );
+
+        resetForm();
+      } catch (error) {
+        console.error(
+          "[Logistics] Inspection save failed:",
+          error
+        );
+
+        showMessage(
+          "The inspection could not be saved. Your entries are still on the screen.",
+          "error"
+        );
+      } finally {
+        state.saving = false;
+        elements.submitButton.disabled = false;
+        elements.submitButton.textContent = "Submit Inspection";
+      }
+    }
+
+    function resetForm() {
+      state.responses.clear();
+
+      elements.truckSelect.value = "";
+      elements.trailerSelect.value = "";
+      elements.odometer.value = "";
+      elements.remarks.value = "";
+      elements.certify.checked = false;
+      elements.inspectionDate.value = todayLocal();
+
+      renderChecklist();
+    }
+
+    function initializeUser() {
+      onAuthStateChanged(auth, user => {
+        state.user = user || null;
+
+        if (user) {
+          elements.driverName.value =
+            user.displayName ||
+            user.email ||
+            "FarmVista User";
+        } else {
+          elements.driverName.value = "Not signed in";
+
+          showMessage(
+            "You must be signed in to submit an inspection.",
+            "error"
+          );
+        }
+      });
+    }
+
+    elements.checklist.addEventListener("click", event => {
+      const button = event.target.closest(".status-button");
+
+      if (!button) {
+        return;
+      }
+
+      setStatus(
+        button.dataset.itemId,
+        button.dataset.status
+      );
+    });
+
+    elements.checklist.addEventListener("input", event => {
+      const noteField = event.target.closest(".defect-note");
+
+      if (!noteField) {
+        return;
+      }
+
+      const response = state.responses.get(
+        noteField.dataset.itemId
+      );
+
+      if (response) {
+        response.note = noteField.value;
+      }
+    });
+
+    elements.trailerSelect.addEventListener(
+      "change",
+      renderChecklist
+    );
+
+    elements.markAllGood.addEventListener(
+      "click",
+      markAllGood
+    );
+
+    elements.clearChecklist.addEventListener(
+      "click",
+      clearChecklist
+    );
+
+    elements.form.addEventListener(
+      "submit",
+      submitInspection
+    );
+
+    elements.inspectionDate.value = todayLocal();
+
+    initializeUser();
+    renderChecklist();
+    loadEquipment();
+  </script>
+</body>
+</html>
