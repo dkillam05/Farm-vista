@@ -362,12 +362,42 @@
       border-radius: 14px;
     }
 
-    .section-header {
-      padding: 11px 12px;
-      border-bottom: 1px solid var(--border);
-      background: var(--surface-2, rgba(127, 127, 127, 0.06));
-      font-weight: 900;
-    }
+.section-header {
+  position: relative;
+  width: 100%;
+  min-height: 52px;
+  padding: 12px 44px 12px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2, rgba(127, 127, 127, 0.06));
+  color: var(--text);
+  font: inherit;
+  font-weight: 900;
+  text-align: left;
+  cursor: pointer;
+}
+
+.section-header::after {
+  content: "▾";
+  position: absolute;
+  top: 50%;
+  right: 15px;
+  font-size: 18px;
+  transform: translateY(-50%) rotate(-90deg);
+  transition: transform 0.15s ease;
+}
+
+.section[data-open="1"] .section-header::after {
+  transform: translateY(-50%) rotate(0deg);
+}
+
+.section-body {
+  display: none;
+}
+
+.section[data-open="1"] .section-body {
+  display: block;
+}
 
     .check-item {
       padding: 12px;
@@ -902,6 +932,10 @@ const state = {
   responses: new Map(),
   defectPhotos: new Map(),
   defectPhotoUrls: new Map(),
+
+  /* Truck and trailer sections start collapsed. */
+  openChecklistSections: new Set(),
+
   saving: false
 };
 
@@ -1727,13 +1761,27 @@ function chooseTrailer(trailerId) {
             `;
           }).join("");
 
-          return `
-            <section class="section">
-              <div class="section-header">
-                ${escapeHtml(section.title)}
-              </div>
+          const isOpen =
+            state.openChecklistSections.has(section.id);
 
-              ${itemsHtml}
+          return `
+            <section
+              class="section"
+              data-section-id="${escapeHtml(section.id)}"
+              data-open="${isOpen ? "1" : "0"}"
+            >
+              <button
+                class="section-header"
+                type="button"
+                data-section-toggle="${escapeHtml(section.id)}"
+                aria-expanded="${isOpen ? "true" : "false"}"
+              >
+                ${escapeHtml(section.title)}
+              </button>
+
+              <div class="section-body">
+                ${itemsHtml}
+              </div>
             </section>
           `;
         }).join("");
@@ -2290,6 +2338,26 @@ async function initializeUser() {
 }
 
 elements.checklist.addEventListener("click", event => {
+  const sectionToggle = event.target.closest(
+    "[data-section-toggle]"
+  );
+
+  if (sectionToggle) {
+    const sectionId =
+      sectionToggle.dataset.sectionToggle;
+
+    if (
+      state.openChecklistSections.has(sectionId)
+    ) {
+      state.openChecklistSections.delete(sectionId);
+    } else {
+      state.openChecklistSections.add(sectionId);
+    }
+
+    renderChecklist();
+    return;
+  }
+
   const removePhotoButton = event.target.closest(
     ".defect-photo-remove"
   );
