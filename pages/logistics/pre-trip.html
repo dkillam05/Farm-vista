@@ -1216,29 +1216,39 @@ async function loadEquipment() {
     );
 
     const inspectedTruckIds = new Set();
+    const inspectedTrailerIds = new Set();
 
-    inspectionSnapshot.docs.forEach(documentSnapshot => {
-      const inspection = documentSnapshot.data();
+inspectionSnapshot.docs.forEach(documentSnapshot => {
+  const inspection = documentSnapshot.data();
 
-      const isToday =
-        clean(inspection.inspectionDate) === today;
+  const isToday =
+    clean(inspection.inspectionDate) === today;
 
-      const isPreTrip =
-        normalized(inspection.inspectionType) === "pretrip";
+  const isPreTrip =
+    normalized(inspection.inspectionType) === "pretrip";
 
-      if (!isToday || !isPreTrip) {
-        return;
-      }
+  if (!isToday || !isPreTrip) {
+    return;
+  }
 
-      const truckId = clean(
-        inspection.truckId ||
-        inspection.truck?.id
-      );
+  const truckId = clean(
+    inspection.truckId ||
+    inspection.truck?.id
+  );
 
-      if (truckId) {
-        inspectedTruckIds.add(truckId);
-      }
-    });
+  const trailerId = clean(
+    inspection.trailerId ||
+    inspection.trailer?.id
+  );
+
+  if (truckId) {
+    inspectedTruckIds.add(truckId);
+  }
+
+  if (trailerId) {
+    inspectedTrailerIds.add(trailerId);
+  }
+});
 
     state.trucks = records
       .filter(record => {
@@ -1249,9 +1259,14 @@ async function loadEquipment() {
       })
       .sort(sortEquipment);
 
-    state.trailers = records
-      .filter(isTrailer)
-      .sort(sortEquipment);
+state.trailers = records
+  .filter(record => {
+    return (
+      isTrailer(record) &&
+      !inspectedTrailerIds.has(record.id)
+    );
+  })
+  .sort(sortEquipment);
 
     console.log(
       "[Logistics] Available trucks:",
@@ -2234,14 +2249,16 @@ console.info(
   newOdometerMiles
 );
 
-        showMessage(
-          defects.length
-            ? "Inspection submitted with defects reported."
-            : "Inspection submitted successfully.",
-          "success"
-        );
+showMessage(
+  defects.length
+    ? "Inspection submitted with defects reported. Returning to Home…"
+    : "Inspection submitted successfully. Returning to Home…",
+  "success"
+);
 
-        resetForm();
+setTimeout(() => {
+  window.location.href = "/Farm-vista/index.html";
+}, 1000);
       } catch (error) {
         console.error(
           "[Logistics] Inspection save failed:",
