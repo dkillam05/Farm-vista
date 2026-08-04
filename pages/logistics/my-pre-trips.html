@@ -778,50 +778,6 @@
   display: none;
 }
 
-body.printing-report {
-  overflow: visible !important;
-  background: #fff !important;
-}
-
-body.printing-report fv-shell {
-  visibility: hidden !important;
-}
-
-body.printing-report .modal {
-  display: none !important;
-}
-
-body.printing-report .print-host {
-  display: block !important;
-  visibility: visible !important;
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  background: #fff;
-  z-index: 999999;
-}
-
-body.printing-report .print-host {
-  display: block !important;
-  width: 100% !important;
-  height: auto !important;
-  min-height: 0 !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  overflow: visible !important;
-  background: #fff !important;
-}
-
-body.printing-report .print-host .report {
-  display: block !important;
-  width: 100% !important;
-  height: auto !important;
-  min-height: 0 !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  overflow: visible !important;
-  color: #000 !important;
-}
     /*
      * PRINT / SAVE AS PDF
      *
@@ -851,121 +807,23 @@ fv-shell,
   display: none !important;
 }
 
-.print-host {
-  display: block !important;
-  position: static !important;
-  width: 100% !important;
-  height: auto !important;
-  min-height: 0 !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  overflow: visible !important;
-  background: #fff !important;
+/* ==========================================================
+   Hidden Print IFrame
+   Used for printing reports on desktop, Android and iPhone.
+   ========================================================== */
+
+#fv-print-frame {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  width: 0;
+  height: 0;
+  border: 0;
+  visibility: hidden;
+  pointer-events: none;
+  opacity: 0;
 }
-
-.print-host .report {
-  display: block !important;
-  width: 100% !important;
-  height: auto !important;
-  min-height: 0 !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  overflow: visible !important;
-  color: #000 !important;
-}
-
-      .report-heading,
-      .report-meta,
-      .inspection-title,
-      .defect-card,
-      .remarks-box,
-      .certification {
-        break-inside: avoid;
-        page-break-inside: avoid;
-      }
-
-      /*
-       * Each checklist can begin wherever space remains on the page.
-       * It may then continue across page 2, page 3, etc.
-       */
-      .inspection-block {
-        display: block !important;
-        break-inside: auto !important;
-        page-break-inside: auto !important;
-      }
-
-      .inspection-table {
-        display: table !important;
-        width: 100% !important;
-        height: auto !important;
-        overflow: visible !important;
-        border: 1px solid #777 !important;
-        border-collapse: collapse !important;
-        table-layout: fixed !important;
-        break-inside: auto !important;
-        page-break-inside: auto !important;
-      }
-
-      .inspection-table thead {
-        display: table-header-group !important;
-      }
-
-      .inspection-table tbody {
-        display: table-row-group !important;
-      }
-
-      .inspection-table tr {
-        break-inside: avoid !important;
-        page-break-inside: avoid !important;
-      }
-
-      .inspection-table th,
-      .inspection-table td {
-        height: auto !important;
-        overflow: visible !important;
-        border: 1px solid #999 !important;
-        background: #fff !important;
-        color: #000 !important;
-      }
-
-      .inspection-table th {
-        background: #f1f1f1 !important;
-      }
-
-      .meta-box,
-      .remarks-box,
-      .certification {
-        background: #fff !important;
-      }
-
-      .inspection-result.pass {
-        color: #2f6c3c !important;
-      }
-
-      .inspection-result.defect {
-        color: #b42318 !important;
-      }
-
-      .inspection-result.na {
-        color: #444 !important;
-      }
-
-      .inline-defect,
-      .defect-card {
-        background: #fff !important;
-      }
-
-      a {
-        color: #000 !important;
-        text-decoration: none !important;
-      }
-
-      @page {
-        size: auto;
-        margin: 0.38in;
-      }
-    }
-  </style>
+</style>
 </head>
 
 <body>
@@ -1134,12 +992,10 @@ fv-shell,
     </article>
   </div>
 
-  <!-- Standalone report copy used only for printing on phones -->
-  <div
-    id="printHost"
-    class="print-host"
-    aria-hidden="true"
-  ></div>
+<iframe
+  id="fv-print-frame"
+  title="Pre-Trip Print Report"
+></iframe>
 
   <script type="module">
     import {
@@ -1182,7 +1038,7 @@ fv-shell,
 
 printButton: document.getElementById("printButton"),
 closeButton: document.getElementById("closeButton"),
-printHost: document.getElementById("printHost")
+printFrame: document.getElementById("fv-print-frame")
     };
 
     function clean(value) {
@@ -2030,6 +1886,558 @@ printHost: document.getElementById("printHost")
         url.pathname + url.search
       );
     }
+function buildPrintHtml(row) {
+  const defective = hasDefects(row);
+  const defects = defectCount(row);
+
+  const truckResponses =
+    inspectionResponses(row, "truck");
+
+  const trailerResponses =
+    inspectionResponses(row, "trailer");
+
+  const submitted = formatDateTime(
+    row.submittedAt ||
+    row.createdAt
+  );
+
+  const driverName =
+    row.driverName ||
+    state.user?.displayName ||
+    state.user?.email ||
+    "FarmVista User";
+
+  function printTable(responses) {
+    if (!responses.length) {
+      return `
+        <div class="empty-box">
+          No inspection items were saved for this section.
+        </div>
+      `;
+    }
+
+    return `
+      <table class="inspection-table">
+        <colgroup>
+          <col>
+          <col class="result-column">
+        </colgroup>
+
+        <thead>
+          <tr>
+            <th>Inspection Item</th>
+            <th>Result</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          ${responses.map(response => {
+            const status = normalized(response.status);
+
+            return `
+              <tr>
+                <td>
+                  <div class="item-name">
+                    ${escapeHtml(
+                      response.label ||
+                      response.itemId ||
+                      "Inspection item"
+                    )}
+                  </div>
+
+                  ${
+                    status === "defect" && response.note
+                      ? `
+                        <div class="defect-note">
+                          ${escapeHtml(response.note)}
+                        </div>
+                      `
+                      : ""
+                  }
+                </td>
+
+                <td class="result ${escapeHtml(status)}">
+                  ${escapeHtml(
+                    statusLabel(response.status)
+                  )}
+                </td>
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      </table>
+    `;
+  }
+
+  return `
+    <!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+
+      <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1"
+      >
+
+      <title>
+        FarmVista Pre-Trip ${escapeHtml(
+          clean(row.inspectionDate) || "Inspection"
+        )}
+      </title>
+
+      <style>
+        :root {
+          --green: #3B7E46;
+          --dark-green: #2F6C3C;
+          --red: #B42318;
+          --border: #9CA3AF;
+          --light-border: #D1D5DB;
+          --muted: #667085;
+          --light: #F3F4F6;
+          --text: #111827;
+        }
+
+        * {
+          box-sizing: border-box;
+        }
+
+        html,
+        body {
+          margin: 0;
+          padding: 0;
+          background: #fff;
+          color: var(--text);
+          font-family:
+            system-ui,
+            -apple-system,
+            BlinkMacSystemFont,
+            "Segoe UI",
+            sans-serif;
+        }
+
+        body {
+          padding: 18px;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+
+        .report {
+          width: 100%;
+          max-width: 900px;
+          margin: 0 auto;
+        }
+
+        .report-heading {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 14px;
+          align-items: start;
+          padding-bottom: 12px;
+          border-bottom: 3px solid var(--green);
+        }
+
+        .brand-row {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .logo {
+          display: grid;
+          width: 42px;
+          height: 42px;
+          flex: 0 0 auto;
+          place-items: center;
+          border-radius: 10px;
+          background: var(--green);
+          color: #fff;
+          font-size: 21px;
+        }
+
+        .brand {
+          font-size: 21px;
+          font-weight: 950;
+          line-height: 1;
+        }
+
+        .report-name {
+          margin-top: 4px;
+          font-size: 13px;
+          font-weight: 850;
+        }
+
+        .status {
+          padding: 7px 10px;
+          border: 1px solid rgba(59, 126, 70, 0.3);
+          border-radius: 999px;
+          background: rgba(59, 126, 70, 0.09);
+          color: var(--dark-green);
+          font-size: 11px;
+          font-weight: 950;
+          white-space: nowrap;
+        }
+
+        .status.defect {
+          border-color: rgba(180, 35, 24, 0.35);
+          background: rgba(180, 35, 24, 0.08);
+          color: var(--red);
+        }
+
+        .meta-grid {
+          display: grid;
+          grid-template-columns:
+            repeat(3, minmax(0, 1fr));
+          gap: 7px;
+          margin-top: 12px;
+        }
+
+        .meta-box {
+          min-width: 0;
+          padding: 8px 9px;
+          border: 1px solid var(--light-border);
+          border-radius: 9px;
+        }
+
+        .meta-label {
+          color: var(--muted);
+          font-size: 8px;
+          font-weight: 900;
+          letter-spacing: 0.07em;
+          text-transform: uppercase;
+        }
+
+        .meta-value {
+          margin-top: 3px;
+          overflow-wrap: anywhere;
+          font-size: 11px;
+          font-weight: 850;
+          line-height: 1.3;
+        }
+
+        .inspection-section {
+          margin-top: 12px;
+          break-inside: auto;
+          page-break-inside: auto;
+        }
+
+        .section-title {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          margin: 0 0 6px;
+          padding: 6px 8px;
+          border-left: 4px solid var(--green);
+          background: var(--light);
+          font-size: 13px;
+          font-weight: 950;
+          break-after: avoid;
+          page-break-after: avoid;
+        }
+
+        .item-count {
+          color: var(--muted);
+          font-size: 9px;
+          font-weight: 850;
+          white-space: nowrap;
+        }
+
+        .inspection-table {
+          display: table;
+          width: 100%;
+          border: 1px solid var(--border);
+          border-collapse: collapse;
+          table-layout: fixed;
+          break-inside: auto;
+          page-break-inside: auto;
+        }
+
+        .inspection-table .result-column {
+          width: 90px;
+        }
+
+        .inspection-table thead {
+          display: table-header-group;
+        }
+
+        .inspection-table tbody {
+          display: table-row-group;
+        }
+
+        .inspection-table tr {
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+
+        .inspection-table th,
+        .inspection-table td {
+          padding: 5px 7px;
+          border: 1px solid var(--border);
+          font-size: 10px;
+          line-height: 1.25;
+          text-align: left;
+          vertical-align: top;
+        }
+
+        .inspection-table th {
+          background: var(--light);
+          font-weight: 950;
+        }
+
+        .item-name {
+          font-weight: 800;
+        }
+
+        .result {
+          font-weight: 950;
+          white-space: nowrap;
+        }
+
+        .result.pass {
+          color: var(--dark-green);
+        }
+
+        .result.defect {
+          color: var(--red);
+        }
+
+        .result.na {
+          color: #444;
+        }
+
+        .defect-note {
+          margin-top: 3px;
+          padding: 4px 6px;
+          border-left: 3px solid var(--red);
+          color: var(--red);
+          font-size: 9px;
+          font-weight: 700;
+        }
+
+        .remarks-box,
+        .certification,
+        .empty-box {
+          padding: 8px 9px;
+          border: 1px solid var(--light-border);
+          border-radius: 8px;
+          font-size: 10px;
+          line-height: 1.4;
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+
+        .remarks-box {
+          min-height: 46px;
+          white-space: pre-wrap;
+        }
+
+        .certification {
+          margin-top: 12px;
+        }
+
+        .certification-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 10px;
+          margin-top: 7px;
+          padding-top: 7px;
+          border-top: 1px solid var(--light-border);
+        }
+
+        .record-id {
+          margin-top: 6px;
+          overflow-wrap: anywhere;
+        }
+
+        @media print {
+          html,
+          body {
+            width: 100%;
+            height: auto;
+            margin: 0;
+            padding: 0;
+            overflow: visible;
+            background: #fff;
+          }
+
+          body {
+            display: block;
+          }
+
+          .report {
+            width: 100%;
+            max-width: none;
+            margin: 0;
+          }
+
+          .report-heading,
+          .meta-grid,
+          .section-title,
+          .remarks-box,
+          .certification {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+
+          @page {
+            size: auto;
+            margin: 0.38in;
+          }
+        }
+      </style>
+    </head>
+
+    <body>
+      <main class="report">
+        <header class="report-heading">
+          <div class="brand-row">
+            <div class="logo" aria-hidden="true">
+              🚛
+            </div>
+
+            <div>
+              <div class="brand">
+                FarmVista
+              </div>
+
+              <div class="report-name">
+                Driver Vehicle Pre-Trip Inspection Report
+              </div>
+            </div>
+          </div>
+
+          <div class="status ${defective ? "defect" : ""}">
+            ${
+              defective
+                ? `${defects} Defect${
+                    defects === 1 ? "" : "s"
+                  } Reported`
+                : "Satisfactory"
+            }
+          </div>
+        </header>
+
+        <section class="meta-grid">
+          <div class="meta-box">
+            <div class="meta-label">Driver</div>
+            <div class="meta-value">
+              ${escapeHtml(driverName)}
+            </div>
+          </div>
+
+          <div class="meta-box">
+            <div class="meta-label">Inspection Date</div>
+            <div class="meta-value">
+              ${escapeHtml(formatDate(row.inspectionDate))}
+            </div>
+          </div>
+
+          <div class="meta-box">
+            <div class="meta-label">Submitted</div>
+            <div class="meta-value">
+              ${escapeHtml(submitted)}
+            </div>
+          </div>
+
+          <div class="meta-box">
+            <div class="meta-label">Truck / Semi</div>
+            <div class="meta-value">
+              ${escapeHtml(truckLabel(row))}
+            </div>
+          </div>
+
+          <div class="meta-box">
+            <div class="meta-label">Trailer</div>
+            <div class="meta-value">
+              ${escapeHtml(trailerLabel(row))}
+            </div>
+          </div>
+
+          <div class="meta-box">
+            <div class="meta-label">Odometer</div>
+            <div class="meta-value">
+              ${escapeHtml(
+                formatNumber(row.odometerMiles)
+              )} miles
+            </div>
+          </div>
+        </section>
+
+        <section class="inspection-section">
+          <h2 class="section-title">
+            <span>Truck / Semi Inspection</span>
+
+            <span class="item-count">
+              ${truckResponses.length} items
+            </span>
+          </h2>
+
+          ${printTable(truckResponses)}
+        </section>
+
+        ${
+          row.trailerHookedOn !== false
+            ? `
+              <section class="inspection-section">
+                <h2 class="section-title">
+                  <span>Trailer Inspection</span>
+
+                  <span class="item-count">
+                    ${trailerResponses.length} items
+                  </span>
+                </h2>
+
+                ${printTable(trailerResponses)}
+              </section>
+            `
+            : ""
+        }
+
+        <section class="inspection-section">
+          <h2 class="section-title">
+            <span>Driver Remarks</span>
+          </h2>
+
+          <div class="remarks-box">
+            ${escapeHtml(
+              row.remarks ||
+              "No additional remarks."
+            )}
+          </div>
+        </section>
+
+        <section class="certification">
+          <strong>Driver Certification</strong>
+
+          <div>
+            This inspection was electronically certified and
+            submitted by the driver through FarmVista.
+          </div>
+
+          <div class="certification-grid">
+            <div>
+              <strong>Driver:</strong>
+              ${escapeHtml(driverName)}
+            </div>
+
+            <div>
+              <strong>Date:</strong>
+              ${escapeHtml(formatDate(row.inspectionDate))}
+            </div>
+          </div>
+
+          <div class="record-id">
+            <strong>Inspection Record ID:</strong>
+            ${escapeHtml(row.id)}
+          </div>
+        </section>
+      </main>
+    </body>
+    </html>
+  `;
+}
+    
 
 function printReport() {
   if (!state.selectedId) {
@@ -2044,178 +2452,47 @@ function printReport() {
     return;
   }
 
-  /*
-   * Open the new window immediately from the button click.
-   * This keeps iPhone Safari from blocking it as a popup.
-   */
-  const printWindow = window.open(
-    "",
-    "_blank"
-  );
+  const html = buildPrintHtml(row);
 
-  if (!printWindow) {
-    showMessage(
-      "FarmVista could not open the print report. Allow pop-ups for this site and try again.",
-      "error"
-    );
+  let iframe = elements.printFrame;
 
-    return;
+  if (!iframe) {
+    iframe = document.createElement("iframe");
+    iframe.id = "fv-print-frame";
+    iframe.title = "Pre-Trip Print Report";
+    document.body.appendChild(iframe);
+    elements.printFrame = iframe;
   }
 
-  const safeDate =
-    clean(row.inspectionDate) || "inspection";
+  const printWindow = iframe.contentWindow;
+  const printDocument =
+    iframe.contentDocument ||
+    printWindow.document;
 
-  const reportHtml =
-    elements.reportContent.innerHTML;
+  printDocument.open();
+  printDocument.write(html);
+  printDocument.close();
 
   /*
-   * Copy the page's report styling into the standalone
-   * print window.
+   * Match the working Boundary Requests report:
+   * give the iframe time to render, then focus and print it.
    */
-  const pageStyles = Array
-    .from(document.querySelectorAll("head style"))
-    .map(style => style.textContent)
-    .join("\n");
+  setTimeout(() => {
+    try {
+      printWindow.focus();
+      printWindow.print();
+    } catch (error) {
+      console.warn(
+        "[My Pre-Trips] iframe print failed:",
+        error
+      );
 
-  printWindow.document.open();
-
-  printWindow.document.write(`
-    <!doctype html>
-    <html lang="en">
-      <head>
-        <meta charset="utf-8">
-
-        <meta
-          name="viewport"
-          content="width=device-width, initial-scale=1"
-        >
-
-        <title>
-          FarmVista Pre-Trip ${escapeHtml(safeDate)}
-        </title>
-
-        <link
-          rel="stylesheet"
-          href="/Farm-vista/assets/css/theme.css"
-        >
-
-        <style>
-          ${pageStyles}
-
-          html,
-          body {
-            width: 100%;
-            height: auto;
-            min-height: 0;
-            margin: 0;
-            overflow: visible;
-            background: #fff;
-            color: #000;
-          }
-
-          body {
-            padding: 18px;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-          }
-
-          .standalone-report {
-            display: block;
-            width: 100%;
-            height: auto;
-            min-height: 0;
-            overflow: visible;
-            color: #000;
-          }
-
-          .inspection-block {
-            break-inside: auto;
-            page-break-inside: auto;
-          }
-
-          .inspection-table {
-            display: table;
-            width: 100%;
-            height: auto;
-            overflow: visible;
-            border-collapse: collapse;
-            table-layout: fixed;
-            break-inside: auto;
-            page-break-inside: auto;
-          }
-
-          .inspection-table thead {
-            display: table-header-group;
-          }
-
-          .inspection-table tbody {
-            display: table-row-group;
-          }
-
-          .inspection-table tr {
-            break-inside: avoid;
-            page-break-inside: avoid;
-          }
-
-          .report-heading,
-          .report-meta,
-          .inspection-title,
-          .defect-card,
-          .remarks-box,
-          .certification {
-            break-inside: avoid;
-            page-break-inside: avoid;
-          }
-
-          @media print {
-            html,
-            body {
-              width: 100% !important;
-              height: auto !important;
-              min-height: 0 !important;
-              margin: 0 !important;
-              padding: 0 !important;
-              overflow: visible !important;
-              background: #fff !important;
-            }
-
-            .standalone-report {
-              display: block !important;
-              width: 100% !important;
-              height: auto !important;
-              min-height: 0 !important;
-              overflow: visible !important;
-            }
-
-            @page {
-              size: auto;
-              margin: 0.38in;
-            }
-          }
-        </style>
-      </head>
-
-      <body>
-        <main class="report standalone-report">
-          ${reportHtml}
-        </main>
-
-        <script>
-          window.addEventListener("load", function () {
-            setTimeout(function () {
-              window.print();
-            }, 500);
-          });
-
-          window.addEventListener("afterprint", function () {
-            window.close();
-          });
-        <\/script>
-      </body>
-    </html>
-  `);
-
-  printWindow.document.close();
+      showMessage(
+        "FarmVista could not open the print report. Refresh the page and try again.",
+        "error"
+      );
+    }
+  }, 500);
 }
 
     async function loadRecords() {
