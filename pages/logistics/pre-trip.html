@@ -566,9 +566,7 @@ import {
   addDoc,
   serverTimestamp,
   getAuth,
-  onAuthStateChanged,
-  query,
-  where
+  onAuthStateChanged
 } from "/Farm-vista/js/firebase-init.js";
 
     const db = getFirestore();
@@ -763,21 +761,28 @@ import {
     }
 
 async function loadEquipment() {
+  console.log("[Logistics] Starting equipment load");
+
   try {
     const today = todayLocal();
-
-    const todayInspectionQuery = query(
-      collection(db, INSPECTION_COLLECTION),
-      where("inspectionDate", "==", today)
-    );
 
     const [
       equipmentSnapshot,
       inspectionSnapshot
     ] = await Promise.all([
       getDocs(collection(db, EQUIPMENT_COLLECTION)),
-      getDocs(todayInspectionQuery)
+      getDocs(collection(db, INSPECTION_COLLECTION))
     ]);
+
+    console.log(
+      "[Logistics] Equipment documents:",
+      equipmentSnapshot.size
+    );
+
+    console.log(
+      "[Logistics] Inspection documents:",
+      inspectionSnapshot.size
+    );
 
     const records = equipmentSnapshot.docs.map(
       documentSnapshot => ({
@@ -791,9 +796,13 @@ async function loadEquipment() {
     inspectionSnapshot.docs.forEach(documentSnapshot => {
       const inspection = documentSnapshot.data();
 
-      if (
-        normalized(inspection.inspectionType) !== "pretrip"
-      ) {
+      const isToday =
+        clean(inspection.inspectionDate) === today;
+
+      const isPreTrip =
+        normalized(inspection.inspectionType) === "pretrip";
+
+      if (!isToday || !isPreTrip) {
         return;
       }
 
@@ -819,6 +828,16 @@ async function loadEquipment() {
     state.trailers = records
       .filter(isTrailer)
       .sort(sortEquipment);
+
+    console.log(
+      "[Logistics] Available trucks:",
+      state.trucks.length
+    );
+
+    console.log(
+      "[Logistics] Available trailers:",
+      state.trailers.length
+    );
 
     renderEquipmentDropdowns();
 
