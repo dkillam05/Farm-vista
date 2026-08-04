@@ -777,6 +777,38 @@
 .print-host {
   display: none;
 }
+
+body.printing-report {
+  overflow: visible !important;
+  background: #fff !important;
+}
+
+body.printing-report fv-shell,
+body.printing-report .modal {
+  display: none !important;
+}
+
+body.printing-report .print-host {
+  display: block !important;
+  width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  background: #fff !important;
+}
+
+body.printing-report .print-host .report {
+  display: block !important;
+  width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  color: #000 !important;
+}
     /*
      * PRINT / SAVE AS PDF
      *
@@ -801,7 +833,6 @@
       }
 
 fv-shell,
-.page,
 .modal,
 .no-print {
   display: none !important;
@@ -2001,43 +2032,37 @@ function printReport() {
   }
 
   const previousTitle = document.title;
-  const previousOverflow =
-    document.body.style.overflow;
-
   const safeDate =
     clean(row.inspectionDate) || "inspection";
 
   document.title =
     `FarmVista Pre-Trip ${safeDate}`;
 
-  /*
-   * Copy the completed report outside the fixed modal.
-   * The standalone copy is what mobile Safari prints.
-   */
-  elements.printHost.innerHTML =
-    `<div class="report">${
-      elements.reportContent.innerHTML
-    }</div>`;
+  elements.printHost.innerHTML = `
+    <div class="report">
+      ${elements.reportContent.innerHTML}
+    </div>
+  `;
 
   elements.printHost.setAttribute(
     "aria-hidden",
     "false"
   );
 
-  document.body.style.overflow = "visible";
-
-  let cleanedUp = false;
+  /*
+   * Make the printable report visible before Safari
+   * builds its print preview.
+   */
+  document.body.classList.add(
+    "printing-report"
+  );
 
   function cleanupPrint() {
-    if (cleanedUp) {
-      return;
-    }
-
-    cleanedUp = true;
-
     document.title = previousTitle;
-    document.body.style.overflow =
-      previousOverflow;
+
+    document.body.classList.remove(
+      "printing-report"
+    );
 
     elements.printHost.innerHTML = "";
 
@@ -2050,24 +2075,6 @@ function printReport() {
       "afterprint",
       cleanupPrint
     );
-
-    window.removeEventListener(
-      "focus",
-      delayedCleanup
-    );
-
-    window.removeEventListener(
-      "pageshow",
-      delayedCleanup
-    );
-  }
-
-  function delayedCleanup() {
-    /*
-     * Wait until the print/share screen has closed and
-     * the browser has returned to the page.
-     */
-    setTimeout(cleanupPrint, 1200);
   }
 
   window.addEventListener(
@@ -2076,27 +2083,15 @@ function printReport() {
     { once: true }
   );
 
-  window.addEventListener(
-    "focus",
-    delayedCleanup,
-    { once: true }
-  );
-
-  window.addEventListener(
-    "pageshow",
-    delayedCleanup,
-    { once: true }
-  );
-
   /*
-   * Give Safari two completed paint cycles before opening
-   * the operating-system print preview.
+   * Safari needs time to lay out the now-visible
+   * standalone report before opening print preview.
    */
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       setTimeout(() => {
         window.print();
-      }, 150);
+      }, 400);
     });
   });
 }
@@ -2249,13 +2244,6 @@ function printReport() {
       }
     );
 
-    window.addEventListener(
-      "afterprint",
-      () => {
-        document.body.style.overflow =
-          elements.modal.hidden ? "" : "hidden";
-      }
-    );
 
     loadRecords();
   </script>
