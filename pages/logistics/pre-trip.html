@@ -442,18 +442,19 @@
               </select>
             </div>
 
-            <div class="field">
-              <label for="trailerSelect">
-                Trailer
-              </label>
+<div class="field">
+  <label for="trailerSelect" class="required">
+    Trailer
+  </label>
 
-              <select
-                id="trailerSelect"
-                class="control"
-              >
-                <option value="">Loading trailers…</option>
-              </select>
-            </div>
+  <select
+    id="trailerSelect"
+    class="control"
+    required
+  >
+    <option value="">Loading trailers…</option>
+  </select>
+</div>
 
             <div class="field">
               <label for="odometer">
@@ -558,15 +559,17 @@
   </fv-shell>
 
   <script type="module">
-    import {
-      getFirestore,
-      collection,
-      getDocs,
-      addDoc,
-      serverTimestamp,
-      getAuth,
-      onAuthStateChanged
-    } from "/Farm-vista/js/firebase-init.js";
+import {
+  getFirestore,
+  collection,
+  getDocs,
+  addDoc,
+  serverTimestamp,
+  getAuth,
+  onAuthStateChanged,
+  query,
+  where
+} from "/Farm-vista/js/firebase-init.js";
 
     const db = getFirestore();
     const auth = getAuth();
@@ -759,72 +762,133 @@
       );
     }
 
-    async function loadEquipment() {
-      try {
-        const snapshot = await getDocs(
-          collection(db, EQUIPMENT_COLLECTION)
-        );
+async function loadEquipment() {
+  try {
+    const today = todayLocal();
 
-        const records = snapshot.docs.map(documentSnapshot => ({
-          id: documentSnapshot.id,
-          ...documentSnapshot.data()
-        }));
+    const todayInspectionQuery = query(
+      collection(db, INSPECTION_COLLECTION),
+      where("inspectionDate", "==", today)
+    );
 
-        console.log("Equipment docs:", records.length);
-        console.log(records);
-        console.log("Collection:", EQUIPMENT_COLLECTION);        
+    const [
+      equipmentSnapshot,
+      inspectionSnapshot
+    ] = await Promise.all([
+      getDocs(collection(db, EQUIPMENT_COLLECTION)),
+      getDocs(todayInspectionQuery)
+    ]);
 
-        state.trucks = records
-          .filter(isTruck)
-          .sort(sortEquipment);
+    const records = equipmentSnapshot.docs.map(
+      documentSnapshot => ({
+        id: documentSnapshot.id,
+        ...documentSnapshot.data()
+      })
+    );
 
-        state.trailers = records
-          .filter(isTrailer)
-          .sort(sortEquipment);
+    const inspectedTruckIds = new Set();
 
-        renderEquipmentDropdowns();
+    inspectionSnapshot.docs.forEach(documentSnapshot => {
+      const inspection = documentSnapshot.data();
 
-        if (!state.trucks.length) {
-          showMessage(
-            "No active DOT-required trucks were found.",
-            "error"
-          );
-        }
-      } catch (error) {
-        console.error("[Logistics] Equipment load failed:", error);
-
-        elements.truckSelect.innerHTML =
-          `<option value="">Unable to load trucks</option>`;
-
-        elements.trailerSelect.innerHTML =
-          `<option value="">Unable to load trailers</option>`;
-
-        showMessage(
-          "FarmVista could not load the equipment list.",
-          "error"
-        );
+      if (
+        normalized(inspection.inspectionType) !== "pretrip"
+      ) {
+        return;
       }
-    }
 
-    function renderEquipmentDropdowns() {
-      elements.truckSelect.innerHTML = [
-        `<option value="">Select truck / semi</option>`,
-        ...state.trucks.map(record => `
-          <option value="${escapeHtml(record.id)}">
-            ${escapeHtml(equipmentLabel(record))}
-          </option>
-        `)
-      ].join("");
+      const truckId = clean(
+        inspection.truckId ||
+        inspection.truck?.id
+      );
 
-      elements.trailerSelect.innerHTML = [
-        `<option value="">No trailer selected</option>`,
-        ...state.trailers.map(record => `
-          <option value="${escapeHtml(record.id)}">
-            ${escapeHtml(equipmentLabel(record))}
-          </option>
-        `)
-      ].join("");
+      if (truckId) {
+        inspectedTruckIds.add(truckId);
+      }
+    });
+
+    state.trucks = records
+      .filter(record => {
+        return (
+          isTruck(record) &&
+          !inspectedTruckIds.has(record.id)
+        );
+      })
+      .sort(sortEquipment);
+
+    state.trailers = records
+      .filter(isTrailer)
+      .sort(sortEquipment);
+
+    renderEquipmentDropdowns();
+
+    if (!state.trucks.length) {
+      showMessage(
+        "All active DOT-required trucks have already completed today's pre-trip inspection.",
+        "success"
+      );
     }
+  } catch (error) {
+    console.error(
+      "[Logistics] Equipment load failed:",
+      error
+    );
+
+    elements.truckSelect.innerHTML =
+      `<option value="">Unable to load trucks</option>`;
+
+    elements.trailerSelect.innerHTML =
+      `<option value="">Unable to load trailers</option>`;
+
+    showMessage(
+      "FarmVista could not load the equipment list.",
+      "error"
+    );
+  }
+}
+
+function renderEquipmentDropdowns() {
+  elements.truckSelect.innerHTML = [
+    `
+      <option
+        value=""
+        selected
+        disabled
+        hidden
+      >
+        Select truck / semi
+      </option>
+    `,
+    ...state.trucks.map(record => `
+      <option value="${escapeHtml(record.id)}">
+        ${escapeHtml(equipmentLabel(record))}
+      </option>
+    `)
+  ].join("");
+
+  elements.trailerSelect.innerHTML = [
+    `
+      <option
+        value=""
+        selected
+        disabled
+        hidden
+      >
+        Select trailer
+      </option>
+    `,
+    ...state.trailers.map(record => `
+      <option value="${escapeHtml(record.id)}">
+        ${escapeHtml(equipmentLabel(record))}
+      </option>
+    `),
+    `
+      <option value="no-trailer">
+        No Trailer Hooked On
+      </option>
+    `
+  ].join("");
+}
 
     function slug(value) {
       return value
@@ -832,6 +896,13 @@
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, "");
     }
+
+    function hasTrailerHookedOn() {
+  return (
+    Boolean(elements.trailerSelect.value) &&
+    elements.trailerSelect.value !== "no-trailer"
+  );
+}
 
     function visibleSections() {
       const sections = [
@@ -842,7 +913,7 @@
         }
       ];
 
-      if (elements.trailerSelect.value) {
+      if (hasTrailerHookedOn()) {
         sections.push({
           id: "trailer",
           title: "Trailer",
@@ -1038,11 +1109,15 @@
       ) || null;
     }
 
-    function selectedTrailer() {
-      return state.trailers.find(
-        record => record.id === elements.trailerSelect.value
-      ) || null;
-    }
+function selectedTrailer() {
+  if (!hasTrailerHookedOn()) {
+    return null;
+  }
+
+  return state.trailers.find(
+    record => record.id === elements.trailerSelect.value
+  ) || null;
+}
 
     function equipmentSnapshot(record) {
       if (!record) {
@@ -1090,6 +1165,15 @@
 
         return false;
       }
+
+      if (!elements.trailerSelect.value) {
+  showMessage(
+    "Select a trailer or choose No Trailer Hooked On.",
+    "error"
+  );
+
+  return false;
+}
 
       const responses = visibleItems().map(ensureResponse);
 
@@ -1180,6 +1264,8 @@
         truckLabel: equipmentLabel(truck),
         truckUnitId: equipmentUnit(truck) || null,
         truck: equipmentSnapshot(truck),
+
+        trailerHookedOn: Boolean(trailer),
 
         trailerId: trailer?.id || null,
         trailerLabel:
