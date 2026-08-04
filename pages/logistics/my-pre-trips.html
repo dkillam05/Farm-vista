@@ -2012,8 +2012,7 @@ function printReport() {
 
   /*
    * Copy the completed report outside the fixed modal.
-   * This prevents iPhone Safari from cutting off the
-   * certification and record details at the bottom.
+   * The standalone copy is what mobile Safari prints.
    */
   elements.printHost.innerHTML =
     `<div class="report">${
@@ -2051,21 +2050,53 @@ function printReport() {
       "afterprint",
       cleanupPrint
     );
+
+    window.removeEventListener(
+      "focus",
+      delayedCleanup
+    );
+
+    window.removeEventListener(
+      "pageshow",
+      delayedCleanup
+    );
+  }
+
+  function delayedCleanup() {
+    /*
+     * Wait until the print/share screen has closed and
+     * the browser has returned to the page.
+     */
+    setTimeout(cleanupPrint, 1200);
   }
 
   window.addEventListener(
     "afterprint",
-    cleanupPrint
+    cleanupPrint,
+    { once: true }
   );
 
+  window.addEventListener(
+    "focus",
+    delayedCleanup,
+    { once: true }
+  );
+
+  window.addEventListener(
+    "pageshow",
+    delayedCleanup,
+    { once: true }
+  );
+
+  /*
+   * Give Safari two completed paint cycles before opening
+   * the operating-system print preview.
+   */
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      window.print();
-
-      /*
-       * Some iPhones do not reliably fire afterprint.
-       */
-      setTimeout(cleanupPrint, 5000);
+      setTimeout(() => {
+        window.print();
+      }, 150);
     });
   });
 }
