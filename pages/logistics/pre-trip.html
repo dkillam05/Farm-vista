@@ -546,31 +546,69 @@
               />
             </div>
 
-            <div class="field">
-              <label for="truckSelect" class="required">
-                Truck / Semi
-              </label>
+<div class="field combo">
+  <label for="truckComboButton" class="required">
+    Truck / Semi
+  </label>
 
-              <select
-                id="truckSelect"
-                class="control"
-                required
-              >
-                <option value="">Loading trucks…</option>
-              </select>
-            </div>
+  <div class="combo-anchor">
+    <button
+      id="truckComboButton"
+      class="combo-button"
+      type="button"
+    >
+      Loading trucks…
+    </button>
 
-<div class="field">
-  <label for="trailerSelect" class="required">
+    <div id="truckComboPanel" class="combo-panel">
+      <div class="combo-search">
+        <input
+          id="truckComboSearch"
+          type="search"
+          placeholder="Search trucks…"
+          autocomplete="off"
+        />
+      </div>
+
+      <div id="truckComboList" class="combo-list"></div>
+    </div>
+  </div>
+
+  <select id="truckSelect" hidden>
+    <option value=""></option>
+  </select>
+</div>
+
+<div class="field combo">
+  <label for="trailerComboButton" class="required">
     Trailer
   </label>
 
-  <select
-    id="trailerSelect"
-    class="control"
-    required
-  >
-    <option value="">Loading trailers…</option>
+  <div class="combo-anchor">
+    <button
+      id="trailerComboButton"
+      class="combo-button"
+      type="button"
+    >
+      Loading trailers…
+    </button>
+
+    <div id="trailerComboPanel" class="combo-panel">
+      <div class="combo-search">
+        <input
+          id="trailerComboSearch"
+          type="search"
+          placeholder="Search trailers…"
+          autocomplete="off"
+        />
+      </div>
+
+      <div id="trailerComboList" class="combo-list"></div>
+    </div>
+  </div>
+
+  <select id="trailerSelect" hidden>
+    <option value=""></option>
   </select>
 </div>
 
@@ -740,9 +778,28 @@ const auth = getAuth();
       message: document.getElementById("message"),
       driverName: document.getElementById("driverName"),
       inspectionDate: document.getElementById("inspectionDate"),
-      truckSelect: document.getElementById("truckSelect"),
-      trailerSelect: document.getElementById("trailerSelect"),
-      odometer: document.getElementById("odometer"),
+truckSelect: document.getElementById("truckSelect"),
+trailerSelect: document.getElementById("trailerSelect"),
+
+truckComboButton:
+  document.getElementById("truckComboButton"),
+truckComboPanel:
+  document.getElementById("truckComboPanel"),
+truckComboSearch:
+  document.getElementById("truckComboSearch"),
+truckComboList:
+  document.getElementById("truckComboList"),
+
+trailerComboButton:
+  document.getElementById("trailerComboButton"),
+trailerComboPanel:
+  document.getElementById("trailerComboPanel"),
+trailerComboSearch:
+  document.getElementById("trailerComboSearch"),
+trailerComboList:
+  document.getElementById("trailerComboList"),
+
+odometer: document.getElementById("odometer"),
       checklist: document.getElementById("checklist"),
       markAllGood: document.getElementById("markAllGood"),
       clearChecklist: document.getElementById("clearChecklist"),
@@ -988,16 +1045,7 @@ async function loadEquipment() {
 
 function renderEquipmentDropdowns() {
   elements.truckSelect.innerHTML = [
-    `
-      <option
-        value=""
-        selected
-        disabled
-        hidden
-      >
-        Select truck / semi
-      </option>
-    `,
+    `<option value=""></option>`,
     ...state.trucks.map(record => `
       <option value="${escapeHtml(record.id)}">
         ${escapeHtml(equipmentLabel(record))}
@@ -1006,27 +1054,169 @@ function renderEquipmentDropdowns() {
   ].join("");
 
   elements.trailerSelect.innerHTML = [
-    `
-      <option
-        value=""
-        selected
-        disabled
-        hidden
-      >
-        Select trailer
-      </option>
-    `,
+    `<option value=""></option>`,
     ...state.trailers.map(record => `
       <option value="${escapeHtml(record.id)}">
         ${escapeHtml(equipmentLabel(record))}
       </option>
     `),
-    `
-      <option value="no-trailer">
-        No Trailer Hooked On
-      </option>
-    `
+    `<option value="no-trailer">No Trailer Hooked On</option>`
   ].join("");
+
+  updateEquipmentComboButtons();
+  renderTruckComboList();
+  renderTrailerComboList();
+}
+
+function closeEquipmentCombos() {
+  elements.truckComboPanel.classList.remove("show");
+  elements.trailerComboPanel.classList.remove("show");
+
+  elements.truckComboButton.classList.remove("open");
+  elements.trailerComboButton.classList.remove("open");
+}
+
+function updateEquipmentComboButtons() {
+  const truck = selectedTruck();
+  const trailer = selectedTrailer();
+
+  elements.truckComboButton.textContent = truck
+    ? equipmentLabel(truck)
+    : state.trucks.length
+      ? "Select truck / semi…"
+      : "No trucks available";
+
+  elements.truckComboButton.classList.toggle(
+    "selected",
+    Boolean(truck)
+  );
+
+  if (elements.trailerSelect.value === "no-trailer") {
+    elements.trailerComboButton.textContent =
+      "No Trailer Hooked On";
+
+    elements.trailerComboButton.classList.add("selected");
+  } else {
+    elements.trailerComboButton.textContent = trailer
+      ? equipmentLabel(trailer)
+      : "Select trailer…";
+
+    elements.trailerComboButton.classList.toggle(
+      "selected",
+      Boolean(trailer)
+    );
+  }
+}
+
+function renderTruckComboList(searchText = "") {
+  const search = normalized(searchText);
+
+  const trucks = state.trucks.filter(record => {
+    return (
+      !search ||
+      normalized(equipmentLabel(record)).includes(search)
+    );
+  });
+
+  elements.truckComboList.innerHTML = trucks.length
+    ? trucks.map(record => `
+        <div
+          class="combo-item"
+          data-equipment-id="${escapeHtml(record.id)}"
+        >
+          ${escapeHtml(equipmentLabel(record))}
+        </div>
+      `).join("")
+    : `<div class="combo-empty">No matching trucks</div>`;
+}
+
+function renderTrailerComboList(searchText = "") {
+  const search = normalized(searchText);
+
+  const trailers = state.trailers.filter(record => {
+    return (
+      !search ||
+      normalized(equipmentLabel(record)).includes(search)
+    );
+  });
+
+  const rows = trailers.map(record => `
+    <div
+      class="combo-item"
+      data-equipment-id="${escapeHtml(record.id)}"
+    >
+      ${escapeHtml(equipmentLabel(record))}
+    </div>
+  `);
+
+  if (
+    !search ||
+    normalized("No Trailer Hooked On").includes(search)
+  ) {
+    rows.push(`
+      <div
+        class="combo-item"
+        data-equipment-id="no-trailer"
+      >
+        No Trailer Hooked On
+      </div>
+    `);
+  }
+
+  elements.trailerComboList.innerHTML = rows.length
+    ? rows.join("")
+    : `<div class="combo-empty">No matching trailers</div>`;
+}
+
+function openTruckCombo() {
+  const opening =
+    !elements.truckComboPanel.classList.contains("show");
+
+  closeEquipmentCombos();
+
+  if (!opening) {
+    return;
+  }
+
+  elements.truckComboSearch.value = "";
+  renderTruckComboList();
+
+  elements.truckComboPanel.classList.add("show");
+  elements.truckComboButton.classList.add("open");
+  elements.truckComboSearch.focus();
+}
+
+function openTrailerCombo() {
+  const opening =
+    !elements.trailerComboPanel.classList.contains("show");
+
+  closeEquipmentCombos();
+
+  if (!opening) {
+    return;
+  }
+
+  elements.trailerComboSearch.value = "";
+  renderTrailerComboList();
+
+  elements.trailerComboPanel.classList.add("show");
+  elements.trailerComboButton.classList.add("open");
+  elements.trailerComboSearch.focus();
+}
+
+function chooseTruck(truckId) {
+  elements.truckSelect.value = truckId;
+
+  updateEquipmentComboButtons();
+  closeEquipmentCombos();
+}
+
+function chooseTrailer(trailerId) {
+  elements.trailerSelect.value = trailerId;
+
+  updateEquipmentComboButtons();
+  renderChecklist();
+  closeEquipmentCombos();
 }
 
     function slug(value) {
@@ -1492,7 +1682,9 @@ function selectedTrailer() {
       elements.remarks.value = "";
       elements.certify.checked = false;
       elements.inspectionDate.value = todayLocal();
-
+      updateEquipmentComboButtons();
+      renderTruckComboList();
+      renderTrailerComboList();
       renderChecklist();
     }
 
@@ -1574,10 +1766,77 @@ async function initializeUser() {
       }
     });
 
-    elements.trailerSelect.addEventListener(
-      "change",
-      renderChecklist
-    );
+elements.truckComboButton.addEventListener(
+  "click",
+  event => {
+    event.stopPropagation();
+    openTruckCombo();
+  }
+);
+
+elements.trailerComboButton.addEventListener(
+  "click",
+  event => {
+    event.stopPropagation();
+    openTrailerCombo();
+  }
+);
+
+elements.truckComboPanel.addEventListener(
+  "click",
+  event => event.stopPropagation()
+);
+
+elements.trailerComboPanel.addEventListener(
+  "click",
+  event => event.stopPropagation()
+);
+
+elements.truckComboSearch.addEventListener(
+  "input",
+  event => renderTruckComboList(event.target.value)
+);
+
+elements.trailerComboSearch.addEventListener(
+  "input",
+  event => renderTrailerComboList(event.target.value)
+);
+
+elements.truckComboList.addEventListener(
+  "mousedown",
+  event => {
+    const row = event.target.closest(".combo-item");
+
+    if (!row?.dataset.equipmentId) {
+      return;
+    }
+
+    event.preventDefault();
+    chooseTruck(row.dataset.equipmentId);
+  }
+);
+
+elements.trailerComboList.addEventListener(
+  "mousedown",
+  event => {
+    const row = event.target.closest(".combo-item");
+
+    if (!row?.dataset.equipmentId) {
+      return;
+    }
+
+    event.preventDefault();
+    chooseTrailer(row.dataset.equipmentId);
+  }
+);
+
+document.addEventListener("click", closeEquipmentCombos);
+
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") {
+    closeEquipmentCombos();
+  }
+});
 
     elements.markAllGood.addEventListener(
       "click",
