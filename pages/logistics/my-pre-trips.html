@@ -758,8 +758,25 @@
       .certification-grid {
         grid-template-columns: 1fr;
       }
-    }
 
+      .record-main {
+  align-items: start;
+}
+
+.record-equipment {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  line-height: 1.4;
+}
+
+.record-meta {
+  margin-top: 7px;
+}
+    }
+.print-host {
+  display: none;
+}
     /*
      * PRINT / SAVE AS PDF
      *
@@ -783,12 +800,35 @@
         print-color-adjust: exact;
       }
 
-      fv-shell,
-      .page,
-      .modal-header,
-      .no-print {
-        display: none !important;
-      }
+fv-shell,
+.page,
+.modal,
+.no-print {
+  display: none !important;
+}
+
+.print-host {
+  display: block !important;
+  position: static !important;
+  width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  background: #fff !important;
+}
+
+.print-host .report {
+  display: block !important;
+  width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  color: #000 !important;
+}
 
       .modal {
         position: static !important;
@@ -1098,6 +1138,13 @@
     </article>
   </div>
 
+  <!-- Standalone report copy used only for printing on phones -->
+  <div
+    id="printHost"
+    class="print-host"
+    aria-hidden="true"
+  ></div>
+
   <script type="module">
     import {
       ready,
@@ -1137,8 +1184,9 @@
       detailSubtitle: document.getElementById("detailSubtitle"),
       reportContent: document.getElementById("reportContent"),
 
-      printButton: document.getElementById("printButton"),
-      closeButton: document.getElementById("closeButton")
+printButton: document.getElementById("printButton"),
+closeButton: document.getElementById("closeButton"),
+printHost: document.getElementById("printHost")
     };
 
     function clean(value) {
@@ -1987,37 +2035,88 @@
       );
     }
 
-    function printReport() {
-      if (!state.selectedId) {
-        return;
-      }
+function printReport() {
+  if (!state.selectedId) {
+    return;
+  }
 
-      const previousTitle = document.title;
-      const row = state.rows.find(
-        record => record.id === state.selectedId
-      );
+  const row = state.rows.find(
+    record => record.id === state.selectedId
+  );
 
-      if (row) {
-        const safeDate =
-          clean(row.inspectionDate) || "inspection";
+  if (!row) {
+    return;
+  }
 
-        document.title =
-          `FarmVista Pre-Trip ${safeDate}`;
-      }
+  const previousTitle = document.title;
+  const previousOverflow =
+    document.body.style.overflow;
+
+  const safeDate =
+    clean(row.inspectionDate) || "inspection";
+
+  document.title =
+    `FarmVista Pre-Trip ${safeDate}`;
+
+  /*
+   * Copy the completed report outside the fixed modal.
+   * This prevents iPhone Safari from cutting off the
+   * certification and record details at the bottom.
+   */
+  elements.printHost.innerHTML =
+    `<div class="report">${
+      elements.reportContent.innerHTML
+    }</div>`;
+
+  elements.printHost.setAttribute(
+    "aria-hidden",
+    "false"
+  );
+
+  document.body.style.overflow = "visible";
+
+  let cleanedUp = false;
+
+  function cleanupPrint() {
+    if (cleanedUp) {
+      return;
+    }
+
+    cleanedUp = true;
+
+    document.title = previousTitle;
+    document.body.style.overflow =
+      previousOverflow;
+
+    elements.printHost.innerHTML = "";
+
+    elements.printHost.setAttribute(
+      "aria-hidden",
+      "true"
+    );
+
+    window.removeEventListener(
+      "afterprint",
+      cleanupPrint
+    );
+  }
+
+  window.addEventListener(
+    "afterprint",
+    cleanupPrint
+  );
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      window.print();
 
       /*
-       * Mobile Safari and Android Chrome use the operating
-       * system print/share sheet here. From that sheet the
-       * driver can print or save/share the report as a PDF.
+       * Some iPhones do not reliably fire afterprint.
        */
-      requestAnimationFrame(() => {
-        window.print();
-
-        setTimeout(() => {
-          document.title = previousTitle;
-        }, 1000);
-      });
-    }
+      setTimeout(cleanupPrint, 5000);
+    });
+  });
+}
 
     async function loadRecords() {
       clearMessage();
