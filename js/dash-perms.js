@@ -1,42 +1,83 @@
 // /Farm-vista/js/dash-perms.js
-// Rev: 2026-08-04-dashboard-effective-permissions-v2
+// Rev: 2026-08-04-dashboard-permissions-v3
 //
-// Dashboard permissions now use FVUserContext as the single source.
-// FVUserContext already combines:
-//   Account Role permissions + Employee overrides = effectivePerms
+// Uses FVUserContext as the single permission source.
 //
-// Emits: "fv:dash-perms-ready"
-// Exposes:
-//   window.FV_DASH_PERMS
-//   window.FV_DASH_CAN
+// Account Role + Employee Overrides = effectivePerms
+//
+// Dashboard-only permissions:
+//   cap-grain-markets
+//   cap-logistics-overview
+//   cap-chatbot
+//   cap-kpi-field-maint
+//   cap-kpi-grain
+//   cap-kpi-equipment
 
 (function () {
   "use strict";
 
   const CAP = {
     MARKETS: "cap-grain-markets",
+    LOGISTICS_OVERVIEW: "cap-logistics-overview",
     CHATBOT: "cap-chatbot",
 
     KPI_FIELD: "cap-kpi-field-maint",
     KPI_GRAIN: "cap-kpi-grain",
     KPI_EQUIP: "cap-kpi-equipment",
 
-    LOGISTICS: "logistics-pre-trip",
-
     FIELD_BOUNDARIES: "office-field-boundaries",
     MAINTENANCE: "crop-maint",
     FIELD_WEATHER: "crop-weather",
     EQUIPMENT: "equipment",
 
-    // Keep supporting these older optional dashboard keys.
     QL_BOUNDARIES: "cap-quick-field-boundaries",
     QL_MAINT_ADD: "cap-quick-maintenance-add",
     QL_FIELD_WEATHER: "cap-quick-field-weather",
     QL_EQUIP_OVERVIEW: "cap-quick-equipment-overview"
   };
 
-  function getElement(id) {
-    return document.getElementById(id);
+  const byId = id => document.getElementById(id);
+
+  function getElements() {
+    return {
+      markets: byId("markets-section"),
+      chatbot: byId("ai-section"),
+      logisticsOverview: byId("logistics-panel"),
+
+      attentionSection: byId("attention-section"),
+      kpiWO: byId("wo-approve-kpi"),
+      kpiBoundary: byId("boundary-kpi"),
+      kpiBag: byId("bag-kpi"),
+
+      desktopQuickLinks: byId("desktop-quick-links"),
+      mobileQuickLinks: byId("quick-links"),
+
+      qlBoundaries: byId("ql-boundaries"),
+      qlBoundariesMobile: byId("ql-boundaries-mobile"),
+
+      qlMaintAdd: byId("ql-maint-add"),
+      qlMaintAddMobile: byId("ql-maint-add-mobile"),
+
+      qlEquipOverview: byId("ql-equip-overview"),
+      qlEquipOverviewMobile: byId("ql-equip-overview-mobile"),
+
+      qlFieldWeather: byId("ql-field-weather"),
+      qlFieldWeatherMobile: byId("ql-field-weather-mobile"),
+
+      /*
+       * This currently opens the company-wide Pre-Trip Dashboard.
+       * It must use cap-logistics-overview, not logistics-pre-trip.
+       */
+      qlLogistics: byId("ql-logistics"),
+
+      /*
+       * Steering is treated as equipment access for now.
+       */
+      qlSteering: byId("ql-steering"),
+
+      desktopDashboard: document.querySelector(".desktop-dashboard"),
+      desktopRight: byId("desktop-right")
+    };
   }
 
   function hide(el) {
@@ -68,21 +109,9 @@
     else hide(el);
   }
 
-  function hasPermissionObject(value) {
-    return value &&
-      typeof value === "object" &&
-      (
-        Object.prototype.hasOwnProperty.call(value, "view") ||
-        Object.prototype.hasOwnProperty.call(value, "add") ||
-        Object.prototype.hasOwnProperty.call(value, "edit") ||
-        Object.prototype.hasOwnProperty.call(value, "delete")
-      );
-  }
-
-  function canFromPermissionValue(value, action = "view") {
-    if (value == null) return false;
+  function canFromValue(value, action = "view") {
     if (value === true) return true;
-    if (value === false) return false;
+    if (value === false || value == null) return false;
 
     if (typeof value !== "object") return false;
 
@@ -90,74 +119,37 @@
       return value.on;
     }
 
-    if (hasPermissionObject(value)) {
-      const requestedAction = String(action || "view").toLowerCase();
+    const key = String(action || "view").toLowerCase();
 
-      if (typeof value[requestedAction] === "boolean") {
-        return value[requestedAction];
-      }
-
-      return false;
+    if (typeof value[key] === "boolean") {
+      return value[key];
     }
 
     return false;
   }
 
   function makeCan(perms) {
-    return function can(key, action = "view") {
-      if (!key) return true;
+    return function can(permission, action = "view") {
+      if (!permission) return true;
 
-      return canFromPermissionValue(
-        perms && Object.prototype.hasOwnProperty.call(perms, key)
-          ? perms[key]
-          : null,
-        action
-      );
+      const value = Object.prototype.hasOwnProperty.call(
+        perms || {},
+        permission
+      )
+        ? perms[permission]
+        : null;
+
+      return canFromValue(value, action);
     };
   }
 
   function canAny(can, permissions, action = "view") {
-    const list = Array.isArray(permissions)
-      ? permissions
-      : [permissions];
-
-    return list.some(key => can(key, action));
+    return permissions.some(permission =>
+      can(permission, action)
+    );
   }
 
-  function getDashboardElements() {
-    return {
-      markets: getElement("markets-section"),
-      chatbot: getElement("ai-section"),
-      logistics: getElement("logistics-panel"),
-
-      kpiWO: getElement("wo-approve-kpi"),
-      kpiBoundary: getElement("boundary-kpi"),
-      kpiBag: getElement("bag-kpi"),
-
-      desktopQuickLinks: getElement("desktop-quick-links"),
-      mobileQuickLinks: getElement("quick-links"),
-
-      qlBoundaries: getElement("ql-boundaries"),
-      qlBoundariesMobile: getElement("ql-boundaries-mobile"),
-
-      qlMaintAdd: getElement("ql-maint-add"),
-      qlMaintAddMobile: getElement("ql-maint-add-mobile"),
-
-      qlFieldWeather: getElement("ql-field-weather"),
-      qlFieldWeatherMobile: getElement("ql-field-weather-mobile"),
-
-      qlEquipOverview: getElement("ql-equip-overview"),
-      qlEquipOverviewMobile: getElement("ql-equip-overview-mobile"),
-
-      qlLogistics: getElement("ql-logistics"),
-      qlLogisticsMobile: getElement("ql-logistics-mobile"),
-
-      desktopDashboard: document.querySelector(".desktop-dashboard"),
-      desktopRight: getElement("desktop-right")
-    };
-  }
-
-  function elementIsVisible(el) {
+  function isVisible(el) {
     if (!el) return false;
     if (el.hidden) return false;
     if (el.classList.contains("perm-hidden")) return false;
@@ -165,19 +157,40 @@
     return getComputedStyle(el).display !== "none";
   }
 
-  function updateQuickLinkSection(section, links) {
-    if (!section) return;
+  function updateAttentionSection(els) {
+    const hasVisibleKPI =
+      isVisible(els.kpiWO) ||
+      isVisible(els.kpiBoundary) ||
+      isVisible(els.kpiBag);
 
-    const hasVisibleLink = links.some(elementIsVisible);
-    setVisible(section, hasVisibleLink);
+    setVisible(els.attentionSection, hasVisibleKPI);
   }
 
-  function updateDashboardLayout(els) {
+  function updateQuickLinkSections(els) {
+    const desktopHasLinks =
+      isVisible(els.qlBoundaries) ||
+      isVisible(els.qlMaintAdd) ||
+      isVisible(els.qlEquipOverview) ||
+      isVisible(els.qlFieldWeather);
+
+    const mobileHasLinks =
+      isVisible(els.qlLogistics) ||
+      isVisible(els.qlBoundariesMobile) ||
+      isVisible(els.qlMaintAddMobile) ||
+      isVisible(els.qlEquipOverviewMobile) ||
+      isVisible(els.qlFieldWeatherMobile) ||
+      isVisible(els.qlSteering);
+
+    setVisible(els.desktopQuickLinks, desktopHasLinks);
+    setVisible(els.mobileQuickLinks, mobileHasLinks);
+  }
+
+  function updateDesktopLayout(els) {
     if (!els.desktopDashboard || !els.desktopRight) return;
 
-    const visibleRightSections = Array.from(
-      els.desktopRight.children
-    ).filter(elementIsVisible);
+    const visibleRightSections = Array
+      .from(els.desktopRight.children)
+      .filter(isVisible);
 
     const singleColumn = visibleRightSections.length === 0;
 
@@ -197,35 +210,46 @@
     );
   }
 
-  function applyOpenState() {
-    const els = getDashboardElements();
+  /*
+   * Hide all permission-controlled dashboard content until the
+   * signed-in user's effective permissions are available.
+   *
+   * This prevents users from briefly seeing features they do not have.
+   */
+  function hideControlledContent() {
+    const els = getElements();
 
     [
       els.markets,
       els.chatbot,
-      els.logistics,
+      els.logisticsOverview,
+
+      els.attentionSection,
       els.kpiWO,
       els.kpiBoundary,
       els.kpiBag,
+
       els.desktopQuickLinks,
       els.mobileQuickLinks,
+
       els.qlBoundaries,
       els.qlBoundariesMobile,
+
       els.qlMaintAdd,
       els.qlMaintAddMobile,
-      els.qlFieldWeather,
-      els.qlFieldWeatherMobile,
+
       els.qlEquipOverview,
       els.qlEquipOverviewMobile,
+
+      els.qlFieldWeather,
+      els.qlFieldWeatherMobile,
+
       els.qlLogistics,
-      els.qlLogisticsMobile
-    ].forEach(show);
+      els.qlSteering
+    ].forEach(hide);
 
     window.FV_DASH_PERMS = null;
     window.FV_DASH_CAN = null;
-
-    updateDashboardLayout(els);
-    dispatchReady(false);
   }
 
   function applyPermissions(context) {
@@ -236,16 +260,13 @@
         ? context.effectivePerms
         : null;
 
-    /*
-     * Until the user context is available, leave the dashboard visible.
-     * This prevents a blank dashboard during startup.
-     */
     if (!perms) {
-      applyOpenState();
+      hideControlledContent();
+      dispatchReady(false);
       return;
     }
 
-    const els = getDashboardElements();
+    const els = getElements();
     const can = makeCan(perms);
 
     /*
@@ -261,9 +282,16 @@
       can(CAP.CHATBOT, "view")
     );
 
+    /*
+     * Company-wide Pre-Trip Overview.
+     *
+     * This is intentionally separate from logistics-pre-trip.
+     * A driver can create and later view their own records without
+     * seeing every employee's inspections.
+     */
     setVisible(
-      els.logistics,
-      can(CAP.LOGISTICS, "view")
+      els.logisticsOverview,
+      can(CAP.LOGISTICS_OVERVIEW, "view")
     );
 
     /*
@@ -286,9 +314,6 @@
 
     /*
      * Quick links
-     *
-     * Dedicated dashboard permission wins when present.
-     * The actual page permission remains a fallback.
      */
     const boundariesAllowed = canAny(
       can,
@@ -303,15 +328,6 @@
       can(CAP.QL_MAINT_ADD, "view") ||
       can(CAP.MAINTENANCE, "add");
 
-    const fieldWeatherAllowed = canAny(
-      can,
-      [
-        CAP.QL_FIELD_WEATHER,
-        CAP.FIELD_WEATHER
-      ],
-      "view"
-    );
-
     const equipmentAllowed = canAny(
       can,
       [
@@ -322,51 +338,82 @@
       "view"
     );
 
-    const logisticsAllowed =
-      can(CAP.LOGISTICS, "add") ||
-      can(CAP.LOGISTICS, "view");
-
-    setVisible(els.qlBoundaries, boundariesAllowed);
-    setVisible(els.qlBoundariesMobile, boundariesAllowed);
-
-    setVisible(els.qlMaintAdd, maintenanceAllowed);
-    setVisible(els.qlMaintAddMobile, maintenanceAllowed);
-
-    setVisible(els.qlFieldWeather, fieldWeatherAllowed);
-    setVisible(els.qlFieldWeatherMobile, fieldWeatherAllowed);
-
-    setVisible(els.qlEquipOverview, equipmentAllowed);
-    setVisible(els.qlEquipOverviewMobile, equipmentAllowed);
-
-    setVisible(els.qlLogistics, logisticsAllowed);
-    setVisible(els.qlLogisticsMobile, logisticsAllowed);
-
-    updateQuickLinkSection(
-      els.desktopQuickLinks,
+    const fieldWeatherAllowed = canAny(
+      can,
       [
-        els.qlBoundaries,
-        els.qlMaintAdd,
-        els.qlFieldWeather,
-        els.qlEquipOverview,
-        els.qlLogistics
-      ]
+        CAP.QL_FIELD_WEATHER,
+        CAP.FIELD_WEATHER
+      ],
+      "view"
     );
 
-    updateQuickLinkSection(
-      els.mobileQuickLinks,
-      [
-        els.qlBoundariesMobile,
-        els.qlMaintAddMobile,
-        els.qlFieldWeatherMobile,
-        els.qlEquipOverviewMobile,
-        els.qlLogisticsMobile
-      ]
+    const companyLogisticsAllowed =
+      can(CAP.LOGISTICS_OVERVIEW, "view");
+
+    setVisible(
+      els.qlBoundaries,
+      boundariesAllowed
     );
+
+    setVisible(
+      els.qlBoundariesMobile,
+      boundariesAllowed
+    );
+
+    setVisible(
+      els.qlMaintAdd,
+      maintenanceAllowed
+    );
+
+    setVisible(
+      els.qlMaintAddMobile,
+      maintenanceAllowed
+    );
+
+    setVisible(
+      els.qlEquipOverview,
+      equipmentAllowed
+    );
+
+    setVisible(
+      els.qlEquipOverviewMobile,
+      equipmentAllowed
+    );
+
+    setVisible(
+      els.qlFieldWeather,
+      fieldWeatherAllowed
+    );
+
+    setVisible(
+      els.qlFieldWeatherMobile,
+      fieldWeatherAllowed
+    );
+
+    /*
+     * The current mobile Pre-Trip Dashboard link opens the
+     * company-wide overview, so drivers should not see it.
+     */
+    setVisible(
+      els.qlLogistics,
+      companyLogisticsAllowed
+    );
+
+    /*
+     * Steering currently follows equipment access.
+     */
+    setVisible(
+      els.qlSteering,
+      equipmentAllowed
+    );
+
+    updateAttentionSection(els);
+    updateQuickLinkSections(els);
+    updateDesktopLayout(els);
 
     window.FV_DASH_PERMS = perms;
     window.FV_DASH_CAN = can;
 
-    updateDashboardLayout(els);
     dispatchReady(true);
   }
 
@@ -376,7 +423,7 @@
         !window.FVUserContext ||
         typeof window.FVUserContext.ready !== "function"
       ) {
-        applyOpenState();
+        hideControlledContent();
         return;
       }
 
@@ -384,31 +431,26 @@
       applyPermissions(context);
     } catch (error) {
       console.warn(
-        "[dash-perms] Could not load user permissions:",
+        "[dash-perms] Effective permissions could not be loaded:",
         error
       );
 
-      applyOpenState();
+      hideControlledContent();
+      dispatchReady(false);
     }
   }
 
   function boot() {
-    /*
-     * Keep the page visible while the user context is loading.
-     */
-    applyOpenState();
-
+    hideControlledContent();
     refreshPermissions();
 
     document.addEventListener(
       "fv:user-ready",
       event => {
         const context =
-          event &&
-          event.detail &&
-          event.detail.data
-            ? event.detail.data
-            : window.FVUserContext?.get?.();
+          event?.detail?.data ||
+          window.FVUserContext?.get?.() ||
+          null;
 
         applyPermissions(context);
       }
