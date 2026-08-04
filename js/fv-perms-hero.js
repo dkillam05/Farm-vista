@@ -47,6 +47,7 @@ import NAV_MENU from '/Farm-vista/js/menu.js';
 
 const CAPABILITIES = [
   { id: 'cap-chatbot', label: 'AI Chatbot' },
+  { id: 'cap-grain-markets', label: 'Grain Markets' },
   { id: 'cap-kpi-equipment', label: 'Equipment KPI Cards' },
   { id: 'cap-kpi-grain', label: 'Grain KPI Cards' },
   { id: 'cap-kpi-field-maint', label: 'Field Maintenance KPI Cards' },
