@@ -289,6 +289,42 @@
       background: var(--surface-2, rgba(127, 127, 127, 0.06));
     }
 
+    .odometer-helper {
+  min-height: 18px;
+  margin: -2px 0 6px;
+  color: var(--muted, #68716c);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.odometer-warning {
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid rgba(180, 35, 24, 0.38);
+  border-radius: 10px;
+  background: rgba(180, 35, 24, 0.06);
+}
+
+.odometer-confirm {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0 !important;
+  color: var(--text) !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  line-height: 1.4;
+}
+
+.odometer-confirm input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  flex: 0 0 auto;
+  accent-color: var(--brand-green, #3B7E46);
+}
+
     textarea.control {
       min-height: 84px;
       resize: vertical;
@@ -637,21 +673,46 @@
   </select>
 </div>
 
-            <div class="field">
-              <label for="odometer">
-                Odometer
-              </label>
+<div class="field">
+  <label for="odometer" class="required">
+    Odometer
+  </label>
 
-              <input
-                id="odometer"
-                class="control"
-                type="number"
-                min="0"
-                step="1"
-                inputmode="numeric"
-                placeholder="Optional"
-              />
-            </div>
+  <div
+    id="previousOdometerText"
+    class="odometer-helper"
+  >
+    Select a truck to see its previous mileage.
+  </div>
+
+  <input
+    id="odometer"
+    class="control"
+    type="number"
+    min="0"
+    step="1"
+    inputmode="numeric"
+    placeholder="Enter current mileage"
+    required
+  />
+
+  <div
+    id="odometerWarning"
+    class="odometer-warning"
+    hidden
+  >
+    <label class="odometer-confirm">
+      <input
+        id="confirmOdometerJump"
+        type="checkbox"
+      />
+
+      <span id="odometerWarningText">
+        Confirm that this mileage is correct.
+      </span>
+    </label>
+  </div>
+</div>
           </div>
         </section>
 
@@ -746,6 +807,8 @@ import {
   collection,
   getDocs,
   addDoc,
+  doc,
+  updateDoc,
   serverTimestamp,
   getAuth,
   getStorage,
@@ -830,7 +893,20 @@ trailerComboList:
   document.getElementById("trailerComboList"),
 
 odometer: document.getElementById("odometer"),
-      checklist: document.getElementById("checklist"),
+
+previousOdometerText:
+  document.getElementById("previousOdometerText"),
+
+odometerWarning:
+  document.getElementById("odometerWarning"),
+
+odometerWarningText:
+  document.getElementById("odometerWarningText"),
+
+confirmOdometerJump:
+  document.getElementById("confirmOdometerJump"),
+
+checklist: document.getElementById("checklist"),
       markAllGood: document.getElementById("markAllGood"),
       clearChecklist: document.getElementById("clearChecklist"),
       passCount: document.getElementById("passCount"),
@@ -934,6 +1010,24 @@ odometer: document.getElementById("odometer"),
         record.model
       );
     }
+
+    function equipmentOdometer(record) {
+  if (!record) {
+    return null;
+  }
+
+  const mileage = Number(
+    record.odometerMiles ??
+    record.extras?.odometerMiles
+  );
+
+  return (
+    Number.isFinite(mileage) &&
+    mileage >= 0
+  )
+    ? mileage
+    : null;
+}
 
     function equipmentLabel(record) {
       const unit = equipmentUnit(record);
@@ -1234,10 +1328,74 @@ function openTrailerCombo() {
   elements.trailerComboSearch.focus();
 }
 
+ function selectedTruckPreviousOdometer() {
+  return equipmentOdometer(selectedTruck());
+}
+
+function updateOdometerDisplay() {
+  const truck = selectedTruck();
+  const previousMileage =
+    selectedTruckPreviousOdometer();
+
+  elements.odometer.value = "";
+  elements.confirmOdometerJump.checked = false;
+  elements.odometerWarning.hidden = true;
+
+  if (!truck) {
+    elements.previousOdometerText.textContent =
+      "Select a truck to see its previous mileage.";
+
+    return;
+  }
+
+  if (previousMileage === null) {
+    elements.previousOdometerText.textContent =
+      "No previous mileage is recorded for this truck.";
+
+    return;
+  }
+
+  elements.previousOdometerText.textContent =
+    `Previous mileage was ${previousMileage.toLocaleString()} miles.`;
+}
+
+function updateOdometerWarning() {
+  const previousMileage =
+    selectedTruckPreviousOdometer();
+
+  const enteredMileage =
+    Number(elements.odometer.value);
+
+  const hasEnteredMileage =
+    elements.odometer.value !== "" &&
+    Number.isFinite(enteredMileage);
+
+  const increase =
+    previousMileage !== null && hasEnteredMileage
+      ? enteredMileage - previousMileage
+      : 0;
+
+  const requiresConfirmation =
+    previousMileage !== null &&
+    hasEnteredMileage &&
+    increase > 1000;
+
+  elements.odometerWarning.hidden =
+    !requiresConfirmation;
+
+  if (requiresConfirmation) {
+    elements.odometerWarningText.textContent =
+      `This reading is ${increase.toLocaleString()} miles above the previous reading. I confirm the new mileage is correct.`;
+  } else {
+    elements.confirmOdometerJump.checked = false;
+  }
+}   
+    
 function chooseTruck(truckId) {
   elements.truckSelect.value = truckId;
 
   updateEquipmentComboButtons();
+  updateOdometerDisplay();
   closeEquipmentCombos();
 }
 
@@ -1515,8 +1673,9 @@ function selectedTrailer() {
         year: equipmentYear(record) || null,
         makeName: equipmentMake(record) || null,
         modelName: equipmentModel(record) || null,
-        serial: clean(record.serial) || null,
-        type: clean(record.type) || null
+serial: clean(record.serial) || null,
+type: clean(record.type) || null,
+odometerMiles: equipmentOdometer(record)
       };
     }
 
@@ -1558,6 +1717,62 @@ function selectedTrailer() {
 
   return false;
 }
+
+   const enteredOdometer =
+  Number(elements.odometer.value);
+
+const previousOdometer =
+  selectedTruckPreviousOdometer();
+
+if (
+  elements.odometer.value === "" ||
+  !Number.isFinite(enteredOdometer)
+) {
+  showMessage(
+    "Enter the truck's current odometer reading.",
+    "error"
+  );
+
+  elements.odometer.focus();
+  return false;
+}
+
+if (enteredOdometer < 0) {
+  showMessage(
+    "The odometer reading cannot be negative.",
+    "error"
+  );
+
+  elements.odometer.focus();
+  return false;
+}
+
+if (
+  previousOdometer !== null &&
+  enteredOdometer <= previousOdometer
+) {
+  showMessage(
+    `The new odometer reading must be greater than the previous reading of ${previousOdometer.toLocaleString()} miles.`,
+    "error"
+  );
+
+  elements.odometer.focus();
+  return false;
+}
+
+if (
+  previousOdometer !== null &&
+  enteredOdometer > previousOdometer + 1000 &&
+  !elements.confirmOdometerJump.checked
+) {
+  showMessage(
+    "Confirm that the mileage increase of more than 1,000 miles is correct.",
+    "error"
+  );
+
+  elements.confirmOdometerJump.focus();
+  return false;
+}   
 
       const responses = visibleItems().map(ensureResponse);
 
@@ -1716,11 +1931,11 @@ for (const item of visibleItems()) {
           trailer ? equipmentUnit(trailer) || null : null,
         trailer: equipmentSnapshot(trailer),
 
-        odometerMiles:
-          elements.odometer.value
-            ? Number(elements.odometer.value)
-            : null,
+previousOdometerMiles:
+  selectedTruckPreviousOdometer(),
 
+odometerMiles:
+  Number(elements.odometer.value),
         responses,
         itemCount: responses.length,
         passCount: responses.filter(
@@ -1751,15 +1966,49 @@ for (const item of visibleItems()) {
       };
 
       try {
-        const savedInspection = await addDoc(
-          collection(db, INSPECTION_COLLECTION),
-          payload
-        );
+const savedInspection = await addDoc(
+  collection(db, INSPECTION_COLLECTION),
+  payload
+);
 
-        console.info(
-          "[Logistics] Inspection saved:",
-          savedInspection.id
-        );
+const newOdometerMiles =
+  Number(elements.odometer.value);
+
+await updateDoc(
+  doc(db, EQUIPMENT_COLLECTION, truck.id),
+  {
+    odometerMiles: newOdometerMiles,
+
+    odometerUpdatedAt: serverTimestamp(),
+
+    odometerUpdatedByUid:
+      state.user.uid,
+
+    odometerUpdatedByName:
+      state.user.displayName ||
+      state.user.email ||
+      "FarmVista User",
+
+    lastPreTripInspectionId:
+      savedInspection.id,
+
+    updatedAt: serverTimestamp()
+  }
+);
+
+/* Keep the page's loaded truck record current too. */
+truck.odometerMiles = newOdometerMiles;
+
+console.info(
+  "[Logistics] Inspection saved:",
+  savedInspection.id
+);
+
+console.info(
+  "[Logistics] Equipment odometer updated:",
+  truck.id,
+  newOdometerMiles
+);
 
         showMessage(
           defects.length
@@ -1792,8 +2041,15 @@ for (const item of visibleItems()) {
 
       elements.truckSelect.value = "";
       elements.trailerSelect.value = "";
-      elements.odometer.value = "";
-      elements.remarks.value = "";
+elements.odometer.value = "";
+
+elements.previousOdometerText.textContent =
+  "Select a truck to see its previous mileage.";
+
+elements.odometerWarning.hidden = true;
+elements.confirmOdometerJump.checked = false;
+
+elements.remarks.value = "";
       elements.certify.checked = false;
       elements.inspectionDate.value = todayLocal();
       updateEquipmentComboButtons();
@@ -1978,15 +2234,20 @@ document.addEventListener("keydown", event => {
       markAllGood
     );
 
-    elements.clearChecklist.addEventListener(
-      "click",
-      clearChecklist
-    );
+elements.clearChecklist.addEventListener(
+  "click",
+  clearChecklist
+);
 
-    elements.form.addEventListener(
-      "submit",
-      submitInspection
-    );
+elements.odometer.addEventListener(
+  "input",
+  updateOdometerWarning
+);
+
+elements.form.addEventListener(
+  "submit",
+  submitInspection
+);
 
 async function startPage() {
   elements.inspectionDate.value = todayLocal();
