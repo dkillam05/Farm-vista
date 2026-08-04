@@ -137,28 +137,48 @@ export const NAV_MENU = {
       ]
     },
 
-         /* ===== Logistics ===== */
+/* ===== Logistics ===== */
+{
+  type: 'group',
+  id: 'logistics',
+  perm: 'logistics',
+  icon: '🚛',
+  label: 'Logistics',
+
+  // No href here. Clicking Logistics only opens the submenu.
+  collapsible: true,
+  initialOpen: false,
+
+  children: [
     {
-      type: 'group',
-      id: 'logistics',
-      perm: 'logistics',
-      icon: '🚛',
-      label: 'Logistics',
-      href: '/Farm-vista/pages/logistics/index.html',
-      collapsible: true,
-      initialOpen: false,
-      children: [
-        {
-          type: 'link',
-          id: 'logistics-pre-trip',
-          perm: 'logistics-pre-trip',
-          icon: '✅',
-          label: 'Pre-Trip Inspection',
-          href: '/Farm-vista/pages/logistics/pre-trip.html',
-          activeMatch: 'starts-with'
-        }
-      ]
+      type: 'link',
+      id: 'logistics-pre-trip',
+      perm: 'logistics-pre-trip',
+      icon: '✅',
+      label: 'New Pre-Trip',
+      href: '/Farm-vista/pages/logistics/pre-trip.html',
+      activeMatch: 'exact'
     },
+    {
+      type: 'link',
+      id: 'logistics-my-pre-trips',
+      perm: 'logistics-pre-trip',
+      icon: '📄',
+      label: 'My Pre-Trips',
+      href: '/Farm-vista/pages/logistics/my-pre-trips.html',
+      activeMatch: 'starts-with'
+    },
+    {
+      type: 'link',
+      id: 'logistics-overview',
+      perm: 'cap-logistics-overview',
+      icon: '📊',
+      label: 'Company Overview',
+      href: '/Farm-vista/pages/logistics/index.html',
+      activeMatch: 'exact'
+    }
+  ]
+},
 
     /* ===== Grain ===== */
     {
