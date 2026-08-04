@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>FarmVista • Logistics</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=8, user-scalable=yes"/>
+  <meta name="theme-color" content="#3B7E46"/>
+
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png"/>
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png"/>
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css"/>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css"/>
+  <script src="/Farm-vista/js/fv-shell.js"></script>
+  <script src="/Farm-vista/js/firebase-config.js"></script>
+
+  <style>
+    *{box-sizing:border-box}
+
+    :root{
+      --green:#2F6C3C;
+      --red:#b42318;
+      --amber:#b54708;
+      --gridline:rgba(0,0,0,.10);
+      --gridline-strong:rgba(0,0,0,.15);
+      --good-row:rgba(47,108,60,.14);
+      --good-row-hover:rgba(47,108,60,.19);
+      --defect-row:rgba(180,35,24,.13);
+      --defect-row-hover:rgba(180,35,24,.18);
+    }
+
+    body{margin:0;background:var(--app-bg,var(--bg));color:var(--text)}
+    button,input,select,textarea{font:inherit}
+
+    .page{
+      width:min(1500px,100%);
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 110px);
+    }
+
+    .page-title{margin:0 0 6px;font-size:clamp(26px,4vw,36px)}
+    .page-sub{margin:0 0 14px;color:var(--muted,#68716c);font-weight:750;line-height:1.4}
+
+    .alert{
+      display:none;margin:0 0 12px;padding:12px 14px;border:1px solid rgba(180,35,24,.45);
+      border-radius:12px;background:rgba(180,35,24,.08);color:var(--red);font-weight:850;
+    }
+    .alert.show{display:block}
+
+    .summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}
+    .summary-card{
+      min-height:86px;padding:12px;border:1px solid var(--border);border-radius:14px;
+      background:var(--surface);box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.06));
+      display:flex;flex-direction:column;justify-content:center;
+    }
+    .summary-number{font-size:25px;font-weight:950;line-height:1}
+    .summary-label{margin-top:6px;color:var(--muted,#68716c);font-size:12px;font-weight:850}
+    .summary-card.good .summary-number{color:var(--green)}
+    .summary-card.bad .summary-number{color:var(--red)}
+
+    .section{
+      border:1px solid var(--border);border-radius:14px;background:var(--surface);
+      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:hidden;
+    }
+
+    .section-head{
+      padding:14px 16px;border-bottom:1px solid var(--border);
+      background:linear-gradient(90deg,rgba(47,108,60,.12),transparent);
+      display:grid;gap:12px;
+    }
+
+    .head-row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+    .head-title{display:flex;align-items:center;gap:9px;font-weight:950}
+    .head-actions{display:flex;gap:8px;flex-wrap:wrap}
+
+    .btn{
+      min-height:42px;padding:9px 13px;border:1px solid var(--border);border-radius:11px;
+      background:var(--surface);color:var(--text);font-weight:900;cursor:pointer;text-decoration:none;
+      display:inline-flex;align-items:center;justify-content:center;
+    }
+    .btn-primary{border-color:transparent;background:var(--green);color:#fff!important}
+
+    .filters{display:grid;grid-template-columns:minmax(210px,1.4fr) minmax(165px,.8fr) minmax(165px,.8fr) auto;gap:10px;align-items:end}
+    .field{min-width:0}
+    .field label{display:block;margin:0 0 6px;color:var(--muted,#68716c);font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.06em}
+    .control{
+      width:100%;min-height:44px;padding:10px 12px;border:1px solid var(--border);border-radius:11px;
+      background:var(--surface);color:var(--text);outline:none;font-size:16px;
+    }
+    .control:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(47,108,60,.14)}
+
+    .section-body{padding:16px}
+    .table-wrap{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface)}
+    .grid-viewport{overflow:auto;-webkit-overflow-scrolling:touch}
+
+    table{width:100%;min-width:1080px;border-collapse:separate;border-spacing:0;font-size:14px}
+    thead th{
+      position:sticky;top:0;z-index:2;padding:12px 10px;background:var(--surface);color:var(--text);
+      border-bottom:1px solid var(--gridline-strong);border-right:1px solid var(--gridline);
+      text-align:center;font-size:13px;font-weight:950;white-space:nowrap;
+    }
+    thead th:last-child{border-right:0}
+    tbody td{
+      padding:11px 10px;border-bottom:1px solid var(--gridline);border-right:1px solid var(--gridline);
+      text-align:center;vertical-align:middle;white-space:nowrap;background:var(--surface);
+    }
+    tbody td:last-child{border-right:0}
+    tbody tr{cursor:pointer}
+    tbody tr.good-row td{background:var(--good-row)}
+    tbody tr.good-row:hover td{background:var(--good-row-hover)}
+    tbody tr.defect-row td{background:var(--defect-row)}
+    tbody tr.defect-row:hover td{background:var(--defect-row-hover)}
+    .left{text-align:left!important}
+    .cell-title{font-weight:950}
+    .muted{color:var(--muted,#68716c);font-size:12px;font-weight:800}
+
+    .status-pill{
+      display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:110px;
+      padding:6px 9px;border-radius:999px;font-size:12px;font-weight:950;
+    }
+    .status-pill.good{background:rgba(47,108,60,.16);color:var(--green)}
+    .status-pill.bad{background:rgba(180,35,24,.15);color:var(--red)}
+
+    .empty{padding:28px!important;text-align:center!important;color:var(--muted,#68716c);font-weight:850}
+
+    dialog.sheet{
+      width:min(900px,94vw);max-height:88vh;padding:0;border:1px solid var(--border);border-radius:15px;
+      background:var(--surface);color:var(--text);box-shadow:0 20px 50px rgba(0,0,0,.42);
+    }
+    dialog.sheet::backdrop{background:rgba(0,0,0,.55)}
+    .sheet-head,.sheet-foot{padding:13px 15px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .sheet-head{border-bottom:1px solid var(--border)}
+    .sheet-foot{border-top:1px solid var(--border);justify-content:flex-end}
+    .sheet-title{font-weight:950}
+    .sheet-body{padding:15px;max-height:calc(88vh - 120px);overflow:auto;display:grid;gap:13px}
+    .detail-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+    .detail-card{padding:11px;border:1px solid var(--border);border-radius:11px;background:var(--surface-2,rgba(127,127,127,.05))}
+    .detail-label{color:var(--muted,#68716c);font-size:11px;font-weight:850;text-transform:uppercase;letter-spacing:.05em}
+    .detail-value{margin-top:4px;font-weight:900;overflow-wrap:anywhere}
+    .subcard{padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
+    .subcard h3{margin:0 0 9px;font-size:16px}
+    .defect-list{display:grid;gap:9px}
+    .defect-item{padding:11px;border:1px solid rgba(180,35,24,.28);border-radius:11px;background:rgba(180,35,24,.06)}
+    .defect-name{font-weight:950}
+    .defect-note{margin-top:5px;line-height:1.4}
+    .photo-link{display:inline-flex;margin-top:8px;color:var(--green);font-weight:900}
+    .remarks{white-space:pre-wrap;line-height:1.5}
+
+    @media(max-width:900px){
+      .summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+      .filters{grid-template-columns:1fr 1fr}
+      .filters .field.driver{grid-column:1/-1}
+      .filters .apply{grid-column:1/-1}
+      .filters .apply .btn{width:100%}
+      .detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+    }
+
+    @media(max-width:600px){
+      .page{padding:10px;padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 90px)}
+      .summary-grid{gap:8px}
+      .summary-card{min-height:76px;padding:10px}
+      .summary-number{font-size:22px}
+      .section{border-left:0;border-right:0;border-radius:0;margin-left:-10px;margin-right:-10px}
+      .section-head{padding:12px 10px}
+      .section-body{padding:0}
+      .table-wrap{border-left:0;border-right:0;border-radius:0}
+      .filters{grid-template-columns:1fr}
+      .filters .field.driver,.filters .apply{grid-column:auto}
+      table{min-width:880px;font-size:13px}
+      thead th,tbody td{padding:9px 7px}
+      .detail-grid{grid-template-columns:1fr}
+    }
+
+    @media(prefers-color-scheme:dark){
+      :root{
+        --gridline:rgba(255,255,255,.10);
+        --gridline-strong:rgba(255,255,255,.16);
+        --good-row:rgba(47,108,60,.28);
+        --good-row-hover:rgba(47,108,60,.34);
+        --defect-row:rgba(180,35,24,.25);
+        --defect-row-hover:rgba(180,35,24,.31);
+      }
+    }
+  </style>
+</head>
+<body>
+  <fv-shell>
+    <main class="page">
+      <h1 class="page-title">Logistics</h1>
+      <p class="page-sub">Daily pre-trip inspection status for drivers, trucks, and trailers.</p>
+
+      <div id="alert" class="alert" role="alert"></div>
+
+      <div class="summary-grid" aria-label="Inspection summary">
+        <div class="summary-card"><span id="totalCount" class="summary-number">0</span><span class="summary-label">Inspections</span></div>
+        <div class="summary-card"><span id="driverCount" class="summary-number">0</span><span class="summary-label">Drivers</span></div>
+        <div class="summary-card good"><span id="goodCount" class="summary-number">0</span><span class="summary-label">All Good</span></div>
+        <div class="summary-card bad"><span id="defectCount" class="summary-number">0</span><span class="summary-label">With Defects</span></div>
+      </div>
+
+      <section class="section">
+        <header class="section-head">
+          <div class="head-row">
+            <div class="head-title"><span aria-hidden="true">🚛</span><span>Pre-Trip Inspections</span></div>
+            <div class="head-actions">
+              <button id="refreshButton" class="btn" type="button">Refresh</button>
+            </div>
+          </div>
+
+          <div class="filters">
+            <div class="field driver">
+              <label for="driverFilter">Driver</label>
+              <select id="driverFilter" class="control"><option value="all">All Drivers</option></select>
+            </div>
+            <div class="field">
+              <label for="fromDate">From Date</label>
+              <input id="fromDate" class="control" type="date"/>
+            </div>
+            <div class="field">
+              <label for="toDate">To Date</label>
+              <input id="toDate" class="control" type="date"/>
+            </div>
+            <div class="field apply">
+              <button id="todayButton" class="btn" type="button">Today</button>
+            </div>
+          </div>
+        </header>
+
+        <div class="section-body">
+          <div class="table-wrap">
+            <div class="grid-viewport">
+              <table aria-label="Pre-trip inspection records">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Submitted</th>
+                    <th class="left">Driver</th>
+                    <th class="left">Truck / Semi</th>
+                    <th class="left">Trailer</th>
+                    <th>Mileage</th>
+                    <th>Status</th>
+                    <th>Defects</th>
+                    <th>Remarks</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody">
+                  <tr><td colspan="9" class="empty">Loading inspections…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </fv-shell>
+
+  <dialog id="detailSheet" class="sheet">
+    <div class="sheet-head">
+      <div id="detailTitle" class="sheet-title">Pre-Trip Inspection</div>
+      <button id="detailClose" class="btn" type="button">Close</button>
+    </div>
+    <div id="detailBody" class="sheet-body"></div>
+    <div class="sheet-foot"><button id="detailClose2" class="btn" type="button">Close</button></div>
+  </dialog>
+
+  <script type="module">
+    import {
+      ready,
+      getFirestore,
+      collection,
+      getDocs
+    } from "/Farm-vista/js/firebase-init.js";
+
+    await ready;
+
+    const db = getFirestore();
+    const INSPECTION_COLLECTION = "logisticsInspections";
+    const COLLATOR = new Intl.Collator(undefined,{numeric:true,sensitivity:"base"});
+
+    const elements = {
+      alert:document.getElementById("alert"),
+      tbody:document.getElementById("tbody"),
+      driverFilter:document.getElementById("driverFilter"),
+      fromDate:document.getElementById("fromDate"),
+      toDate:document.getElementById("toDate"),
+      todayButton:document.getElementById("todayButton"),
+      refreshButton:document.getElementById("refreshButton"),
+      totalCount:document.getElementById("totalCount"),
+      driverCount:document.getElementById("driverCount"),
+      goodCount:document.getElementById("goodCount"),
+      defectCount:document.getElementById("defectCount"),
+      detailSheet:document.getElementById("detailSheet"),
+      detailTitle:document.getElementById("detailTitle"),
+      detailBody:document.getElementById("detailBody"),
+      detailClose:document.getElementById("detailClose"),
+      detailClose2:document.getElementById("detailClose2")
+    };
+
+    const state={all:[],filtered:[],loading:false};
+
+    function clean(value){return String(value??"").trim()}
+    function normalized(value){return clean(value).toLowerCase()}
+    function escapeHtml(value){return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+
+    function todayLocal(){
+      const d=new Date();
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    }
+
+    function timestampToDate(value){
+      if(!value)return null;
+      if(value instanceof Date)return value;
+      if(typeof value?.toDate==="function")return value.toDate();
+      if(typeof value?.seconds==="number")return new Date(value.seconds*1000);
+      const d=new Date(value);
+      return Number.isNaN(d.getTime())?null:d;
+    }
+
+    function formatTime(value){
+      const d=timestampToDate(value);
+      return d?new Intl.DateTimeFormat("en-US",{hour:"numeric",minute:"2-digit"}).format(d):"—";
+    }
+
+    function formatNumber(value){
+      const n=Number(value);
+      return Number.isFinite(n)?new Intl.NumberFormat("en-US",{maximumFractionDigits:0}).format(n):"—";
+    }
+
+    function showError(message){
+      elements.alert.textContent=message;
+      elements.alert.classList.add("show");
+    }
+    function clearError(){elements.alert.classList.remove("show");elements.alert.textContent=""}
+
+    function isPreTrip(record){return normalized(record.inspectionType)==="pretrip"}
+    function hasDefects(record){
+      return record.hasDefects===true || Number(record.defectCount||0)>0 || normalized(record.overallStatus)==="defectsreported";
+    }
+
+    function driverKey(record){return clean(record.driverUid||record.driverEmail||record.driverName)}
+    function driverLabel(record){return clean(record.driverName||record.driverEmail||"Unknown Driver")}
+
+    function renderDriverOptions(){
+      const current=elements.driverFilter.value||"all";
+      const drivers=new Map();
+      state.all.forEach(row=>{
+        const key=driverKey(row);
+        if(key&&!drivers.has(key))drivers.set(key,driverLabel(row));
+      });
+      const options=[...drivers.entries()].sort((a,b)=>COLLATOR.compare(a[1],b[1]));
+      elements.driverFilter.innerHTML=`<option value="all">All Drivers</option>`+options.map(([key,label])=>`<option value="${escapeHtml(key)}">${escapeHtml(label)}</option>`).join("");
+      elements.driverFilter.value=["all",...drivers.keys()].includes(current)?current:"all";
+    }
+
+    function filteredRows(){
+      const driver=elements.driverFilter.value;
+      const from=elements.fromDate.value;
+      const to=elements.toDate.value;
+      return state.all.filter(row=>{
+        const date=clean(row.inspectionDate);
+        if(driver!=="all"&&driverKey(row)!==driver)return false;
+        if(from&&date<from)return false;
+        if(to&&date>to)return false;
+        return true;
+      }).sort((a,b)=>{
+        const dateCompare=clean(b.inspectionDate).localeCompare(clean(a.inspectionDate));
+        if(dateCompare!==0)return dateCompare;
+        const at=timestampToDate(a.submittedAt)?.getTime()||0;
+        const bt=timestampToDate(b.submittedAt)?.getTime()||0;
+        return bt-at;
+      });
+    }
+
+    function renderSummary(rows){
+      elements.totalCount.textContent=rows.length;
+      elements.driverCount.textContent=new Set(rows.map(driverKey).filter(Boolean)).size;
+      elements.goodCount.textContent=rows.filter(row=>!hasDefects(row)).length;
+      elements.defectCount.textContent=rows.filter(hasDefects).length;
+    }
+
+    function trailerLabel(row){
+      if(row.trailerHookedOn===false)return "No Trailer Hooked On";
+      return clean(row.trailerLabel||row.trailer?.label||row.trailerUnitId||"—");
+    }
+
+    function renderTable(){
+      const rows=filteredRows();
+      state.filtered=rows;
+      renderSummary(rows);
+
+      if(!rows.length){
+        elements.tbody.innerHTML=`<tr><td colspan="9" class="empty">No pre-trip inspections match these filters.</td></tr>`;
+        return;
+      }
+
+      elements.tbody.innerHTML=rows.map(row=>{
+        const defects=hasDefects(row);
+        const remarks=clean(row.remarks);
+        return `
+          <tr data-id="${escapeHtml(row.id)}" class="${defects?"defect-row":"good-row"}">
+            <td><span class="cell-title">${escapeHtml(clean(row.inspectionDate)||"—")}</span></td>
+            <td class="muted">${escapeHtml(formatTime(row.submittedAt||row.createdAt))}</td>
+            <td class="left"><span class="cell-title">${escapeHtml(driverLabel(row))}</span></td>
+            <td class="left">${escapeHtml(clean(row.truckLabel||row.truck?.label||row.truckUnitId||"—"))}</td>
+            <td class="left">${escapeHtml(trailerLabel(row))}</td>
+            <td>${escapeHtml(formatNumber(row.odometerMiles))}</td>
+            <td><span class="status-pill ${defects?"bad":"good"}">${defects?"⚠ Defects":"✓ All Good"}</span></td>
+            <td><span class="cell-title">${escapeHtml(String(Number(row.defectCount||0)))}</span></td>
+            <td class="left muted">${escapeHtml(remarks?remarks.slice(0,70)+(remarks.length>70?"…":""):"—")}</td>
+          </tr>`;
+      }).join("");
+
+      elements.tbody.querySelectorAll("tr[data-id]").forEach(tr=>{
+        tr.addEventListener("click",()=>{
+          const row=state.all.find(item=>item.id===tr.dataset.id);
+          if(row)openDetail(row);
+        });
+      });
+    }
+
+    function detailCard(label,value){
+      return `<div class="detail-card"><div class="detail-label">${escapeHtml(label)}</div><div class="detail-value">${escapeHtml(value||"—")}</div></div>`;
+    }
+
+    function openDetail(row){
+      const defects=(Array.isArray(row.responses)?row.responses:[]).filter(item=>normalized(item.status)==="defect");
+      const statusBad=hasDefects(row);
+      elements.detailTitle.textContent=`${driverLabel(row)} • ${clean(row.inspectionDate)||"Pre-Trip"}`;
+
+      const defectsHtml=defects.length?defects.map(item=>`
+        <div class="defect-item">
+          <div class="defect-name">${escapeHtml(clean(item.section)?`${item.section} • ${item.label}`:item.label||"Defect")}</div>
+          <div class="defect-note">${escapeHtml(clean(item.note)||"No description entered.")}</div>
+          ${item.photoUrl?`<a class="photo-link" href="${escapeHtml(item.photoUrl)}" target="_blank" rel="noopener">View attached photo or file</a>`:""}
+        </div>`).join(""):`<div class="muted">No defects were reported.</div>`;
+
+      elements.detailBody.innerHTML=`
+        <div class="detail-grid">
+          ${detailCard("Status",statusBad?"Defects Reported":"All Good")}
+          ${detailCard("Driver",driverLabel(row))}
+          ${detailCard("Date",clean(row.inspectionDate))}
+          ${detailCard("Submitted",formatTime(row.submittedAt||row.createdAt))}
+          ${detailCard("Truck / Semi",clean(row.truckLabel||row.truck?.label||row.truckUnitId))}
+          ${detailCard("Trailer",trailerLabel(row))}
+          ${detailCard("Odometer",formatNumber(row.odometerMiles))}
+          ${detailCard("Checklist Items",String(Number(row.itemCount||0)))}
+          ${detailCard("Defects",String(Number(row.defectCount||0)))}
+        </div>
+        <div class="subcard"><h3>Reported Defects</h3><div class="defect-list">${defectsHtml}</div></div>
+        <div class="subcard"><h3>Remarks</h3><div class="remarks">${escapeHtml(clean(row.remarks)||"No remarks entered.")}</div></div>`;
+
+      try{elements.detailSheet.showModal()}catch{elements.detailSheet.setAttribute("open","")}
+    }
+
+    function closeDetail(){
+      try{elements.detailSheet.close()}catch{elements.detailSheet.removeAttribute("open")}
+    }
+
+    async function loadInspections(){
+      if(state.loading)return;
+      state.loading=true;
+      clearError();
+      elements.refreshButton.disabled=true;
+      elements.refreshButton.textContent="Loading…";
+      try{
+        const snap=await getDocs(collection(db,INSPECTION_COLLECTION));
+        state.all=snap.docs.map(docSnap=>({id:docSnap.id,...docSnap.data()})).filter(isPreTrip);
+        renderDriverOptions();
+        renderTable();
+      }catch(error){
+        console.error("[Logistics] Inspection load failed:",error);
+        showError(error.message||"FarmVista could not load the pre-trip inspections.");
+        elements.tbody.innerHTML=`<tr><td colspan="9" class="empty">Unable to load inspections.</td></tr>`;
+      }finally{
+        state.loading=false;
+        elements.refreshButton.disabled=false;
+        elements.refreshButton.textContent="Refresh";
+      }
+    }
+
+    function setToday(){
+      const today=todayLocal();
+      elements.fromDate.value=today;
+      elements.toDate.value=today;
+      renderTable();
+    }
+
+    elements.driverFilter.addEventListener("change",renderTable);
+    elements.fromDate.addEventListener("change",()=>{
+      if(elements.toDate.value&&elements.fromDate.value>elements.toDate.value){elements.toDate.value=elements.fromDate.value}
+      renderTable();
+    });
+    elements.toDate.addEventListener("change",()=>{
+      if(elements.fromDate.value&&elements.toDate.value<elements.fromDate.value){elements.fromDate.value=elements.toDate.value}
+      renderTable();
+    });
+    elements.todayButton.addEventListener("click",setToday);
+    elements.refreshButton.addEventListener("click",loadInspections);
+    elements.detailClose.addEventListener("click",closeDetail);
+    elements.detailClose2.addEventListener("click",closeDetail);
+    elements.detailSheet.addEventListener("click",event=>{
+      if(event.target===elements.detailSheet)closeDetail();
+    });
+
+    setToday();
+    await loadInspections();
+
+    document.addEventListener("visibilitychange",()=>{if(!document.hidden)loadInspections()});
+    window.addEventListener("focus",loadInspections);
+  </script>
+</body>
+</html>
