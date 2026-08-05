@@ -447,6 +447,79 @@
       line-height: 1.45;
     }
 
+    .pdf-panel {
+  position: relative;
+  width: 100%;
+  min-height: 65vh;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.pdf-loading {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--surface);
+  color: var(--muted, #68716c);
+  font-weight: 850;
+}
+
+.pdf-loading[hidden] {
+  display: none !important;
+}
+
+.pdf-spinner {
+  width: 42px;
+  height: 42px;
+  border: 4px solid rgba(59, 126, 70, 0.18);
+  border-top-color: var(--brand-green, #3B7E46);
+  border-radius: 50%;
+  animation: pdf-spin 0.8s linear infinite;
+}
+
+@keyframes pdf-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.pdf-frame {
+  display: block;
+  width: 100%;
+  height: 72vh;
+  min-height: 520px;
+  border: 0;
+  background: #fff;
+}
+
+.pdf-back-button {
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+@media (max-width: 650px) {
+  .pdf-frame {
+    height: calc(
+      100vh
+      - var(--hdr-h, 56px)
+      - var(--ftr-h, 42px)
+      - 150px
+    );
+    min-height: 420px;
+  }
+
+  .pdf-panel {
+    min-height: 60vh;
+  }
+}
+
     .inspection-block {
   margin-top: 2px;
 }
@@ -723,9 +796,47 @@
         </div>
       </header>
 
-      <div class="modal-body">
-        <div id="detailContent" class="details"></div>
+<div class="modal-body">
+  <div
+    id="detailContent"
+    class="details"
+  ></div>
+
+  <section
+    id="pdfPanel"
+    hidden
+  >
+    <button
+      id="pdfBackButton"
+      class="button pdf-back-button"
+      type="button"
+    >
+      ← Back to Inspection Summary
+    </button>
+
+    <div class="pdf-panel">
+      <div
+        id="pdfLoading"
+        class="pdf-loading"
+      >
+        <div
+          class="pdf-spinner"
+          aria-hidden="true"
+        ></div>
+
+        <div>
+          Building PDF report…
+        </div>
       </div>
+
+      <iframe
+        id="pdfFrame"
+        class="pdf-frame"
+        title="Pre-Trip PDF Report"
+      ></iframe>
+    </div>
+  </section>
+</div>
     </article>
   </div>
 
@@ -772,8 +883,23 @@
       modal: document.getElementById("detailModal"),
       detailSubtitle: document.getElementById("detailSubtitle"),
       detailContent: document.getElementById("detailContent"),
-      pdfButton: document.getElementById("pdfButton"),
-      closeButton: document.getElementById("closeButton")
+pdfButton: document.getElementById("pdfButton"),
+closeButton: document.getElementById("closeButton"),
+
+detailContent:
+  document.getElementById("detailContent"),
+
+pdfPanel:
+  document.getElementById("pdfPanel"),
+
+pdfLoading:
+  document.getElementById("pdfLoading"),
+
+pdfFrame:
+  document.getElementById("pdfFrame"),
+
+pdfBackButton:
+  document.getElementById("pdfBackButton")
     };
 
     function clean(value) {
@@ -1472,23 +1598,44 @@ function renderDetails(row) {
       );
     }
 
-    function closeReport() {
-      elements.modal.hidden = true;
-      document.body.style.overflow = "";
-      state.selectedId = null;
+function closeReport() {
+  elements.modal.hidden = true;
+  document.body.style.overflow = "";
+  state.selectedId = null;
 
-      const url = new URL(window.location.href);
-      url.searchParams.delete("id");
+  // Hide the PDF viewer
+  elements.pdfPanel.hidden = true;
 
-      history.replaceState(
-        {},
-        "",
-        url.pathname + url.search
-      );
-    }
+  // Show the inspection summary again
+  elements.detailContent.hidden = false;
+
+  // Clear the iframe
+  elements.pdfFrame.removeAttribute("src");
+
+  // Show the loading spinner next time
+  elements.pdfLoading.hidden = false;
+
+  // Clean up the temporary PDF URL
+  if (state.currentPdfUrl) {
+    URL.revokeObjectURL(state.currentPdfUrl);
+    state.currentPdfUrl = "";
+  }
+
+  const url = new URL(window.location.href);
+  url.searchParams.delete("id");
+
+  history.replaceState(
+    {},
+    "",
+    url.pathname + url.search
+  );
+}
 
 async function generatePdf() {
-  if (!state.selectedId || !state.user) {
+  if (
+    !state.selectedId ||
+    !state.user
+  ) {
     return;
   }
 
@@ -1505,6 +1652,8 @@ async function generatePdf() {
     return;
   }
 
+  clearMessage();
+
   elements.pdfButton.disabled = true;
 
   const detailButton =
@@ -1518,7 +1667,17 @@ async function generatePdf() {
       "Building PDF…";
   }
 
-  clearMessage();
+  /*
+   * Keep the existing FarmVista popup open.
+   * Hide the summary and show the embedded PDF area.
+   */
+  elements.detailContent.hidden = true;
+  elements.pdfPanel.hidden = false;
+  elements.pdfLoading.hidden = false;
+
+  elements.pdfFrame.removeAttribute(
+    "src"
+  );
 
   try {
     const token =
@@ -1581,27 +1740,33 @@ async function generatePdf() {
     }
 
     state.currentPdfUrl =
-      URL.createObjectURL(pdfBlob);
+      URL.createObjectURL(
+        pdfBlob
+      );
 
-    /*
-     * Open the completed PDF in this same browser tab.
-     * The browser Back button returns to My Pre-Trips.
-     */
-    window.location.assign(
-      state.currentPdfUrl
-    );
+    elements.pdfFrame.onload =
+      () => {
+        elements.pdfLoading.hidden =
+          true;
+      };
+
+    elements.pdfFrame.src =
+      state.currentPdfUrl;
   } catch (error) {
     console.error(
       "[My Pre-Trips] PDF failed:",
       error
     );
 
+    elements.pdfPanel.hidden = true;
+    elements.detailContent.hidden = false;
+
     showMessage(
       error.message ||
       "FarmVista could not generate the PDF.",
       "error"
     );
-
+  } finally {
     elements.pdfButton.disabled = false;
 
     if (detailButton) {
@@ -1714,6 +1879,28 @@ async function generatePdf() {
       "click",
       generatePdf
     );
+
+    elements.pdfBackButton.addEventListener(
+  "click",
+  () => {
+    elements.pdfPanel.hidden = true;
+    elements.detailContent.hidden = false;
+
+    elements.pdfFrame.removeAttribute(
+      "src"
+    );
+
+    elements.pdfLoading.hidden = false;
+
+    if (state.currentPdfUrl) {
+      URL.revokeObjectURL(
+        state.currentPdfUrl
+      );
+
+      state.currentPdfUrl = "";
+    }
+  }
+);
 
     elements.closeButton.addEventListener(
       "click",
