@@ -626,6 +626,28 @@
       display:flex;
     }
 
+    /*
+ * Desktop:
+ * Only show Print / Download.
+ */
+.pdf-share-button{
+  display:none;
+}
+
+/*
+ * Phone:
+ * Show Share PDF and Print / Download.
+ */
+@media (max-width:620px){
+  .pdf-share-button{
+    display:inline-flex;
+  }
+
+  .pdf-actions .btn{
+    flex:1 1 calc(50% - 8px);
+  }
+}
+
     .pdf-note{
       color:var(--muted,#67706B);
       font-size:.8rem;
@@ -746,9 +768,8 @@
       pdfArea: $("#pdfArea"),
       pdfLoading: $("#pdfLoading"),
       pdfActions: $("#pdfActions"),
-      sharePdfButton: $("#sharePdfButton"),
-      downloadPdfButton: $("#downloadPdfButton"),
-      openPdfButton: $("#openPdfButton")
+sharePdfButton: $("#sharePdfButton"),
+openPdfButton: $("#openPdfButton")
     };
 
     function clean(value){
@@ -1429,106 +1450,166 @@
       );
     }
 
-    async function buildPdf(){
-      if(
-        !state.selectedId ||
-        !state.user
-      ){
-        return;
+async function buildPdf(){
+  if(
+    !state.selectedId ||
+    !state.user
+  ){
+    return;
+  }
+
+  clearMessage();
+
+  elements.buildPdfButton.disabled = true;
+  elements.buildPdfButton.textContent =
+    "Building PDF…";
+
+  /*
+   * Show the loading area immediately so the user
+   * knows FarmVista is working.
+   */
+  elements.pdfArea.classList.add("show");
+  elements.pdfLoading.hidden = false;
+  elements.pdfActions.classList.remove("show");
+
+  requestAnimationFrame(()=>{
+    elements.pdfArea.scrollIntoView({
+      behavior:"smooth",
+      block:"center"
+    });
+  });
+
+  try{
+    const token =
+      await state.user.getIdToken();
+
+    const response = await fetch(
+      PDF_FUNCTION_URL,
+      {
+        method:"POST",
+
+        headers:{
+          "Content-Type":
+            "application/json",
+
+          "Authorization":
+            `Bearer ${token}`
+        },
+
+        body:JSON.stringify({
+          inspectionId:
+            state.selectedId
+        })
       }
+    );
 
-      clearMessage();
-
-      elements.buildPdfButton.disabled = true;
-      elements.pdfArea.classList.add("show");
-      elements.pdfLoading.hidden = false;
-      elements.pdfActions.classList.remove("show");
+    if(!response.ok){
+      let message =
+        "FarmVista could not generate the PDF.";
 
       try{
-        const token =
-          await state.user.getIdToken();
+        const body =
+          await response.json();
 
-        const response = await fetch(
-          PDF_FUNCTION_URL,
-          {
-            method:"POST",
-            headers:{
-              "Content-Type":"application/json",
-              "Authorization":`Bearer ${token}`
-            },
-            body:JSON.stringify({
-              inspectionId:state.selectedId
-            })
-          }
-        );
-
-        if(!response.ok){
-          let message =
-            "FarmVista could not generate the PDF.";
-
-          try{
-            const body =
-              await response.json();
-
-            if(body?.message){
-              message = body.message;
-            }
-          }catch{}
-
-          throw new Error(message);
+        if(body?.message){
+          message =
+            body.message;
         }
+      }catch{}
 
-        const blob =
-          await response.blob();
-
-        if(
-          blob.type &&
-          blob.type !== "application/pdf"
-        ){
-          throw new Error(
-            "The Google Function did not return a PDF."
-          );
-        }
-
-        resetPdf();
-
-        state.pdfBlob = blob;
-        state.pdfUrl =
-          URL.createObjectURL(blob);
-
-        const row =
-          state.rows.find(
-            item => item.id === state.selectedId
-          );
-
-        const safeDate =
-          clean(row?.inspectionDate)
-            .replace(/[^0-9A-Za-z_-]/g,"-")
-            || "inspection";
-
-        state.pdfFilename =
-          `FarmVista-Pre-Trip-${safeDate}.pdf`;
-
-        elements.pdfArea.classList.add("show");
-        elements.pdfLoading.hidden = true;
-        elements.pdfActions.classList.add("show");
-      }catch(error){
-        console.error(
-          "[My Pre-Trips] PDF failed:",
-          error
-        );
-
-        elements.pdfArea.classList.remove("show");
-
-        showMessage(
-          error.message ||
-          "FarmVista could not generate the PDF.",
-          "error"
-        );
-      }finally{
-        elements.buildPdfButton.disabled = false;
-      }
+      throw new Error(message);
     }
+
+    const blob =
+      await response.blob();
+
+    if(
+      blob.type &&
+      blob.type !==
+        "application/pdf"
+    ){
+      throw new Error(
+        "The Google Function did not return a PDF."
+      );
+    }
+
+    /*
+     * Clear the previous PDF URL without hiding
+     * the loading area we are currently using.
+     */
+    state.pdfBlob = null;
+    state.pdfFilename = "";
+
+    if(state.pdfUrl){
+      URL.revokeObjectURL(
+        state.pdfUrl
+      );
+
+      state.pdfUrl = "";
+    }
+
+    state.pdfBlob = blob;
+
+    state.pdfUrl =
+      URL.createObjectURL(blob);
+
+    const row =
+      state.rows.find(
+        item =>
+          item.id ===
+          state.selectedId
+      );
+
+    const safeDate =
+      clean(
+        row?.inspectionDate
+      )
+        .replace(
+          /[^0-9A-Za-z_-]/g,
+          "-"
+        ) ||
+      "inspection";
+
+    state.pdfFilename =
+      `FarmVista-Pre-Trip-${safeDate}.pdf`;
+
+    /*
+     * PDF is ready.
+     */
+    elements.pdfLoading.hidden = true;
+    elements.pdfActions.classList.add("show");
+
+    requestAnimationFrame(()=>{
+      elements.openPdfButton.scrollIntoView({
+        behavior:"smooth",
+        block:"center"
+      });
+
+      try{
+        elements.openPdfButton.focus({
+          preventScroll:true
+        });
+      }catch{}
+    });
+  }catch(error){
+    console.error(
+      "[My Pre-Trips] PDF failed:",
+      error
+    );
+
+    elements.pdfArea.classList.remove("show");
+
+    showMessage(
+      error.message ||
+      "FarmVista could not generate the PDF.",
+      "error"
+    );
+  }finally{
+    elements.buildPdfButton.disabled = false;
+    elements.buildPdfButton.textContent =
+      "Create PDF Report";
+  }
+}
 
     async function sharePdf(){
       if(!state.pdfBlob){
@@ -1712,10 +1793,6 @@
       sharePdf
     );
 
-    elements.downloadPdfButton.addEventListener(
-      "click",
-      downloadPdf
-    );
 
     elements.openPdfButton.addEventListener(
       "click",
@@ -1938,34 +2015,26 @@
                 </div>
               </div>
 
-              <div
-                id="pdfActions"
-                class="pdf-actions"
-              >
-                <button
-                  id="sharePdfButton"
-                  class="btn btn-primary"
-                  type="button"
-                >
-                  Share / Print
-                </button>
+<div
+  id="pdfActions"
+  class="pdf-actions"
+>
+  <button
+    id="sharePdfButton"
+    class="btn btn-primary pdf-share-button"
+    type="button"
+  >
+    Share PDF
+  </button>
 
-                <button
-                  id="downloadPdfButton"
-                  class="btn"
-                  type="button"
-                >
-                  Download PDF
-                </button>
-
-                <button
-                  id="openPdfButton"
-                  class="btn"
-                  type="button"
-                >
-                  Open PDF
-                </button>
-              </div>
+  <button
+    id="openPdfButton"
+    class="btn btn-primary"
+    type="button"
+  >
+    Print / Download
+  </button>
+</div>
 
               <div class="pdf-note">
                 On a phone, Share / Print opens the device share menu where the PDF can be printed, saved to Files, messaged, or emailed.
