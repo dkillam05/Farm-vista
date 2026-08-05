@@ -1487,146 +1487,130 @@ function renderDetails(row) {
       );
     }
 
-    async function generatePdf() {
-      if (!state.selectedId || !state.user) {
-        return;
+async function generatePdf() {
+  if (!state.selectedId || !state.user) {
+    return;
+  }
+
+  if (
+    PDF_FUNCTION_URL.startsWith(
+      "PASTE_YOUR_"
+    )
+  ) {
+    showMessage(
+      "Add the deployed Google Function URL to PDF_FUNCTION_URL.",
+      "error"
+    );
+
+    return;
+  }
+
+  elements.pdfButton.disabled = true;
+
+  const detailButton =
+    document.getElementById(
+      "openPdfButton"
+    );
+
+  if (detailButton) {
+    detailButton.disabled = true;
+    detailButton.textContent =
+      "Building PDF…";
+  }
+
+  clearMessage();
+
+  try {
+    const token =
+      await state.user.getIdToken();
+
+    const response = await fetch(
+      PDF_FUNCTION_URL,
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json",
+
+          "Authorization":
+            `Bearer ${token}`
+        },
+
+        body: JSON.stringify({
+          inspectionId:
+            state.selectedId
+        })
       }
+    );
 
-      if (
-        PDF_FUNCTION_URL.startsWith(
-          "PASTE_YOUR_"
-        )
-      ) {
-        showMessage(
-          "Add the deployed Google Function URL to PDF_FUNCTION_URL in this file.",
-          "error"
-        );
-        return;
-      }
-
-      /*
-       * Open a blank tab immediately from the user's tap.
-       * This prevents iPhone Safari from treating the finished
-       * PDF as a blocked popup after the network request ends.
-       */
-      const pdfWindow = window.open("", "_blank");
-
-      elements.pdfButton.disabled = true;
-
-      const detailButton =
-        document.getElementById("openPdfButton");
-
-      if (detailButton) {
-        detailButton.disabled = true;
-        detailButton.textContent =
-          "Building PDF…";
-      }
+    if (!response.ok) {
+      let message =
+        "FarmVista could not generate the PDF.";
 
       try {
-        const token =
-          await state.user.getIdToken();
+        const errorBody =
+          await response.json();
 
-        const response = await fetch(
-          PDF_FUNCTION_URL,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type":
-                "application/json",
-              "Authorization":
-                `Bearer ${token}`
-            },
-            body: JSON.stringify({
-              inspectionId:
-                state.selectedId
-            })
-          }
-        );
-
-        if (!response.ok) {
-          let message =
-            "FarmVista could not generate the PDF.";
-
-          try {
-            const errorBody =
-              await response.json();
-
-            if (errorBody?.message) {
-              message =
-                errorBody.message;
-            }
-          } catch {}
-
-          throw new Error(message);
+        if (errorBody?.message) {
+          message =
+            errorBody.message;
         }
+      } catch {}
 
-        const pdfBlob =
-          await response.blob();
-
-        if (
-          pdfBlob.type !==
-          "application/pdf"
-        ) {
-          throw new Error(
-            "The function did not return a PDF."
-          );
-        }
-
-        if (state.currentPdfUrl) {
-          URL.revokeObjectURL(
-            state.currentPdfUrl
-          );
-        }
-
-        state.currentPdfUrl =
-          URL.createObjectURL(pdfBlob);
-
-        if (pdfWindow) {
-          pdfWindow.location.replace(
-            state.currentPdfUrl
-          );
-        } else {
-          /*
-           * Fallback for browsers that do not provide a new tab.
-           */
-          const link =
-            document.createElement("a");
-
-          link.href =
-            state.currentPdfUrl;
-
-          link.target = "_blank";
-          link.rel = "noopener";
-          link.click();
-        }
-      } catch (error) {
-        if (
-          pdfWindow &&
-          !pdfWindow.closed
-        ) {
-          pdfWindow.close();
-        }
-
-        console.error(
-          "[My Pre-Trips] PDF failed:",
-          error
-        );
-
-        showMessage(
-          error.message ||
-          "FarmVista could not generate the PDF.",
-          "error"
-        );
-      } finally {
-        elements.pdfButton.disabled = false;
-
-        if (detailButton) {
-          detailButton.disabled = false;
-          detailButton.textContent =
-            "Open Complete PDF Report";
-        }
-      }
+      throw new Error(message);
     }
+
+    const pdfBlob =
+      await response.blob();
+
+    if (
+      pdfBlob.type &&
+      pdfBlob.type !==
+        "application/pdf"
+    ) {
+      throw new Error(
+        "The function did not return a PDF."
+      );
+    }
+
+    if (state.currentPdfUrl) {
+      URL.revokeObjectURL(
+        state.currentPdfUrl
+      );
+    }
+
+    state.currentPdfUrl =
+      URL.createObjectURL(pdfBlob);
+
+    /*
+     * Open the completed PDF in this same browser tab.
+     * The browser Back button returns to My Pre-Trips.
+     */
+    window.location.assign(
+      state.currentPdfUrl
+    );
+  } catch (error) {
+    console.error(
+      "[My Pre-Trips] PDF failed:",
+      error
+    );
+
+    showMessage(
+      error.message ||
+      "FarmVista could not generate the PDF.",
+      "error"
+    );
+
+    elements.pdfButton.disabled = false;
+
+    if (detailButton) {
+      detailButton.disabled = false;
+      detailButton.textContent =
+        "Open Complete PDF Report";
+    }
+  }
+}
 
     async function loadRecords() {
       clearMessage();
@@ -1760,16 +1744,6 @@ function renderDetails(row) {
       }
     );
 
-    window.addEventListener(
-      "beforeunload",
-      () => {
-        if (state.currentPdfUrl) {
-          URL.revokeObjectURL(
-            state.currentPdfUrl
-          );
-        }
-      }
-    );
 
     loadRecords();
   </script>
