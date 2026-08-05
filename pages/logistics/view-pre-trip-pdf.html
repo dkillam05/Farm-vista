@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>FarmVista • Opening Pre-Trip PDF</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#3B7E46">
+  <link rel="manifest" href="/Farm-vista/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/Farm-vista/assets/icons/apple-touch-icon.png">
+  <link rel="icon" href="/Farm-vista/assets/icons/icon-192.png">
+  <script src="/Farm-vista/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/Farm-vista/assets/css/theme.css">
+  <link rel="stylesheet" href="/Farm-vista/assets/css/app.css">
+  <script src="/Farm-vista/js/fv-shell.js"></script>
+  <style>
+    *{box-sizing:border-box} html,body{margin:0;min-height:100%}
+    body{background:var(--app-bg,var(--bg));color:var(--text)}
+    .page{width:min(620px,100%);margin:0 auto;padding:18px;padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 30px)}
+    .card{margin-top:24px;padding:24px 18px;border:1px solid var(--border);border-radius:16px;background:var(--surface);box-shadow:var(--shadow,0 10px 30px rgba(0,0,0,.08));text-align:center}
+    .spinner{width:48px;height:48px;margin:0 auto 16px;border:5px solid rgba(59,126,70,.18);border-top-color:var(--brand-green,#3B7E46);border-radius:50%;animation:spin .8s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    h1{margin:0;font-size:24px;line-height:1.2}
+    p{margin:10px 0 0;color:var(--muted,#68716c);line-height:1.5}
+    .message{display:none;margin-top:16px;padding:12px 14px;border:1px solid rgba(180,35,24,.4);border-radius:11px;background:rgba(180,35,24,.06);color:#b42318;font-weight:750;line-height:1.45;text-align:left}
+    .message.show{display:block}
+    .actions{display:none;gap:9px;margin-top:16px}
+    .actions.show{display:grid}
+    .button{display:inline-flex;min-height:46px;align-items:center;justify-content:center;padding:10px 14px;border:1px solid var(--border);border-radius:11px;background:var(--surface);color:var(--text);font-weight:850;text-decoration:none;cursor:pointer}
+    .button-primary{border-color:transparent;background:var(--brand-green,#3B7E46);color:#fff!important}
+  </style>
+</head>
+<body>
+  <fv-shell>
+    <main class="page">
+      <section class="card">
+        <div id="spinner" class="spinner" aria-hidden="true"></div>
+        <h1 id="title">Building Pre-Trip PDF</h1>
+        <p id="statusText">Please wait while FarmVista prepares the complete inspection report.</p>
+        <div id="message" class="message" role="alert"></div>
+        <div id="actions" class="actions">
+          <button id="retryButton" class="button button-primary" type="button">Try Again</button>
+          <a class="button" href="/Farm-vista/pages/logistics/my-pre-trips.html">Back to My Pre-Trips</a>
+        </div>
+      </section>
+    </main>
+  </fv-shell>
+
+  <script type="module">
+    import { ready, getAuth } from "/Farm-vista/js/firebase-init.js";
+    await ready;
+
+    const PDF_FUNCTION_URL =
+      "https://generate-pre-trip-pdf-300398089669.us-central1.run.app";
+
+    const auth = getAuth();
+    const elements = {
+      spinner: document.getElementById("spinner"),
+      title: document.getElementById("title"),
+      statusText: document.getElementById("statusText"),
+      message: document.getElementById("message"),
+      actions: document.getElementById("actions"),
+      retryButton: document.getElementById("retryButton")
+    };
+
+    function clean(value){ return String(value ?? "").trim(); }
+
+    async function waitForUser(){
+      for(let attempt=0; attempt<40; attempt+=1){
+        const user = auth.currentUser;
+        if(user) return user;
+        await new Promise(resolve => setTimeout(resolve,250));
+      }
+      return null;
+    }
+
+    function showError(message){
+      elements.spinner.hidden = true;
+      elements.title.textContent = "PDF Could Not Be Opened";
+      elements.statusText.textContent = "FarmVista was unable to prepare this inspection report.";
+      elements.message.textContent = message;
+      elements.message.classList.add("show");
+      elements.actions.classList.add("show");
+    }
+
+    async function openPdf(){
+      elements.spinner.hidden = false;
+      elements.title.textContent = "Building Pre-Trip PDF";
+      elements.statusText.textContent = "Please wait while FarmVista prepares the complete inspection report.";
+      elements.message.classList.remove("show");
+      elements.actions.classList.remove("show");
+
+      const inspectionId = clean(new URLSearchParams(window.location.search).get("id"));
+      if(!inspectionId){
+        showError("The inspection ID is missing from the page address.");
+        return;
+      }
+
+      const user = await waitForUser();
+      if(!user){
+        showError("Your FarmVista account could not be loaded. Sign in again and retry.");
+        return;
+      }
+
+      try{
+        const token = await user.getIdToken();
+        const response = await fetch(PDF_FUNCTION_URL,{
+          method:"POST",
+          headers:{
+            "Content-Type":"application/json",
+            "Authorization":`Bearer ${token}`
+          },
+          body:JSON.stringify({inspectionId})
+        });
+
+        if(!response.ok){
+          let message = "FarmVista could not generate the PDF.";
+          try{
+            const body = await response.json();
+            if(body?.message) message = body.message;
+          }catch{}
+          throw new Error(message);
+        }
+
+        const pdfBlob = await response.blob();
+        if(pdfBlob.type && pdfBlob.type !== "application/pdf"){
+          throw new Error("The Google Function did not return a PDF.");
+        }
+
+        const pdfUrl = URL.createObjectURL(pdfBlob);
+        window.location.replace(pdfUrl);
+      }catch(error){
+        console.error("[Pre-Trip PDF Viewer] failed:",error);
+        showError(error.message || "FarmVista could not open the PDF.");
+      }
+    }
+
+    elements.retryButton.addEventListener("click",openPdf);
+    openPdf();
+  </script>
+</body>
+</html>
