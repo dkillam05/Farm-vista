@@ -1,5 +1,5 @@
 // /Farm-vista/js/dash-perms.js
-// Rev: 2026-08-04-dashboard-permissions-v3
+// Rev: 2026-08-05-dashboard-permissions-v4
 //
 // Uses FVUserContext as the single permission source.
 //
@@ -12,6 +12,10 @@
 //   cap-kpi-field-maint
 //   cap-kpi-grain
 //   cap-kpi-equipment
+//
+// Pre-Trip permissions:
+//   cap-logistics-overview = view all submitted inspections
+//   logistics-pre-trip add = create a new inspection
 
 (function () {
   "use strict";
@@ -29,6 +33,7 @@
     MAINTENANCE: "crop-maint",
     FIELD_WEATHER: "crop-weather",
     EQUIPMENT: "equipment",
+    PRETRIP: "logistics-pre-trip",
 
     QL_BOUNDARIES: "cap-quick-field-boundaries",
     QL_MAINT_ADD: "cap-quick-maintenance-add",
@@ -52,6 +57,9 @@
       desktopQuickLinks: byId("desktop-quick-links"),
       mobileQuickLinks: byId("quick-links"),
 
+      qlPreTripAdd: byId("ql-pretrip-add"),
+      qlPreTripAddMobile: byId("ql-pretrip-add-mobile"),
+
       qlBoundaries: byId("ql-boundaries"),
       qlBoundariesMobile: byId("ql-boundaries-mobile"),
 
@@ -65,13 +73,7 @@
       qlFieldWeatherMobile: byId("ql-field-weather-mobile"),
 
       /*
-       * This currently opens the company-wide Pre-Trip Dashboard.
-       * It must use cap-logistics-overview, not logistics-pre-trip.
-       */
-      qlLogistics: byId("ql-logistics"),
-
-      /*
-       * Steering is treated as equipment access for now.
+       * Steering currently follows equipment access.
        */
       qlSteering: byId("ql-steering"),
 
@@ -105,8 +107,11 @@
   }
 
   function setVisible(el, allowed) {
-    if (allowed) show(el);
-    else hide(el);
+    if (allowed) {
+      show(el);
+    } else {
+      hide(el);
+    }
   }
 
   function canFromValue(value, action = "view") {
@@ -115,14 +120,21 @@
 
     if (typeof value !== "object") return false;
 
-    if (typeof value.on === "boolean") {
-      return value.on;
-    }
-
     const key = String(action || "view").toLowerCase();
 
     if (typeof value[key] === "boolean") {
       return value[key];
+    }
+
+    /*
+     * Older/simple permissions may only contain:
+     * { on: true }
+     *
+     * Treat "on" as general permission only when the requested
+     * action does not have its own explicit true/false value.
+     */
+    if (typeof value.on === "boolean") {
+      return value.on;
     }
 
     return false;
@@ -163,49 +175,62 @@
       isVisible(els.kpiBoundary) ||
       isVisible(els.kpiBag);
 
-    setVisible(els.attentionSection, hasVisibleKPI);
+    setVisible(
+      els.attentionSection,
+      hasVisibleKPI
+    );
   }
 
   function updateQuickLinkSections(els) {
     const desktopHasLinks =
+      isVisible(els.qlPreTripAdd) ||
       isVisible(els.qlBoundaries) ||
       isVisible(els.qlMaintAdd) ||
       isVisible(els.qlEquipOverview) ||
       isVisible(els.qlFieldWeather);
 
     const mobileHasLinks =
-      isVisible(els.qlLogistics) ||
+      isVisible(els.qlPreTripAddMobile) ||
       isVisible(els.qlBoundariesMobile) ||
       isVisible(els.qlMaintAddMobile) ||
       isVisible(els.qlEquipOverviewMobile) ||
       isVisible(els.qlFieldWeatherMobile) ||
       isVisible(els.qlSteering);
 
-    setVisible(els.desktopQuickLinks, desktopHasLinks);
-    setVisible(els.mobileQuickLinks, mobileHasLinks);
+    setVisible(
+      els.desktopQuickLinks,
+      desktopHasLinks
+    );
+
+    setVisible(
+      els.mobileQuickLinks,
+      mobileHasLinks
+    );
   }
 
-function updateDesktopLayout(els) {
-  if (!els.desktopDashboard || !els.desktopRight) return;
+  function updateDesktopLayout(els) {
+    if (!els.desktopDashboard || !els.desktopRight) return;
 
-  const heading = document.querySelector(".dashboard-heading");
+    const heading =
+      document.querySelector(".dashboard-heading");
 
-  const visibleRightSections = Array
-    .from(els.desktopRight.children)
-    .filter(isVisible);
+    const visibleRightSections = Array
+      .from(els.desktopRight.children)
+      .filter(isVisible);
 
-  const singleColumn = visibleRightSections.length === 0;
+    const singleColumn =
+      visibleRightSections.length === 0;
 
-  els.desktopDashboard.classList.toggle(
-    "dashboard-single-column",
-    singleColumn
-  );
+    els.desktopDashboard.classList.toggle(
+      "dashboard-single-column",
+      singleColumn
+    );
 
-  heading?.classList.toggle(
-    "dashboard-single-column",
-    singleColumn
-  );
-}
+    heading?.classList.toggle(
+      "dashboard-single-column",
+      singleColumn
+    );
+  }
 
   function dispatchReady(permsKnown) {
     document.dispatchEvent(
@@ -239,6 +264,9 @@ function updateDesktopLayout(els) {
       els.desktopQuickLinks,
       els.mobileQuickLinks,
 
+      els.qlPreTripAdd,
+      els.qlPreTripAddMobile,
+
       els.qlBoundaries,
       els.qlBoundariesMobile,
 
@@ -251,7 +279,6 @@ function updateDesktopLayout(els) {
       els.qlFieldWeather,
       els.qlFieldWeatherMobile,
 
-      els.qlLogistics,
       els.qlSteering
     ].forEach(hide);
 
@@ -290,11 +317,10 @@ function updateDesktopLayout(els) {
     );
 
     /*
-     * Company-wide Pre-Trip Overview.
+     * Company-wide Pre-Trip overview.
      *
-     * This is intentionally separate from logistics-pre-trip.
-     * A driver can create and later view their own records without
-     * seeing every employee's inspections.
+     * This permission allows office, dispatch, or management users
+     * to see all inspections submitted today.
      */
     setVisible(
       els.logisticsOverview,
@@ -320,8 +346,11 @@ function updateDesktopLayout(els) {
     );
 
     /*
-     * Quick links
+     * Quick-link permission checks
      */
+    const preTripAddAllowed =
+      can(CAP.PRETRIP, "add");
+
     const boundariesAllowed = canAny(
       can,
       [
@@ -354,9 +383,22 @@ function updateDesktopLayout(els) {
       "view"
     );
 
-    const companyLogisticsAllowed =
-      can(CAP.LOGISTICS_OVERVIEW, "view");
+    /*
+     * Add Pre-Trip links
+     */
+    setVisible(
+      els.qlPreTripAdd,
+      preTripAddAllowed
+    );
 
+    setVisible(
+      els.qlPreTripAddMobile,
+      preTripAddAllowed
+    );
+
+    /*
+     * Field Boundaries links
+     */
     setVisible(
       els.qlBoundaries,
       boundariesAllowed
@@ -367,6 +409,9 @@ function updateDesktopLayout(els) {
       boundariesAllowed
     );
 
+    /*
+     * Maintenance links
+     */
     setVisible(
       els.qlMaintAdd,
       maintenanceAllowed
@@ -377,6 +422,9 @@ function updateDesktopLayout(els) {
       maintenanceAllowed
     );
 
+    /*
+     * Equipment links
+     */
     setVisible(
       els.qlEquipOverview,
       equipmentAllowed
@@ -387,6 +435,9 @@ function updateDesktopLayout(els) {
       equipmentAllowed
     );
 
+    /*
+     * Field Weather links
+     */
     setVisible(
       els.qlFieldWeather,
       fieldWeatherAllowed
@@ -395,15 +446,6 @@ function updateDesktopLayout(els) {
     setVisible(
       els.qlFieldWeatherMobile,
       fieldWeatherAllowed
-    );
-
-    /*
-     * The current mobile Pre-Trip Dashboard link opens the
-     * company-wide overview, so drivers should not see it.
-     */
-    setVisible(
-      els.qlLogistics,
-      companyLogisticsAllowed
     );
 
     /*
@@ -431,10 +473,13 @@ function updateDesktopLayout(els) {
         typeof window.FVUserContext.ready !== "function"
       ) {
         hideControlledContent();
+        dispatchReady(false);
         return;
       }
 
-      const context = await window.FVUserContext.ready();
+      const context =
+        await window.FVUserContext.ready();
+
       applyPermissions(context);
     } catch (error) {
       console.warn(
