@@ -447,6 +447,96 @@
       line-height: 1.45;
     }
 
+    .inspection-block {
+  margin-top: 2px;
+}
+
+.inspection-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 7px;
+  padding: 7px 9px;
+  border-left: 4px solid var(--brand-green, #3B7E46);
+  background: var(--surface-2, rgba(127, 127, 127, 0.05));
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.inspection-count {
+  color: var(--muted, #68716c);
+  font-size: 10px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.inspection-table {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.inspection-table col.result-column {
+  width: 92px;
+}
+
+.inspection-table th,
+.inspection-table td {
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: left;
+  vertical-align: top;
+}
+
+.inspection-table th {
+  background: var(--surface-2, rgba(127, 127, 127, 0.07));
+  font-weight: 950;
+}
+
+.inspection-item {
+  font-weight: 800;
+}
+
+.inspection-result {
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.inspection-result.pass {
+  color: #2f6c3c;
+}
+
+.inspection-result.defect {
+  color: #b42318;
+}
+
+.inspection-result.na {
+  color: #667085;
+}
+
+.defect-note {
+  margin-top: 5px;
+  padding: 5px 7px;
+  border-left: 3px solid #b42318;
+  background: rgba(180, 35, 24, 0.06);
+  color: #b42318;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.no-items {
+  padding: 12px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--muted, #68716c);
+  text-align: center;
+}
+
     @media (max-width: 650px) {
       .page-header {
         align-items: stretch;
@@ -834,6 +924,122 @@
       );
     }
 
+    function statusLabel(status) {
+  const value = normalized(status);
+
+  if (value === "pass") {
+    return "Good";
+  }
+
+  if (value === "defect") {
+    return "Defect";
+  }
+
+  if (value === "na") {
+    return "N/A";
+  }
+
+  return clean(status) || "Not answered";
+}
+
+function sectionKey(response) {
+  const section =
+    normalized(response?.section);
+
+  return section.includes("trailer")
+    ? "trailer"
+    : "truck";
+}
+
+function inspectionResponses(
+  row,
+  section
+) {
+  const responses =
+    Array.isArray(row.responses)
+      ? row.responses
+      : [];
+
+  return responses.filter(
+    response =>
+      sectionKey(response) === section
+  );
+}
+
+function renderInspectionTable(
+  responses
+) {
+  if (!responses.length) {
+    return `
+      <div class="no-items">
+        No inspection items were saved for this section.
+      </div>
+    `;
+  }
+
+  return `
+    <table class="inspection-table">
+      <colgroup>
+        <col>
+        <col class="result-column">
+      </colgroup>
+
+      <thead>
+        <tr>
+          <th>Inspection Item</th>
+          <th>Result</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        ${responses.map(response => {
+          const status =
+            normalized(response.status);
+
+          return `
+            <tr>
+              <td>
+                <div class="inspection-item">
+                  ${escapeHtml(
+                    response.label ||
+                    response.itemId ||
+                    "Inspection item"
+                  )}
+                </div>
+
+                ${
+                  status === "defect" &&
+                  response.note
+                    ? `
+                      <div class="defect-note">
+                        ${escapeHtml(
+                          response.note
+                        )}
+                      </div>
+                    `
+                    : ""
+                }
+              </td>
+
+              <td>
+                <span
+                  class="inspection-result ${escapeHtml(status)}"
+                >
+                  ${escapeHtml(
+                    statusLabel(
+                      response.status
+                    )
+                  )}
+                </span>
+              </td>
+            </tr>
+          `;
+        }).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
     function ownsInspection(row, user) {
       if (!row || !user) return false;
 
@@ -1043,119 +1249,200 @@
         }).join("");
     }
 
-    function renderDetails(row) {
-      const defective = hasDefects(row);
-      const defects = defectCount(row);
+function renderDetails(row) {
+  const defective =
+    hasDefects(row);
 
-      elements.detailSubtitle.textContent =
-        `${formatDate(row.inspectionDate)} • ${truckLabel(row)}`;
+  const defects =
+    defectCount(row);
 
-      elements.detailContent.innerHTML = `
-        <div
-          class="status-banner ${
-            defective ? "defect" : ""
-          }"
-        >
-          ${
-            defective
-              ? `${defects} defect${
-                  defects === 1 ? "" : "s"
-                } reported`
-              : "Inspection passed"
-          }
+  const truckResponses =
+    inspectionResponses(
+      row,
+      "truck"
+    );
+
+  const trailerResponses =
+    inspectionResponses(
+      row,
+      "trailer"
+    );
+
+  elements.detailSubtitle.textContent =
+    `${formatDate(
+      row.inspectionDate
+    )} • ${truckLabel(row)}`;
+
+  elements.detailContent.innerHTML = `
+    <div
+      class="status-banner ${
+        defective ? "defect" : ""
+      }"
+    >
+      ${
+        defective
+          ? `${defects} defect${
+              defects === 1
+                ? ""
+                : "s"
+            } reported`
+          : "Inspection passed"
+      }
+    </div>
+
+    <section class="detail-grid">
+      <div class="detail-box">
+        <div class="detail-label">
+          Driver
         </div>
 
-        <section class="detail-grid">
-          <div class="detail-box">
-            <div class="detail-label">Driver</div>
-            <div class="detail-value">
-              ${escapeHtml(
-                row.driverName ||
-                state.user?.displayName ||
-                state.user?.email ||
-                "FarmVista User"
-              )}
-            </div>
-          </div>
+        <div class="detail-value">
+          ${escapeHtml(
+            row.driverName ||
+            state.user?.displayName ||
+            state.user?.email ||
+            "FarmVista User"
+          )}
+        </div>
+      </div>
 
-          <div class="detail-box">
-            <div class="detail-label">
-              Inspection Date
-            </div>
-            <div class="detail-value">
-              ${escapeHtml(
-                formatDate(row.inspectionDate)
-              )}
-            </div>
-          </div>
+      <div class="detail-box">
+        <div class="detail-label">
+          Inspection Date
+        </div>
 
-          <div class="detail-box">
-            <div class="detail-label">
-              Truck / Semi
-            </div>
-            <div class="detail-value">
-              ${escapeHtml(truckLabel(row))}
-            </div>
-          </div>
+        <div class="detail-value">
+          ${escapeHtml(
+            formatDate(
+              row.inspectionDate
+            )
+          )}
+        </div>
+      </div>
 
-          <div class="detail-box">
-            <div class="detail-label">Trailer</div>
-            <div class="detail-value">
-              ${escapeHtml(trailerLabel(row))}
-            </div>
-          </div>
+      <div class="detail-box">
+        <div class="detail-label">
+          Truck / Semi
+        </div>
 
-          <div class="detail-box">
-            <div class="detail-label">Odometer</div>
-            <div class="detail-value">
-              ${escapeHtml(
-                formatNumber(row.odometerMiles)
-              )} miles
-            </div>
-          </div>
+        <div class="detail-value">
+          ${escapeHtml(
+            truckLabel(row)
+          )}
+        </div>
+      </div>
 
-          <div class="detail-box">
-            <div class="detail-label">Submitted</div>
-            <div class="detail-value">
-              ${escapeHtml(
-                formatDateTime(
-                  row.submittedAt ||
-                  row.createdAt
-                )
-              )}
-            </div>
-          </div>
-        </section>
+      <div class="detail-box">
+        <div class="detail-label">
+          Trailer
+        </div>
 
-        <section>
-          <h3 class="section-title">
-            Driver Remarks
-          </h3>
+        <div class="detail-value">
+          ${escapeHtml(
+            trailerLabel(row)
+          )}
+        </div>
+      </div>
 
-          <div class="remarks">
-            ${escapeHtml(
-              row.remarks ||
-              "No additional remarks."
+      <div class="detail-box">
+        <div class="detail-label">
+          Odometer
+        </div>
+
+        <div class="detail-value">
+          ${escapeHtml(
+            formatNumber(
+              row.odometerMiles
+            )
+          )} miles
+        </div>
+      </div>
+
+      <div class="detail-box">
+        <div class="detail-label">
+          Submitted
+        </div>
+
+        <div class="detail-value">
+          ${escapeHtml(
+            formatDateTime(
+              row.submittedAt ||
+              row.createdAt
+            )
+          )}
+        </div>
+      </div>
+    </section>
+
+    <section class="inspection-block">
+      <h3 class="inspection-heading">
+        <span>
+          Truck / Semi Inspection
+        </span>
+
+        <span class="inspection-count">
+          ${truckResponses.length} items
+        </span>
+      </h3>
+
+      ${renderInspectionTable(
+        truckResponses
+      )}
+    </section>
+
+    ${
+      row.trailerHookedOn !== false
+        ? `
+          <section class="inspection-block">
+            <h3 class="inspection-heading">
+              <span>
+                Trailer Inspection
+              </span>
+
+              <span class="inspection-count">
+                ${trailerResponses.length} items
+              </span>
+            </h3>
+
+            ${renderInspectionTable(
+              trailerResponses
             )}
-          </div>
-        </section>
-
-        <button
-          id="openPdfButton"
-          class="button button-primary"
-          type="button"
-        >
-          Open Complete PDF Report
-        </button>
-      `;
-
-      document
-        .getElementById("openPdfButton")
-        .addEventListener(
-          "click",
-          generatePdf
-        );
+          </section>
+        `
+        : ""
     }
+
+    <section>
+      <h3 class="section-title">
+        Driver Remarks
+      </h3>
+
+      <div class="remarks">
+        ${escapeHtml(
+          row.remarks ||
+          "No additional remarks."
+        )}
+      </div>
+    </section>
+
+    <button
+      id="openPdfButton"
+      class="button button-primary"
+      type="button"
+    >
+      Open Complete PDF Report
+    </button>
+  `;
+
+  document
+    .getElementById(
+      "openPdfButton"
+    )
+    .addEventListener(
+      "click",
+      generatePdf
+    );
+}
 
     function openReport(id) {
       const row =
