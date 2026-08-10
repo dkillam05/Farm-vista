@@ -276,11 +276,16 @@ function getHybridItemsForCombo(){
   if(!rows.length) return [];
 
   return rows.map(s => {
-    const brand      = s.brand || '';
-    const variety    = s.variety || '';
-    const maturity   = s.maturity ?? null;
-    const trait      = s.trait || '';
-    const traitLabel = s.traitLabel || s.trait || '';
+    const brand = s.brand || '';
+    const variety = s.variety || '';
+    const maturity = s.maturity ?? null;
+
+    const trait =
+      s.traitLabel ||
+      s.trait ||
+      s.traitSystem ||
+      s.traitName ||
+      '';
 
     const baseName = `${brand} ${variety}`.trim();
 
@@ -290,8 +295,8 @@ function getHybridItemsForCombo(){
       label += ` (${maturity} RM)`;
     }
 
-    if(traitLabel){
-      label += ` (${traitLabel})`;
+    if(trait){
+      label += ` (${trait})`;
     }
 
     return {
@@ -302,7 +307,7 @@ function getHybridItemsForCombo(){
       variety,
       maturity,
       trait,
-      traitLabel,
+      traitLabel: trait,
       label
     };
   });
@@ -1098,6 +1103,77 @@ const traitText = traitLabel
     }, { passive: true });
   }
 
+ function enrichEntriesFromSeedProducts(){
+  if(!seedOptions.length) return;
+
+  const seedById = new Map(
+    seedOptions.map(seed => [String(seed.id), seed])
+  );
+
+  mhState.hybrids = (mhState.hybrids || []).map(h => {
+    if(!h?.productId) return h;
+
+    const seed = seedById.get(String(h.productId));
+    if(!seed) return h;
+
+    const brand = seed.brand || h.brand || '';
+    const variety = seed.variety || h.variety || '';
+    const maturity =
+      seed.maturity != null && seed.maturity !== ''
+        ? seed.maturity
+        : h.maturity ?? null;
+
+    // Support the common possible Firestore trait field names.
+    const trait =
+      seed.traitLabel ||
+      seed.trait ||
+      seed.traitSystem ||
+      seed.traitName ||
+      '';
+
+    return {
+      ...h,
+      name: `${brand} ${variety}`.trim(),
+      brand,
+      variety,
+      maturity,
+      trait,
+      traitLabel: trait
+    };
+  });
+
+  mhState.blocks = (mhState.blocks || []).map(b => {
+    if(!b?.productId) return b;
+
+    const seed = seedById.get(String(b.productId));
+    if(!seed) return b;
+
+    const brand = seed.brand || b.brand || '';
+    const variety = seed.variety || b.variety || '';
+    const maturity =
+      seed.maturity != null && seed.maturity !== ''
+        ? seed.maturity
+        : b.maturity ?? null;
+
+    const trait =
+      seed.traitLabel ||
+      seed.trait ||
+      seed.traitSystem ||
+      seed.traitName ||
+      '';
+
+    return {
+      ...b,
+      name: `${brand} ${variety}`.trim(),
+      brand,
+      variety,
+      maturity,
+      trait,
+      traitLabel: trait
+    };
+  });
+}
+
   // ---------- Firestore load/save ----------
 
   async function loadSeedProducts(){
@@ -1118,18 +1194,20 @@ const traitText = traitLabel
       const cropField = mhState.cropKind === 'soy' ? 'cropSoy' : 'cropCorn';
 
       // Filter by crop + active, then sort A–Z by "Brand Variety"
-      seedOptions = rows
-        .filter(r => r[cropField] === true)
-        .filter(r => (r.status || '').toLowerCase() === 'active')
-        .sort((a, b) => {
-          const aLabel = `${a.brand || ''} ${a.variety || ''}`.trim().toLowerCase();
-          const bLabel = `${b.brand || ''} ${b.variety || ''}`.trim().toLowerCase();
-          return aLabel.localeCompare(bLabel);
-        });
+seedOptions = rows
+  .filter(r => r[cropField] === true)
+  .filter(r => (r.status || '').toLowerCase() === 'active')
+  .sort((a, b) => {
+    const aLabel = `${a.brand || ''} ${a.variety || ''}`.trim().toLowerCase();
+    const bLabel = `${b.brand || ''} ${b.variety || ''}`.trim().toLowerCase();
+    return aLabel.localeCompare(bLabel);
+  });
 
-      if(mhState.stage === 'setup'){
-        renderStage();
-      }
+// Backfill brand / variety / maturity / trait from productsSeed
+// using the productId already stored on each trial entry.
+enrichEntriesFromSeedProducts();
+
+renderStage();
     }catch(err){
       console.error('Error loading productsSeed for MH helper:', err);
       seedOptions = [];
