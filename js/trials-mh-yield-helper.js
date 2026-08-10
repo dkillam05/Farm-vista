@@ -194,7 +194,7 @@ if(h.maturity != null && h.maturity !== ''){
 
 const traitLabel = h.traitLabel || h.trait || '';
 if(traitLabel){
-  parts.push(`(${traitLabel})`);
+  parts.push(`— ${traitLabel}`);
 }
 
 if(isCheck){
@@ -407,7 +407,7 @@ const traitLabel = hyb.traitLabel || hyb.trait || '';
 const label = hyb.productId
   ? `${displayName}` +
     `${hyb.maturity != null && hyb.maturity !== '' ? ` (${hyb.maturity} RM)` : ''}` +
-    `${traitLabel ? ` (${traitLabel})` : ''}`
+    `${traitLabel ? ` — ${traitLabel}` : ''}`
   : 'Select variety…';
         const entryNum     = hyb.entryNumber ?? (idx + 1);
         const entryLabel   = hyb.isNewEntry ? 'New Entry' : `Entry ${entryNum}`;
@@ -663,7 +663,7 @@ const mat = b.maturity != null && b.maturity !== ''
 
 const traitLabel = b.traitLabel || b.trait || '';
 const traitText = traitLabel
-  ? ` (${traitLabel})`
+  ? ` — ${traitLabel}`
   : '';
       const moistVal  = b.moisturePct != null ? formatNumber(b.moisturePct, 2) : '';
       const wtVal     = b.weightLbs    != null ? formatWithCommas(b.weightLbs) : '';
