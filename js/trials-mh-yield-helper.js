@@ -181,14 +181,25 @@ export function initMhYieldHelper(options = {}) {
       const entryNum = h.entryNumber ?? (idx + 1);
 
       const parts = [];
-      const displayName = h.name || [
-        h.brand || '',
-        h.variety || ''
-      ].join(' ').trim() || 'Variety';
+const displayName = [
+  h.brand || '',
+  h.variety || ''
+].join(' ').trim() || h.name || 'Variety';
 
-      parts.push(`Entry ${entryNum}: ${displayName}`);
-      if(h.maturity != null) parts.push(`(${h.maturity} RM)`);
-      if(isCheck) parts.push('– CHECK');
+parts.push(`Entry ${entryNum}: ${displayName}`);
+
+if(h.maturity != null && h.maturity !== ''){
+  parts.push(`(${h.maturity} RM)`);
+}
+
+const traitLabel = h.traitLabel || h.trait || '';
+if(traitLabel){
+  parts.push(`(${traitLabel})`);
+}
+
+if(isCheck){
+  parts.push('– CHECK');
+}
       if(hasData){
         parts.push(`– ${formatNumber(blk.moisturePct,2)}% • ${formatNumber(blk.yieldBuPerAc,1)} bu/ac`);
       }
@@ -260,25 +271,42 @@ export function initMhYieldHelper(options = {}) {
   }
 
   // Build display items for the variety combo based *only* on seedOptions.
-  function getHybridItemsForCombo(){
-    const rows = (seedOptions || []).slice();
-    if(!rows.length) return [];
-    return rows.map(s => {
-      const brand   = s.brand   || '';
-      const variety = s.variety || '';
-      const mat     = s.maturity != null ? String(s.maturity) : '';
-      let label = `${brand} ${variety}`.trim();
-      if(mat) label += ` (${mat} RM)`;
-      return {
-        id: s.id,
-        seedDocId: s.id,
-        brand,
-        variety,
-        maturity: s.maturity ?? null,
-        label
-      };
-    });
-  }
+function getHybridItemsForCombo(){
+  const rows = (seedOptions || []).slice();
+  if(!rows.length) return [];
+
+  return rows.map(s => {
+    const brand      = s.brand || '';
+    const variety    = s.variety || '';
+    const maturity   = s.maturity ?? null;
+    const trait      = s.trait || '';
+    const traitLabel = s.traitLabel || s.trait || '';
+
+    const baseName = `${brand} ${variety}`.trim();
+
+    let label = baseName;
+
+    if(maturity != null && maturity !== ''){
+      label += ` (${maturity} RM)`;
+    }
+
+    if(traitLabel){
+      label += ` (${traitLabel})`;
+    }
+
+    return {
+      id: s.id,
+      seedDocId: s.id,
+      name: baseName,
+      brand,
+      variety,
+      maturity,
+      trait,
+      traitLabel,
+      label
+    };
+  });
+}
 
   function validateSetup(){
     const errors = [];
@@ -365,12 +393,17 @@ export function initMhYieldHelper(options = {}) {
     }else{
       hybrids.forEach((hyb, idx) => {
         const isCheckRow   = !!hyb.isCheck;
-        const displayName  = hyb.productId
-          ? (hyb.name || `${hyb.brand || ''} ${hyb.variety || ''}`.trim() || 'Variety')
-          : 'Select variety…';
-        const label        = hyb.productId
-          ? `${displayName}${hyb.maturity != null ? ' (' + hyb.maturity + ' RM)' : ''}`
-          : 'Select variety…';
+const displayName = hyb.productId
+  ? (`${hyb.brand || ''} ${hyb.variety || ''}`.trim() || hyb.name || 'Variety')
+  : 'Select variety…';
+
+const traitLabel = hyb.traitLabel || hyb.trait || '';
+
+const label = hyb.productId
+  ? `${displayName}` +
+    `${hyb.maturity != null && hyb.maturity !== '' ? ` (${hyb.maturity} RM)` : ''}` +
+    `${traitLabel ? ` (${traitLabel})` : ''}`
+  : 'Select variety…';
         const entryNum     = hyb.entryNumber ?? (idx + 1);
         const entryLabel   = hyb.isNewEntry ? 'New Entry' : `Entry ${entryNum}`;
 
@@ -455,17 +488,19 @@ export function initMhYieldHelper(options = {}) {
         // Only one "New Entry" at a time
         mhState.hybrids.forEach(h => { h.isNewEntry = false; });
 
-        mhState.hybrids.push({
-          rowId: newRowId,
-          entryNumber: nextEntry,
-          productId: '',
-          name: '',
-          brand: '',
-          variety: '',
-          maturity: null,
-          isCheck: false,
-          isNewEntry: true
-        });
+mhState.hybrids.push({
+  rowId: newRowId,
+  entryNumber: nextEntry,
+  productId: '',
+  name: '',
+  brand: '',
+  variety: '',
+  maturity: null,
+  trait: '',
+  traitLabel: '',
+  isCheck: false,
+  isNewEntry: true
+});
 
         // Keep entryNumber 1..N and mirror to blocks
         renumberEntries();
@@ -505,11 +540,13 @@ export function initMhYieldHelper(options = {}) {
           onPick: it => {
             const found = comboItems.find(m => m.id === it.id) || null;
 
-            hyb.productId = found ? found.seedDocId : it.id;
-            hyb.name      = found ? found.label : it.label;
-            hyb.brand     = found ? found.brand : '';
-            hyb.variety   = found ? found.variety : '';
-            hyb.maturity  = found ? found.maturity : null;
+hyb.productId = found ? found.seedDocId : it.id;
+hyb.name      = found ? found.name : '';
+hyb.brand     = found ? found.brand : '';
+hyb.variety   = found ? found.variety : '';
+hyb.maturity  = found ? found.maturity : null;
+hyb.trait     = found ? found.trait : '';
+hyb.traitLabel= found ? found.traitLabel : '';
 
             // Once a variety is chosen, this is no longer the "New Entry"
             if(hyb.isNewEntry){
@@ -613,8 +650,16 @@ export function initMhYieldHelper(options = {}) {
       const isCheck   = !!b.isCheck;
       const entryNum  = b.entryNumber ?? (idx + 1);
       const entryLabel= `Entry ${entryNum}`;
-      const name      = b.name || `${b.brand || ''} ${b.variety || ''}`.trim() || 'Variety';
-      const mat       = b.maturity != null ? ` (${b.maturity} RM)` : '';
+const name = `${b.brand || ''} ${b.variety || ''}`.trim() || b.name || 'Variety';
+
+const mat = b.maturity != null && b.maturity !== ''
+  ? ` (${b.maturity} RM)`
+  : '';
+
+const traitLabel = b.traitLabel || b.trait || '';
+const traitText = traitLabel
+  ? ` (${traitLabel})`
+  : '';
       const moistVal  = b.moisturePct != null ? formatNumber(b.moisturePct, 2) : '';
       const wtVal     = b.weightLbs    != null ? formatWithCommas(b.weightLbs) : '';
       const yldVal    = b.yieldBuPerAc != null ? formatNumber(b.yieldBuPerAc, 1) : '—';
@@ -658,7 +703,7 @@ export function initMhYieldHelper(options = {}) {
         <div class="yield-block-card" data-row-id="${b.rowId}">
           <div class="yield-block-head">
             <div>
-              <div class="yield-block-title">${entryLabel}: ${name}${mat}${isCheck ? ' – CHECK' : ''}</div>
+              <div class="yield-block-title">${entryLabel}: ${name}${mat}${traitText}${isCheck ? ' – CHECK' : ''}</div>
               <div class="yield-block-sub">
                 Plot length ${len} ft • Pass width ${wid} ft
               </div>
@@ -1294,12 +1339,14 @@ export function initMhYieldHelper(options = {}) {
             ...existing,
             rowId: h.rowId,
             entryNumber: h.entryNumber ?? existing.entryNumber ?? null,
-            productId: h.productId,
-            name: h.name,
-            brand: h.brand,
-            variety: h.variety,
-            maturity: h.maturity,
-            isCheck: !!(h.productId && h.productId === mhState.checkProductId),
+productId: h.productId,
+name: h.name,
+brand: h.brand,
+variety: h.variety,
+maturity: h.maturity,
+trait: h.trait || '',
+traitLabel: h.traitLabel || h.trait || '',
+isCheck: !!(h.productId && h.productId === mhState.checkProductId),
             // keep stored yield data if we had it
             moisturePct: existing.moisturePct ?? null,
             weightLbs: existing.weightLbs ?? null,
