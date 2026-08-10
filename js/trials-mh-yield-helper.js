@@ -231,44 +231,128 @@ if(isCheck){
     $$('.combo-panel.show').forEach(p => { if(p !== except) p.classList.remove('show'); });
   }
 
-  function makeCombo({ btn, panel, list, items=[], formatter=x=>String(x.label ?? x), onPick }){
-    if(!btn || !panel || !list) return;
+function makeCombo({
+  btn,
+  panel,
+  list,
+  items = [],
+  formatter = x => String(x.label ?? x),
+  onPick,
+  searchable = false,
+  searchPlaceholder = 'Search...'
+}){
+  if(!btn || !panel || !list) return;
 
-    panel.addEventListener('click', e => e.stopPropagation());
-    panel.addEventListener('mousedown', e => e.stopPropagation());
+  panel.addEventListener('click', e => e.stopPropagation());
+  panel.addEventListener('mousedown', e => e.stopPropagation());
 
-    function renderList(){
-      list.innerHTML = (items||[]).map(x => `
-        <div class="combo-item" data-id="${String(x.id)}">${formatter(x)}</div>
-      `).join('') || `<div class="combo-empty">(no options)</div>`;
-    }
+  let searchInput = null;
 
-    function open(){
-      closeAllCombos(panel);
-      panel.classList.add('show');
-      renderList();
-    }
-    function close(){
-      panel.classList.remove('show');
-    }
+  // Add a search box above the list when requested.
+  if(searchable){
+    searchInput = document.createElement('input');
+    searchInput.type = 'search';
+    searchInput.className = 'input';
+    searchInput.placeholder = searchPlaceholder;
+    searchInput.autocomplete = 'off';
+    searchInput.spellcheck = false;
+    searchInput.setAttribute('aria-label', searchPlaceholder);
+    searchInput.style.marginBottom = '8px';
 
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      panel.classList.contains('show') ? close() : open();
-    });
-
-    list.addEventListener('mousedown', e => {
-      const row = e.target.closest('.combo-item');
-      if(!row) return;
-      const id  = row.dataset.id;
-      const it  = (items||[]).find(x => String(x.id) === id);
-      if(!it) return;
-      onPick?.(it);
-      close();
-    });
-
-    return { open, close };
+    panel.insertBefore(searchInput, list);
   }
+
+  function getSearchText(item){
+    return [
+      item.label,
+      item.name,
+      item.brand,
+      item.variety,
+      item.maturity,
+      item.trait,
+      item.traitLabel
+    ]
+      .filter(v => v != null && v !== '')
+      .join(' ')
+      .toLowerCase();
+  }
+
+  function renderList(query = ''){
+    const q = String(query || '').trim().toLowerCase();
+
+    const filteredItems = !q
+      ? items
+      : (items || []).filter(item => {
+          return getSearchText(item).includes(q);
+        });
+
+    list.innerHTML = filteredItems.length
+      ? filteredItems.map(x => `
+          <div class="combo-item" data-id="${String(x.id)}">
+            ${formatter(x)}
+          </div>
+        `).join('')
+      : `<div class="combo-empty">No matching varieties.</div>`;
+  }
+
+  function open(){
+    closeAllCombos(panel);
+
+    if(searchInput){
+      searchInput.value = '';
+    }
+
+    renderList('');
+    panel.classList.add('show');
+
+    if(searchInput){
+      requestAnimationFrame(() => {
+        searchInput.focus();
+      });
+    }
+  }
+
+  function close(){
+    panel.classList.remove('show');
+  }
+
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+
+    if(panel.classList.contains('show')){
+      close();
+    }else{
+      open();
+    }
+  });
+
+  if(searchInput){
+    searchInput.addEventListener('input', e => {
+      renderList(e.target.value);
+    });
+
+    // Prevent Enter from doing anything unexpected.
+    searchInput.addEventListener('keydown', e => {
+      if(e.key === 'Enter'){
+        e.preventDefault();
+      }
+    });
+  }
+
+  list.addEventListener('mousedown', e => {
+    const row = e.target.closest('.combo-item');
+    if(!row) return;
+
+    const id = row.dataset.id;
+    const it = (items || []).find(x => String(x.id) === id);
+    if(!it) return;
+
+    onPick?.(it);
+    close();
+  });
+
+  return { open, close };
+}
 
   // Build display items for the variety combo based *only* on seedOptions.
 function getHybridItemsForCombo(){
@@ -536,13 +620,17 @@ mhState.hybrids.push({
       const list  = document.getElementById(`mh-hybrid-list-${hyb.rowId}`);
 
       if(btn && panel && list){
-        makeCombo({
-          btn,
-          panel,
-          list,
-          items: comboItems,
-          formatter: x => x.label,
-          onPick: it => {
+makeCombo({
+  btn,
+  panel,
+  list,
+  items: comboItems,
+  formatter: x => x.label,
+
+  searchable: true,
+  searchPlaceholder: 'Search brand, variety, RM, trait...',
+
+  onPick: it => {
             const found = comboItems.find(m => m.id === it.id) || null;
 
 hyb.productId = found ? found.seedDocId : it.id;
