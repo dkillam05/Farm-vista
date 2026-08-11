@@ -177,335 +177,1064 @@
     })();
   </script>
 
-  <script type="module">
-    import {
-      ready,
-      getAuth, onAuthStateChanged,
-      getFirestore, doc, getDoc, setDoc, serverTimestamp
-    } from '/Farm-vista/js/firebase-init.js';
+<script type="module">
+  import {
+    ready,
+    getAuth,
+    onAuthStateChanged,
+    getFirestore,
+    doc,
+    collection,
+    getDoc,
+    getDocs,
+    setDoc,
+    query,
+    where,
+    limit,
+    serverTimestamp
+  } from '/Farm-vista/js/firebase-init.js';
 
-    const VAPID_PUBLIC_KEY = "BAWo6Rtrmew1Z5B5MYluhTxKa8-NufKpjKiQP7BHMM1As1hpsR_VFPTGYEXwkW6n-VnDZWgRvENWYeGiQHRWANA";
-    const DEVICE_KEY = 'fv:device:id';
+  const VAPID_PUBLIC_KEY =
+    "BAWo6Rtrmew1Z5B5MYluhTxKa8-NufKpjKiQP7BHMM1As1hpsR_VFPTGYEXwkW6n-VnDZWgRvENWYeGiQHRWANA";
 
-    const $ = id => document.getElementById(id);
-    const digitsOnly = s => String(s || '').replace(/\D+/g, '');
-    const formatUSPhone = raw => {
-      const d = digitsOnly(raw);
-      const core = (d.length === 11 && d.startsWith('1')) ? d.slice(1) : d;
-      return core.length === 10 ? `(${core.slice(0,3)}) ${core.slice(3,6)}-${core.slice(6)}` : raw;
-    };
-    const emailKey = e => String(e || '').trim().toLowerCase();
+  const DEVICE_KEY = 'fv:device:id';
 
-    function fill(v = {}) {
-      $('ud-name').value  = v.fullName || v.name || '';
-      $('ud-role').value  = v.role || '';
-      $('ud-email').value = v.email || '';
-      $('ud-phone').value = formatUSPhone(v.phone || '');
-      $('ud-notes').value = v.notes || '';
-    }
+  const $ = id => document.getElementById(id);
 
-    function getDeviceId() {
+  const digitsOnly = s =>
+    String(s || '').replace(/\D+/g, '');
+
+  const formatUSPhone = raw => {
+    const d = digitsOnly(raw);
+    const core =
+      (d.length === 11 && d.startsWith('1'))
+        ? d.slice(1)
+        : d;
+
+    return core.length === 10
+      ? `(${core.slice(0,3)}) ${core.slice(3,6)}-${core.slice(6)}`
+      : raw;
+  };
+
+  const emailKey = e =>
+    String(e || '').trim().toLowerCase();
+
+
+  /* ============================================================
+     EMPLOYEE DOCUMENT RESOLUTION
+
+     IMPORTANT:
+     Notifications MUST be stored underneath the REAL employee
+     document because the Cloud Run notification function loops
+     actual documents in /employees.
+  ============================================================ */
+
+  async function resolveEmployee(user) {
+    if (!user) return null;
+
+    const db = getFirestore();
+    const email = emailKey(user.email);
+    const uid = String(user.uid || '').trim();
+
+    /*
+      1. First try Firebase UID as document ID.
+    */
+    if (uid) {
       try {
-        let id = localStorage.getItem(DEVICE_KEY);
-        if (!id) {
-          if (window.crypto && crypto.randomUUID) {
-            id = crypto.randomUUID();
-          } else {
-            id = 'dev-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
-          }
-          localStorage.setItem(DEVICE_KEY, id);
+        const ref = doc(db, 'employees', uid);
+        const snap = await getDoc(ref);
+
+        if (snap.exists()) {
+          console.log('[FV] Employee resolved by UID doc ID:', uid);
+
+          return {
+            id: snap.id,
+            ref,
+            data: snap.data() || {}
+          };
         }
-        return id;
-      } catch {
-        return 'dev-fallback';
+      } catch (err) {
+        console.warn('[FV] UID employee lookup failed:', err);
       }
     }
 
-    function detectPlatform() {
-      const ua = navigator.userAgent || '';
-      if (/iPhone|iPad|iPod/i.test(ua)) return 'ios';
-      if (/Android/i.test(ua)) return 'android';
-      if (/Macintosh/i.test(ua)) return 'mac';
-      if (/Windows/i.test(ua)) return 'windows';
-      return 'other';
-    }
-
-    function detectBrowser() {
-      const ua = navigator.userAgent || '';
-      if (/Edg\//i.test(ua)) return 'edge';
-      if (/OPR\//i.test(ua) || /Opera/i.test(ua)) return 'opera';
-      if (/Firefox/i.test(ua)) return 'firefox';
-      if (/Chrome/i.test(ua) && !/Edg\//i.test(ua) && !/OPR\//i.test(ua)) return 'chrome';
-      if (/Safari/i.test(ua) && !/Chrome/i.test(ua)) return 'safari';
-      return 'other';
-    }
-
-    // Detect if we're running as a mobile/tablet PWA (home-screen app), not desktop
-    function isMobilePWA() {
-      const ua = (navigator.userAgent || '').toLowerCase();
-      const standaloneMedia =
-        window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
-      const iosStandalone = (window.navigator && window.navigator.standalone === true);
-      const isStandalone = standaloneMedia || iosStandalone;
-
-      const isMobileUA = /iphone|ipad|ipod|android/.test(ua);
-      const hasTouch = navigator.maxTouchPoints && navigator.maxTouchPoints > 1;
-
-      // Standalone + (classic mobile UA OR touch device) → treat as phone/tablet PWA
-      return isStandalone && (isMobileUA || hasTouch);
-    }
-
-    // True web-push support check
-    function isPushSupported() {
-      if (typeof Notification === 'undefined') return false;
-      if (!('serviceWorker' in navigator)) return false;
-      if (!('PushManager' in window)) return false;
-      return true;
-    }
-
-    function urlBase64ToUint8Array(base64String) {
-      const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-      const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-      const rawData = atob(base64);
-      const outputArray = new Uint8Array(rawData.length);
-      for (let i = 0; i < rawData.length; ++i) {
-        outputArray[i] = rawData.charCodeAt(i);
-      }
-      return outputArray;
-    }
-
-    async function getSWRegistration() {
-      if (!('serviceWorker' in navigator)) return null;
+    /*
+      2. Try lowercase email as document ID.
+         Keeps compatibility with existing FarmVista records.
+    */
+    if (email) {
       try {
-        const reg = await navigator.serviceWorker.ready;
-        return reg;
-      } catch {
+        const ref = doc(db, 'employees', email);
+        const snap = await getDoc(ref);
+
+        if (snap.exists()) {
+          console.log('[FV] Employee resolved by email doc ID:', email);
+
+          return {
+            id: snap.id,
+            ref,
+            data: snap.data() || {}
+          };
+        }
+      } catch (err) {
+        console.warn('[FV] Email employee lookup failed:', err);
+      }
+    }
+
+    /*
+      3. Search employee records by UID fields.
+    */
+    if (uid) {
+      const uidFields = [
+        'uid',
+        'authUid',
+        'userUid',
+        'firebaseUid'
+      ];
+
+      for (const field of uidFields) {
         try {
-          const reg = await navigator.serviceWorker.register('/Farm-vista/serviceworker.js');
-          return reg;
-        } catch {
-          return null;
+          const q = query(
+            collection(db, 'employees'),
+            where(field, '==', uid),
+            limit(1)
+          );
+
+          const snap = await getDocs(q);
+
+          if (!snap.empty) {
+            const empDoc = snap.docs[0];
+
+            console.log(
+              `[FV] Employee resolved by ${field}:`,
+              empDoc.id
+            );
+
+            return {
+              id: empDoc.id,
+              ref: empDoc.ref,
+              data: empDoc.data() || {}
+            };
+          }
+        } catch (err) {
+          console.warn(
+            `[FV] Employee lookup by ${field} failed:`,
+            err
+          );
         }
       }
     }
 
-    async function ensurePushSubscription() {
-      const reg = await getSWRegistration();
-      if (!reg || !reg.pushManager) return null;
+    /*
+      4. Search employee records by email field.
+    */
+    if (email) {
+      const emailFields = [
+        'email',
+        'emailAddress'
+      ];
 
-      let sub = await reg.pushManager.getSubscription();
-      if (!sub) {
-        if (!VAPID_PUBLIC_KEY || VAPID_PUBLIC_KEY.startsWith('REPLACE')) {
-          console.warn('[FV] VAPID public key not configured.');
-          return null;
+      for (const field of emailFields) {
+        try {
+          const q = query(
+            collection(db, 'employees'),
+            where(field, '==', email),
+            limit(1)
+          );
+
+          const snap = await getDocs(q);
+
+          if (!snap.empty) {
+            const empDoc = snap.docs[0];
+
+            console.log(
+              `[FV] Employee resolved by ${field}:`,
+              empDoc.id
+            );
+
+            return {
+              id: empDoc.id,
+              ref: empDoc.ref,
+              data: empDoc.data() || {}
+            };
+          }
+        } catch (err) {
+          console.warn(
+            `[FV] Employee lookup by ${field} failed:`,
+            err
+          );
         }
-        const appServerKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
-        sub = await reg.pushManager.subscribe({
+      }
+    }
+
+    console.error(
+      '[FV] Could not locate employee document for:',
+      {
+        uid,
+        email
+      }
+    );
+
+    return null;
+  }
+
+
+  /* ============================================================
+     PROFILE
+  ============================================================ */
+
+  function fill(v = {}) {
+    $('ud-name').value  = v.fullName || v.name || '';
+    $('ud-role').value  = v.role || '';
+    $('ud-email').value = v.email || '';
+    $('ud-phone').value = formatUSPhone(v.phone || '');
+    $('ud-notes').value = v.notes || '';
+  }
+
+
+  /* ============================================================
+     DEVICE
+  ============================================================ */
+
+  function getDeviceId() {
+    try {
+      let id = localStorage.getItem(DEVICE_KEY);
+
+      if (!id) {
+        if (window.crypto && crypto.randomUUID) {
+          id = crypto.randomUUID();
+        } else {
+          id =
+            'dev-' +
+            Math.random().toString(36).slice(2) +
+            Date.now().toString(36);
+        }
+
+        localStorage.setItem(DEVICE_KEY, id);
+      }
+
+      return id;
+    } catch {
+      return 'dev-fallback';
+    }
+  }
+
+
+  function detectPlatform() {
+    const ua = navigator.userAgent || '';
+
+    if (/iPhone|iPad|iPod/i.test(ua)) return 'ios';
+    if (/Android/i.test(ua)) return 'android';
+    if (/Macintosh/i.test(ua)) return 'mac';
+    if (/Windows/i.test(ua)) return 'windows';
+
+    return 'other';
+  }
+
+
+  function detectBrowser() {
+    const ua = navigator.userAgent || '';
+
+    if (/Edg\//i.test(ua)) return 'edge';
+    if (/OPR\//i.test(ua) || /Opera/i.test(ua)) return 'opera';
+    if (/Firefox/i.test(ua)) return 'firefox';
+
+    if (
+      /Chrome/i.test(ua) &&
+      !/Edg\//i.test(ua) &&
+      !/OPR\//i.test(ua)
+    ) {
+      return 'chrome';
+    }
+
+    if (
+      /Safari/i.test(ua) &&
+      !/Chrome/i.test(ua)
+    ) {
+      return 'safari';
+    }
+
+    return 'other';
+  }
+
+
+  /* ============================================================
+     PWA / PUSH SUPPORT
+  ============================================================ */
+
+  function isMobilePWA() {
+    const ua =
+      (navigator.userAgent || '').toLowerCase();
+
+    const standaloneMedia =
+      window.matchMedia &&
+      window.matchMedia(
+        '(display-mode: standalone)'
+      ).matches;
+
+    const iosStandalone =
+      window.navigator &&
+      window.navigator.standalone === true;
+
+    const isStandalone =
+      standaloneMedia || iosStandalone;
+
+    const isMobileUA =
+      /iphone|ipad|ipod|android/.test(ua);
+
+    const hasTouch =
+      navigator.maxTouchPoints &&
+      navigator.maxTouchPoints > 1;
+
+    return (
+      isStandalone &&
+      (isMobileUA || hasTouch)
+    );
+  }
+
+
+  function isPushSupported() {
+    if (typeof Notification === 'undefined') return false;
+    if (!('serviceWorker' in navigator)) return false;
+    if (!('PushManager' in window)) return false;
+
+    return true;
+  }
+
+
+  function urlBase64ToUint8Array(base64String) {
+    const padding =
+      '='.repeat(
+        (4 - (base64String.length % 4)) % 4
+      );
+
+    const base64 =
+      (base64String + padding)
+        .replace(/-/g, '+')
+        .replace(/_/g, '/');
+
+    const rawData = atob(base64);
+
+    const outputArray =
+      new Uint8Array(rawData.length);
+
+    for (
+      let i = 0;
+      i < rawData.length;
+      ++i
+    ) {
+      outputArray[i] =
+        rawData.charCodeAt(i);
+    }
+
+    return outputArray;
+  }
+
+
+  async function getSWRegistration() {
+    if (!('serviceWorker' in navigator)) {
+      return null;
+    }
+
+    try {
+      return await navigator.serviceWorker.ready;
+    } catch {
+      try {
+        return await navigator.serviceWorker.register(
+          '/Farm-vista/serviceworker.js'
+        );
+      } catch (err) {
+        console.error(
+          '[FV] Service worker registration failed:',
+          err
+        );
+
+        return null;
+      }
+    }
+  }
+
+
+  async function ensurePushSubscription() {
+    const reg =
+      await getSWRegistration();
+
+    if (!reg || !reg.pushManager) {
+      return null;
+    }
+
+    let sub =
+      await reg.pushManager.getSubscription();
+
+    if (!sub) {
+      if (
+        !VAPID_PUBLIC_KEY ||
+        VAPID_PUBLIC_KEY.startsWith('REPLACE')
+      ) {
+        console.warn(
+          '[FV] VAPID public key not configured.'
+        );
+
+        return null;
+      }
+
+      const appServerKey =
+        urlBase64ToUint8Array(
+          VAPID_PUBLIC_KEY
+        );
+
+      sub =
+        await reg.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: appServerKey
         });
-      }
-      return sub;
     }
 
-    async function syncNotificationStateFromFirestore(user) {
-      const checkbox = $('fv-toggle-push');
-      if (!checkbox) return;
-      if (!user || !user.email) {
+    return sub;
+  }
+
+
+  /* ============================================================
+     NOTIFICATION STATE
+  ============================================================ */
+
+  async function syncNotificationStateFromFirestore(
+    employee
+  ) {
+    const checkbox =
+      $('fv-toggle-push');
+
+    if (!checkbox) return;
+
+    if (!employee) {
+      checkbox.checked = false;
+      return;
+    }
+
+    if (!isPushSupported()) {
+      checkbox.checked = false;
+      return;
+    }
+
+    try {
+      const db =
+        getFirestore();
+
+      const deviceId =
+        getDeviceId();
+
+      const ref = doc(
+        db,
+        'employees',
+        employee.id,
+        'push_subscriptions',
+        deviceId
+      );
+
+      const snap =
+        await getDoc(ref);
+
+      if (snap.exists()) {
+        const data =
+          snap.data() || {};
+
+        checkbox.checked =
+          data.active === true;
+
+        console.log(
+          '[FV] Notification state loaded:',
+          {
+            employeeId: employee.id,
+            deviceId,
+            active: checkbox.checked
+          }
+        );
+      } else {
         checkbox.checked = false;
+
+        console.log(
+          '[FV] No push subscription for device:',
+          {
+            employeeId: employee.id,
+            deviceId
+          }
+        );
+      }
+
+    } catch (err) {
+      console.error(
+        '[FV] Failed to load notification state:',
+        err
+      );
+
+      checkbox.checked = false;
+    }
+  }
+
+
+  /* ============================================================
+     ENABLE
+  ============================================================ */
+
+  async function enableNotificationsForDevice(
+    user,
+    employee
+  ) {
+    const checkbox =
+      $('fv-toggle-push');
+
+    if (!checkbox) return;
+
+    try {
+      if (!user) {
+        checkbox.checked = false;
+
+        alert(
+          'You must be signed in to enable notifications.'
+        );
+
         return;
       }
+
+      if (!employee) {
+        checkbox.checked = false;
+
+        alert(
+          'FarmVista could not find your employee record.'
+        );
+
+        return;
+      }
+
       if (!isPushSupported()) {
         checkbox.checked = false;
+
+        alert(
+          'Push notifications are not supported on this device or browser yet.'
+        );
+
         return;
       }
 
-      try {
-        const db = getFirestore();
-        const empId = emailKey(user.email);
-        const deviceId = getDeviceId();
-        const ref = doc(db, 'employees', empId, 'push_subscriptions', deviceId);
-        const snap = await getDoc(ref);
-        if (snap.exists()) {
-          const data = snap.data() || {};
-          checkbox.checked = !!data.active;
-        } else {
-          checkbox.checked = false;
-        }
-      } catch (e) {
-        console.error('[FV] Failed to load notification state:', e);
-        const cb = $('fv-toggle-push');
-        if (cb) cb.checked = false;
+
+      /* Ask operating system/browser permission */
+
+      let perm =
+        Notification.permission;
+
+      if (perm === 'default') {
+        perm =
+          await Notification.requestPermission();
       }
-    }
 
-    async function enableNotificationsForDevice(user) {
-      const checkbox = $('fv-toggle-push');
-      if (!checkbox) return;
+      if (perm !== 'granted') {
+        checkbox.checked = false;
 
-      try {
-        if (!user || !user.email) {
-          checkbox.checked = false;
-          alert('You must be signed in to enable notifications.');
-          return;
+        alert(
+          'Notifications are blocked. Enable them in system settings to receive alerts.'
+        );
+
+        return;
+      }
+
+
+      /* Get browser/PWA push subscription */
+
+      const sub =
+        await ensurePushSubscription();
+
+      if (!sub) {
+        checkbox.checked = false;
+
+        alert(
+          'Unable to register this device for notifications yet.'
+        );
+
+        return;
+      }
+
+
+      /* Store underneath REAL employee document */
+
+      const db =
+        getFirestore();
+
+      const deviceId =
+        getDeviceId();
+
+      const ref = doc(
+        db,
+        'employees',
+        employee.id,
+        'push_subscriptions',
+        deviceId
+      );
+
+      const json =
+        sub.toJSON
+          ? sub.toJSON()
+          : {
+              endpoint: sub.endpoint
+            };
+
+
+      /*
+        Check whether this subscription already exists so
+        createdAt does not get replaced every time.
+      */
+
+      const oldSnap =
+        await getDoc(ref);
+
+      const payload = {
+        deviceId,
+
+        endpoint:
+          sub.endpoint,
+
+        keys:
+          json.keys || {},
+
+        active: true,
+
+        allowBoundary: true,
+
+        allowMaintenance: true,
+
+        platform:
+          detectPlatform(),
+
+        browser:
+          detectBrowser(),
+
+        userUid:
+          user.uid || '',
+
+        userEmail:
+          emailKey(user.email),
+
+        employeeId:
+          employee.id,
+
+        updatedAt:
+          serverTimestamp()
+      };
+
+
+      if (!oldSnap.exists()) {
+        payload.createdAt =
+          serverTimestamp();
+      }
+
+
+      await setDoc(
+        ref,
+        payload,
+        {
+          merge: true
         }
-        if (!isPushSupported()) {
-          checkbox.checked = false;
-          alert('Push notifications are not supported on this device or browser yet.');
-          return;
-        }
+      );
 
-        let perm = Notification.permission;
-        if (perm === 'default') {
-          perm = await Notification.requestPermission();
-        }
-        if (perm !== 'granted') {
-          checkbox.checked = false;
-          alert('Notifications are blocked. Enable them in system settings to receive alerts.');
-          return;
-        }
 
-        const sub = await ensurePushSubscription();
-        if (!sub) {
-          checkbox.checked = false;
-          alert('Unable to register this device for notifications yet.');
-          return;
-        }
+      /*
+        Read it back so the visible slider reflects
+        what Firestore actually saved.
+      */
 
-        const db = getFirestore();
-        const empId = emailKey(user.email);
-        const deviceId = getDeviceId();
-        const ref = doc(db, 'employees', empId, 'push_subscriptions', deviceId);
+      const verify =
+        await getDoc(ref);
 
-        const json = sub.toJSON ? sub.toJSON() : { endpoint: sub.endpoint };
-        const payload = {
+      checkbox.checked =
+        verify.exists() &&
+        verify.data()?.active === true;
+
+
+      console.log(
+        '[FV] Notifications ENABLED:',
+        {
+          employeeId: employee.id,
           deviceId,
-          endpoint: sub.endpoint,
-          keys: json.keys || {},
-          active: true,
-          allowBoundary: true,
-          allowMaintenance: true,
-          platform: detectPlatform(),
-          browser: detectBrowser(),
-          updatedAt: serverTimestamp(),
-          createdAt: serverTimestamp()
-        };
+          saved: checkbox.checked
+        }
+      );
 
-        await setDoc(ref, payload, { merge: true });
-      } catch (e) {
-        console.error('[FV] Enable notifications failed:', e);
-        const checkbox = $('fv-toggle-push');
-        if (checkbox) checkbox.checked = false;
-        alert('Unable to enable notifications on this device right now.');
+
+      if (!checkbox.checked) {
+        throw new Error(
+          'Push subscription did not verify after save.'
+        );
       }
-    }
 
-    async function disableNotificationsForDevice(user) {
-      const checkbox = $('fv-toggle-push');
-      if (!checkbox) return;
-      try {
-        const db = getFirestore();
-        const email = (user && user.email) || '';
-        const empId = emailKey(email);
-        if (empId) {
-          const deviceId = getDeviceId();
-          const ref = doc(db, 'employees', empId, 'push_subscriptions', deviceId);
-          await setDoc(ref, {
+    } catch (err) {
+      console.error(
+        '[FV] Enable notifications failed:',
+        err
+      );
+
+      checkbox.checked = false;
+
+      alert(
+        'Unable to enable notifications on this device right now.'
+      );
+    }
+  }
+
+
+  /* ============================================================
+     DISABLE
+  ============================================================ */
+
+  async function disableNotificationsForDevice(
+    employee
+  ) {
+    const checkbox =
+      $('fv-toggle-push');
+
+    if (!checkbox) return;
+
+    try {
+      if (employee) {
+        const db =
+          getFirestore();
+
+        const deviceId =
+          getDeviceId();
+
+        const ref = doc(
+          db,
+          'employees',
+          employee.id,
+          'push_subscriptions',
+          deviceId
+        );
+
+        await setDoc(
+          ref,
+          {
             active: false,
             allowBoundary: false,
             allowMaintenance: false,
             updatedAt: serverTimestamp()
-          }, { merge: true });
-        }
+          },
+          {
+            merge: true
+          }
+        );
 
-        try {
-          if ('serviceWorker' in navigator) {
-            const reg = await navigator.serviceWorker.ready;
-            if (reg && reg.pushManager) {
-              const sub = await reg.pushManager.getSubscription();
-              if (sub) await sub.unsubscribe();
+        console.log(
+          '[FV] Notifications DISABLED:',
+          {
+            employeeId: employee.id,
+            deviceId
+          }
+        );
+      }
+
+
+      /*
+        Unsubscribe this browser/device
+      */
+
+      try {
+        if (
+          'serviceWorker' in navigator
+        ) {
+          const reg =
+            await navigator.serviceWorker.ready;
+
+          if (
+            reg &&
+            reg.pushManager
+          ) {
+            const sub =
+              await reg.pushManager.getSubscription();
+
+            if (sub) {
+              await sub.unsubscribe();
             }
           }
-        } catch (e2) {
-          console.warn('[FV] Unsubscribe push failed:', e2);
         }
-      } catch (e) {
-        console.error('[FV] Disable notifications failed:', e);
+      } catch (err) {
+        console.warn(
+          '[FV] Push unsubscribe failed:',
+          err
+        );
       }
+
+      checkbox.checked = false;
+
+    } catch (err) {
+      console.error(
+        '[FV] Disable notifications failed:',
+        err
+      );
+    }
+  }
+
+
+  /* ============================================================
+     WIRE SLIDER
+  ============================================================ */
+
+  function wireNotificationToggle(
+    user,
+    employee
+  ) {
+    const el =
+      $('fv-toggle-push');
+
+    if (!el) return;
+
+    /*
+      Store current user/employee on the element.
+      This prevents an old auth callback from being retained.
+    */
+
+    el._fvUser =
+      user;
+
+    el._fvEmployee =
+      employee;
+
+
+    if (el._fvWired) {
+      return;
     }
 
-    function wireNotificationToggle(user) {
-      const el = $('fv-toggle-push');
-      if (!el) return;
-      if (el._fvWired) return;
-      el._fvWired = true;
+    el._fvWired =
+      true;
 
-      el.addEventListener('change', () => {
-        if (el.checked) {
-          enableNotificationsForDevice(user);
-        } else {
-          disableNotificationsForDevice(user);
-        }
-      });
-    }
 
-    async function loadUser(){
-      await ready;
-      const auth = getAuth();
-      onAuthStateChanged(auth, async user => {
-        if (!user) {
-          fill({});
-          const toggle = $('fv-toggle-push');
-          if (toggle) toggle.checked = false;
-          return;
-        }
+    el.addEventListener(
+      'change',
+      async () => {
 
-        const email = user.email || '';
-        const db = getFirestore();
+        const currentUser =
+          el._fvUser;
+
+        const currentEmployee =
+          el._fvEmployee;
+
+
+        /*
+          Disable slider while Firestore is being changed.
+        */
+
+        el.disabled =
+          true;
+
         try {
-          const ref = doc(db, 'employees', emailKey(email));
-          const snap = await getDoc(ref);
-          let data = {};
-          if (snap.exists()) data = snap.data();
-          const fullName =
-            data.fullName ||
-            `${data.firstName || ''} ${data.lastName || ''}`.trim() ||
-            user.displayName ||
-            '';
-          fill({
-            fullName,
-            role: data.role || '',
-            email: data.email || email,
-            phone: data.phone || user.phoneNumber || '',
-            notes: data.notes || ''
-          });
-        } catch (e) {
-          console.error(e);
+
+          if (el.checked) {
+
+            await enableNotificationsForDevice(
+              currentUser,
+              currentEmployee
+            );
+
+          } else {
+
+            await disableNotificationsForDevice(
+              currentEmployee
+            );
+
+          }
+
+        } finally {
+
+          el.disabled =
+            false;
+
         }
+      }
+    );
+  }
 
-        const notifyCard = document.getElementById('fv-notify-card');
-        const toggle = $('fv-toggle-push');
 
-        // If not mobile/tablet PWA OR push unsupported → hide notifications section
-        if (!isMobilePWA() || !isPushSupported()) {
-          if (notifyCard) notifyCard.style.display = 'none';
-          if (toggle) toggle.checked = false;
+  /* ============================================================
+     LOAD USER
+  ============================================================ */
+
+  async function loadUser() {
+    await ready;
+
+    const auth =
+      getAuth();
+
+
+    onAuthStateChanged(
+      auth,
+      async user => {
+
+        if (!user) {
+
+          fill({});
+
+          const toggle =
+            $('fv-toggle-push');
+
+          if (toggle) {
+            toggle.checked = false;
+          }
+
           return;
         }
 
-        // Mobile/tablet PWA with push support → sync + wire notifications
-        await syncNotificationStateFromFirestore(user);
-        wireNotificationToggle(user);
-      });
-    }
 
-    // Pre-hide on initial load if clearly not mobile PWA or push not supported
-    const preNotifyCard = document.getElementById('fv-notify-card');
-    if (preNotifyCard && (!isMobilePWA() || !isPushSupported())) {
-      preNotifyCard.style.display = 'none';
-    }
+        /*
+          Resolve REAL employee document.
+        */
 
-    loadUser();
-  </script>
+        const employee =
+          await resolveEmployee(user);
+
+
+        /*
+          Load profile
+        */
+
+        let data =
+          employee?.data || {};
+
+
+        const fullName =
+          data.fullName ||
+          `${data.firstName || ''} ${data.lastName || ''}`.trim() ||
+          user.displayName ||
+          '';
+
+
+        fill({
+          fullName,
+
+          role:
+            data.role || '',
+
+          email:
+            data.email ||
+            user.email ||
+            '',
+
+          phone:
+            data.phone ||
+            user.phoneNumber ||
+            '',
+
+          notes:
+            data.notes || ''
+        });
+
+
+        console.log(
+          '[FV] Current employee:',
+          {
+            employeeId:
+              employee?.id || null,
+
+            authUid:
+              user.uid || null,
+
+            email:
+              user.email || null
+          }
+        );
+
+
+        const notifyCard =
+          document.getElementById(
+            'fv-notify-card'
+          );
+
+        const toggle =
+          $('fv-toggle-push');
+
+
+        /*
+          Push controls only appear for supported
+          phone/tablet installed PWA.
+        */
+
+        if (
+          !isMobilePWA() ||
+          !isPushSupported()
+        ) {
+
+          if (notifyCard) {
+            notifyCard.style.display =
+              'none';
+          }
+
+          if (toggle) {
+            toggle.checked =
+              false;
+          }
+
+          return;
+        }
+
+
+        /*
+          Employee record is required.
+        */
+
+        if (!employee) {
+
+          console.error(
+            '[FV] Push disabled because employee record could not be resolved.'
+          );
+
+          if (toggle) {
+            toggle.checked =
+              false;
+
+            toggle.disabled =
+              true;
+          }
+
+          return;
+        }
+
+
+        /*
+          Mobile/tablet PWA:
+          load saved state and wire switch.
+        */
+
+        await syncNotificationStateFromFirestore(
+          employee
+        );
+
+        wireNotificationToggle(
+          user,
+          employee
+        );
+      }
+    );
+  }
+
+
+  /* ============================================================
+     INITIAL DISPLAY
+  ============================================================ */
+
+  const preNotifyCard =
+    document.getElementById(
+      'fv-notify-card'
+    );
+
+  if (
+    preNotifyCard &&
+    (
+      !isMobilePWA() ||
+      !isPushSupported()
+    )
+  ) {
+    preNotifyCard.style.display =
+      'none';
+  }
+
+
+  loadUser();
+</script>
 </body>
 </html>
