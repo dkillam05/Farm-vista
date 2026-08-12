@@ -1258,43 +1258,60 @@ function getStatusLabel(code){
       return `${base}?trialId=${encodeURIComponent(trialId)}`;
     }
 
-    function applyFilters(){
-      const emptyEl = $('.trial-empty');
-      const countEl = $('#trialCount');
+function applyFilters(){
+  const emptyEl = $('.trial-empty');
+  const countEl = $('#trialCount');
 
-      if(!STATE.loaded){
-        if(emptyEl){
-          emptyEl.style.display = 'block';
-          emptyEl.textContent = 'Loading trials...';
-        }
-        if(countEl) countEl.textContent = 'Loading trials...';
-        clearDetails();
-        return;
-      }
-
-      const statuses = STATE.filterStatuses || new Set([CONFIG.STATUS_ALL]);
-      const yearFilter = STATE.filterYear || 'all';
-
-      let filtered = STATE.allItems.slice();
-
-      if(!statuses.has(CONFIG.STATUS_ALL)){
-        filtered = filtered.filter(item => {
-          const s = (item.data[CONFIG.STATUS_FIELD] || CONFIG.STATUS_PENDING).toString().toLowerCase();
-          return statuses.has(s);
-        });
-      }
-
-      if(yearFilter !== 'all'){
-        filtered = filtered.filter(item => {
-          const cy = item.data.cropYear ?? null;
-          return cy != null && String(cy) === String(yearFilter);
-        });
-      }
-
-      STATE.items = filtered;
-      clearDetails();
-      renderList();
+  if(!STATE.loaded){
+    if(emptyEl){
+      emptyEl.style.display = 'block';
+      emptyEl.textContent = 'Loading trials...';
     }
+    if(countEl) countEl.textContent = 'Loading trials...';
+    return;
+  }
+
+  const statuses = STATE.filterStatuses || new Set([CONFIG.STATUS_ALL]);
+  const yearFilter = STATE.filterYear || 'all';
+
+  // Remember which trial is currently open.
+  const selectedId = STATE.selectedId;
+
+  let filtered = STATE.allItems.slice();
+
+  if(!statuses.has(CONFIG.STATUS_ALL)){
+    filtered = filtered.filter(item => {
+      const s = (
+        item.data[CONFIG.STATUS_FIELD] || CONFIG.STATUS_PENDING
+      ).toString().toLowerCase();
+
+      return statuses.has(s);
+    });
+  }
+
+  if(yearFilter !== 'all'){
+    filtered = filtered.filter(item => {
+      const cy = item.data.cropYear ?? null;
+      return cy != null && String(cy) === String(yearFilter);
+    });
+  }
+
+  STATE.items = filtered;
+
+  renderList();
+
+  // KEEP the currently opened detail panel open after background refreshes.
+  if(
+    selectedId &&
+    STATE.items.some(item => item.id === selectedId)
+  ){
+    STATE.selectedId = selectedId;
+    renderDetails();
+  }else{
+    STATE.selectedId = null;
+    clearDetails();
+  }
+}
 
     function syncStatusDropdownUI(){
       const statuses = STATE.filterStatuses || new Set([CONFIG.STATUS_ALL]);
@@ -2306,18 +2323,25 @@ function getStatusLabel(code){
           </div>
         `;
 
-        card.addEventListener('click', () => {
+card.addEventListener('click', () => {
   STATE.selectedId = id;
   STATE.isEditingSetup = false;
+
   renderDetails();
 
   const panel = document.querySelector('.trial-detail-panel');
-  if (panel) {
-    panel.scrollIntoView({
-      behavior: 'smooth',
-      block: 'start'
+  if(!panel) return;
+
+  // Wait until the newly-opened panel has actually been laid out
+  // before starting the smooth scroll.
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      panel.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+      });
     });
-  }
+  });
 });
 
 
