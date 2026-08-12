@@ -118,6 +118,37 @@
     }
     .btn-quiet{ min-width:auto; padding-inline:10px; }
 
+    .btn-deny{
+  background:#b42318;
+  border-color:#b42318;
+  color:#fff !important;
+  font-weight:800;
+}
+
+.btn-deny:hover{
+  background:#912018;
+  border-color:#912018;
+}
+
+.req-detail-actions{
+  display:flex;
+  justify-content:flex-end;
+  gap:10px;
+  margin-top:10px;
+  padding-top:10px;
+  border-top:1px solid var(--border);
+}
+
+@media (max-width:650px){
+  .req-detail-actions{
+    flex-direction:column;
+  }
+
+  .req-detail-actions .btn{
+    width:100%;
+  }
+}
+
     .page-header-meta{ font-size:0.9rem; opacity:0.8; }
 
     .req-list{
@@ -415,12 +446,13 @@
     import * as FB from '/Farm-vista/js/firebase-init.js';
     import { NAV_MENU } from '/Farm-vista/js/menu.js';
 
-    const CONFIG_REQUESTS = {
-      COLLECTION_PATH: 'equipmentServiceRequests',
-      STATUS_FIELD:    'status',
-      NEEDS_APPROVAL_STATUS: 'needs approved',
-      PENDING_STATUS:       'pending'
-    };
+const CONFIG_REQUESTS = {
+  COLLECTION_PATH: 'equipmentServiceRequests',
+  STATUS_FIELD:    'status',
+  NEEDS_APPROVAL_STATUS: 'needs approved',
+  PENDING_STATUS:       'pending',
+  DENIED_STATUS:        'denied'
+};
 
     const CONFIG_WO = {
       COLLECTION_PATH: 'equipmentWorkOrders',
@@ -690,6 +722,43 @@
       throw new Error('Missing Firestore writer: addDoc/setDoc not available from firebase-init.js');
     }
 
+   async function denyRequest(item){
+  if(!item) return;
+
+  const reqId = item.id;
+  const d = item.data || {};
+
+  const equipmentName = norm(d.equipmentName) || 'this equipment';
+
+  const confirmed = confirm(
+    `Deny this service request for ${equipmentName}?\n\n` +
+    `This will remove it from the approval list and no work order will be created.`
+  );
+
+  if(!confirmed) return;
+
+  const reqRef = FB.doc(
+    STATE.db,
+    CONFIG_REQUESTS.COLLECTION_PATH,
+    reqId
+  );
+
+  await FB.updateDoc(reqRef, {
+    [CONFIG_REQUESTS.STATUS_FIELD]: CONFIG_REQUESTS.DENIED_STATUS,
+    deniedAt: FB.serverTimestamp(),
+    updatedAt: FB.serverTimestamp()
+  });
+
+  STATE.items = STATE.items.filter(x => x.id !== reqId);
+
+  if(STATE.selectedId === reqId){
+    STATE.selectedId = null;
+    clearDetails();
+  }
+
+  renderList();
+} 
+
     async function approveRequestClientOnly(item){
       const db = STATE.db;
       const reqId = item.id;
@@ -846,15 +915,35 @@
         });
       }
 
-      const closeDetailBtn = $('#reqDetailClose');
-      if(closeDetailBtn){
-        closeDetailBtn.addEventListener('click', ()=>{
-          STATE.selectedId = null;
-          clearDetails();
-        });
-      }
+const closeDetailBtn = $('#reqDetailClose');
+if(closeDetailBtn){
+  closeDetailBtn.addEventListener('click', ()=>{
+    STATE.selectedId = null;
+    clearDetails();
+  });
+}
 
-      await loadRequests();
+const denyBtn = $('#btnDenyRequest');
+if(denyBtn){
+  denyBtn.addEventListener('click', async ()=>{
+    const item = STATE.items.find(x => x.id === STATE.selectedId);
+
+    if(!item) return;
+
+    denyBtn.disabled = true;
+
+    try{
+      await denyRequest(item);
+    }catch(err){
+      console.error('Error denying service request:', err);
+      alert('Failed to deny request. Check console.');
+    }finally{
+      denyBtn.disabled = false;
+    }
+  });
+}
+
+await loadRequests();
     })();
   </script>
 </head>
@@ -907,6 +996,12 @@
             </div>
 
             <div class="req-detail-footer"></div>
+
+<div class="req-detail-actions">
+  <button type="button" id="btnDenyRequest" class="btn btn-deny">
+    Deny Request
+  </button>
+</div>
           </section>
         </div>
       </section>
