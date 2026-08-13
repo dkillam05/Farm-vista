@@ -1184,6 +1184,107 @@ checklist: document.getElementById("checklist"),
       );
     }
 
+function inspectionDateToLocalDate(value) {
+  const text = clean(value);
+
+  if (!text) {
+    return null;
+  }
+
+  const parts = text.split("-");
+
+  if (parts.length !== 3) {
+    return null;
+  }
+
+  const year = Number(parts[0]);
+  const month = Number(parts[1]);
+  const day = Number(parts[2]);
+
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day)
+  ) {
+    return null;
+  }
+
+  return new Date(
+    year,
+    month - 1,
+    day,
+    12,
+    0,
+    0,
+    0
+  );
+}
+
+function findDriverRecentEquipment(
+  inspectionDocuments
+) {
+  if (!state.user) {
+    return null;
+  }
+
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+
+  const cutoff = new Date(today);
+  cutoff.setDate(cutoff.getDate() - 30);
+
+  const driverInspections =
+    inspectionDocuments
+      .map(documentSnapshot => ({
+        id: documentSnapshot.id,
+        ...documentSnapshot.data()
+      }))
+      .filter(inspection => {
+        if (
+          clean(inspection.driverUid) !== state.user.uid
+        ) {
+          return false;
+        }
+
+        if (
+          normalized(inspection.inspectionType) !==
+          "pretrip"
+        ) {
+          return false;
+        }
+
+        const inspectionDate =
+          inspectionDateToLocalDate(
+            inspection.inspectionDate
+          );
+
+        if (!inspectionDate) {
+          return false;
+        }
+
+        return (
+          inspectionDate < today &&
+          inspectionDate >= cutoff
+        );
+      })
+      .sort((a, b) => {
+        const dateA =
+          inspectionDateToLocalDate(
+            a.inspectionDate
+          );
+
+        const dateB =
+          inspectionDateToLocalDate(
+            b.inspectionDate
+          );
+
+        return dateB - dateA;
+      });
+
+  return driverInspections[0] || null;
+}
+
+    
 async function loadEquipment() {
   console.log("[Logistics] Starting equipment load");
 
@@ -1279,6 +1380,53 @@ state.trailers = records
     );
 
     renderEquipmentDropdowns();
+
+    const recentDriverInspection =
+  findDriverRecentEquipment(
+    inspectionSnapshot.docs
+  );
+
+if (
+  recentDriverInspection &&
+  !scannedEquipmentId
+) {
+  const previousTruckId = clean(
+    recentDriverInspection.truckId ||
+    recentDriverInspection.truck?.id
+  );
+
+  const previousTrailerId = clean(
+    recentDriverInspection.trailerId ||
+    recentDriverInspection.trailer?.id
+  );
+
+  const previousHadTrailer =
+    recentDriverInspection.trailerHookedOn === true ||
+    Boolean(previousTrailerId);
+
+  const previousTruckAvailable =
+    state.trucks.some(
+      truck => truck.id === previousTruckId
+    );
+
+  const previousTrailerAvailable =
+    state.trailers.some(
+      trailer => trailer.id === previousTrailerId
+    );
+
+  if (previousTruckAvailable) {
+    chooseTruck(previousTruckId);
+  }
+
+  if (
+    previousHadTrailer &&
+    previousTrailerAvailable
+  ) {
+    chooseTrailer(previousTrailerId);
+  } else if (!previousHadTrailer) {
+    chooseTrailer("no-trailer");
+  }
+}
 
     if (scannedEquipmentId) {
 
@@ -2554,10 +2702,11 @@ async function startPage() {
 
   renderChecklist();
 
-  await Promise.all([
-    initializeUser(),
-    loadEquipment()
-  ]);
+  await initializeUser();
+
+  if (state.user) {
+    await loadEquipment();
+  }
 }
 
 startPage().catch(error => {
