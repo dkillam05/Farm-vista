@@ -183,6 +183,10 @@
         --defect-row-hover:rgba(180,35,24,.31);
       }
     }
+[hidden]{
+  display:none !important;
+}
+    
   </style>
 </head>
 <body>
@@ -204,9 +208,32 @@
         <header class="section-head">
           <div class="head-row">
             <div class="head-title"><span aria-hidden="true">🚛</span><span>Pre-Trip Inspections</span></div>
-            <div class="head-actions">
-              <button id="refreshButton" class="btn" type="button">Refresh</button>
-            </div>
+<div class="head-actions">
+  <button
+    id="reportButton"
+    class="btn btn-primary"
+    type="button"
+  >
+    Create Report
+  </button>
+
+  <button
+    id="viewReportButton"
+    class="btn"
+    type="button"
+    hidden
+  >
+    View / Print PDF
+  </button>
+
+  <button
+    id="refreshButton"
+    class="btn"
+    type="button"
+  >
+    Refresh
+  </button>
+</div>
           </div>
 
           <div class="filters">
@@ -266,16 +293,21 @@
   </dialog>
 
   <script type="module">
-    import {
-      ready,
-      getFirestore,
-      collection,
-      getDocs
-    } from "/Farm-vista/js/firebase-init.js";
+import {
+  ready,
+  getAuth,
+  getFirestore,
+  collection,
+  getDocs
+} from "/Farm-vista/js/firebase-init.js";
 
     await ready;
 
-    const db = getFirestore();
+    const auth = getAuth();
+const db = getFirestore();
+
+const PDF_FUNCTION_URL =
+  "https://generate-pre-trip-pdf-300398089669.us-central1.run.app";
     const INSPECTION_COLLECTION = "logisticsInspections";
     const COLLATOR = new Intl.Collator(undefined,{numeric:true,sensitivity:"base"});
 
@@ -286,6 +318,8 @@
       fromDate:document.getElementById("fromDate"),
       toDate:document.getElementById("toDate"),
       todayButton:document.getElementById("todayButton"),
+      reportButton:document.getElementById("reportButton"),
+      viewReportButton:document.getElementById("viewReportButton"),
       refreshButton:document.getElementById("refreshButton"),
       totalCount:document.getElementById("totalCount"),
       driverCount:document.getElementById("driverCount"),
@@ -298,7 +332,13 @@
       detailClose2:document.getElementById("detailClose2")
     };
 
-    const state={all:[],filtered:[],loading:false};
+    const state={
+  all:[],
+  filtered:[],
+  loading:false,
+  pdfBlob:null,
+  pdfUrl:""
+};
 
     function clean(value){return String(value??"").trim()}
     function normalized(value){return clean(value).toLowerCase()}
@@ -385,10 +425,15 @@
       return clean(row.trailerLabel||row.trailer?.label||row.trailerUnitId||"—");
     }
 
-    function renderTable(){
-      const rows=filteredRows();
-      state.filtered=rows;
-      renderSummary(rows);
+function renderTable(){
+  resetReport();
+
+  elements.reportButton.textContent =
+    "Create Report";
+
+  const rows=filteredRows();
+  state.filtered=rows;
+  renderSummary(rows);
 
       if(!rows.length){
         elements.tbody.innerHTML=`<tr><td colspan="9" class="empty">No pre-trip inspections match these filters.</td></tr>`;
@@ -458,6 +503,168 @@
       try{elements.detailSheet.close()}catch{elements.detailSheet.removeAttribute("open")}
     }
 
+    function resetReport(){
+  state.pdfBlob = null;
+
+  if(state.pdfUrl){
+    URL.revokeObjectURL(state.pdfUrl);
+    state.pdfUrl = "";
+  }
+
+  elements.viewReportButton.hidden = true;
+}
+
+
+async function waitForUser(){
+  for(let attempt = 0; attempt < 40; attempt += 1){
+    if(auth.currentUser){
+      return auth.currentUser;
+    }
+
+    await new Promise(resolve =>
+      setTimeout(resolve,250)
+    );
+  }
+
+  return null;
+}
+
+
+async function buildGridReport(){
+  clearError();
+  resetReport();
+
+  /*
+   * state.filtered is EXACTLY what is currently
+   * displayed in the Logistics grid.
+   */
+  const rows = state.filtered.slice();
+
+  if(!rows.length){
+    showError(
+      "There are no displayed inspections to include in the report."
+    );
+
+    return;
+  }
+
+  const user =
+    await waitForUser();
+
+  if(!user){
+    showError(
+      "Your FarmVista account could not be loaded. Sign in again and retry."
+    );
+
+    return;
+  }
+
+  elements.reportButton.disabled = true;
+
+  const originalText =
+    elements.reportButton.textContent;
+
+  elements.reportButton.textContent =
+    `Building ${rows.length} Report${rows.length === 1 ? "" : "s"}…`;
+
+  try{
+    const token =
+      await user.getIdToken();
+
+    const inspectionIds =
+      rows.map(row => row.id);
+
+    const response =
+      await fetch(
+        PDF_FUNCTION_URL,
+        {
+          method:"POST",
+
+          headers:{
+            "Content-Type":"application/json",
+            "Authorization":`Bearer ${token}`
+          },
+
+          body:JSON.stringify({
+            inspectionIds
+          })
+        }
+      );
+
+    if(!response.ok){
+      let message =
+        "FarmVista could not generate the report.";
+
+      try{
+        const body =
+          await response.json();
+
+        if(body?.message){
+          message =
+            body.message;
+        }
+      }catch{}
+
+      throw new Error(message);
+    }
+
+    const blob =
+      await response.blob();
+
+    if(
+      blob.type &&
+      blob.type !== "application/pdf"
+    ){
+      throw new Error(
+        "The report service did not return a PDF."
+      );
+    }
+
+    state.pdfBlob =
+      blob;
+
+    state.pdfUrl =
+      URL.createObjectURL(blob);
+
+    elements.viewReportButton.hidden =
+      false;
+
+    elements.reportButton.textContent =
+      "Report Ready ✓";
+
+  }catch(error){
+    console.error(
+      "[Logistics] Report generation failed:",
+      error
+    );
+
+    showError(
+      error.message ||
+      "FarmVista could not generate the Logistics report."
+    );
+
+    elements.reportButton.textContent =
+      originalText;
+
+  }finally{
+    elements.reportButton.disabled =
+      false;
+  }
+}
+
+
+function viewGridReport(){
+  if(!state.pdfUrl){
+    return;
+  }
+
+  window.open(
+    state.pdfUrl,
+    "_blank",
+    "noopener"
+  );
+}
+
     async function loadInspections(){
       if(state.loading)return;
       state.loading=true;
@@ -497,6 +704,16 @@
       renderTable();
     });
     elements.todayButton.addEventListener("click",setToday);
+elements.reportButton.addEventListener(
+  "click",
+  buildGridReport
+);
+
+elements.viewReportButton.addEventListener(
+  "click",
+  viewGridReport
+);
+    
     elements.refreshButton.addEventListener("click",loadInspections);
     elements.detailClose.addEventListener("click",closeDetail);
     elements.detailClose2.addEventListener("click",closeDetail);
@@ -507,8 +724,17 @@
     setToday();
     await loadInspections();
 
-    document.addEventListener("visibilitychange",()=>{if(!document.hidden)loadInspections()});
-    window.addEventListener("focus",loadInspections);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)loadInspections()});
+window.addEventListener("focus",loadInspections);
+
+window.addEventListener(
+  "beforeunload",
+  ()=>{
+    if(state.pdfUrl){
+      URL.revokeObjectURL(state.pdfUrl);
+    }
+  }
+);
   </script>
 </body>
 </html>
