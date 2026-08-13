@@ -25,11 +25,14 @@
     if (!shell || !modal || !modalBody || !closeBtn) return;
 
     function openModal(){
-      modal.removeAttribute("hidden");
-      document.body.style.overflow = "hidden";
+modal.removeAttribute("hidden");
+document.body.style.overflow = "hidden";
 
-      // Re-render weather inside modal
-      if (window.FVWeather && typeof FVWeather.initWeatherModule === "function") {
+// Clear any previous modal render before rebuilding it
+modalBody.innerHTML = "";
+
+// Re-render weather inside modal
+if (window.FVWeather && typeof FVWeather.initWeatherModule === "function") {
         FVWeather.initWeatherModule({
           googleApiKey: "AIzaSyD5qLrXZch_rM4sVXmBrpGDH3Zp7RgfVHc",
           lat: 39.5656,
