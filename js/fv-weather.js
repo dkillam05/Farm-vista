@@ -643,132 +643,248 @@
      Render skeleton (card) + update-in-place
      ========================== */
 
-  function cardSkeletonHtml(config){
-    const saved = readSavedLocation();
-    const zipVal = saved && saved.zip ? saved.zip : "";
+function cardSkeletonHtml(config){
+  const isMobile = window.innerWidth < 900;
 
+  /*
+   * MOBILE
+   * Keep dashboard weather extremely compact.
+   * Full weather + ZIP changer live in the modal.
+   */
+  if (isMobile) {
     return `
-      <section class="fv-weather-card" style="
-        border-radius:14px;border:1px solid var(--border,#d1d5db);
+      <section class="fv-weather-card fv-weather-card-mobile" style="
+        border-radius:13px;
+        border:1px solid var(--border,#d1d5db);
         background:var(--card-surface,var(--surface));
-        box-shadow:0 8px 18px rgba(0,0,0,0.06);
-        padding:10px 14px 10px;cursor:pointer;
+        box-shadow:0 4px 10px rgba(0,0,0,.05);
+        padding:10px 12px;
+        cursor:pointer;
       ">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
+        <div style="
+          display:grid;
+          grid-template-columns:minmax(0,1fr) auto;
+          align-items:center;
+          gap:12px;
+        ">
           <div style="min-width:0;">
-            <div style="font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            <div style="
+              font-size:11px;
+              font-weight:800;
+              letter-spacing:.05em;
+              text-transform:uppercase;
+              color:var(--muted,#67706B);
+              white-space:nowrap;
+              overflow:hidden;
+              text-overflow:ellipsis;
+            ">
               <span data-fv="title">Weather · ${safeText(config.locationLabel || "")}</span>
             </div>
-            <div style="font-size:11px;color:var(--muted,#67706B);display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
-              <span data-fv="tz"></span>
-              <span data-fv="upd"></span>
-              <span data-fv="updated"></span>
-              <span data-fv="next"></span>
-            </div>
-          </div>
-          <button type="button" class="fv-weather-refresh" style="
-            border-radius:999px;border:1px solid var(--border,#d1d5db);
-            background:var(--surface,#fff0);
-            padding:4px 8px;
-            font-size:12px;cursor:pointer;
-            color:inherit;
-            flex:0 0 auto;
-          " aria-label="Refresh weather">⟳</button>
-        </div>
 
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-          <div style="display:flex;flex-direction:column;gap:2px;min-width:0;">
-            <div style="font-size:1.8rem;font-weight:600;" data-fv="temp">—</div>
-            <div style="font-size:0.9rem;" data-fv="desc">—</div>
-            <div style="font-size:0.8rem;color:var(--muted,#67706B);">
-              Feels like <strong data-fv="feels">—</strong>
-            </div>
-            <div style="font-size:0.8rem;color:var(--muted,#67706B);">
-              Humidity: <strong data-fv="humid">—</strong> • Wind: <strong data-fv="wind">—</strong>
-            </div>
-          </div>
-          <div style="flex:0 0 auto;">
-            <img data-fv="icon" alt="" style="width:48px;height:48px;display:none;" loading="lazy">
-          </div>
-        </div>
-
-        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">
-          <div style="
-            padding:4px 8px;border-radius:999px;
-            background:var(--surface);
-            border:1px solid var(--border);
-            font-size:11px;display:flex;gap:4px;align-items:center;
-          ">
-            <span style="font-weight:500;">Rain last 24 hours</span>
-            <span style="font-variant-numeric:tabular-nums;" data-fv="r24">—</span>
-          </div>
-          <div style="
-            padding:4px 8px;border-radius:999px;
-            background:var(--surface);
-            border:1px solid var(--border);
-            font-size:11px;display:flex;gap:4px;align-items:center;
-          ">
-            <span style="font-weight:500;">Rain last 7 days</span>
-            <span style="font-variant-numeric:tabular-nums;" data-fv="r7">—</span>
-          </div>
-          <div style="
-            padding:4px 8px;border-radius:999px;
-            background:var(--surface);
-            border:1px solid var(--border);
-            font-size:11px;display:flex;gap:4px;align-items:center;
-          ">
-            <span style="font-weight:500;">Rain last 30 days</span>
-            <span style="font-variant-numeric:tabular-nums;" data-fv="r30">—</span>
-          </div>
-        </div>
-
-        <!-- Location (ZIP) - tighter + mobile friendly -->
-        <div class="fv-weather-loc" style="
-          display:flex;align-items:center;justify-content:space-between;gap:8px;
-          flex-wrap:wrap;margin-top:8px;
-          padding-top:8px;border-top:1px solid rgba(148,163,184,0.22);
-        ">
-          <div style="display:flex;align-items:center;gap:8px;flex:0 0 auto;">
             <div style="
-              font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
-              color:var(--muted,#67706B);
-            ">ZIP</div>
+              display:flex;
+              align-items:baseline;
+              gap:10px;
+              margin-top:2px;
+              min-width:0;
+            ">
+              <div style="
+                font-size:1.65rem;
+                line-height:1;
+                font-weight:800;
+                white-space:nowrap;
+              " data-fv="temp">—</div>
 
-            <input
-  type="text"
-  inputmode="numeric"
-  autocomplete="postal-code"
-  class="fv-weather-zip"
-  value="${safeText(zipVal).replace(/"/g,"&quot;")}"
-  placeholder="Enter Zip"
-  style="
-    width:130px;
-    border:1px solid var(--border,#d1d5db);
-    border-radius:999px;
-    padding:4px 9px;
-    background:var(--surface);
-    color:inherit;
-    font:inherit;
-    font-size:12px;
-    outline:none;
-    text-align:center;
-  "
-/>
+              <div style="
+                font-size:12px;
+                color:var(--muted,#67706B);
+                white-space:nowrap;
+              ">
+                Humidity <strong data-fv="humid">—</strong>
+              </div>
+
+              <div style="
+                font-size:12px;
+                color:var(--muted,#67706B);
+                white-space:nowrap;
+              ">
+                Feels <strong data-fv="feels">—</strong>
+              </div>
+            </div>
           </div>
 
-          <div class="fv-weather-zip-status" style="
-            font-size:12px;color:var(--muted,#67706B);
-            flex:1 1 auto;
-            text-align:right;
-            white-space:nowrap;
-            overflow:hidden;
-            text-overflow:ellipsis;
-            min-width:140px;
-          "></div>
+          <div style="
+            display:flex;
+            align-items:center;
+            gap:6px;
+            flex:0 0 auto;
+          ">
+            <img
+              data-fv="icon"
+              alt=""
+              style="width:34px;height:34px;display:none;"
+              loading="lazy"
+            >
+
+            <span style="
+              font-size:18px;
+              color:var(--muted,#67706B);
+              line-height:1;
+            " aria-hidden="true">›</span>
+          </div>
+        </div>
+
+        <!-- Hidden hooks retained for existing update/timer code -->
+        <div style="display:none;">
+          <span data-fv="tz"></span>
+          <span data-fv="upd"></span>
+          <span data-fv="updated"></span>
+          <span data-fv="next"></span>
+          <span data-fv="desc"></span>
+          <span data-fv="wind"></span>
+          <span data-fv="r24"></span>
+          <span data-fv="r7"></span>
+          <span data-fv="r30"></span>
         </div>
       </section>
     `;
   }
+
+  /*
+   * DESKTOP
+   * Keep the existing full dashboard weather card.
+   */
+  const saved = readSavedLocation();
+  const zipVal = saved && saved.zip ? saved.zip : "";
+
+  return `
+    <section class="fv-weather-card" style="
+      border-radius:14px;border:1px solid var(--border,#d1d5db);
+      background:var(--card-surface,var(--surface));
+      box-shadow:0 8px 18px rgba(0,0,0,0.06);
+      padding:10px 14px 10px;cursor:pointer;
+    ">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
+        <div style="min-width:0;">
+          <div style="font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            <span data-fv="title">Weather · ${safeText(config.locationLabel || "")}</span>
+          </div>
+          <div style="font-size:11px;color:var(--muted,#67706B);display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+            <span data-fv="tz"></span>
+            <span data-fv="upd"></span>
+            <span data-fv="updated"></span>
+            <span data-fv="next"></span>
+          </div>
+        </div>
+
+        <button type="button" class="fv-weather-refresh" style="
+          border-radius:999px;border:1px solid var(--border,#d1d5db);
+          background:var(--surface,#fff0);
+          padding:4px 8px;
+          font-size:12px;cursor:pointer;
+          color:inherit;
+          flex:0 0 auto;
+        " aria-label="Refresh weather">⟳</button>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <div style="display:flex;flex-direction:column;gap:2px;min-width:0;">
+          <div style="font-size:1.8rem;font-weight:600;" data-fv="temp">—</div>
+          <div style="font-size:0.9rem;" data-fv="desc">—</div>
+
+          <div style="font-size:0.8rem;color:var(--muted,#67706B);">
+            Feels like <strong data-fv="feels">—</strong>
+          </div>
+
+          <div style="font-size:0.8rem;color:var(--muted,#67706B);">
+            Humidity: <strong data-fv="humid">—</strong> •
+            Wind: <strong data-fv="wind">—</strong>
+          </div>
+        </div>
+
+        <div style="flex:0 0 auto;">
+          <img data-fv="icon" alt="" style="width:48px;height:48px;display:none;" loading="lazy">
+        </div>
+      </div>
+
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">
+        <div style="
+          padding:4px 8px;border-radius:999px;
+          background:var(--surface);
+          border:1px solid var(--border);
+          font-size:11px;display:flex;gap:4px;align-items:center;
+        ">
+          <span style="font-weight:500;">Rain last 24 hours</span>
+          <span style="font-variant-numeric:tabular-nums;" data-fv="r24">—</span>
+        </div>
+
+        <div style="
+          padding:4px 8px;border-radius:999px;
+          background:var(--surface);
+          border:1px solid var(--border);
+          font-size:11px;display:flex;gap:4px;align-items:center;
+        ">
+          <span style="font-weight:500;">Rain last 7 days</span>
+          <span style="font-variant-numeric:tabular-nums;" data-fv="r7">—</span>
+        </div>
+
+        <div style="
+          padding:4px 8px;border-radius:999px;
+          background:var(--surface);
+          border:1px solid var(--border);
+          font-size:11px;display:flex;gap:4px;align-items:center;
+        ">
+          <span style="font-weight:500;">Rain last 30 days</span>
+          <span style="font-variant-numeric:tabular-nums;" data-fv="r30">—</span>
+        </div>
+      </div>
+
+      <div class="fv-weather-loc" style="
+        display:flex;align-items:center;justify-content:space-between;gap:8px;
+        flex-wrap:wrap;margin-top:8px;
+        padding-top:8px;border-top:1px solid rgba(148,163,184,0.22);
+      ">
+        <div style="display:flex;align-items:center;gap:8px;flex:0 0 auto;">
+          <div style="
+            font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+            color:var(--muted,#67706B);
+          ">ZIP</div>
+
+          <input
+            type="text"
+            inputmode="numeric"
+            autocomplete="postal-code"
+            class="fv-weather-zip"
+            value="${safeText(zipVal).replace(/"/g,"&quot;")}"
+            placeholder="Enter Zip"
+            style="
+              width:130px;
+              border:1px solid var(--border,#d1d5db);
+              border-radius:999px;
+              padding:4px 9px;
+              background:var(--surface);
+              color:inherit;
+              font:inherit;
+              font-size:12px;
+              outline:none;
+              text-align:center;
+            "
+          />
+        </div>
+
+        <div class="fv-weather-zip-status" style="
+          font-size:12px;color:var(--muted,#67706B);
+          flex:1 1 auto;
+          text-align:right;
+          white-space:nowrap;
+          overflow:hidden;
+          text-overflow:ellipsis;
+          min-width:140px;
+        "></div>
+      </div>
+    </section>
+  `;
+}
 
   function updateCardInPlace(container, combined, config){
     if (!container) return;
@@ -858,8 +974,12 @@
     if (!container) return;
 
     // prevent stacking duplicate listeners on repeated init calls
-    if (container.__fvWeatherWired) return;
-    container.__fvWeatherWired = true;
+if (
+  container.__fvWeatherWired &&
+  container.querySelector(".fv-weather-zip")?.__fvZipWired
+) return;
+
+container.__fvWeatherWired = true;
 
     // refresh click should NOT bubble to modal open
     const refreshBtn = container.querySelector(".fv-weather-refresh");
@@ -880,9 +1000,12 @@
       loc.addEventListener("touchstart", (evt)=> evt.stopPropagation(), { passive:true });
     }
 
-    const zipEl = container.querySelector(".fv-weather-zip");
-    const statusEl = container.querySelector(".fv-weather-zip-status");
-    if (!zipEl) return;
+const zipEl = container.querySelector(".fv-weather-zip");
+const statusEl = container.querySelector(".fv-weather-zip-status");
+if (!zipEl) return;
+
+if (zipEl.__fvZipWired) return;
+zipEl.__fvZipWired = true;
 
     const setStatus = (msg, alsoLabel) => {
       if (statusEl) statusEl.textContent = msg || "";
@@ -1127,9 +1250,58 @@
               white-space:nowrap;
             ">Refresh</button>
           </div>
-        </header>
+</header>
 
-        <div style="display:flex;flex-direction:column;gap:14px;">
+<div class="fv-weather-loc" style="
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-bottom:14px;
+  padding:10px 12px;
+  border-radius:12px;
+  border:1px solid var(--border,#e5e7eb);
+  background:var(--card-surface,var(--surface));
+">
+  <div style="
+    font-size:11px;
+    font-weight:800;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    color:var(--muted,#67706B);
+  ">
+    Weather Location
+  </div>
+
+  <input
+    type="text"
+    inputmode="numeric"
+    autocomplete="postal-code"
+    class="fv-weather-zip"
+    value="${safeText((readSavedLocation() || {}).zip || "").replace(/"/g,"&quot;")}"
+    placeholder="Enter ZIP"
+    style="
+      width:125px;
+      border:1px solid var(--border,#d1d5db);
+      border-radius:999px;
+      padding:6px 10px;
+      background:var(--surface);
+      color:inherit;
+      font:inherit;
+      font-size:12px;
+      outline:none;
+      text-align:center;
+    "
+  />
+
+  <div class="fv-weather-zip-status" style="
+    font-size:12px;
+    color:var(--muted,#67706B);
+    flex:1 1 160px;
+  "></div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:14px;">
           <section style="
             border-radius:12px;border:1px solid var(--border,#e5e7eb);
             padding:10px 12px 12px;background:var(--card-surface,var(--surface));
@@ -1244,7 +1416,11 @@
         });
       });
     }
+
+    wireCardControls(container, config);
+    
   }
+  
 
   /* ==========================
      Orchestration (subtle refresh)
