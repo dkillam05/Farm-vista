@@ -3501,7 +3501,7 @@ function setupEvents() {
       () => {
 
         window.location.href =
-          "/Farm-vista/pages/grain/grain-tickets.html";
+          "/Farm-vista/pages/grain/grain-ticket-ocr.html";
 
       }
     );
