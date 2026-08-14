@@ -2606,48 +2606,6 @@ function setupBushelInputs() {
 
 }
 
-
-  elements.netBushels.addEventListener(
-    "input",
-    () => {
-
-      elements.netBushels
-        .setCustomValidity("");
-
-
-      validateBushels();
-
-    }
-  );
-
-
-  elements.netBushels.addEventListener(
-    "blur",
-    () => {
-
-      const value =
-        cleanNumber(
-          elements.netBushels.value
-        );
-
-
-      if (value !== null) {
-
-        elements.netBushels.value =
-          formatTwoDecimals(
-            value
-          );
-
-      }
-
-
-      validateBushels();
-
-    }
-  );
-
-}
-
 function validateBushels() {
 
   elements.netBushels
