@@ -392,32 +392,53 @@
     }
 
 
-    .ticket-image-wrap{
-      width:100%;
-      min-height:300px;
-      max-height:76vh;
+.ticket-image-wrap{
+  width:100%;
+  height:min(68vh,720px);
+  min-height:360px;
 
-      overflow:auto;
+  overflow:auto;
 
-      border:
-        1px solid
-        var(--border);
+  border:
+    1px solid
+    var(--border);
 
-      border-radius:12px;
+  border-radius:12px;
 
-      background:#111;
+  background:#111;
 
-      display:flex;
-      align-items:flex-start;
-      justify-content:center;
-    }
+  position:relative;
+}
 
 
-    .ticket-image-wrap img{
-      display:block;
-      max-width:100%;
-      height:auto;
-    }
+.ticket-image-stage{
+  min-width:100%;
+  min-height:100%;
+
+  padding:20px;
+
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+
+.ticket-image-wrap img{
+  display:block;
+
+  width:auto;
+  height:auto;
+
+  max-width:none;
+
+  transform-origin:center center;
+
+  transition:
+    transform .15s ease;
+
+  user-select:none;
+  -webkit-user-drag:none;
+}
 
 
     .image-actions{
@@ -1211,40 +1232,92 @@
             </p>
 
 
-            <div class="ticket-image-wrap">
+<div
+  id="ticketImageWrap"
+  class="ticket-image-wrap"
+>
 
-              <img
-                id="ticketImage"
-                alt="Scanned grain ticket"
-                hidden
-              >
+  <div
+    id="ticketImageStage"
+    class="ticket-image-stage"
+  >
 
-              <div
-                id="noImage"
-                style="
-                  color:#fff;
-                  padding:40px 20px;
-                  text-align:center;
-                "
-              >
-                No ticket image available.
-              </div>
-
-            </div>
+    <img
+      id="ticketImage"
+      alt="Scanned grain ticket"
+      draggable="false"
+      hidden
+    >
 
 
-            <div class="image-actions">
+    <div
+      id="noImage"
+      style="
+        color:#fff;
+        padding:40px 20px;
+        text-align:center;
+      "
+    >
+      No ticket image available.
+    </div>
 
-              <button
-                id="openImageBtn"
-                type="button"
-                class="btn"
-                disabled
-              >
-                Open Full Image
-              </button>
+  </div>
 
-            </div>
+</div>
+
+
+<div class="image-actions">
+
+  <button
+    id="zoomOutBtn"
+    type="button"
+    class="btn"
+    disabled
+  >
+    − Zoom
+  </button>
+
+
+  <button
+    id="zoomInBtn"
+    type="button"
+    class="btn"
+    disabled
+  >
+    + Zoom
+  </button>
+
+
+  <button
+    id="rotateLeftBtn"
+    type="button"
+    class="btn"
+    disabled
+  >
+    ↶ Rotate
+  </button>
+
+
+  <button
+    id="rotateRightBtn"
+    type="button"
+    class="btn"
+    disabled
+  >
+    ↷ Rotate
+  </button>
+
+
+  <button
+    id="resetImageBtn"
+    type="button"
+    class="btn"
+    disabled
+  >
+    Reset
+  </button>
+
+</div>
 
           </section>
 
@@ -1341,7 +1414,13 @@
         null,
 
       saving:
-        false
+        false,
+
+      imageZoom:
+        1,
+
+      imageRotation:
+        0
 
     };
 
@@ -1447,14 +1526,32 @@
       ocrRawText:
         $("ocrRawText"),
 
-      ticketImage:
-        $("ticketImage"),
+ticketImage:
+  $("ticketImage"),
 
-      noImage:
-        $("noImage"),
+ticketImageWrap:
+  $("ticketImageWrap"),
 
-      openImageBtn:
-        $("openImageBtn"),
+ticketImageStage:
+  $("ticketImageStage"),
+
+noImage:
+  $("noImage"),
+
+zoomOutBtn:
+  $("zoomOutBtn"),
+
+zoomInBtn:
+  $("zoomInBtn"),
+
+rotateLeftBtn:
+  $("rotateLeftBtn"),
+
+rotateRightBtn:
+  $("rotateRightBtn"),
+
+resetImageBtn:
+  $("resetImageBtn"),
 
       message:
         $("message"),
@@ -1463,6 +1560,80 @@
         $("saveBtn")
 
     };
+
+
+    function updateTicketImage() {
+
+      elements.ticketImage.style.transform =
+        `scale(${state.imageZoom}) rotate(${state.imageRotation}deg)`;
+
+    }
+
+
+    function zoomTicketImage(
+      amount
+    ) {
+
+      state.imageZoom =
+        Math.min(
+          3,
+          Math.max(
+            0.5,
+            Number(
+              (
+                state.imageZoom +
+                amount
+              ).toFixed(
+                2
+              )
+            )
+          )
+        );
+
+
+      updateTicketImage();
+
+    }
+
+
+    function rotateTicketImage(
+      amount
+    ) {
+
+      state.imageRotation =
+        (
+          state.imageRotation +
+          amount
+        ) %
+        360;
+
+
+      updateTicketImage();
+
+    }
+
+
+    function resetTicketImage() {
+
+      state.imageZoom =
+        1;
+
+
+      state.imageRotation =
+        0;
+
+
+      updateTicketImage();
+
+
+      elements.ticketImageWrap.scrollTop =
+        0;
+
+
+      elements.ticketImageWrap.scrollLeft =
+        0;
+
+    }
 
 
     function clean(
@@ -2799,8 +2970,27 @@
           true;
 
 
-        elements.openImageBtn.disabled =
+        elements.zoomOutBtn.disabled =
           false;
+
+
+        elements.zoomInBtn.disabled =
+          false;
+
+
+        elements.rotateLeftBtn.disabled =
+          false;
+
+
+        elements.rotateRightBtn.disabled =
+          false;
+
+
+        elements.resetImageBtn.disabled =
+          false;
+
+
+        resetTicketImage();
 
       }
 
@@ -3603,29 +3793,62 @@
         );
 
 
-      elements.openImageBtn
+      elements.zoomInBtn
         .addEventListener(
           "click",
           () => {
 
-            const url =
-              state.ticket
-                ?.ticketImageUrl;
-
-
-            if (
-              url
-            ) {
-
-              window.open(
-                url,
-                "_blank",
-                "noopener"
-              );
-
-            }
+            zoomTicketImage(
+              0.25
+            );
 
           }
+        );
+
+
+      elements.zoomOutBtn
+        .addEventListener(
+          "click",
+          () => {
+
+            zoomTicketImage(
+              -0.25
+            );
+
+          }
+        );
+
+
+      elements.rotateLeftBtn
+        .addEventListener(
+          "click",
+          () => {
+
+            rotateTicketImage(
+              -90
+            );
+
+          }
+        );
+
+
+      elements.rotateRightBtn
+        .addEventListener(
+          "click",
+          () => {
+
+            rotateTicketImage(
+              90
+            );
+
+          }
+        );
+
+
+      elements.resetImageBtn
+        .addEventListener(
+          "click",
+          resetTicketImage
         );
 
 
