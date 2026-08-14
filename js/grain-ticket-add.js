@@ -1937,6 +1937,20 @@ function updateBushelCalculation() {
     getCropBushelWeight();
 
 
+  const shrinkBushels =
+    cleanNumber(
+      elements.shrinkBushels.value
+    ) ?? 0;
+
+
+  elements.bushelCheck.className =
+    "weight-check";
+
+
+  elements.bushelCheck.textContent =
+    "";
+
+
   if (
     netWeight === null ||
     !poundsPerBushel
@@ -1946,11 +1960,7 @@ function updateBushelCalculation() {
       "";
 
 
-    elements.bushelCheck.className =
-      "weight-check";
-
-
-    elements.bushelCheck.textContent =
+    elements.netBushels.value =
       "";
 
 
@@ -1964,8 +1974,17 @@ function updateBushelCalculation() {
     poundsPerBushel;
 
 
+  const netBushels =
+    grossBushels -
+    shrinkBushels;
+
+
   elements.grossBushels.value =
     grossBushels.toFixed(2);
+
+
+  elements.netBushels.value =
+    netBushels.toFixed(2);
 
 
   return validateBushels();
@@ -2054,33 +2073,14 @@ function validateBushels() {
     shrinkBushels;
 
 
-  const difference =
-    Math.abs(
-      expectedNet -
-      netBushels
-    );
-
-
-  /*
-    Allow a tiny rounding difference.
-  */
-
   if (
-    difference > 0.02
+    expectedNet <= 0
   ) {
 
-    elements.netBushels
+    elements.shrinkBushels
       .setCustomValidity(
-        `Calculated Net Bushels are ${expectedNet.toFixed(2)}.`
+        "Shrink Bushels cannot be equal to or greater than Gross Bushels."
       );
-
-
-    elements.bushelCheck.className =
-      "weight-check bad";
-
-
-    elements.bushelCheck.textContent =
-      `Bushel check failed. ${grossBushels.toFixed(2)} Gross - ${shrinkBushels.toFixed(2)} Shrink = ${expectedNet.toFixed(2)} Net Bushels.`;
 
 
     return false;
@@ -2093,7 +2093,7 @@ function validateBushels() {
 
 
   elements.bushelCheck.textContent =
-    `✓ Bushel check passed. ${grossBushels.toFixed(2)} Gross - ${shrinkBushels.toFixed(2)} Shrink = ${netBushels.toFixed(2)} Net Bushels.`;
+    `✓ ${grossBushels.toFixed(2)} Gross - ${shrinkBushels.toFixed(2)} Shrink = ${expectedNet.toFixed(2)} Net Bushels.`;
 
 
   return true;
@@ -2607,15 +2607,9 @@ function setupEvents() {
   elements.shrinkBushels
     .addEventListener(
       "input",
-      validateBushels
+      updateBushelCalculation
     );
 
-
-  elements.netBushels
-    .addEventListener(
-      "input",
-      validateBushels
-    );
 
 
   elements.cancelBtn
