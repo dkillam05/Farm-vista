@@ -69,6 +69,9 @@ const CONTRACT_COLLECTION =
 const TICKET_COLLECTION =
   "grain_tickets";
 
+const EMPLOYEE_COLLECTION =
+  "employees";
+
 
 /* ============================================================
    STATE
@@ -94,6 +97,12 @@ const state = {
 
   contracts:
     [],
+
+  drivers:
+    [],
+
+  selectedDriver:
+    null,
 
   selectedBuyer:
     null,
@@ -261,8 +270,24 @@ const elements = {
     $("bushel-check"),
 
 
+  driverLookup:
+    $("driver-lookup"),
+
+  driverSearch:
+    $("driver-search"),
+
+  driverId:
+    $("driver-id"),
+
   driverName:
     $("driver-name"),
+
+  driverEmail:
+    $("driver-email"),
+
+  driverMenu:
+    $("driver-menu"),
+
 
   contractStatus:
     $("contract-status"),
@@ -415,8 +440,10 @@ function formatAddress(location) {
 
 async function initializeUser() {
 
-  elements.driverName.value =
-    "Loading driver…";
+  /*
+    Signed-in user is the person entering the ticket.
+    Driver is selected separately.
+  */
 
 
   let attempts =
@@ -446,15 +473,11 @@ async function initializeUser() {
             user;
 
 
-          elements.driverName.value =
+          console.log(
+            "[Grain Ticket] Entry user loaded:",
             user.displayName ||
             user.email ||
-            "FarmVista User";
-
-
-          console.log(
-            "[Grain Ticket] Driver loaded:",
-            elements.driverName.value
+            "FarmVista User"
           );
 
 
@@ -473,9 +496,6 @@ async function initializeUser() {
           state.user =
             null;
 
-
-          elements.driverName.value =
-            "Not signed in";
 
 
           showMessage(
@@ -516,7 +536,8 @@ async function loadData() {
     buyerSnapshot,
     customerSnapshot,
     locationSnapshot,
-    contractSnapshot
+    contractSnapshot,
+    employeeSnapshot
   ] =
     await Promise.all([
 
@@ -551,6 +572,13 @@ async function loadData() {
         collection(
           db,
           CONTRACT_COLLECTION
+        )
+      ),
+
+      getDocs(
+        collection(
+          db,
+          EMPLOYEE_COLLECTION
         )
       )
 
@@ -677,10 +705,78 @@ async function loadData() {
 
       });
 
+    state.drivers =
+    employeeSnapshot.docs
+      .map(docSnapshot => {
+
+        const data =
+          docSnapshot.data() || {};
+
+
+        const name =
+          clean(
+            data.fullName ||
+            [
+              data.firstName,
+              data.lastName
+            ]
+              .filter(Boolean)
+              .join(" ")
+          );
+
+
+        return {
+
+          id:
+            docSnapshot.id,
+
+          uid:
+            clean(
+              data.uid ||
+              data.userUid ||
+              data.authUid
+            ) || null,
+
+          name:
+            name,
+
+          email:
+            clean(
+              data.email
+            ),
+
+          role:
+            clean(
+              data.role
+            )
+
+        };
+
+      })
+      .filter(driver => {
+
+        return driver.name;
+
+      });
+
+
+  state.drivers.sort(
+    (a, b) =>
+      a.name.localeCompare(
+        b.name,
+        undefined,
+        {
+          numeric: true,
+          sensitivity: "base"
+        }
+      )
+  );
+
 
   renderBuyerOptions("");
   renderCustomerOptions("");
   renderDeliveryLocationOptions("");
+  renderDriverOptions("");
 
 
   console.log(
@@ -707,6 +803,283 @@ async function loadData() {
   );
 
 }
+
+/* ============================================================
+   DRIVER PICKER
+============================================================ */
+
+function setupDriverPicker() {
+
+  elements.driverSearch.addEventListener(
+    "focus",
+    () => {
+
+      elements.driverLookup
+        .classList
+        .add("open");
+
+
+      elements.driverSearch
+        .setAttribute(
+          "aria-expanded",
+          "true"
+        );
+
+
+      renderDriverOptions(
+        elements.driverSearch.value
+      );
+
+    }
+  );
+
+
+  elements.driverSearch.addEventListener(
+    "input",
+    () => {
+
+      if (
+        state.selectedDriver &&
+        elements.driverSearch.value !==
+          state.selectedDriver.name
+      ) {
+
+        clearDriverSelection();
+
+      }
+
+
+      elements.driverLookup
+        .classList
+        .add("open");
+
+
+      elements.driverSearch
+        .setAttribute(
+          "aria-expanded",
+          "true"
+        );
+
+
+      renderDriverOptions(
+        elements.driverSearch.value
+      );
+
+    }
+  );
+
+}
+
+
+function renderDriverOptions(
+  searchText
+) {
+
+  const search =
+    normalized(
+      searchText
+    );
+
+
+  const filtered =
+    state.drivers.filter(
+      driver => {
+
+        const combined =
+          [
+            driver.name,
+            driver.email,
+            driver.role
+          ]
+            .filter(Boolean)
+            .join(" ");
+
+
+        return (
+          !search ||
+          normalized(
+            combined
+          ).includes(search)
+        );
+
+      }
+    );
+
+
+  elements.driverMenu.innerHTML =
+    "";
+
+
+  if (
+    !filtered.length
+  ) {
+
+    const empty =
+      document.createElement(
+        "div"
+      );
+
+
+    empty.className =
+      "lookup-empty";
+
+
+    empty.textContent =
+      "No matching drivers.";
+
+
+    elements.driverMenu
+      .appendChild(empty);
+
+
+    return;
+
+  }
+
+
+  filtered.forEach(
+    driver => {
+
+      const button =
+        document.createElement(
+          "button"
+        );
+
+
+      button.type =
+        "button";
+
+
+      button.className =
+        "lookup-option";
+
+
+      const title =
+        document.createElement(
+          "span"
+        );
+
+
+      title.className =
+        "lookup-option-title";
+
+
+      title.textContent =
+        driver.name;
+
+
+      button.appendChild(
+        title
+      );
+
+
+      if (
+        driver.email
+      ) {
+
+        const sub =
+          document.createElement(
+            "span"
+          );
+
+
+        sub.className =
+          "lookup-option-sub";
+
+
+        sub.textContent =
+          driver.email;
+
+
+        button.appendChild(
+          sub
+        );
+
+      }
+
+
+      button.addEventListener(
+        "click",
+        () => {
+
+          selectDriver(
+            driver
+          );
+
+        }
+      );
+
+
+      elements.driverMenu
+        .appendChild(button);
+
+    }
+  );
+
+}
+
+
+function selectDriver(
+  driver
+) {
+
+  state.selectedDriver =
+    driver;
+
+
+  elements.driverSearch.value =
+    driver.name;
+
+
+  elements.driverId.value =
+    driver.id;
+
+
+  elements.driverName.value =
+    driver.name;
+
+
+  elements.driverEmail.value =
+    driver.email || "";
+
+
+  elements.driverSearch
+    .setCustomValidity("");
+
+
+  elements.driverLookup
+    .classList
+    .remove("open");
+
+
+  elements.driverSearch
+    .setAttribute(
+      "aria-expanded",
+      "false"
+    );
+
+}
+
+
+function clearDriverSelection() {
+
+  state.selectedDriver =
+    null;
+
+
+  elements.driverId.value =
+    "";
+
+
+  elements.driverName.value =
+    "";
+
+
+  elements.driverEmail.value =
+    "";
+
+}
+
 
 
 /* ============================================================
@@ -2122,6 +2495,10 @@ function validateBushels() {
 
 function validateSelections() {
 
+  elements.driverSearch
+    .setCustomValidity("");
+
+
   elements.buyerSearch
     .setCustomValidity("");
 
@@ -2170,7 +2547,20 @@ function validateSelections() {
   }
 
 
+  if (
+    !state.selectedDriver?.id
+  ) {
+
+    elements.driverSearch
+      .setCustomValidity(
+        "Select the Driver from the list."
+      );
+
+  }
+
+
   return Boolean(
+    state.selectedDriver?.id &&
     state.selectedBuyer?.id &&
     state.selectedCustomer?.id &&
     state.selectedDeliveryLocation?.id
@@ -2393,15 +2783,34 @@ async function saveTicket(
          DRIVER
       ====================================== */
 
+      driverEmployeeId:
+        state.selectedDriver.id,
+
       driverUid:
-        state.user.uid,
+        state.selectedDriver.uid ||
+        null,
 
       driverName:
+        state.selectedDriver.name,
+
+      driverEmail:
+        state.selectedDriver.email ||
+        null,
+
+
+      /* =====================================
+         ENTERED BY
+      ====================================== */
+
+      enteredByUid:
+        state.user.uid,
+
+      enteredByName:
         state.user.displayName ||
         state.user.email ||
         "FarmVista User",
 
-      driverEmail:
+      enteredByEmail:
         state.user.email ||
         null,
 
@@ -2538,6 +2947,7 @@ function closeLookups(
 ) {
 
   [
+    elements.driverLookup,
     elements.buyerLookup,
     elements.customerLookup,
     elements.locationLookup
@@ -2566,6 +2976,8 @@ function closeLookups(
 ============================================================ */
 
 function setupEvents() {
+
+  setupDriverPicker();
 
   setupBuyerPicker();
 
