@@ -2510,6 +2510,44 @@ function setupGradeFactorInputs() {
           }
 
 
+          if (
+            input === elements.testWeight &&
+            value < 30
+          ) {
+
+            input.value =
+              "";
+
+            input.setCustomValidity(
+              "Test Weight cannot be less than 30.00."
+            );
+
+            input.reportValidity();
+
+            return;
+
+          }
+
+
+          if (
+            input === elements.moisture &&
+            value < 5
+          ) {
+
+            input.value =
+              "";
+
+            input.setCustomValidity(
+              "Moisture cannot be less than 5.00."
+            );
+
+            input.reportValidity();
+
+            return;
+
+          }
+
+
           input.value =
             Number(value)
               .toFixed(2);
