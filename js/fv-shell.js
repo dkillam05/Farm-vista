@@ -610,7 +610,7 @@ if (this._cameraCloseBtn) {
   });
 }
       }
-    }
+    
 
     /* ============================== */
     /* Toast helper (FIX)             */
