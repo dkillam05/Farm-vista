@@ -849,20 +849,18 @@
       </div>
 
 
-      <div
-        class="result-title"
-      >
-        Ticket Read
-      </div>
+<div
+  class="result-title"
+>
+  Grain Ticket Uploaded
+</div>
 
 
-      <div
-        class="result-text"
-      >
-        FarmVista successfully sent this ticket through the Grain Ticket OCR.
-        The OCR result has been written to the browser console so we can build
-        the final validation and automatic-save step next.
-      </div>
+<div
+  class="result-text"
+>
+  Your grain ticket was successfully uploaded to FarmVista.
+</div>
 
 
       <div
@@ -972,7 +970,37 @@
 
 
 
-  <script>
+<script type="module">
+
+    import {
+      ready,
+      getAuth,
+      getFirestore,
+      collection,
+      getDocs,
+      addDoc,
+      serverTimestamp,
+      getStorage,
+      ref,
+      uploadBytes,
+      getDownloadURL
+    } from "/Farm-vista/js/firebase-init.js";
+
+
+    await ready;
+
+
+    const auth =
+      getAuth();
+
+
+    const db =
+      getFirestore();
+
+
+    const storage =
+      getStorage();
+
 
     (() => {
 
@@ -997,6 +1025,29 @@
 
       const JPEG_QUALITY =
         0.90;
+
+      const BUYER_COLLECTION =
+  "grain_buyers";
+
+
+const CUSTOMER_COLLECTION =
+  "grain_customers";
+
+
+const LOCATION_COLLECTION =
+  "grain_delivery_locations";
+
+
+const CONTRACT_COLLECTION =
+  "grain_contracts";
+
+
+const TICKET_COLLECTION =
+  "grain_tickets";
+
+
+const EMPLOYEE_COLLECTION =
+  "employees";
 
 
 
@@ -1125,6 +1176,1853 @@
 
       let processing =
         false;
+
+      let signedInUser =
+  null;
+
+
+let buyers =
+  [];
+
+
+let customers =
+  [];
+
+
+let deliveryLocations =
+  [];
+
+
+let contracts =
+  [];
+
+
+let employees =
+  [];
+
+
+let currentTicketFile =
+  null;
+
+      // ==========================================================
+// FIRESTORE / AUTH DATA
+// ==========================================================
+
+function snapshotToArray(
+  snapshot
+) {
+
+  return snapshot.docs.map(
+    doc => ({
+      id:
+        doc.id,
+
+      ...doc.data()
+    })
+  );
+
+}
+
+
+function cleanCompare(
+  value
+) {
+
+  return String(
+    value ?? ""
+  )
+    .trim()
+    .toLowerCase()
+    .replace(
+      /\s+/g,
+      " "
+    );
+}
+
+
+function normalizePersonName(
+  value
+) {
+
+  return cleanCompare(
+    value
+  )
+    .replace(
+      /,/g,
+      ""
+    );
+}
+
+
+function getEmployeeDisplayName(
+  employee
+) {
+
+  return String(
+    employee?.displayName ||
+    employee?.name ||
+    employee?.fullName ||
+    [
+      employee?.firstName,
+      employee?.lastName
+    ]
+      .filter(
+        Boolean
+      )
+      .join(
+        " "
+      ) ||
+    ""
+  )
+    .trim();
+
+}
+
+
+function findSignedInEmployee() {
+
+  if (
+    !signedInUser
+  ) {
+
+    return null;
+
+  }
+
+
+  const uid =
+    String(
+      signedInUser.uid ||
+      ""
+    );
+
+
+  const email =
+    cleanCompare(
+      signedInUser.email
+    );
+
+
+  return employees.find(
+    employee => {
+
+      const employeeUid =
+        String(
+          employee.uid ||
+          employee.userUid ||
+          employee.authUid ||
+          ""
+        );
+
+
+      const employeeEmail =
+        cleanCompare(
+          employee.email
+        );
+
+
+      return (
+        (
+          uid &&
+          employeeUid === uid
+        ) ||
+        (
+          email &&
+          employeeEmail === email
+        )
+      );
+
+    }
+  ) || null;
+
+}
+
+
+async function loadFarmVistaData() {
+
+  signedInUser =
+    auth.currentUser;
+
+
+  if (
+    !signedInUser
+  ) {
+
+    throw new Error(
+      "You must be signed in to scan a grain ticket."
+    );
+
+  }
+
+
+  processingText.textContent =
+    "Loading FarmVista grain data…";
+
+
+  const [
+    buyerSnapshot,
+    customerSnapshot,
+    locationSnapshot,
+    contractSnapshot,
+    employeeSnapshot
+  ] =
+    await Promise.all([
+
+      getDocs(
+        collection(
+          db,
+          BUYER_COLLECTION
+        )
+      ),
+
+      getDocs(
+        collection(
+          db,
+          CUSTOMER_COLLECTION
+        )
+      ),
+
+      getDocs(
+        collection(
+          db,
+          LOCATION_COLLECTION
+        )
+      ),
+
+      getDocs(
+        collection(
+          db,
+          CONTRACT_COLLECTION
+        )
+      ),
+
+      getDocs(
+        collection(
+          db,
+          EMPLOYEE_COLLECTION
+        )
+      )
+
+    ]);
+
+
+  buyers =
+    snapshotToArray(
+      buyerSnapshot
+    );
+
+
+  customers =
+    snapshotToArray(
+      customerSnapshot
+    );
+
+
+  deliveryLocations =
+    snapshotToArray(
+      locationSnapshot
+    );
+
+
+  contracts =
+    snapshotToArray(
+      contractSnapshot
+    );
+
+
+  employees =
+    snapshotToArray(
+      employeeSnapshot
+    );
+
+
+  const employee =
+    findSignedInEmployee();
+
+
+  if (
+    !employee
+  ) {
+
+    throw new Error(
+      "FarmVista could not match the signed-in user to an employee record."
+    );
+
+  }
+
+
+  console.log(
+    "[Grain Ticket] Signed-in employee:",
+    {
+      id:
+        employee.id,
+
+      name:
+        getEmployeeDisplayName(
+          employee
+        ),
+
+      uid:
+        signedInUser.uid,
+
+      email:
+        signedInUser.email ||
+        ""
+    }
+  );
+
+
+  console.log(
+    "[Grain Ticket] Loaded FarmVista data:",
+    {
+      buyers:
+        buyers.length,
+
+      customers:
+        customers.length,
+
+      deliveryLocations:
+        deliveryLocations.length,
+
+      contracts:
+        contracts.length,
+
+      employees:
+        employees.length
+    }
+  );
+
+
+  return employee;
+
+}
+
+// ==========================================================
+// OCR → FARMVISTA MATCHING
+// ==========================================================
+
+function firstExistingValue(
+  object,
+  keys
+) {
+
+  for (
+    const key of
+    keys
+  ) {
+
+    const value =
+      object?.[key];
+
+
+    if (
+      value !== undefined &&
+      value !== null &&
+      String(value).trim() !== ""
+    ) {
+
+      return value;
+
+    }
+
+  }
+
+
+  return "";
+
+}
+
+
+function normalizeMatchText(
+  value
+) {
+
+  return String(
+    value ?? ""
+  )
+    .toLowerCase()
+    .replace(
+      /[^a-z0-9]/g,
+      ""
+    );
+}
+
+
+function normalizeNameWords(
+  value
+) {
+
+  return String(
+    value ?? ""
+  )
+    .toLowerCase()
+    .replace(
+      /[^a-z0-9\s]/g,
+      " "
+    )
+    .split(
+      /\s+/
+    )
+    .filter(
+      Boolean
+    )
+    .sort()
+    .join(
+      " "
+    );
+}
+
+
+function getCustomerName(
+  customer
+) {
+
+  return String(
+    firstExistingValue(
+      customer,
+      [
+        "name",
+        "customerName",
+        "displayName",
+        "legalName",
+        "companyName"
+      ]
+    ) || ""
+  )
+    .trim();
+
+}
+
+
+function getCustomerAccount(
+  customer
+) {
+
+  return String(
+    firstExistingValue(
+      customer,
+      [
+        "accountNumber",
+        "account",
+        "customerAccount",
+        "customerNumber",
+        "vendorNumber",
+        "vendorId",
+        "externalId"
+      ]
+    ) || ""
+  )
+    .trim();
+
+}
+
+
+function getBuyerName(
+  buyer
+) {
+
+  return String(
+    firstExistingValue(
+      buyer,
+      [
+        "name",
+        "buyerName",
+        "displayName",
+        "companyName"
+      ]
+    ) || ""
+  )
+    .trim();
+
+}
+
+
+function getLocationName(
+  location
+) {
+
+  return String(
+    firstExistingValue(
+      location,
+      [
+        "name",
+        "locationName",
+        "deliveryLocationName",
+        "displayName"
+      ]
+    ) || ""
+  )
+    .trim();
+
+}
+
+
+function getLocationStreet(
+  location
+) {
+
+  return String(
+    firstExistingValue(
+      location,
+      [
+        "street",
+        "streetAddress",
+        "address",
+        "address1",
+        "deliveryStreet"
+      ]
+    ) || ""
+  )
+    .trim();
+
+}
+
+
+function getLocationCity(
+  location
+) {
+
+  return String(
+    firstExistingValue(
+      location,
+      [
+        "city",
+        "deliveryCity"
+      ]
+    ) || ""
+  )
+    .trim();
+
+}
+
+
+function getLocationState(
+  location
+) {
+
+  return String(
+    firstExistingValue(
+      location,
+      [
+        "state",
+        "deliveryState"
+      ]
+    ) || ""
+  )
+    .trim();
+
+}
+
+
+function getLocationZip(
+  location
+) {
+
+  return String(
+    firstExistingValue(
+      location,
+      [
+        "zip",
+        "zipCode",
+        "postalCode",
+        "deliveryZip"
+      ]
+    ) || ""
+  )
+    .trim();
+
+}
+
+
+function findCustomerMatch(
+  grainTicket
+) {
+
+  const ocrName =
+    String(
+      grainTicket?.customerText ||
+      ""
+    )
+      .trim();
+
+
+  const ocrAccount =
+    String(
+      grainTicket?.customerAccountText ||
+      ""
+    )
+      .trim();
+
+
+  /*
+    BEST MATCH:
+    Account/customer number.
+
+    If OCR gave us an account number and FarmVista has
+    the same account number, that is stronger than name text.
+  */
+
+  if (
+    ocrAccount
+  ) {
+
+    const accountNormalized =
+      normalizeMatchText(
+        ocrAccount
+      );
+
+
+    const accountMatch =
+      customers.find(
+        customer =>
+          normalizeMatchText(
+            getCustomerAccount(
+              customer
+            )
+          ) ===
+          accountNormalized
+      );
+
+
+    if (
+      accountMatch
+    ) {
+
+      return {
+        matched:
+          true,
+
+        matchType:
+          "account",
+
+        customer:
+          accountMatch
+      };
+
+    }
+
+  }
+
+
+  /*
+    SECOND MATCH:
+    Exact normalized customer name.
+  */
+
+  if (
+    ocrName
+  ) {
+
+    const normalizedName =
+      normalizeMatchText(
+        ocrName
+      );
+
+
+    const exactMatch =
+      customers.find(
+        customer =>
+          normalizeMatchText(
+            getCustomerName(
+              customer
+            )
+          ) ===
+          normalizedName
+      );
+
+
+    if (
+      exactMatch
+    ) {
+
+      return {
+        matched:
+          true,
+
+        matchType:
+          "name",
+
+        customer:
+          exactMatch
+      };
+
+    }
+
+  }
+
+
+  /*
+    THIRD MATCH:
+    Same words in a different order.
+
+    Example:
+
+    Dowson, John C
+    JOHN C DOWSON
+  */
+
+  if (
+    ocrName
+  ) {
+
+    const wordName =
+      normalizeNameWords(
+        ocrName
+      );
+
+
+    const reorderedMatch =
+      customers.find(
+        customer =>
+          normalizeNameWords(
+            getCustomerName(
+              customer
+            )
+          ) ===
+          wordName
+      );
+
+
+    if (
+      reorderedMatch
+    ) {
+
+      return {
+        matched:
+          true,
+
+        matchType:
+          "name_reordered",
+
+        customer:
+          reorderedMatch
+      };
+
+    }
+
+  }
+
+
+  return {
+    matched:
+      false,
+
+    matchType:
+      null,
+
+    customer:
+      null
+  };
+
+}
+
+
+function findDeliveryLocationMatch(
+  grainTicket
+) {
+
+  const ocrStreet =
+    normalizeMatchText(
+      grainTicket?.deliveryStreet
+    );
+
+
+  const ocrCity =
+    normalizeMatchText(
+      grainTicket?.deliveryCity
+    );
+
+
+  const ocrState =
+    normalizeMatchText(
+      grainTicket?.deliveryState
+    );
+
+
+  const ocrZip =
+    normalizeMatchText(
+      grainTicket?.deliveryZip
+    );
+
+
+  /*
+    Strongest location match:
+    street + city
+  */
+
+  if (
+    ocrStreet &&
+    ocrCity
+  ) {
+
+    const exactAddress =
+      deliveryLocations.find(
+        location =>
+          normalizeMatchText(
+            getLocationStreet(
+              location
+            )
+          ) ===
+            ocrStreet &&
+          normalizeMatchText(
+            getLocationCity(
+              location
+            )
+          ) ===
+            ocrCity
+      );
+
+
+    if (
+      exactAddress
+    ) {
+
+      return {
+        matched:
+          true,
+
+        matchType:
+          "address",
+
+        location:
+          exactAddress
+      };
+
+    }
+
+  }
+
+
+  /*
+    ZIP + city is useful when OCR misses the street.
+  */
+
+  if (
+    ocrCity &&
+    ocrZip
+  ) {
+
+    const cityZipMatch =
+      deliveryLocations.find(
+        location =>
+          normalizeMatchText(
+            getLocationCity(
+              location
+            )
+          ) ===
+            ocrCity &&
+          normalizeMatchText(
+            getLocationZip(
+              location
+            )
+          ) ===
+            ocrZip
+      );
+
+
+    if (
+      cityZipMatch
+    ) {
+
+      return {
+        matched:
+          true,
+
+        matchType:
+          "city_zip",
+
+        location:
+          cityZipMatch
+      };
+
+    }
+
+  }
+
+
+  /*
+    City + state fallback.
+
+    Only accept this if exactly one FarmVista location
+    matches, so we never guess between multiple elevators
+    in the same city.
+  */
+
+  if (
+    ocrCity &&
+    ocrState
+  ) {
+
+    const matches =
+      deliveryLocations.filter(
+        location =>
+          normalizeMatchText(
+            getLocationCity(
+              location
+            )
+          ) ===
+            ocrCity &&
+          normalizeMatchText(
+            getLocationState(
+              location
+            )
+          ) ===
+            ocrState
+      );
+
+
+    if (
+      matches.length === 1
+    ) {
+
+      return {
+        matched:
+          true,
+
+        matchType:
+          "city_state",
+
+        location:
+          matches[0]
+      };
+
+    }
+
+  }
+
+
+  return {
+    matched:
+      false,
+
+    matchType:
+      null,
+
+    location:
+      null
+  };
+
+}
+
+
+function findBuyerMatch(
+  grainTicket,
+  locationMatch
+) {
+
+  /*
+    First preference:
+    use the buyer tied to the matched delivery location.
+  */
+
+  if (
+    locationMatch?.location
+  ) {
+
+    const locationBuyerId =
+      String(
+        firstExistingValue(
+          locationMatch.location,
+          [
+            "buyerId",
+            "grainBuyerId"
+          ]
+        ) || ""
+      );
+
+
+    if (
+      locationBuyerId
+    ) {
+
+      const buyer =
+        buyers.find(
+          item =>
+            String(
+              item.id
+            ) ===
+            locationBuyerId
+        );
+
+
+      if (
+        buyer
+      ) {
+
+        return {
+          matched:
+            true,
+
+          matchType:
+            "location_buyer",
+
+          buyer
+        };
+
+      }
+
+    }
+
+  }
+
+
+  /*
+    Otherwise compare OCR elevator text to FarmVista buyer names.
+  */
+
+  const ocrElevator =
+    normalizeMatchText(
+      grainTicket?.elevatorName
+    );
+
+
+  if (
+    ocrElevator
+  ) {
+
+    const buyer =
+      buyers.find(
+        item => {
+
+          const buyerName =
+            normalizeMatchText(
+              getBuyerName(
+                item
+              )
+            );
+
+
+          return (
+            buyerName ===
+              ocrElevator ||
+            buyerName.includes(
+              ocrElevator
+            ) ||
+            ocrElevator.includes(
+              buyerName
+            )
+          );
+
+        }
+      );
+
+
+    if (
+      buyer
+    ) {
+
+      return {
+        matched:
+          true,
+
+        matchType:
+          "elevator_name",
+
+        buyer
+      };
+
+    }
+
+  }
+
+
+  return {
+    matched:
+      false,
+
+    matchType:
+      null,
+
+    buyer:
+      null
+  };
+
+}
+
+
+function findContractMatches(
+  grainTicket,
+  customerMatch
+) {
+
+  if (
+    !customerMatch?.customer ||
+    !grainTicket?.crop
+  ) {
+
+    return [];
+
+  }
+
+
+  const customerId =
+    String(
+      customerMatch.customer.id
+    );
+
+
+  const crop =
+    normalizeMatchText(
+      grainTicket.crop
+    );
+
+
+  return contracts.filter(
+    contract => {
+
+      const contractCustomerId =
+        String(
+          firstExistingValue(
+            contract,
+            [
+              "customerId",
+              "grainCustomerId"
+            ]
+          ) || ""
+        );
+
+
+      const contractCrop =
+        normalizeMatchText(
+          firstExistingValue(
+            contract,
+            [
+              "crop",
+              "commodity"
+            ]
+          )
+        );
+
+
+      return (
+        contractCustomerId ===
+          customerId &&
+        contractCrop ===
+          crop
+      );
+
+    }
+  );
+
+}
+
+
+function matchScannedTicket(
+  grainTicket
+) {
+
+  const customerMatch =
+    findCustomerMatch(
+      grainTicket
+    );
+
+
+  const locationMatch =
+    findDeliveryLocationMatch(
+      grainTicket
+    );
+
+
+  const buyerMatch =
+    findBuyerMatch(
+      grainTicket,
+      locationMatch
+    );
+
+
+  const contractMatches =
+    findContractMatches(
+      grainTicket,
+      customerMatch
+    );
+
+
+  const reviewReasons =
+    [];
+
+
+  /*
+    IMPORTANT:
+
+    OCR already required customer TEXT to be readable.
+
+    This section only determines whether that readable customer
+    can be matched to FarmVista.
+  */
+
+  if (
+    !customerMatch.matched
+  ) {
+
+    reviewReasons.push(
+      "customer_not_matched"
+    );
+
+  }
+
+
+  if (
+    !locationMatch.matched
+  ) {
+
+    reviewReasons.push(
+      "delivery_location_not_matched"
+    );
+
+  }
+
+
+  if (
+    !buyerMatch.matched
+  ) {
+
+    reviewReasons.push(
+      "buyer_not_matched"
+    );
+
+  }
+
+
+  if (
+    contractMatches.length === 0
+  ) {
+
+    reviewReasons.push(
+      "contract_not_matched"
+    );
+
+  }
+
+
+  const validationStatus =
+    reviewReasons.length
+      ? "needs_review"
+      : "verified";
+
+
+  const result = {
+
+    customerMatch,
+
+    locationMatch,
+
+    buyerMatch,
+
+    contractMatches,
+
+    validationStatus,
+
+    reviewReasons
+
+  };
+
+
+  console.log(
+    "[Grain Ticket] FarmVista matching:",
+    result
+  );
+
+
+  return result;
+
+}
+
+// ==========================================================
+// SAVE SCANNED GRAIN TICKET
+// ==========================================================
+
+function safeFilePart(
+  value
+) {
+
+  return String(
+    value ?? ""
+  )
+    .trim()
+    .replace(
+      /[^a-zA-Z0-9_-]+/g,
+      "-"
+    )
+    .replace(
+      /^-+|-+$/g,
+      ""
+    ) ||
+    "ticket";
+
+}
+
+
+async function uploadGrainTicketImage(
+  file,
+  grainTicket
+) {
+
+  if (
+    !file
+  ) {
+
+    throw new Error(
+      "The grain ticket image is missing."
+    );
+
+  }
+
+
+  const ticketNumber =
+    safeFilePart(
+      grainTicket?.ticketNumber
+    );
+
+
+  const ticketDate =
+    safeFilePart(
+      grainTicket?.ticketDate
+    );
+
+
+  const timestamp =
+    Date.now();
+
+
+  const imagePath =
+    [
+      "grain-tickets",
+      ticketDate,
+      `${ticketNumber}-${timestamp}.jpg`
+    ]
+      .join(
+        "/"
+      );
+
+
+  const imageRef =
+    ref(
+      storage,
+      imagePath
+    );
+
+
+  await uploadBytes(
+    imageRef,
+    file,
+    {
+      contentType:
+        file.type ||
+        "image/jpeg",
+
+      customMetadata: {
+        ticketNumber:
+          String(
+            grainTicket?.ticketNumber ||
+            ""
+          ),
+
+        ticketDate:
+          String(
+            grainTicket?.ticketDate ||
+            ""
+          ),
+
+        crop:
+          String(
+            grainTicket?.crop ||
+            ""
+          )
+      }
+    }
+  );
+
+
+  const imageUrl =
+    await getDownloadURL(
+      imageRef
+    );
+
+
+  console.log(
+    "[Grain Ticket] Image uploaded:",
+    imagePath
+  );
+
+
+  return {
+    imagePath,
+    imageUrl
+  };
+
+}
+
+
+async function saveScannedTicket(
+  file,
+  ocrResult
+) {
+
+  if (
+    !ocrResult?.grainTicket
+  ) {
+
+    throw new Error(
+      "FarmVista did not receive parsed grain-ticket data."
+    );
+
+  }
+
+
+  /*
+    OCR must pass before we save anything.
+  */
+
+  if (
+    ocrResult.scanValid !==
+    true
+  ) {
+
+    const message =
+      Array.isArray(
+        ocrResult.scanErrors
+      ) &&
+      ocrResult.scanErrors.length
+        ? ocrResult.scanErrors.join(
+            " "
+          )
+        : "The grain ticket did not pass validation.";
+
+
+    throw new Error(
+      message
+    );
+
+  }
+
+
+  processingText.textContent =
+    "Loading FarmVista records…";
+
+
+  const employee =
+    await loadFarmVistaData();
+
+
+  const grainTicket =
+    ocrResult.grainTicket;
+
+
+  const matching =
+    matchScannedTicket(
+      grainTicket
+    );
+
+
+  processingText.textContent =
+    "Saving ticket image…";
+
+
+  /*
+    IMAGE FIRST.
+
+    If the image upload fails, we do NOT create a Firestore
+    grain-ticket record without its original ticket image.
+  */
+
+  const image =
+    await uploadGrainTicketImage(
+      file,
+      grainTicket
+    );
+
+
+  processingText.textContent =
+    "Saving grain ticket…";
+
+
+  const customer =
+    matching.customerMatch
+      ?.customer ||
+    null;
+
+
+  const location =
+    matching.locationMatch
+      ?.location ||
+    null;
+
+
+  const buyer =
+    matching.buyerMatch
+      ?.buyer ||
+    null;
+
+
+  const driverName =
+    getEmployeeDisplayName(
+      employee
+    ) ||
+    signedInUser.displayName ||
+    signedInUser.email ||
+    "FarmVista Driver";
+
+
+  const payload = {
+
+    // ----------------------------------------------------------
+    // BUYER / ELEVATOR
+    // ----------------------------------------------------------
+
+    buyerId:
+      buyer?.id ||
+      null,
+
+    buyerName:
+      buyer
+        ? getBuyerName(
+            buyer
+          )
+        : null,
+
+
+    // ----------------------------------------------------------
+    // DELIVERY LOCATION SNAPSHOT
+    // ----------------------------------------------------------
+
+    deliveryLocationId:
+      location?.id ||
+      null,
+
+    deliveryLocationName:
+      location
+        ? getLocationName(
+            location
+          )
+        : null,
+
+    deliveryStreet:
+      location
+        ? getLocationStreet(
+            location
+          ) || null
+        : grainTicket.deliveryStreet ||
+          null,
+
+    deliveryCity:
+      location
+        ? getLocationCity(
+            location
+          ) || null
+        : grainTicket.deliveryCity ||
+          null,
+
+    deliveryState:
+      location
+        ? getLocationState(
+            location
+          ) || null
+        : grainTicket.deliveryState ||
+          null,
+
+    deliveryZip:
+      location
+        ? getLocationZip(
+            location
+          ) || null
+        : grainTicket.deliveryZip ||
+          null,
+
+
+    // ----------------------------------------------------------
+    // CUSTOMER
+    // ----------------------------------------------------------
+
+    customerId:
+      customer?.id ||
+      null,
+
+    customerName:
+      customer
+        ? getCustomerName(
+            customer
+          )
+        : grainTicket.customerText ||
+          null,
+
+
+    // ----------------------------------------------------------
+    // TICKET
+    // ----------------------------------------------------------
+
+    ticketNumber:
+      grainTicket.ticketNumber,
+
+    ticketDate:
+      grainTicket.ticketDate,
+
+    crop:
+      grainTicket.crop,
+
+
+    // ----------------------------------------------------------
+    // WEIGHTS
+    // ----------------------------------------------------------
+
+    grossWeight:
+      grainTicket.grossWeight,
+
+    tareWeight:
+      grainTicket.tareWeight,
+
+    netWeight:
+      grainTicket.netWeight,
+
+
+    // ----------------------------------------------------------
+    // GRADE FACTORS
+    // ----------------------------------------------------------
+
+    testWeight:
+      grainTicket.testWeight ??
+      null,
+
+    moisture:
+      grainTicket.moisture ??
+      null,
+
+    damage:
+      grainTicket.damage ??
+      null,
+
+    foreignMaterial:
+      grainTicket.foreignMaterial ??
+      null,
+
+
+    // ----------------------------------------------------------
+    // BUSHELS
+    // ----------------------------------------------------------
+
+    grossBushels:
+      grainTicket.grossBushels,
+
+    shrinkBushels:
+      grainTicket.shrinkBushels ??
+      0,
+
+    netBushels:
+      grainTicket.netBushels,
+
+
+    // ----------------------------------------------------------
+    // DRIVER
+    // Logged-in FarmVista employee who took the picture.
+    // ----------------------------------------------------------
+
+    driverEmployeeId:
+      employee.id,
+
+    driverUid:
+      signedInUser.uid,
+
+    driverName:
+      driverName,
+
+    driverEmail:
+      signedInUser.email ||
+      employee.email ||
+      null,
+
+
+    // ----------------------------------------------------------
+    // ENTERED BY
+    // For OCR entry, driver is also the person who submitted it.
+    // ----------------------------------------------------------
+
+    enteredByUid:
+      signedInUser.uid,
+
+    enteredByName:
+      driverName,
+
+    enteredByEmail:
+      signedInUser.email ||
+      null,
+
+
+    // ----------------------------------------------------------
+    // SOURCE
+    // ----------------------------------------------------------
+
+    entryMethod:
+      "ocr_scan",
+
+
+    // ----------------------------------------------------------
+    // ORIGINAL TICKET IMAGE
+    // ----------------------------------------------------------
+
+    ticketImagePath:
+      image.imagePath,
+
+    ticketImageUrl:
+      image.imageUrl,
+
+
+    // ----------------------------------------------------------
+    // OCR SNAPSHOT
+    // Keep what OCR actually saw for future office review.
+    // ----------------------------------------------------------
+
+    ocrElevatorName:
+      grainTicket.elevatorName ||
+      null,
+
+    ocrDeliveryStreet:
+      grainTicket.deliveryStreet ||
+      null,
+
+    ocrDeliveryCity:
+      grainTicket.deliveryCity ||
+      null,
+
+    ocrDeliveryState:
+      grainTicket.deliveryState ||
+      null,
+
+    ocrDeliveryZip:
+      grainTicket.deliveryZip ||
+      null,
+
+    ocrCustomerText:
+      grainTicket.customerText ||
+      null,
+
+    ocrCustomerAccountText:
+      grainTicket.customerAccountText ||
+      null,
+
+    ocrVehicleId:
+      grainTicket.vehicleId ||
+      null,
+
+    ocrRawText:
+      grainTicket.rawText ||
+      ocrResult.document?.text ||
+      "",
+
+
+    // ----------------------------------------------------------
+    // OCR VALIDATION
+    // ----------------------------------------------------------
+
+    scanValid:
+      true,
+
+    scanErrors:
+      Array.isArray(
+        ocrResult.scanErrors
+      )
+        ? ocrResult.scanErrors
+        : [],
+
+    ocrReviewWarnings:
+      Array.isArray(
+        ocrResult.reviewWarnings
+      )
+        ? ocrResult.reviewWarnings
+        : [],
+
+
+    // ----------------------------------------------------------
+    // FARMVISTA MATCHING
+    // ----------------------------------------------------------
+
+    validationStatus:
+      matching.validationStatus,
+
+    reviewReasons:
+      matching.reviewReasons,
+
+    customerMatchType:
+      matching.customerMatch
+        ?.matchType ||
+      null,
+
+    deliveryLocationMatchType:
+      matching.locationMatch
+        ?.matchType ||
+      null,
+
+    buyerMatchType:
+      matching.buyerMatch
+        ?.matchType ||
+      null,
+
+    customerContractMatched:
+      matching.contractMatches
+        .length >
+      0,
+
+    matchingContractIds:
+      matching.contractMatches
+        .map(
+          contract =>
+            contract.id
+        ),
+
+
+    // ----------------------------------------------------------
+    // TIMESTAMPS
+    // ----------------------------------------------------------
+
+    createdAt:
+      serverTimestamp(),
+
+    updatedAt:
+      serverTimestamp()
+
+  };
+
+
+  console.log(
+    "[Grain Ticket] Saving OCR ticket:",
+    payload
+  );
+
+
+  const savedTicket =
+    await addDoc(
+      collection(
+        db,
+        TICKET_COLLECTION
+      ),
+      payload
+    );
+
+
+  console.log(
+    "[Grain Ticket] OCR ticket saved:",
+    savedTicket.id
+  );
+
+
+  return {
+    id:
+      savedTicket.id,
+
+    validationStatus:
+      matching.validationStatus,
+
+    reviewReasons:
+      matching.reviewReasons,
+
+    imagePath:
+      image.imagePath,
+
+    imageUrl:
+      image.imageUrl
+  };
+
+}
+      
+      
 
 
 
@@ -2106,40 +4004,103 @@ async function setupTorch() {
           }
 
 
-          const documentText =
-            String(
-              result.document?.text ||
-              ""
-            ).trim();
+const documentText =
+  String(
+    result.document?.text ||
+    ""
+  ).trim();
 
 
-          /*
-            TEMPORARY TEST VALIDATION
+if (
+  documentText.length <
+  10
+) {
 
-            We are NOT calling this a successful grain ticket upload yet.
+  throw new Error(
+    "FarmVista did not read enough information from this ticket."
+  );
 
-            For this first test we only require Document AI to return actual
-            ticket text. Once we see a real grain ticket response, we will
-            replace this with the real FarmVista grain-ticket validations.
-          */
-
-          if (
-            documentText.length <
-            10
-          ) {
-
-            throw new Error(
-              "FarmVista did not read enough information from this ticket."
-            );
-
-          }
+}
 
 
-          processing =
-            false;
+/*
+  HARD OCR VALIDATION
+
+  If fvOcr says this ticket is not valid,
+  the driver must rescan it.
+*/
+
+if (
+  result.scanValid !==
+  true
+) {
+
+  const scanMessage =
+    Array.isArray(
+      result.scanErrors
+    ) &&
+    result.scanErrors.length
+      ? result.scanErrors.join(
+          " "
+        )
+      : "FarmVista could not verify this grain ticket. Please rescan it.";
 
 
-          showResult();
+  throw new Error(
+    scanMessage
+  );
+
+}
+
+
+/*
+  Keep the prepared image so the exact image that OCR read
+  is the image saved with the grain ticket.
+*/
+
+currentTicketFile =
+  file;
+
+
+processingText.textContent =
+  "Saving grain ticket…";
+
+
+const savedTicket =
+  await saveScannedTicket(
+    currentTicketFile,
+    result
+  );
+
+
+console.log(
+  "[Grain Ticket] Save complete:",
+  savedTicket
+);
+
+
+processing =
+  false;
+
+
+showResult();
+
+
+/*
+  Driver does not review the ticket.
+
+  Give them a short success message, then return Home.
+*/
+
+setTimeout(
+  () => {
+
+    location.href =
+      HOME_URL;
+
+  },
+  1400
+);
 
         }
         catch (err) {
