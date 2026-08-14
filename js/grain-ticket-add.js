@@ -2032,21 +2032,17 @@ function setupWeightInputs() {
             remove digits from the end until valid.
           */
 
-          while (
-            digits.length &&
+          if (
             numericValue > field.max
           ) {
 
-            digits =
-              digits.slice(
-                0,
-                -1
-              );
-
-
             numericValue =
-              Number(
-                digits || 0
+              field.max;
+
+
+            digits =
+              String(
+                field.max
               );
 
           }
