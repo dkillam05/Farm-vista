@@ -983,10 +983,6 @@ function renderDriverOptions(
         );
 
 
-      title.className =
-        "lookup-option-title";
-
-
       title.textContent =
         driver.name;
 
@@ -995,30 +991,6 @@ function renderDriverOptions(
         title
       );
 
-
-      if (
-        driver.email
-      ) {
-
-        const sub =
-          document.createElement(
-            "span"
-          );
-
-
-        sub.className =
-          "lookup-option-sub";
-
-
-        sub.textContent =
-          driver.email;
-
-
-        button.appendChild(
-          sub
-        );
-
-      }
 
 
       button.addEventListener(
