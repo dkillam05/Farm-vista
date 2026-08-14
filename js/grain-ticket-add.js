@@ -2268,15 +2268,25 @@ function validateOptionalRange(
 
 
   if (
-    value <
-      limits.min ||
-
-    value >
-      limits.max
+    value < limits.min
   ) {
 
     input.setCustomValidity(
-      `${label} must be between ${limits.min} and ${limits.max}.`
+      `${label} cannot be less than ${limits.min.toFixed(2)}.`
+    );
+
+
+    return false;
+
+  }
+
+
+  if (
+    value > limits.max
+  ) {
+
+    input.setCustomValidity(
+      `${label} cannot be more than ${limits.max.toFixed(2)}.`
     );
 
 
