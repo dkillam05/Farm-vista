@@ -2530,25 +2530,81 @@ function setupBushelInputs() {
   );
 
 
-if (value === null) {
+  elements.shrinkBushels.addEventListener(
+    "blur",
+    () => {
 
-  elements.shrinkBushels.value =
-    "0.00";
+      const value =
+        cleanNumber(
+          elements.shrinkBushels.value
+        );
 
-} else {
 
-  elements.shrinkBushels.value =
-    formatTwoDecimals(
-      value
-    );
+      if (
+        value === null
+      ) {
 
-}
+        elements.shrinkBushels.value =
+          "0.00";
+
+      } else {
+
+        elements.shrinkBushels.value =
+          formatTwoDecimals(
+            value
+          );
+
+      }
 
 
       validateBushels();
 
     }
   );
+
+
+  elements.netBushels.addEventListener(
+    "input",
+    () => {
+
+      elements.netBushels
+        .setCustomValidity("");
+
+
+      validateBushels();
+
+    }
+  );
+
+
+  elements.netBushels.addEventListener(
+    "blur",
+    () => {
+
+      const value =
+        cleanNumber(
+          elements.netBushels.value
+        );
+
+
+      if (
+        value !== null
+      ) {
+
+        elements.netBushels.value =
+          formatTwoDecimals(
+            value
+          );
+
+      }
+
+
+      validateBushels();
+
+    }
+  );
+
+}
 
 
   elements.netBushels.addEventListener(
