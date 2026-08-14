@@ -454,14 +454,14 @@
           </span>
           <span class="chevron">›</span>
         </button>
-        <button class="camera-btn secondary disabled" disabled aria-disabled="true">
-          <span class="icon">🧾</span>
-          <span class="text">
-            <span class="label">Grain Ticket</span>
-            <span class="hint">Coming soon</span>
-          </span>
-          <span class="chevron">›</span>
-        </button>
+<button class="camera-btn primary js-camera-grain" type="button">
+  <span class="icon">🧾</span>
+  <span class="text">
+    <span class="label">Grain Ticket</span>
+    <span class="hint">Scan grain ticket</span>
+  </span>
+  <span class="chevron">›</span>
+</button>
       </div>
     </div>
   </div>
@@ -528,6 +528,7 @@
       /* Camera popup refs */
       this._cameraModal      = r.querySelector('.js-camera-modal');
       this._cameraReceiptBtn = r.querySelector('.js-camera-receipt');
+      this._cameraGrainBtn   = r.querySelector('.js-camera-grain');
       this._cameraCloseBtn   = r.querySelector('.js-camera-close');
 
       // Beta detection: show badge only when running under /Farm-vista/beta/...
@@ -589,12 +590,25 @@
         });
       }
 
-      /* Camera popup – Close X */
-      if (this._cameraCloseBtn) {
-        this._cameraCloseBtn.addEventListener('click', (e)=>{
-          e.preventDefault();
-          this._closeCameraModal();
-        });
+/* Camera popup – Grain Ticket */
+if (this._cameraGrainBtn) {
+  this._cameraGrainBtn.addEventListener('click', (e)=>{
+    e.preventDefault();
+
+    this._closeCameraModal();
+
+    location.href =
+      '/Farm-vista/pages/grain/grain-ticket-scan.html';
+  });
+}
+
+/* Camera popup – Close X */
+if (this._cameraCloseBtn) {
+  this._cameraCloseBtn.addEventListener('click', (e)=>{
+    e.preventDefault();
+    this._closeCameraModal();
+  });
+}
       }
     }
 
