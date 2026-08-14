@@ -247,8 +247,18 @@ const elements = {
   foreignMaterial:
     $("foreign-material"),
 
+
+  grossBushels:
+    $("gross-bushels"),
+
+  shrinkBushels:
+    $("shrink-bushels"),
+
   netBushels:
     $("net-bushels"),
+
+  bushelCheck:
+    $("bushel-check"),
 
 
   driverName:
@@ -1882,24 +1892,141 @@ function validateGradeFactors() {
 
 
 /* ============================================================
-   BUSHEL VALIDATION
+   BUSHEL CALCULATION + VALIDATION
 ============================================================ */
 
-function validateNetBushels() {
+function getCropBushelWeight() {
+
+  const crop =
+    normalized(
+      elements.crop.value
+    );
+
+
+  if (crop === "corn") {
+
+    return 56;
+
+  }
+
+
+  if (
+    crop === "soybeans" ||
+    crop === "wheat"
+  ) {
+
+    return 60;
+
+  }
+
+
+  return null;
+
+}
+
+
+function updateBushelCalculation() {
+
+  const netWeight =
+    cleanNumber(
+      elements.netWeight.value
+    );
+
+
+  const poundsPerBushel =
+    getCropBushelWeight();
+
+
+  if (
+    netWeight === null ||
+    !poundsPerBushel
+  ) {
+
+    elements.grossBushels.value =
+      "";
+
+
+    elements.bushelCheck.className =
+      "weight-check";
+
+
+    elements.bushelCheck.textContent =
+      "";
+
+
+    return false;
+
+  }
+
+
+  const grossBushels =
+    netWeight /
+    poundsPerBushel;
+
+
+  elements.grossBushels.value =
+    grossBushels.toFixed(2);
+
+
+  return validateBushels();
+
+}
+
+
+function validateBushels() {
 
   elements.netBushels
     .setCustomValidity("");
 
 
-  const value =
+  elements.shrinkBushels
+    .setCustomValidity("");
+
+
+  const grossBushels =
+    cleanNumber(
+      elements.grossBushels.value
+    );
+
+
+  const shrinkBushels =
+    cleanNumber(
+      elements.shrinkBushels.value
+    ) ?? 0;
+
+
+  const netBushels =
     cleanNumber(
       elements.netBushels.value
     );
 
 
+  elements.bushelCheck.className =
+    "weight-check";
+
+
+  elements.bushelCheck.textContent =
+    "";
+
+
   if (
-    value === null ||
-    value <= 0
+    shrinkBushels < 0
+  ) {
+
+    elements.shrinkBushels
+      .setCustomValidity(
+        "Shrink Bushels cannot be negative."
+      );
+
+
+    return false;
+
+  }
+
+
+  if (
+    netBushels === null ||
+    netBushels <= 0
   ) {
 
     elements.netBushels
@@ -1911,6 +2038,62 @@ function validateNetBushels() {
     return false;
 
   }
+
+
+  if (
+    grossBushels === null
+  ) {
+
+    return false;
+
+  }
+
+
+  const expectedNet =
+    grossBushels -
+    shrinkBushels;
+
+
+  const difference =
+    Math.abs(
+      expectedNet -
+      netBushels
+    );
+
+
+  /*
+    Allow a tiny rounding difference.
+  */
+
+  if (
+    difference > 0.02
+  ) {
+
+    elements.netBushels
+      .setCustomValidity(
+        `Calculated Net Bushels are ${expectedNet.toFixed(2)}.`
+      );
+
+
+    elements.bushelCheck.className =
+      "weight-check bad";
+
+
+    elements.bushelCheck.textContent =
+      `Bushel check failed. ${grossBushels.toFixed(2)} Gross - ${shrinkBushels.toFixed(2)} Shrink = ${expectedNet.toFixed(2)} Net Bushels.`;
+
+
+    return false;
+
+  }
+
+
+  elements.bushelCheck.className =
+    "weight-check good";
+
+
+  elements.bushelCheck.textContent =
+    `✓ Bushel check passed. ${grossBushels.toFixed(2)} Gross - ${shrinkBushels.toFixed(2)} Shrink = ${netBushels.toFixed(2)} Net Bushels.`;
 
 
   return true;
@@ -2022,7 +2205,8 @@ async function saveTicket(
   validateSelections();
   validateWeights();
   validateGradeFactors();
-  validateNetBushels();
+  updateBushelCalculation();
+  validateBushels();
 
 
   if (
@@ -2173,6 +2357,16 @@ async function saveTicket(
       /* =====================================
          BUSHELS
       ====================================== */
+
+      grossBushels:
+        cleanNumber(
+          elements.grossBushels.value
+        ),
+
+      shrinkBushels:
+        cleanNumber(
+          elements.shrinkBushels.value
+        ) ?? 0,
 
       netBushels:
         cleanNumber(
@@ -2369,7 +2563,13 @@ function setupEvents() {
 
   elements.crop.addEventListener(
     "change",
-    checkContractMatch
+    () => {
+
+      checkContractMatch();
+
+      updateBushelCalculation();
+
+    }
   );
 
 
@@ -2390,10 +2590,31 @@ function setupEvents() {
   );
 
 
-  elements.netBushels
+  elements.netWeight
+    .addEventListener(
+      "input",
+      updateBushelCalculation
+    );
+
+
+  elements.netWeight
     .addEventListener(
       "blur",
-      validateNetBushels
+      updateBushelCalculation
+    );
+
+
+  elements.shrinkBushels
+    .addEventListener(
+      "input",
+      validateBushels
+    );
+
+
+  elements.netBushels
+    .addEventListener(
+      "input",
+      validateBushels
     );
 
 
