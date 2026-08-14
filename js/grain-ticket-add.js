@@ -3356,8 +3356,8 @@ async function saveTicket(
     setTimeout(
       () => {
 
-        window.location.href =
-          "/Farm-vista/pages/grain/grain-tickets.html";
+window.location.href =
+  "/Farm-vista/pages/grain/grain-ticket-ocr.html";
 
       },
       1000
