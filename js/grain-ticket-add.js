@@ -2475,6 +2475,29 @@ function updateBushelCalculation() {
 function setupBushelInputs() {
 
   elements.shrinkBushels.addEventListener(
+    "focus",
+    () => {
+
+      const value =
+        cleanNumber(
+          elements.shrinkBushels.value
+        );
+
+
+      if (
+        value === 0
+      ) {
+
+        elements.shrinkBushels.value =
+          "";
+
+      }
+
+    }
+  );
+
+
+  elements.shrinkBushels.addEventListener(
     "input",
     () => {
 
@@ -2488,24 +2511,19 @@ function setupBushelInputs() {
   );
 
 
-  elements.shrinkBushels.addEventListener(
-    "blur",
-    () => {
+if (value === null) {
 
-      const value =
-        cleanNumber(
-          elements.shrinkBushels.value
-        );
+  elements.shrinkBushels.value =
+    "0.00";
 
+} else {
 
-      if (value !== null) {
+  elements.shrinkBushels.value =
+    formatTwoDecimals(
+      value
+    );
 
-        elements.shrinkBushels.value =
-          formatTwoDecimals(
-            value
-          );
-
-      }
+}
 
 
       validateBushels();
@@ -3196,6 +3214,10 @@ function setupEvents() {
 
   setupWeightInputs();
 
+  setupBushelInputs();
+
+  setupGradeFactorInputs();
+
 
   elements.crop.addEventListener(
     "change",
@@ -3238,19 +3260,7 @@ function setupEvents() {
       "blur",
       updateBushelCalculation
     );
-
-
-elements.shrinkBushels
-  .addEventListener(
-    "input",
-    validateBushels
-  );
-
-elements.netBushels
-  .addEventListener(
-    "input",
-    validateBushels
-  );  
+  
 
 
 
