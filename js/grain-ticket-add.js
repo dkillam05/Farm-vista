@@ -2291,60 +2291,162 @@ function validateOptionalRange(
 
 function setupGradeFactorInputs() {
 
-  [
+  const gradeFields = [
     {
-      input:
-        elements.testWeight,
-
-      suffix:
-        ""
+      input: elements.testWeight,
+      max: 70
     },
-
     {
-      input:
-        elements.moisture,
-
-      suffix:
-        "%"
+      input: elements.moisture,
+      max: 40
     },
-
     {
-      input:
-        elements.damage,
-
-      suffix:
-        "%"
+      input: elements.damage,
+      max: 30
     },
-
     {
-      input:
-        elements.foreignMaterial,
-
-      suffix:
-        "%"
+      input: elements.foreignMaterial,
+      max: 30
     }
-  ].forEach(
-    item => {
+  ];
+
+
+  gradeFields.forEach(
+    field => {
 
       const input =
-        item.input;
+        field.input;
 
 
+      /*
+        Only numbers and one decimal point
+        can physically be typed.
+      */
       input.addEventListener(
-        "focus",
-        () => {
+        "beforeinput",
+        event => {
 
-          input.value =
-            String(
-              input.value || ""
-            )
-              .replace(/,/g, "")
-              .replace(/%/g, "");
+          if (
+            event.inputType === "insertText" &&
+            event.data &&
+            !/^[0-9.]$/.test(event.data)
+          ) {
+
+            event.preventDefault();
+
+          }
 
         }
       );
 
 
+      input.addEventListener(
+        "input",
+        () => {
+
+          let value =
+            String(
+              input.value || ""
+            )
+              .replace(/[^\d.]/g, "");
+
+
+          /*
+            Allow only ONE decimal point.
+          */
+          const firstDot =
+            value.indexOf(".");
+
+
+          if (
+            firstDot !== -1
+          ) {
+
+            value =
+              value.slice(
+                0,
+                firstDot + 1
+              ) +
+              value
+                .slice(
+                  firstDot + 1
+                )
+                .replace(/\./g, "");
+
+          }
+
+
+          let parts =
+            value.split(".");
+
+
+          /*
+            Maximum shape is:
+            00.00
+          */
+          parts[0] =
+            (parts[0] || "")
+              .slice(0, 2);
+
+
+          if (
+            parts.length > 1
+          ) {
+
+            parts[1] =
+              (parts[1] || "")
+                .slice(0, 2);
+
+
+            value =
+              parts[0] +
+              "." +
+              parts[1];
+
+          } else {
+
+            value =
+              parts[0];
+
+          }
+
+
+          /*
+            Do not allow the typed value
+            to exceed this field's maximum.
+          */
+          const numericValue =
+            Number(value);
+
+
+          if (
+            value &&
+            Number.isFinite(numericValue) &&
+            numericValue > field.max
+          ) {
+
+            value =
+              String(field.max);
+
+          }
+
+
+          input.value =
+            value;
+
+
+          input.setCustomValidity(
+            ""
+          );
+
+        }
+      );
+
+
+      /*
+        Finish the display as 00.00 style
+        when leaving the field.
+      */
       input.addEventListener(
         "blur",
         () => {
@@ -2368,10 +2470,8 @@ function setupGradeFactorInputs() {
 
 
           input.value =
-            formatTwoDecimals(
-              value
-            ) +
-            item.suffix;
+            Number(value)
+              .toFixed(2);
 
 
           validateGradeFactors();
