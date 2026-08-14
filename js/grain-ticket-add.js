@@ -1952,20 +1952,35 @@ function checkContractMatch() {
 
 function setupWeightInputs() {
 
-  [
-    elements.grossWeight,
-    elements.tareWeight,
-    elements.netWeight
-  ].forEach(
-    input => {
+  const weightFields = [
+    {
+      input: elements.grossWeight,
+      max: 110000
+    },
+    {
+      input: elements.tareWeight,
+      max: 40000
+    },
+    {
+      input: elements.netWeight,
+      max: 80000
+    }
+  ];
+
+
+  weightFields.forEach(
+    field => {
+
+      const input =
+        field.input;
+
 
       input.addEventListener(
         "beforeinput",
         event => {
 
           if (
-            event.inputType ===
-              "insertText" &&
+            event.inputType === "insertText" &&
             event.data &&
             !/^\d+$/.test(event.data)
           ) {
@@ -1982,7 +1997,7 @@ function setupWeightInputs() {
         "input",
         () => {
 
-          const digits =
+          let digits =
             String(
               input.value || ""
             )
@@ -2007,8 +2022,44 @@ function setupWeightInputs() {
           }
 
 
-          const numericValue =
+          let numericValue =
             Number(digits);
+
+
+          /*
+            HARD MAXIMUM:
+            If typed/pasted value is too large,
+            remove digits from the end until valid.
+          */
+
+          while (
+            digits.length &&
+            numericValue > field.max
+          ) {
+
+            digits =
+              digits.slice(
+                0,
+                -1
+              );
+
+
+            numericValue =
+              Number(
+                digits || 0
+              );
+
+          }
+
+
+          if (!digits) {
+
+            input.value =
+              "";
+
+            return;
+
+          }
 
 
           input.value =
