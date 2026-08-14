@@ -1937,12 +1937,6 @@ function updateBushelCalculation() {
     getCropBushelWeight();
 
 
-  const shrinkBushels =
-    cleanNumber(
-      elements.shrinkBushels.value
-    ) ?? 0;
-
-
   elements.bushelCheck.className =
     "weight-check";
 
@@ -1960,10 +1954,6 @@ function updateBushelCalculation() {
       "";
 
 
-    elements.netBushels.value =
-      "";
-
-
     return false;
 
   }
@@ -1974,17 +1964,8 @@ function updateBushelCalculation() {
     poundsPerBushel;
 
 
-  const netBushels =
-    grossBushels -
-    shrinkBushels;
-
-
   elements.grossBushels.value =
     grossBushels.toFixed(2);
-
-
-  elements.netBushels.value =
-    netBushels.toFixed(2);
 
 
   return validateBushels();
@@ -2044,13 +2025,21 @@ function validateBushels() {
 
 
   if (
-    netBushels === null ||
-    netBushels <= 0
+    grossBushels === null
   ) {
 
-    elements.netBushels
+    return false;
+
+  }
+
+
+  if (
+    shrinkBushels >= grossBushels
+  ) {
+
+    elements.shrinkBushels
       .setCustomValidity(
-        "Net Bushels must be greater than 0."
+        "Shrink Bushels must be less than Gross Bushels."
       );
 
 
@@ -2060,8 +2049,15 @@ function validateBushels() {
 
 
   if (
-    grossBushels === null
+    netBushels === null ||
+    netBushels <= 0
   ) {
+
+    elements.netBushels
+      .setCustomValidity(
+        "Enter the Net Bushels shown on the grain ticket."
+      );
+
 
     return false;
 
@@ -2073,14 +2069,33 @@ function validateBushels() {
     shrinkBushels;
 
 
+  const difference =
+    Math.abs(
+      expectedNet -
+      netBushels
+    );
+
+
+  /*
+    Allow a small elevator rounding difference.
+  */
+
   if (
-    expectedNet <= 0
+    difference > 0.02
   ) {
 
-    elements.shrinkBushels
+    elements.netBushels
       .setCustomValidity(
-        "Shrink Bushels cannot be equal to or greater than Gross Bushels."
+        `Expected Net Bushels are ${expectedNet.toFixed(2)}.`
       );
+
+
+    elements.bushelCheck.className =
+      "weight-check bad";
+
+
+    elements.bushelCheck.textContent =
+      `Bushel check failed. ${grossBushels.toFixed(2)} Gross - ${shrinkBushels.toFixed(2)} Shrink = ${expectedNet.toFixed(2)} Net Bushels, but the ticket shows ${netBushels.toFixed(2)}.`;
 
 
     return false;
@@ -2093,7 +2108,7 @@ function validateBushels() {
 
 
   elements.bushelCheck.textContent =
-    `✓ ${grossBushels.toFixed(2)} Gross - ${shrinkBushels.toFixed(2)} Shrink = ${expectedNet.toFixed(2)} Net Bushels.`;
+    `✓ Bushel check passed. ${grossBushels.toFixed(2)} Gross - ${shrinkBushels.toFixed(2)} Shrink = ${netBushels.toFixed(2)} Net Bushels.`;
 
 
   return true;
@@ -2604,11 +2619,17 @@ function setupEvents() {
     );
 
 
-  elements.shrinkBushels
-    .addEventListener(
-      "input",
-      updateBushelCalculation
-    );
+elements.shrinkBushels
+  .addEventListener(
+    "input",
+    validateBushels
+  );
+
+elements.netBushels
+  .addEventListener(
+    "input",
+    validateBushels
+  );  
 
 
 
