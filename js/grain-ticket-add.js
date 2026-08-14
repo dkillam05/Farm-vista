@@ -1988,6 +1988,25 @@ function setupWeightInputs() {
     input => {
 
       input.addEventListener(
+        "beforeinput",
+        event => {
+
+          if (
+            event.inputType ===
+              "insertText" &&
+            event.data &&
+            !/^\d+$/.test(event.data)
+          ) {
+
+            event.preventDefault();
+
+          }
+
+        }
+      );
+
+
+      input.addEventListener(
         "input",
         () => {
 
