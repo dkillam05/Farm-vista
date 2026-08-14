@@ -775,16 +775,15 @@
     Select a truck to see its previous mileage.
   </div>
 
-  <input
-    id="odometer"
-    class="control"
-    type="number"
-    min="0"
-    step="1"
-    inputmode="numeric"
-    placeholder="Enter current mileage"
-    required
-  />
+<input
+  id="odometer"
+  class="control"
+  type="text"
+  inputmode="numeric"
+  autocomplete="off"
+  placeholder="Enter current mileage"
+  required
+/>
 
   <div
     id="odometerWarning"
@@ -1695,12 +1694,18 @@ function updateOdometerDisplay() {
     `Previous mileage was ${previousMileage.toLocaleString()} miles.`;
 }
 
+function enteredOdometerValue() {
+  const digits = elements.odometer.value.replace(/\D/g, "");
+
+  return digits ? Number(digits) : NaN;
+}    
+
 function updateOdometerWarning() {
   const previousMileage =
     selectedTruckPreviousOdometer();
 
-  const enteredMileage =
-    Number(elements.odometer.value);
+    const enteredMileage =
+    enteredOdometerValue();
 
   const hasEnteredMileage =
     elements.odometer.value !== "" &&
@@ -2132,8 +2137,8 @@ odometerMiles: equipmentOdometer(record)
   return false;
 }
 
-   const enteredOdometer =
-  Number(elements.odometer.value);
+const enteredOdometer =
+  enteredOdometerValue();
 
 const previousOdometer =
   selectedTruckPreviousOdometer();
@@ -2376,7 +2381,7 @@ previousOdometerMiles:
   selectedTruckPreviousOdometer(),
 
 odometerMiles:
-  Number(elements.odometer.value),
+  enteredOdometerValue(),
         responses,
         itemCount: responses.length,
         passCount: responses.filter(
@@ -2413,7 +2418,7 @@ const savedInspection = await addDoc(
 );
 
 const newOdometerMiles =
-  Number(elements.odometer.value);
+  enteredOdometerValue();
 
 await updateDoc(
   doc(db, EQUIPMENT_COLLECTION, truck.id),
@@ -2741,10 +2746,15 @@ elements.clearChecklist.addEventListener(
   clearChecklist
 );
 
-elements.odometer.addEventListener(
-  "input",
-  updateOdometerWarning
-);
+elements.odometer.addEventListener("input", () => {
+  const digits = elements.odometer.value.replace(/\D/g, "");
+
+  elements.odometer.value = digits
+    ? Number(digits).toLocaleString("en-US")
+    : "";
+
+  updateOdometerWarning();
+});
 
 elements.form.addEventListener(
   "submit",
