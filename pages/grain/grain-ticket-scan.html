@@ -1078,6 +1078,10 @@ const EMPLOYEE_COLLECTION =
   "employees";
 
 
+const ALIAS_COLLECTION =
+  "grain_ocr_aliases";
+
+
 
       // ==========================================================
       // ELEMENTS
@@ -1226,6 +1230,10 @@ let contracts =
 
 
 let employees =
+  [];
+
+
+let ocrAliases =
   [];
 
 
@@ -1387,14 +1395,15 @@ async function loadFarmVistaData() {
     "Loading FarmVista grain data…";
 
 
-  const [
-    buyerSnapshot,
-    customerSnapshot,
-    locationSnapshot,
-    contractSnapshot,
-    employeeSnapshot
-  ] =
-    await Promise.all([
+const [
+  buyerSnapshot,
+  customerSnapshot,
+  locationSnapshot,
+  contractSnapshot,
+  employeeSnapshot,
+  aliasSnapshot
+] =
+  await Promise.all([
 
       getDocs(
         collection(
@@ -1424,12 +1433,20 @@ async function loadFarmVistaData() {
         )
       ),
 
-      getDocs(
-        collection(
-          db,
-          EMPLOYEE_COLLECTION
-        )
-      )
+getDocs(
+  collection(
+    db,
+    EMPLOYEE_COLLECTION
+  )
+),
+
+
+getDocs(
+  collection(
+    db,
+    ALIAS_COLLECTION
+  )
+)
 
     ]);
 
@@ -1570,10 +1587,16 @@ deliveryLocations =
     );
 
 
-  employees =
-    snapshotToArray(
-      employeeSnapshot
-    );
+employees =
+  snapshotToArray(
+    employeeSnapshot
+  );
+
+
+ocrAliases =
+  snapshotToArray(
+    aliasSnapshot
+  );
 
 const employee =
   findSignedInEmployee();
@@ -1625,7 +1648,10 @@ console.log(
         contracts.length,
 
       employees:
-        employees.length
+  employees.length,
+
+ocrAliases:
+  ocrAliases.length
     }
   );
 
@@ -1682,6 +1708,91 @@ function normalizeMatchText(
       /[^a-z0-9]/g,
       ""
     );
+}
+
+      function normalizeAliasText(
+  value
+) {
+
+  return String(
+    value ?? ""
+  )
+    .trim()
+    .toLowerCase()
+    .replace(
+      /[^a-z0-9]+/g,
+      " "
+    )
+    .replace(
+      /\s+/g,
+      " "
+    )
+    .trim();
+
+}
+
+
+function findLearnedAlias(
+  type,
+  ocrText
+) {
+
+  const normalized =
+    normalizeAliasText(
+      ocrText
+    );
+
+
+  if (
+    !normalized
+  ) {
+
+    return null;
+
+  }
+
+
+  return ocrAliases.find(
+    alias => {
+
+      return (
+        String(
+          alias.type ||
+          ""
+        ) ===
+          type &&
+
+        normalizeAliasText(
+          alias.normalizedText ||
+          alias.ocrText
+        ) ===
+          normalized
+      );
+
+    }
+  ) || null;
+
+}
+
+
+function buildLocationAliasText(
+  grainTicket
+) {
+
+  return [
+    grainTicket?.elevatorName,
+    grainTicket?.deliveryStreet,
+    grainTicket?.deliveryCity,
+    grainTicket?.deliveryState,
+    grainTicket?.deliveryZip
+  ]
+    .filter(
+      Boolean
+    )
+    .join(
+      " | "
+    );
+
 }
 
 
@@ -1883,17 +1994,68 @@ function findCustomerMatch(
       .trim();
 
 
-  const ocrAccount =
-    String(
-      grainTicket?.customerAccountText ||
-      ""
-    )
-      .trim();
+const ocrAccount =
+  String(
+    grainTicket?.customerAccountText ||
+    ""
+  )
+    .trim();
 
 
-  /*
-    BEST MATCH:
-    Account/customer number.
+/*
+  LEARNED MATCH:
+
+  If the office previously told FarmVista what this exact
+  OCR customer wording means, use that relationship first.
+*/
+
+if (
+  ocrName
+) {
+
+  const alias =
+    findLearnedAlias(
+      "customer",
+      ocrName
+    );
+
+
+  if (
+    alias?.targetId
+  ) {
+
+    const customer =
+      customers.find(
+        item =>
+          item.id ===
+          alias.targetId
+      );
+
+
+    if (
+      customer
+    ) {
+
+      return {
+        matched:
+          true,
+
+        matchType:
+          "learned_alias",
+
+        customer
+      };
+
+    }
+
+  }
+
+}
+
+
+/*
+  BEST AUTOMATIC MATCH:
+  Account/customer number.
 
     If OCR gave us an account number and FarmVista has
     the same account number, that is stronger than name text.
@@ -2058,10 +2220,61 @@ function findDeliveryLocationMatch(
   grainTicket
 ) {
 
-  const ocrStreet =
-    normalizeMatchText(
-      grainTicket?.deliveryStreet
+/*
+  LEARNED LOCATION MATCH
+
+  This uses the combined OCR elevator/address wording
+  saved by the ticket-detail page.
+*/
+
+const locationAliasText =
+  buildLocationAliasText(
+    grainTicket
+  );
+
+
+const learnedLocation =
+  findLearnedAlias(
+    "delivery_location",
+    locationAliasText
+  );
+
+
+if (
+  learnedLocation?.targetId
+) {
+
+  const location =
+    deliveryLocations.find(
+      item =>
+        item.id ===
+        learnedLocation.targetId
     );
+
+
+  if (
+    location
+  ) {
+
+    return {
+      matched:
+        true,
+
+      matchType:
+        "learned_alias",
+
+      location
+    };
+
+  }
+
+}
+
+
+const ocrStreet =
+  normalizeMatchText(
+    grainTicket?.deliveryStreet
+  );
 
 
   const ocrCity =
@@ -2303,14 +2516,57 @@ function findBuyerMatch(
   }
 
 
-  /*
-    Otherwise compare OCR elevator text to FarmVista buyer names.
-  */
+/*
+  If location did not identify the buyer,
+  check a learned buyer alias next.
+*/
 
-  const ocrElevator =
-    normalizeMatchText(
-      grainTicket?.elevatorName
+const learnedBuyer =
+  findLearnedAlias(
+    "buyer",
+    grainTicket?.elevatorName
+  );
+
+
+if (
+  learnedBuyer?.targetId
+) {
+
+  const buyer =
+    buyers.find(
+      item =>
+        item.id ===
+        learnedBuyer.targetId
     );
+
+
+  if (
+    buyer
+  ) {
+
+    return {
+      matched:
+        true,
+
+      matchType:
+        "learned_alias",
+
+      buyer
+    };
+
+  }
+
+}
+
+
+/*
+  Otherwise compare OCR elevator text to FarmVista buyer names.
+*/
+
+const ocrElevator =
+  normalizeMatchText(
+    grainTicket?.elevatorName
+  );
 
 
   if (
