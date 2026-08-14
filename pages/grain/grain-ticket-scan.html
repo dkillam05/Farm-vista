@@ -1,0 +1,2276 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+
+  <title>FarmVista • Grain Ticket Scan</title>
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no"
+  >
+
+  <meta
+    name="theme-color"
+    content="#000000"
+  >
+
+  <link
+    rel="manifest"
+    href="/Farm-vista/manifest.webmanifest"
+  >
+
+  <link
+    rel="apple-touch-icon"
+    href="/Farm-vista/assets/icons/apple-touch-icon.png"
+  >
+
+  <link
+    rel="icon"
+    href="/Farm-vista/assets/icons/icon-192.png"
+  >
+
+
+  <style>
+
+    * {
+      box-sizing: border-box;
+    }
+
+
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family:
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+    }
+
+
+    body {
+      position: fixed;
+      inset: 0;
+      color: #fff;
+    }
+
+
+    button {
+      font: inherit;
+    }
+
+
+    /* ============================================================
+       CAMERA SCREEN
+    ============================================================ */
+
+    .camera-page {
+      position: fixed;
+      inset: 0;
+      background: #000;
+      display: flex;
+      flex-direction: column;
+    }
+
+
+    .camera-header {
+      flex: 0 0 auto;
+
+      padding:
+        calc(env(safe-area-inset-top, 0px) + 10px)
+        14px
+        10px;
+
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+
+      background:
+        linear-gradient(
+          to bottom,
+          rgba(0,0,0,.92),
+          rgba(0,0,0,.45)
+        );
+
+      z-index: 10;
+    }
+
+
+    .camera-title-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+
+    .camera-title {
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+
+    .camera-subtitle {
+      font-size: 12px;
+      opacity: .82;
+    }
+
+
+    .close-btn {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: #fff;
+
+      font-size: 15px;
+      font-weight: 700;
+
+      padding: 10px;
+      cursor: pointer;
+    }
+
+
+    /* ============================================================
+       CAMERA VIEW
+    ============================================================ */
+
+    .camera-view {
+      position: relative;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+      background: #000;
+    }
+
+
+    #cameraVideo {
+      position: absolute;
+      inset: 0;
+
+      width: 100%;
+      height: 100%;
+
+      object-fit: cover;
+      background: #000;
+    }
+
+
+    .camera-overlay {
+      position: absolute;
+      inset: 0;
+
+      display: flex;
+      align-items: center;
+      justify-content: center;
+
+      pointer-events: none;
+    }
+
+
+    .ticket-frame {
+      width: min(82vw, 390px);
+      height: min(68vh, 590px);
+
+      border: 3px solid rgba(255,255,255,.94);
+      border-radius: 16px;
+
+      box-shadow:
+        0 0 0 9999px rgba(0,0,0,.30);
+
+      transition:
+        border-color .2s ease,
+        box-shadow .2s ease;
+    }
+
+
+    .ticket-frame.ready {
+      border-color: #7CFC7C;
+
+      box-shadow:
+        0 0 0 9999px rgba(0,0,0,.25);
+    }
+
+
+    .camera-tip {
+      position: absolute;
+
+      left: 50%;
+      bottom: 18px;
+
+      transform: translateX(-50%);
+
+      width: min(92%, 420px);
+
+      padding: 8px 12px;
+
+      border-radius: 999px;
+
+      background: rgba(0,0,0,.68);
+
+      color: #fff;
+
+      text-align: center;
+
+      font-size: 12px;
+      font-weight: 600;
+
+      pointer-events: none;
+    }
+
+
+    /* ============================================================
+       CAMERA CONTROLS
+    ============================================================ */
+
+    .camera-footer {
+      flex: 0 0 auto;
+
+      min-height: 100px;
+
+      padding:
+        12px
+        16px
+        calc(env(safe-area-inset-bottom, 0px) + 14px);
+
+      display: grid;
+
+      grid-template-columns:
+        1fr
+        auto
+        1fr;
+
+      align-items: center;
+
+      gap: 12px;
+
+      background:
+        linear-gradient(
+          to top,
+          rgba(0,0,0,.96),
+          rgba(0,0,0,.65)
+        );
+    }
+
+
+    .footer-left {
+      display: flex;
+      justify-content: flex-start;
+    }
+
+
+    .footer-right {
+      display: flex;
+      justify-content: flex-end;
+    }
+
+
+    .torch-btn,
+    .fallback-btn {
+      appearance: none;
+
+      border:
+        1px solid
+        rgba(255,255,255,.35);
+
+      background:
+        rgba(255,255,255,.10);
+
+      color: #fff;
+
+      border-radius: 999px;
+
+      padding: 9px 12px;
+
+      font-size: 12px;
+      font-weight: 700;
+
+      cursor: pointer;
+    }
+
+
+    .torch-btn.active {
+      background: #3B7E46;
+      border-color: #3B7E46;
+    }
+
+
+    .torch-btn[hidden] {
+      display: none !important;
+    }
+
+
+    .capture-btn {
+      appearance: none;
+
+      width: 70px;
+      height: 70px;
+
+      border-radius: 50%;
+
+      border:
+        4px solid
+        #fff;
+
+      background:
+        transparent;
+
+      display: grid;
+      place-items: center;
+
+      cursor: pointer;
+
+      padding: 0;
+    }
+
+
+    .capture-btn::before {
+      content: "";
+
+      width: 52px;
+      height: 52px;
+
+      border-radius: 50%;
+
+      background: #fff;
+    }
+
+
+    .capture-btn:disabled {
+      opacity: .45;
+      cursor: default;
+    }
+
+
+    /* ============================================================
+       PROCESSING SCREEN
+    ============================================================ */
+
+    .processing-screen {
+      position: fixed;
+      inset: 0;
+
+      display: none;
+
+      place-items: center;
+
+      padding: 24px;
+
+      background:
+        rgba(0,0,0,.88);
+
+      z-index: 100;
+    }
+
+
+    .processing-screen.show {
+      display: grid;
+    }
+
+
+    .processing-card {
+      width: min(360px, 92vw);
+
+      background:
+        rgba(25,25,25,.97);
+
+      border:
+        1px solid
+        rgba(255,255,255,.14);
+
+      border-radius: 18px;
+
+      padding: 24px 20px;
+
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+
+      gap: 14px;
+
+      text-align: center;
+
+      box-shadow:
+        0 22px 60px
+        rgba(0,0,0,.45);
+    }
+
+
+    .spinner {
+      width: 38px;
+      height: 38px;
+
+      border-radius: 50%;
+
+      border:
+        4px solid
+        rgba(255,255,255,.25);
+
+      border-top-color:
+        #fff;
+
+      animation:
+        spin .8s linear infinite;
+    }
+
+
+    @keyframes spin {
+
+      to {
+        transform:
+          rotate(360deg);
+      }
+
+    }
+
+
+    .processing-title {
+      font-size: 19px;
+      font-weight: 800;
+    }
+
+
+    .processing-text {
+      font-size: 13px;
+      opacity: .82;
+      line-height: 1.4;
+    }
+
+
+    /* ============================================================
+       RESULT SCREEN
+    ============================================================ */
+
+    .result-screen {
+      position: fixed;
+      inset: 0;
+
+      display: none;
+
+      place-items: center;
+
+      padding: 24px;
+
+      background: #f4f6f4;
+
+      color: #111;
+
+      z-index: 110;
+    }
+
+
+    .result-screen.show {
+      display: grid;
+    }
+
+
+    .result-card {
+      width: min(390px, 94vw);
+
+      background: #fff;
+
+      border-radius: 20px;
+
+      padding: 26px 20px;
+
+      box-shadow:
+        0 18px 48px
+        rgba(0,0,0,.18);
+
+      text-align: center;
+
+      display: flex;
+      flex-direction: column;
+
+      gap: 14px;
+    }
+
+
+    .result-icon {
+      width: 64px;
+      height: 64px;
+
+      margin:
+        0 auto;
+
+      border-radius: 50%;
+
+      display: grid;
+      place-items: center;
+
+      font-size: 34px;
+
+      background:
+        #E6F3E8;
+
+      color:
+        #2F6C3C;
+    }
+
+
+    .result-title {
+      font-size: 21px;
+      font-weight: 900;
+    }
+
+
+    .result-text {
+      color: #5f6661;
+
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+
+    .result-actions {
+      display: flex;
+      flex-direction: column;
+
+      gap: 10px;
+
+      margin-top: 6px;
+    }
+
+
+    .result-btn {
+      appearance: none;
+
+      width: 100%;
+
+      border-radius: 13px;
+
+      padding: 13px 16px;
+
+      font-weight: 800;
+
+      cursor: pointer;
+    }
+
+
+    .result-btn.primary {
+      border: 0;
+
+      background:
+        #3B7E46;
+
+      color:
+        #fff;
+    }
+
+
+    .result-btn.secondary {
+      border:
+        1px solid
+        #d6dbd7;
+
+      background:
+        #fff;
+
+      color:
+        #222;
+    }
+
+
+    /* ============================================================
+       ERROR SCREEN
+    ============================================================ */
+
+    .error-screen {
+      position: fixed;
+      inset: 0;
+
+      display: none;
+
+      place-items: center;
+
+      padding: 24px;
+
+      background: #f4f6f4;
+
+      color: #111;
+
+      z-index: 120;
+    }
+
+
+    .error-screen.show {
+      display: grid;
+    }
+
+
+    .error-card {
+      width:
+        min(390px, 94vw);
+
+      background: #fff;
+
+      border-radius: 20px;
+
+      padding: 26px 20px;
+
+      box-shadow:
+        0 18px 48px
+        rgba(0,0,0,.18);
+
+      text-align: center;
+
+      display: flex;
+      flex-direction: column;
+
+      gap: 14px;
+    }
+
+
+    .error-icon {
+      width: 64px;
+      height: 64px;
+
+      margin: 0 auto;
+
+      border-radius: 50%;
+
+      display: grid;
+      place-items: center;
+
+      font-size: 30px;
+
+      background:
+        #FDE8E8;
+
+      color:
+        #B42318;
+    }
+
+
+    .error-title {
+      font-size: 21px;
+      font-weight: 900;
+    }
+
+
+    .error-text {
+      color: #666;
+
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+
+  </style>
+</head>
+
+
+<body>
+
+
+  <!-- ==========================================================
+       CAMERA
+  =========================================================== -->
+
+  <main
+    id="cameraPage"
+    class="camera-page"
+  >
+
+    <header
+      class="camera-header"
+    >
+
+      <div
+        class="camera-title-wrap"
+      >
+
+        <div
+          class="camera-title"
+        >
+          Grain Ticket
+        </div>
+
+        <div
+          class="camera-subtitle"
+        >
+          Center the entire ticket in the box
+        </div>
+
+      </div>
+
+
+      <button
+        id="closeBtn"
+        class="close-btn"
+        type="button"
+      >
+        Close
+      </button>
+
+    </header>
+
+
+    <section
+      class="camera-view"
+    >
+
+      <video
+        id="cameraVideo"
+        autoplay
+        playsinline
+        muted
+      ></video>
+
+
+      <div
+        class="camera-overlay"
+      >
+
+        <div
+          id="ticketFrame"
+          class="ticket-frame"
+        ></div>
+
+      </div>
+
+
+      <div
+        class="camera-tip"
+      >
+        Keep the whole ticket visible and hold the phone steady.
+      </div>
+
+    </section>
+
+
+    <footer
+      class="camera-footer"
+    >
+
+      <div
+        class="footer-left"
+      >
+
+        <button
+          id="torchBtn"
+          class="torch-btn"
+          type="button"
+          hidden
+        >
+          🔦 Flashlight
+        </button>
+
+      </div>
+
+
+      <button
+        id="captureBtn"
+        class="capture-btn"
+        type="button"
+        aria-label="Take grain ticket photo"
+      ></button>
+
+
+      <div
+        class="footer-right"
+      >
+
+        <button
+          id="fallbackBtn"
+          class="fallback-btn"
+          type="button"
+        >
+          Photos
+        </button>
+
+      </div>
+
+    </footer>
+
+  </main>
+
+
+
+  <!-- ==========================================================
+       PROCESSING
+  =========================================================== -->
+
+  <div
+    id="processingScreen"
+    class="processing-screen"
+  >
+
+    <div
+      class="processing-card"
+    >
+
+      <div
+        class="spinner"
+      ></div>
+
+
+      <div
+        class="processing-title"
+      >
+        Processing Grain Ticket
+      </div>
+
+
+      <div
+        id="processingText"
+        class="processing-text"
+      >
+        Reading ticket information…
+      </div>
+
+    </div>
+
+  </div>
+
+
+
+  <!-- ==========================================================
+       OCR TEST RESULT
+  =========================================================== -->
+
+  <div
+    id="resultScreen"
+    class="result-screen"
+  >
+
+    <div
+      class="result-card"
+    >
+
+      <div
+        class="result-icon"
+      >
+        ✓
+      </div>
+
+
+      <div
+        class="result-title"
+      >
+        Ticket Read
+      </div>
+
+
+      <div
+        class="result-text"
+      >
+        FarmVista successfully sent this ticket through the Grain Ticket OCR.
+        The OCR result has been written to the browser console so we can build
+        the final validation and automatic-save step next.
+      </div>
+
+
+      <div
+        class="result-actions"
+      >
+
+        <button
+          id="retakeBtn"
+          class="result-btn primary"
+          type="button"
+        >
+          Scan Another Ticket
+        </button>
+
+
+        <button
+          id="homeBtn"
+          class="result-btn secondary"
+          type="button"
+        >
+          Return Home
+        </button>
+
+      </div>
+
+    </div>
+
+  </div>
+
+
+
+  <!-- ==========================================================
+       ERROR
+  =========================================================== -->
+
+  <div
+    id="errorScreen"
+    class="error-screen"
+  >
+
+    <div
+      class="error-card"
+    >
+
+      <div
+        class="error-icon"
+      >
+        !
+      </div>
+
+
+      <div
+        class="error-title"
+      >
+        Ticket Could Not Be Read
+      </div>
+
+
+      <div
+        id="errorText"
+        class="error-text"
+      >
+        Please try taking the photo again.
+      </div>
+
+
+      <div
+        class="result-actions"
+      >
+
+        <button
+          id="tryAgainBtn"
+          class="result-btn primary"
+          type="button"
+        >
+          Try Again
+        </button>
+
+
+        <button
+          id="errorHomeBtn"
+          class="result-btn secondary"
+          type="button"
+        >
+          Return Home
+        </button>
+
+      </div>
+
+    </div>
+
+  </div>
+
+
+
+  <!-- ==========================================================
+       FALLBACK FILE / CAMERA INPUT
+  =========================================================== -->
+
+  <input
+    id="fileInput"
+    type="file"
+    accept="image/*"
+    capture="environment"
+    hidden
+  >
+
+
+
+  <script>
+
+    (() => {
+
+      "use strict";
+
+
+      // ==========================================================
+      // SETTINGS
+      // ==========================================================
+
+      const OCR_URL =
+        "https://fv-ocr-300398089669.us-central1.run.app/fvOcr";
+
+
+      const HOME_URL =
+        "/Farm-vista/index.html";
+
+
+      const MAX_IMAGE_SIDE =
+        2200;
+
+
+      const JPEG_QUALITY =
+        0.90;
+
+
+
+      // ==========================================================
+      // ELEMENTS
+      // ==========================================================
+
+      const cameraPage =
+        document.getElementById(
+          "cameraPage"
+        );
+
+
+      const cameraVideo =
+        document.getElementById(
+          "cameraVideo"
+        );
+
+
+      const ticketFrame =
+        document.getElementById(
+          "ticketFrame"
+        );
+
+
+      const captureBtn =
+        document.getElementById(
+          "captureBtn"
+        );
+
+
+      const closeBtn =
+        document.getElementById(
+          "closeBtn"
+        );
+
+
+      const torchBtn =
+        document.getElementById(
+          "torchBtn"
+        );
+
+
+      const fallbackBtn =
+        document.getElementById(
+          "fallbackBtn"
+        );
+
+
+      const fileInput =
+        document.getElementById(
+          "fileInput"
+        );
+
+
+      const processingScreen =
+        document.getElementById(
+          "processingScreen"
+        );
+
+
+      const processingText =
+        document.getElementById(
+          "processingText"
+        );
+
+
+      const resultScreen =
+        document.getElementById(
+          "resultScreen"
+        );
+
+
+      const errorScreen =
+        document.getElementById(
+          "errorScreen"
+        );
+
+
+      const errorText =
+        document.getElementById(
+          "errorText"
+        );
+
+
+      const retakeBtn =
+        document.getElementById(
+          "retakeBtn"
+        );
+
+
+      const homeBtn =
+        document.getElementById(
+          "homeBtn"
+        );
+
+
+      const tryAgainBtn =
+        document.getElementById(
+          "tryAgainBtn"
+        );
+
+
+      const errorHomeBtn =
+        document.getElementById(
+          "errorHomeBtn"
+        );
+
+
+
+      // ==========================================================
+      // STATE
+      // ==========================================================
+
+      let cameraStream =
+        null;
+
+
+      let cameraTrack =
+        null;
+
+
+      let torchOn =
+        false;
+
+
+      let processing =
+        false;
+
+
+
+      // ==========================================================
+      // SCREEN HELPERS
+      // ==========================================================
+
+      function hideAllScreens() {
+
+        processingScreen.classList.remove(
+          "show"
+        );
+
+
+        resultScreen.classList.remove(
+          "show"
+        );
+
+
+        errorScreen.classList.remove(
+          "show"
+        );
+
+      }
+
+
+      function showCameraScreen() {
+
+        hideAllScreens();
+
+
+        cameraPage.style.display =
+          "flex";
+
+      }
+
+
+      function showProcessing(
+        message =
+          "Reading ticket information…"
+      ) {
+
+        processingText.textContent =
+          message;
+
+
+        processingScreen.classList.add(
+          "show"
+        );
+
+      }
+
+
+      function showResult() {
+
+        processingScreen.classList.remove(
+          "show"
+        );
+
+
+        errorScreen.classList.remove(
+          "show"
+        );
+
+
+        resultScreen.classList.add(
+          "show"
+        );
+
+      }
+
+
+      function showError(
+        message
+      ) {
+
+        processingScreen.classList.remove(
+          "show"
+        );
+
+
+        resultScreen.classList.remove(
+          "show"
+        );
+
+
+        errorText.textContent =
+          message ||
+          "Please try taking the photo again.";
+
+
+        errorScreen.classList.add(
+          "show"
+        );
+
+      }
+
+
+
+      // ==========================================================
+      // CAMERA
+      // ==========================================================
+
+      async function startCamera() {
+
+        stopCamera();
+
+
+        showCameraScreen();
+
+
+        captureBtn.disabled =
+          true;
+
+
+        torchBtn.hidden =
+          true;
+
+
+        torchBtn.classList.remove(
+          "active"
+        );
+
+
+        torchBtn.textContent =
+          "🔦 Flashlight";
+
+
+        torchOn =
+          false;
+
+
+        if (
+          !navigator.mediaDevices ||
+          !navigator.mediaDevices.getUserMedia
+        ) {
+
+          fileInput.click();
+
+          return;
+        }
+
+
+        try {
+
+          cameraStream =
+            await navigator.mediaDevices.getUserMedia({
+              video: {
+                facingMode: {
+                  ideal:
+                    "environment"
+                },
+
+                width: {
+                  ideal:
+                    1920
+                },
+
+                height: {
+                  ideal:
+                    1080
+                }
+              },
+
+              audio:
+                false
+            });
+
+
+          cameraVideo.srcObject =
+            cameraStream;
+
+
+          await cameraVideo.play();
+
+
+          cameraTrack =
+            cameraStream
+              .getVideoTracks()[0] ||
+            null;
+
+
+          setupTorch();
+
+
+          setTimeout(
+            () => {
+
+              ticketFrame.classList.add(
+                "ready"
+              );
+
+
+              captureBtn.disabled =
+                false;
+
+            },
+            700
+          );
+
+        }
+        catch (err) {
+
+          console.error(
+            "[Grain Ticket] Camera failed:",
+            err
+          );
+
+
+          stopCamera();
+
+
+          fileInput.click();
+
+        }
+
+      }
+
+
+      function stopCamera() {
+
+        if (
+          cameraStream
+        ) {
+
+          cameraStream
+            .getTracks()
+            .forEach(
+              track => {
+
+                try {
+                  track.stop();
+                }
+                catch (_) {}
+
+              }
+            );
+
+        }
+
+
+        cameraStream =
+          null;
+
+
+        cameraTrack =
+          null;
+
+
+        cameraVideo.srcObject =
+          null;
+
+
+        torchOn =
+          false;
+
+
+        ticketFrame.classList.remove(
+          "ready"
+        );
+
+      }
+
+
+
+      // ==========================================================
+      // FLASHLIGHT
+      // ==========================================================
+
+      function setupTorch() {
+
+        if (
+          !cameraTrack ||
+          !cameraTrack.getCapabilities
+        ) {
+          return;
+        }
+
+
+        try {
+
+          const capabilities =
+            cameraTrack.getCapabilities();
+
+
+          if (
+            capabilities &&
+            "torch" in capabilities
+          ) {
+
+            torchBtn.hidden =
+              false;
+
+          }
+
+        }
+        catch (_) {}
+
+      }
+
+
+      async function toggleTorch() {
+
+        if (
+          !cameraTrack
+        ) {
+          return;
+        }
+
+
+        try {
+
+          torchOn =
+            !torchOn;
+
+
+          await cameraTrack.applyConstraints({
+            advanced: [
+              {
+                torch:
+                  torchOn
+              }
+            ]
+          });
+
+
+          torchBtn.classList.toggle(
+            "active",
+            torchOn
+          );
+
+
+          torchBtn.textContent =
+            torchOn
+              ? "🔦 Flashlight On"
+              : "🔦 Flashlight";
+
+        }
+        catch (err) {
+
+          console.warn(
+            "[Grain Ticket] Torch failed:",
+            err
+          );
+
+
+          torchOn =
+            false;
+
+
+          torchBtn.classList.remove(
+            "active"
+          );
+
+        }
+
+      }
+
+
+
+      // ==========================================================
+      // CAMERA CAPTURE
+      // ==========================================================
+
+      async function capturePhoto() {
+
+        if (
+          processing ||
+          !cameraVideo.videoWidth ||
+          !cameraVideo.videoHeight
+        ) {
+          return;
+        }
+
+
+        processing =
+          true;
+
+
+        captureBtn.disabled =
+          true;
+
+
+        try {
+
+          const canvas =
+            document.createElement(
+              "canvas"
+            );
+
+
+          const width =
+            cameraVideo.videoWidth;
+
+
+          const height =
+            cameraVideo.videoHeight;
+
+
+          canvas.width =
+            width;
+
+
+          canvas.height =
+            height;
+
+
+          const ctx =
+            canvas.getContext(
+              "2d"
+            );
+
+
+          ctx.drawImage(
+            cameraVideo,
+            0,
+            0,
+            width,
+            height
+          );
+
+
+          const blob =
+            await canvasToBlob(
+              canvas
+            );
+
+
+          const file =
+            new File(
+              [blob],
+              `grain-ticket-${Date.now()}.jpg`,
+              {
+                type:
+                  "image/jpeg"
+              }
+            );
+
+
+          stopCamera();
+
+
+          await processTicket(
+            file
+          );
+
+        }
+        catch (err) {
+
+          console.error(
+            "[Grain Ticket] Capture failed:",
+            err
+          );
+
+
+          processing =
+            false;
+
+
+          showError(
+            "The photo could not be captured. Please try again."
+          );
+
+        }
+
+      }
+
+
+
+      // ==========================================================
+      // IMAGE PREPARATION
+      // ==========================================================
+
+      function canvasToBlob(
+        canvas
+      ) {
+
+        return new Promise(
+          (
+            resolve,
+            reject
+          ) => {
+
+            canvas.toBlob(
+              blob => {
+
+                if (blob) {
+
+                  resolve(
+                    blob
+                  );
+
+                }
+                else {
+
+                  reject(
+                    new Error(
+                      "JPEG conversion failed."
+                    )
+                  );
+
+                }
+
+              },
+
+              "image/jpeg",
+
+              JPEG_QUALITY
+            );
+
+          }
+        );
+
+      }
+
+
+      function readFileAsDataURL(
+        file
+      ) {
+
+        return new Promise(
+          (
+            resolve,
+            reject
+          ) => {
+
+            const reader =
+              new FileReader();
+
+
+            reader.onload =
+              () =>
+                resolve(
+                  reader.result
+                );
+
+
+            reader.onerror =
+              () =>
+                reject(
+                  reader.error
+                );
+
+
+            reader.readAsDataURL(
+              file
+            );
+
+          }
+        );
+
+      }
+
+
+      function loadImage(
+        src
+      ) {
+
+        return new Promise(
+          (
+            resolve,
+            reject
+          ) => {
+
+            const img =
+              new Image();
+
+
+            img.onload =
+              () =>
+                resolve(
+                  img
+                );
+
+
+            img.onerror =
+              reject;
+
+
+            img.src =
+              src;
+
+          }
+        );
+
+      }
+
+
+      async function prepareImage(
+        rawFile
+      ) {
+
+        if (
+          !rawFile
+        ) {
+          return null;
+        }
+
+
+        if (
+          !String(
+            rawFile.type || ""
+          ).startsWith(
+            "image/"
+          )
+        ) {
+
+          return rawFile;
+
+        }
+
+
+        const dataUrl =
+          await readFileAsDataURL(
+            rawFile
+          );
+
+
+        const img =
+          await loadImage(
+            dataUrl
+          );
+
+
+        const srcWidth =
+          img.naturalWidth ||
+          img.width;
+
+
+        const srcHeight =
+          img.naturalHeight ||
+          img.height;
+
+
+        const longest =
+          Math.max(
+            srcWidth,
+            srcHeight
+          );
+
+
+        let scale =
+          1;
+
+
+        if (
+          longest >
+          MAX_IMAGE_SIDE
+        ) {
+
+          scale =
+            MAX_IMAGE_SIDE /
+            longest;
+
+        }
+
+
+        const width =
+          Math.round(
+            srcWidth *
+            scale
+          );
+
+
+        const height =
+          Math.round(
+            srcHeight *
+            scale
+          );
+
+
+        const canvas =
+          document.createElement(
+            "canvas"
+          );
+
+
+        canvas.width =
+          width;
+
+
+        canvas.height =
+          height;
+
+
+        const ctx =
+          canvas.getContext(
+            "2d"
+          );
+
+
+        ctx.drawImage(
+          img,
+          0,
+          0,
+          width,
+          height
+        );
+
+
+        const blob =
+          await canvasToBlob(
+            canvas
+          );
+
+
+        return new File(
+          [blob],
+
+          `grain-ticket-${Date.now()}.jpg`,
+
+          {
+            type:
+              "image/jpeg"
+          }
+        );
+
+      }
+
+
+
+      // ==========================================================
+      // BASE64
+      // ==========================================================
+
+      async function fileToBase64(
+        file
+      ) {
+
+        const dataUrl =
+          await readFileAsDataURL(
+            file
+          );
+
+
+        const parts =
+          String(
+            dataUrl || ""
+          ).split(
+            ","
+          );
+
+
+        return parts.length > 1
+          ? parts[1]
+          : "";
+
+      }
+
+
+
+      // ==========================================================
+      // OCR
+      // ==========================================================
+
+      async function processTicket(
+        rawFile
+      ) {
+
+        showProcessing(
+          "Preparing grain ticket…"
+        );
+
+
+        try {
+
+          const file =
+            await prepareImage(
+              rawFile
+            );
+
+
+          if (
+            !file
+          ) {
+
+            throw new Error(
+              "No image was available."
+            );
+
+          }
+
+
+          processingText.textContent =
+            "Reading grain ticket…";
+
+
+          const base64 =
+            await fileToBase64(
+              file
+            );
+
+
+          if (
+            !base64
+          ) {
+
+            throw new Error(
+              "Could not read the ticket image."
+            );
+
+          }
+
+
+          console.log(
+            "[Grain Ticket] Sending to OCR:",
+            {
+              mode:
+                "grain_ticket",
+
+              mimeType:
+                file.type,
+
+              size:
+                file.size
+            }
+          );
+
+
+          const response =
+            await fetch(
+              OCR_URL,
+              {
+                method:
+                  "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json"
+                },
+
+                body:
+                  JSON.stringify({
+                    mode:
+                      "grain_ticket",
+
+                    content:
+                      base64,
+
+                    mimeType:
+                      file.type ||
+                      "image/jpeg"
+                  })
+              }
+            );
+
+
+          if (
+            !response.ok
+          ) {
+
+            const serverText =
+              await response.text();
+
+
+            console.error(
+              "[Grain Ticket] OCR HTTP error:",
+              response.status,
+              serverText
+            );
+
+
+            throw new Error(
+              `OCR server returned ${response.status}.`
+            );
+
+          }
+
+
+          const result =
+            await response.json();
+
+
+          console.log(
+            "=================================================="
+          );
+
+
+          console.log(
+            "[Grain Ticket] FULL OCR RESULT"
+          );
+
+
+          console.log(
+            result
+          );
+
+
+          console.log(
+            "[Grain Ticket] OCR FIELDS"
+          );
+
+
+          console.table(
+            result.fields ||
+            {}
+          );
+
+
+          console.log(
+            "[Grain Ticket] DOCUMENT TEXT"
+          );
+
+
+          console.log(
+            result.document?.text ||
+            ""
+          );
+
+
+          console.log(
+            "=================================================="
+          );
+
+
+          if (
+            !result.ok
+          ) {
+
+            throw new Error(
+              result.error ||
+              "OCR could not process the grain ticket."
+            );
+
+          }
+
+
+          const documentText =
+            String(
+              result.document?.text ||
+              ""
+            ).trim();
+
+
+          /*
+            TEMPORARY TEST VALIDATION
+
+            We are NOT calling this a successful grain ticket upload yet.
+
+            For this first test we only require Document AI to return actual
+            ticket text. Once we see a real grain ticket response, we will
+            replace this with the real FarmVista grain-ticket validations.
+          */
+
+          if (
+            documentText.length <
+            10
+          ) {
+
+            throw new Error(
+              "FarmVista did not read enough information from this ticket."
+            );
+
+          }
+
+
+          processing =
+            false;
+
+
+          showResult();
+
+        }
+        catch (err) {
+
+          console.error(
+            "[Grain Ticket] Processing failed:",
+            err
+          );
+
+
+          processing =
+            false;
+
+
+          showError(
+            err?.message ||
+            "FarmVista could not read this grain ticket. Please try again."
+          );
+
+        }
+
+      }
+
+
+
+      // ==========================================================
+      // FALLBACK FILE INPUT
+      // ==========================================================
+
+      async function handleSelectedFile() {
+
+        const file =
+          fileInput.files &&
+          fileInput.files[0];
+
+
+        fileInput.value =
+          "";
+
+
+        if (
+          !file
+        ) {
+          return;
+        }
+
+
+        stopCamera();
+
+
+        processing =
+          true;
+
+
+        await processTicket(
+          file
+        );
+
+      }
+
+
+
+      // ==========================================================
+      // EVENTS
+      // ==========================================================
+
+      captureBtn.addEventListener(
+        "click",
+        capturePhoto
+      );
+
+
+      closeBtn.addEventListener(
+        "click",
+        () => {
+
+          stopCamera();
+
+          location.href =
+            HOME_URL;
+
+        }
+      );
+
+
+      torchBtn.addEventListener(
+        "click",
+        toggleTorch
+      );
+
+
+      fallbackBtn.addEventListener(
+        "click",
+        () => {
+
+          if (
+            processing
+          ) {
+            return;
+          }
+
+
+          fileInput.click();
+
+        }
+      );
+
+
+      fileInput.addEventListener(
+        "change",
+        handleSelectedFile
+      );
+
+
+      retakeBtn.addEventListener(
+        "click",
+        () => {
+
+          processing =
+            false;
+
+          startCamera();
+
+        }
+      );
+
+
+      tryAgainBtn.addEventListener(
+        "click",
+        () => {
+
+          processing =
+            false;
+
+          startCamera();
+
+        }
+      );
+
+
+      homeBtn.addEventListener(
+        "click",
+        () => {
+
+          location.href =
+            HOME_URL;
+
+        }
+      );
+
+
+      errorHomeBtn.addEventListener(
+        "click",
+        () => {
+
+          location.href =
+            HOME_URL;
+
+        }
+      );
+
+
+      window.addEventListener(
+        "pagehide",
+        stopCamera
+      );
+
+
+      window.addEventListener(
+        "beforeunload",
+        stopCamera
+      );
+
+
+
+      // ==========================================================
+      // AUTO START
+      // ==========================================================
+
+      startCamera();
+
+    })();
+
+  </script>
+
+
+</body>
+</html>
