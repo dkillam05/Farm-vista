@@ -367,6 +367,29 @@ function formatWholeNumber(value) {
 
 }
 
+function formatTwoDecimals(value) {
+
+  const number =
+    cleanNumber(value);
+
+
+  if (number === null) {
+
+    return "";
+
+  }
+
+
+  return number.toLocaleString(
+    "en-US",
+    {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }
+  );
+
+}
+
 
 function showMessage(
   text,
@@ -1965,36 +1988,43 @@ function setupWeightInputs() {
     input => {
 
       input.addEventListener(
-        "blur",
+        "input",
         () => {
 
-          const value =
-            cleanNumber(
-              input.value
-            );
+          const digits =
+            String(
+              input.value || ""
+            )
+              .replace(/\D/g, "");
 
 
-          if (
-            value !== null
-          ) {
+          if (!digits) {
 
             input.value =
-              formatWholeNumber(
-                value
-              );
+              "";
+
+            input.setCustomValidity(
+              ""
+            );
+
+            validateWeights();
+
+            updateBushelCalculation();
+
+            return;
 
           }
 
 
-          validateWeights();
-
-        }
-      );
+          const numericValue =
+            Number(digits);
 
 
-      input.addEventListener(
-        "input",
-        () => {
+          input.value =
+            numericValue.toLocaleString(
+              "en-US"
+            );
+
 
           input.setCustomValidity(
             ""
@@ -2002,6 +2032,8 @@ function setupWeightInputs() {
 
 
           validateWeights();
+
+          updateBushelCalculation();
 
         }
       );
@@ -2219,6 +2251,101 @@ function validateOptionalRange(
 
 }
 
+function setupGradeFactorInputs() {
+
+  [
+    {
+      input:
+        elements.testWeight,
+
+      suffix:
+        ""
+    },
+
+    {
+      input:
+        elements.moisture,
+
+      suffix:
+        "%"
+    },
+
+    {
+      input:
+        elements.damage,
+
+      suffix:
+        "%"
+    },
+
+    {
+      input:
+        elements.foreignMaterial,
+
+      suffix:
+        "%"
+    }
+  ].forEach(
+    item => {
+
+      const input =
+        item.input;
+
+
+      input.addEventListener(
+        "focus",
+        () => {
+
+          input.value =
+            String(
+              input.value || ""
+            )
+              .replace(/,/g, "")
+              .replace(/%/g, "");
+
+        }
+      );
+
+
+      input.addEventListener(
+        "blur",
+        () => {
+
+          const value =
+            cleanNumber(
+              input.value
+            );
+
+
+          if (
+            value === null
+          ) {
+
+            input.value =
+              "";
+
+            return;
+
+          }
+
+
+          input.value =
+            formatTwoDecimals(
+              value
+            ) +
+            item.suffix;
+
+
+          validateGradeFactors();
+
+        }
+      );
+
+    }
+  );
+
+}
+
 
 function validateGradeFactors() {
 
@@ -2345,6 +2472,88 @@ function updateBushelCalculation() {
 
 }
 
+function setupBushelInputs() {
+
+  elements.shrinkBushels.addEventListener(
+    "input",
+    () => {
+
+      elements.shrinkBushels
+        .setCustomValidity("");
+
+
+      validateBushels();
+
+    }
+  );
+
+
+  elements.shrinkBushels.addEventListener(
+    "blur",
+    () => {
+
+      const value =
+        cleanNumber(
+          elements.shrinkBushels.value
+        );
+
+
+      if (value !== null) {
+
+        elements.shrinkBushels.value =
+          formatTwoDecimals(
+            value
+          );
+
+      }
+
+
+      validateBushels();
+
+    }
+  );
+
+
+  elements.netBushels.addEventListener(
+    "input",
+    () => {
+
+      elements.netBushels
+        .setCustomValidity("");
+
+
+      validateBushels();
+
+    }
+  );
+
+
+  elements.netBushels.addEventListener(
+    "blur",
+    () => {
+
+      const value =
+        cleanNumber(
+          elements.netBushels.value
+        );
+
+
+      if (value !== null) {
+
+        elements.netBushels.value =
+          formatTwoDecimals(
+            value
+          );
+
+      }
+
+
+      validateBushels();
+
+    }
+  );
+
+}
 
 function validateBushels() {
 
