@@ -1307,7 +1307,7 @@
             null;
 
 
-          setupTorch();
+          await setupTorch();
 
 
           setTimeout(
@@ -1394,36 +1394,90 @@
       // FLASHLIGHT
       // ==========================================================
 
-      function setupTorch() {
+async function setupTorch() {
 
-        if (
-          !cameraTrack ||
-          !cameraTrack.getCapabilities
-        ) {
-          return;
-        }
-
-
-        try {
-
-          const capabilities =
-            cameraTrack.getCapabilities();
+  if (
+    !cameraTrack ||
+    !cameraTrack.getCapabilities
+  ) {
+    return;
+  }
 
 
-          if (
-            capabilities &&
-            "torch" in capabilities
-          ) {
+  try {
 
-            torchBtn.hidden =
-              false;
+    const capabilities =
+      cameraTrack.getCapabilities();
 
+
+    if (
+      capabilities &&
+      capabilities.torch
+    ) {
+
+      torchBtn.hidden =
+        false;
+
+
+      /*
+        Automatically turn the flashlight ON
+        when the grain-ticket camera opens.
+      */
+
+      await cameraTrack.applyConstraints({
+        advanced: [
+          {
+            torch: true
           }
+        ]
+      });
 
-        }
-        catch (_) {}
 
-      }
+      torchOn =
+        true;
+
+
+      torchBtn.classList.add(
+        "active"
+      );
+
+
+      torchBtn.textContent =
+        "🔦 Flashlight On";
+
+    }
+
+  }
+  catch (err) {
+
+    /*
+      Some phones/browsers expose the camera but
+      will not allow automatic torch control.
+
+      Camera still works normally in that case.
+    */
+
+    console.warn(
+      "[Grain Ticket] Automatic flashlight failed:",
+      err
+    );
+
+
+    torchOn =
+      false;
+
+
+    torchBtn.classList.remove(
+      "active"
+    );
+
+
+    torchBtn.textContent =
+      "🔦 Flashlight";
+
+  }
+
+}
 
 
       async function toggleTorch() {
