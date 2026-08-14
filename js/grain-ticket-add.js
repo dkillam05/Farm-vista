@@ -2441,6 +2441,37 @@ function setupGradeFactorInputs() {
           }
 
 
+          if (
+  input === elements.testWeight
+) {
+
+  const wholePart =
+    String(value)
+      .split(".")[0];
+
+
+  if (
+    wholePart.length >= 2
+  ) {
+
+    const twValue =
+      Number(value);
+
+
+    if (
+      Number.isFinite(twValue) &&
+      twValue < 30
+    ) {
+
+      value =
+        value.slice(0, -1);
+
+    }
+
+  }
+
+}
+          
           input.value =
             value;
 
