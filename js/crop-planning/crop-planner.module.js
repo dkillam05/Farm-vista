@@ -922,7 +922,148 @@ export async function mount(hostEl, opts = {}){
         `;
       }
 
-      return `<div></div>`;
+      return `
+        <div
+          class="farmLane"
+          data-farm-id="${esc(g.farmId)}"
+          data-open="${openFarm ? '1' : '0'}"
+          style="
+            border:1px solid var(--border);
+            border-radius:14px;
+            background:var(--surface);
+            overflow:hidden;
+          "
+        >
+
+          <div
+            class="farmLaneHead"
+            data-farm-toggle="1"
+            style="
+              display:flex;
+              align-items:center;
+              justify-content:space-between;
+              gap:10px;
+              padding:12px;
+              border-bottom:${openFarm ? '1px solid var(--border)' : '0'};
+              cursor:pointer;
+              user-select:none;
+            "
+          >
+
+            <div
+              style="
+                display:flex;
+                align-items:center;
+                gap:10px;
+                min-width:0;
+              "
+            >
+
+              <div
+                class="farmGrip"
+                data-drag-type="farm"
+                data-farm-id="${esc(g.farmId)}"
+                draggable="${canDrag ? 'true' : 'false'}"
+                style="
+                  width:28px;
+                  height:28px;
+                  border:1px solid var(--border);
+                  border-radius:9px;
+                  display:grid;
+                  place-items:center;
+                  color:var(--muted,#67706B);
+                  cursor:${canDrag ? 'grab' : 'not-allowed'};
+                  opacity:${canDrag ? '1' : '.35'};
+                  flex:0 0 auto;
+                "
+              >
+                ${gripSvg()}
+              </div>
+
+              <div
+                style="
+                  font-weight:900;
+                  min-width:0;
+                  overflow:hidden;
+                  text-overflow:ellipsis;
+                  white-space:nowrap;
+                "
+              >
+                ${esc(g.farmName)}
+              </div>
+
+            </div>
+
+            <div
+              style="
+                display:flex;
+                align-items:center;
+                gap:10px;
+              "
+            >
+              <div
+                style="
+                  font-size:12px;
+                  color:var(--muted,#67706B);
+                  font-weight:900;
+                  letter-spacing:.2px;
+                  text-transform:uppercase;
+                  white-space:nowrap;
+                "
+              >
+                ${fmt0.format(g.fields.length)} fields
+              </div>
+
+              <div
+                aria-hidden="true"
+                style="
+                  display:grid;
+                  place-items:center;
+                  transform:${openFarm ? 'rotate(180deg)' : 'rotate(0deg)'};
+                "
+              >
+                ${chevSvg()}
+              </div>
+            </div>
+
+          </div>
+
+          <div
+            class="farmLaneBody"
+            style="
+              display:${openFarm ? 'grid' : 'none'};
+              grid-template-columns:1fr 1fr 1fr;
+              gap:10px;
+              padding:10px;
+            "
+          >
+            ${renderBucketDesktop(
+              g.farmId,
+              'Unplanned',
+              '',
+              un,
+              unA
+            )}
+
+            ${renderBucketDesktop(
+              g.farmId,
+              'Corn',
+              'corn',
+              co,
+              coA
+            )}
+
+            ${renderBucketDesktop(
+              g.farmId,
+              'Soybeans',
+              'soybeans',
+              so,
+              soA
+            )}
+          </div>
+
+        </div>
+      `;
     }).join('');
 
     bindToggles();
