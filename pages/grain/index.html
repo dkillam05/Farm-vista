@@ -776,6 +776,170 @@
   }
 }
 
+
+
+/* ============================================================
+   GRAIN COMMAND CENTER LAYOUT OVERRIDES
+============================================================ */
+
+.page{
+  max-width:1580px !important;
+  margin:0 auto !important;
+  padding:clamp(12px,2vw,24px) !important;
+}
+
+.page .card{
+  max-width:none !important;
+  margin-left:0 !important;
+  margin-right:0 !important;
+}
+
+#grain-live-grid{
+  width:100%;
+  max-width:none;
+  display:grid;
+  grid-template-columns:minmax(0,1.18fr) minmax(520px,.82fr);
+  gap:14px;
+  align-items:start;
+  margin-top:18px;
+}
+
+#grain-live-grid > .sum-card{
+  margin:0 !important;
+  max-width:none !important;
+  width:100%;
+  border-radius:15px;
+  padding:0;
+  overflow:hidden;
+}
+
+.loadout-card,
+.ticket-dashboard{
+  min-height:520px;
+}
+
+.loadout-card > .loadout-head,
+.ticket-dashboard > .sum-title{
+  margin:0;
+  padding:13px 15px;
+  border-bottom:1px solid var(--border);
+  background:linear-gradient(90deg,rgba(47,108,60,.12),transparent);
+}
+
+.ticket-dashboard > .sum-title{
+  width:100%;
+  font-size:16px;
+  line-height:1.2;
+}
+
+.loadout-card > .loadout-legend,
+.loadout-card > .loadout-table-wrap,
+.loadout-card > .loadout-footer-note,
+.ticket-dashboard > .ticket-kpis,
+.ticket-dashboard > .ticket-toolbar,
+.ticket-dashboard > .ticket-table-wrap,
+.ticket-dashboard > .ticket-footer{
+  margin-left:14px;
+  margin-right:14px;
+}
+
+.loadout-card > .loadout-legend{
+  margin-top:12px;
+}
+
+.loadout-card > .loadout-table-wrap,
+.ticket-dashboard > .ticket-table-wrap{
+  margin-top:12px;
+}
+
+.loadout-card > .loadout-footer-note,
+.ticket-dashboard > .ticket-footer{
+  margin-bottom:14px;
+}
+
+.ticket-dashboard > .ticket-kpis{
+  margin-top:14px;
+}
+
+.ticket-dashboard > .ticket-toolbar{
+  margin-top:14px;
+}
+
+.ticket-dashboard{
+  position:sticky;
+  top:calc(var(--hdr-h,56px) + 12px);
+}
+
+.loadout-table{
+  min-width:980px;
+}
+
+.ticket-table{
+  min-width:900px;
+}
+
+.loadout-table th,
+.ticket-table th{
+  font-size:11px;
+}
+
+.loadout-table td,
+.ticket-table td{
+  font-size:12px;
+}
+
+.loadout-add-btn{
+  color:#fff !important;
+  -webkit-text-fill-color:#fff !important;
+}
+
+#grain-bins-summary,
+#grain-bags-summary{
+  max-width:none !important;
+  margin-top:14px;
+}
+
+@media (max-width:1199px){
+  #grain-live-grid{
+    grid-template-columns:1fr;
+  }
+
+  .ticket-dashboard{
+    position:static;
+  }
+
+  .loadout-card,
+  .ticket-dashboard{
+    min-height:0;
+  }
+}
+
+@media (max-width:700px){
+  .page{
+    padding:10px 8px !important;
+  }
+
+  #grain-live-grid{
+    gap:12px;
+  }
+
+  .loadout-card > .loadout-legend,
+  .loadout-card > .loadout-table-wrap,
+  .loadout-card > .loadout-footer-note,
+  .ticket-dashboard > .ticket-kpis,
+  .ticket-dashboard > .ticket-toolbar,
+  .ticket-dashboard > .ticket-table-wrap,
+  .ticket-dashboard > .ticket-footer{
+    margin-left:10px;
+    margin-right:10px;
+  }
+
+  .loadout-card > .loadout-footer-note,
+  .ticket-dashboard > .ticket-footer{
+    margin-bottom:10px;
+  }
+}
+
 </style>
 </head>
 <body>
@@ -2529,6 +2693,46 @@ if (els.tickets) {
 
 </script>
 
+
+<script>
+  /*
+    UI fallback: keep Add Load modal usable even if the Firestore
+    module ever has a data-loading error.
+  */
+  document.addEventListener("DOMContentLoaded", function(){
+    const addBtn = document.getElementById("add-loadout-btn");
+    const backdrop = document.getElementById("loadout-modal-backdrop");
+    const closeX = document.getElementById("loadout-modal-x");
+    const cancel = document.getElementById("loadout-cancel-btn");
+
+    function openLoadoutModalFallback(){
+      if(!backdrop) return;
+      backdrop.classList.add("open");
+      document.body.style.overflow = "hidden";
+    }
+
+    function closeLoadoutModalFallback(){
+      if(!backdrop) return;
+      backdrop.classList.remove("open");
+      document.body.style.overflow = "";
+    }
+
+    if(addBtn && !addBtn.dataset.fvFallbackWired){
+      addBtn.dataset.fvFallbackWired = "1";
+      addBtn.addEventListener("click", openLoadoutModalFallback);
+    }
+
+    closeX?.addEventListener("click", closeLoadoutModalFallback);
+    cancel?.addEventListener("click", closeLoadoutModalFallback);
+
+    backdrop?.addEventListener("click", function(event){
+      if(event.target === backdrop){
+        closeLoadoutModalFallback();
+      }
+    });
+  }, {once:true});
+</script>
+
 <script type="module">
   import {
     ready,
@@ -2537,7 +2741,10 @@ if (els.tickets) {
     collection,
     getDocs,
     doc,
-    runTransaction,
+    getDoc,
+    setDoc,
+    updateDoc,
+    addDoc,
     serverTimestamp
   } from "/Farm-vista/js/firebase-init.js";
 
@@ -3443,130 +3650,133 @@ if (els.tickets) {
       let newLoadId = "";
       let createdLoad = null;
 
-      await runTransaction(
-        db,
-        async transaction => {
-          const counterSnap =
-            await transaction.get(counterRef);
+      const counterSnap =
+        await getDoc(counterRef);
 
-          const currentSequence =
-            counterSnap.exists()
-              ? Number(counterSnap.data()?.lastSequence || 0)
-              : 0;
+      const currentSequence =
+        counterSnap.exists()
+          ? Number(counterSnap.data()?.lastSequence || 0)
+          : 0;
 
-          const nextSequence =
-            Math.max(0,currentSequence) + 1;
+      const nextSequence =
+        Math.max(0,currentSequence) + 1;
 
-          const loadNumber =
-            `${dayKey}${String(nextSequence).padStart(3,"0")}`;
+      const loadNumber =
+        `${dayKey}${String(nextSequence).padStart(3,"0")}`;
 
-          const loadRef =
-            doc(collection(db,LOADOUT_COLLECTION));
+      /*
+        Mark every older unlinked load for this driver as Ticket Missing.
+        A preload can remain white indefinitely; it only turns red when
+        this driver receives a newer load.
+      */
+      const olderUnlinked = loState.loads
+        .filter(load =>
+          loClean(load.driverEmployeeId) === driver.id &&
+          !(load.grainTicketId || load.ticketId || load.elevatorTicketNumber) &&
+          loNorm(load.status) !== "ticket_missing"
+        )
+        .sort((a,b) =>
+          loMillis(b.loadedAt || b.createdAt) -
+          loMillis(a.loadedAt || a.createdAt)
+        );
 
-          const olderUnlinked = loState.loads
-            .filter(load =>
-              loClean(load.driverEmployeeId) === driver.id &&
-              !(load.grainTicketId || load.ticketId || load.elevatorTicketNumber) &&
-              loNorm(load.status) !== "ticket_missing"
-            )
-            .sort((a,b) =>
-              loMillis(b.loadedAt || b.createdAt) -
-              loMillis(a.loadedAt || a.createdAt)
-            );
-
-          olderUnlinked.forEach(load => {
-            transaction.update(
-              doc(db,LOADOUT_COLLECTION,load.id),
-              {
-                status:"ticket_missing",
-                statusReason:"driver_assigned_newer_load_before_ticket_link",
-                markedMissingAt:serverTimestamp(),
-                updatedAt:serverTimestamp()
-              }
-            );
-          });
-
-          transaction.set(
-            counterRef,
+      await Promise.all(
+        olderUnlinked.map(load =>
+          updateDoc(
+            doc(db,LOADOUT_COLLECTION,load.id),
             {
-              loadDate:today,
-              lastSequence:nextSequence,
+              status:"ticket_missing",
+              statusReason:"driver_assigned_newer_load_before_ticket_link",
+              markedMissingAt:serverTimestamp(),
               updatedAt:serverTimestamp()
-            },
-            {merge:true}
-          );
-
-          const loadedAt = new Date();
-
-          const payload = {
-            loadNumber,
-            loadSequence:nextSequence,
-            loadDate:today,
-
-            driverEmployeeId:driver.id,
-            driverUid:driver.uid || null,
-            driverName:driver.name,
-            driverEmail:driver.email || null,
-
-            destinationId:destination.id,
-            destinationName:destination.locationName,
-            buyerId:destination.buyerId || null,
-            buyerName:destination.buyerName || null,
-            deliveryLocationName:destination.locationName,
-            deliveryStreet:destination.street || null,
-            deliveryCity:destination.city || null,
-            deliveryState:destination.state || null,
-            deliveryZip:destination.zip || null,
-            destinationAddress:loFormatAddress(destination) || null,
-
-            customerId:customer.id,
-            customerName:customer.name,
-
-            crop,
-
-            contractId:contract?.id || null,
-            contractLabel:contract ? loContractLabel(contract) : null,
-            contractNumber:contract
-              ? loClean(
-                  contract.contractNumber ||
-                  contract.number ||
-                  contract.contractNo ||
-                  contract.referenceNumber
-                ) || null
-              : null,
-
-            loadedAt,
-            estimatedArrivalAt:loState.etaAt || null,
-            estimatedDriveMinutes:loState.etaMinutes || null,
-            estimatedDistanceText:loState.etaDistanceText || null,
-
-            status:"dispatched",
-
-            grainTicketId:null,
-            elevatorTicketNumber:null,
-            linkedDate:null,
-            ticketLinkedAt:null,
-
-            createdByUid:auth.currentUser?.uid || null,
-            createdByName:
-              auth.currentUser?.displayName ||
-              auth.currentUser?.email ||
-              "FarmVista User",
-            createdByEmail:auth.currentUser?.email || null,
-
-            createdAt:serverTimestamp(),
-            updatedAt:serverTimestamp()
-          };
-
-          transaction.set(loadRef,payload);
-
-          newLoadId = loadRef.id;
-          createdLoad = {
-            id:newLoadId,
-            ...payload
-          };
-        }
+            }
+          )
+        )
       );
+
+      await setDoc(
+        counterRef,
+        {
+          loadDate:today,
+          lastSequence:nextSequence,
+          updatedAt:serverTimestamp()
+        },
+        {merge:true}
+      );
+
+      const loadedAt = new Date();
+
+      const payload = {
+        loadNumber,
+        loadSequence:nextSequence,
+        loadDate:today,
+
+        driverEmployeeId:driver.id,
+        driverUid:driver.uid || null,
+        driverName:driver.name,
+        driverEmail:driver.email || null,
+
+        destinationId:destination.id,
+        destinationName:destination.locationName,
+        buyerId:destination.buyerId || null,
+        buyerName:destination.buyerName || null,
+        deliveryLocationName:destination.locationName,
+        deliveryStreet:destination.street || null,
+        deliveryCity:destination.city || null,
+        deliveryState:destination.state || null,
+        deliveryZip:destination.zip || null,
+        destinationAddress:loFormatAddress(destination) || null,
+
+        customerId:customer.id,
+        customerName:customer.name,
+
+        crop,
+
+        contractId:contract?.id || null,
+        contractLabel:contract ? loContractLabel(contract) : null,
+        contractNumber:contract
+          ? loClean(
+              contract.contractNumber ||
+              contract.number ||
+              contract.contractNo ||
+              contract.referenceNumber
+            ) || null
+          : null,
+
+        loadedAt,
+        estimatedArrivalAt:loState.etaAt || null,
+        estimatedDriveMinutes:loState.etaMinutes || null,
+        estimatedDistanceText:loState.etaDistanceText || null,
+
+        status:"dispatched",
+
+        grainTicketId:null,
+        elevatorTicketNumber:null,
+        linkedDate:null,
+        ticketLinkedAt:null,
+
+        createdByUid:auth.currentUser?.uid || null,
+        createdByName:
+          auth.currentUser?.displayName ||
+          auth.currentUser?.email ||
+          "FarmVista User",
+        createdByEmail:auth.currentUser?.email || null,
+
+        createdAt:serverTimestamp(),
+        updatedAt:serverTimestamp()
+      };
+
+      const savedLoad =
+        await addDoc(
+          collection(db,LOADOUT_COLLECTION),
+          payload
+        );
+
+      newLoadId = savedLoad.id;
+      createdLoad = {
+        id:newLoadId,
+        ...payload
+      };
 
       loShowMessage(
         `Load ${createdLoad.loadNumber} assigned.`,
