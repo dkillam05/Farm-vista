@@ -3705,121 +3705,176 @@ function hideAllScreens() {
       // CAMERA
       // ==========================================================
 
-      async function startCamera() {
+async function startCamera() {
 
-        stopCamera();
+  stopCamera();
 
+  showCameraScreen();
 
-        showCameraScreen();
+  captureBtn.disabled =
+    true;
 
+  torchBtn.hidden =
+    true;
 
-        captureBtn.disabled =
-          true;
+  torchBtn.classList.remove(
+    "active"
+  );
 
+  torchBtn.textContent =
+    "🔦 Flashlight";
 
-        torchBtn.hidden =
-          true;
-
-
-        torchBtn.classList.remove(
-          "active"
-        );
-
-
-        torchBtn.textContent =
-          "🔦 Flashlight";
+  torchOn =
+    false;
 
 
-        torchOn =
-          false;
+  if (
+    !navigator.mediaDevices ||
+    !navigator.mediaDevices.getUserMedia
+  ) {
+
+    showError(
+      "Camera access is not available in this browser."
+    );
+
+    return;
+
+  }
 
 
-        if (
-          !navigator.mediaDevices ||
-          !navigator.mediaDevices.getUserMedia
-        ) {
+  try {
 
-          fileInput.click();
-
-          return;
-        }
+    console.log(
+      "[Grain Ticket] Starting camera…"
+    );
 
 
-        try {
+    cameraStream =
+      await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: {
+            ideal:
+              "environment"
+          }
+        },
 
-          cameraStream =
-            await navigator.mediaDevices.getUserMedia({
-              video: {
-                facingMode: {
-                  ideal:
-                    "environment"
-                },
-
-                width: {
-                  ideal:
-                    1920
-                },
-
-                height: {
-                  ideal:
-                    1080
-                }
-              },
-
-              audio:
-                false
-            });
+        audio:
+          false
+      });
 
 
-          cameraVideo.srcObject =
-            cameraStream;
+    cameraTrack =
+      cameraStream
+        .getVideoTracks()[0] ||
+      null;
 
 
-          await cameraVideo.play();
+    if (
+      !cameraTrack
+    ) {
+
+      throw new Error(
+        "No camera video track was available."
+      );
+
+    }
 
 
-          cameraTrack =
-            cameraStream
-              .getVideoTracks()[0] ||
-            null;
+    cameraVideo.srcObject =
+      cameraStream;
 
 
-          await setupTorch();
+    cameraVideo.muted =
+      true;
 
 
-          setTimeout(
-            () => {
-
-              ticketFrame.classList.add(
-                "ready"
-              );
+    cameraVideo.playsInline =
+      true;
 
 
-              captureBtn.disabled =
-                false;
-
-            },
-            700
-          );
-
-        }
-        catch (err) {
-
-          console.error(
-            "[Grain Ticket] Camera failed:",
-            err
-          );
+    await cameraVideo.play();
 
 
-          stopCamera();
+    /*
+      Do NOT automatically turn on the flashlight.
+
+      We only check whether the phone supports it
+      and show the button when available.
+    */
+
+    await setupTorch();
 
 
-          fileInput.click();
+    ticketFrame.classList.add(
+      "ready"
+    );
 
-        }
 
+    captureBtn.disabled =
+      false;
+
+
+    console.log(
+      "[Grain Ticket] Camera ready.",
+      {
+        width:
+          cameraVideo.videoWidth,
+
+        height:
+          cameraVideo.videoHeight,
+
+        trackState:
+          cameraTrack.readyState
       }
+    );
 
+  }
+  catch (err) {
+
+    console.error(
+      "[Grain Ticket] Camera failed:",
+      err
+    );
+
+
+    stopCamera();
+
+
+    captureBtn.disabled =
+      true;
+
+
+    const errorName =
+      String(
+        err?.name ||
+        ""
+      );
+
+
+    if (
+      errorName ===
+        "NotAllowedError" ||
+      errorName ===
+        "PermissionDeniedError"
+    ) {
+
+      showError(
+        "Camera permission is blocked. Allow camera access for FarmVista and try again."
+      );
+
+      return;
+
+    }
+
+
+    showError(
+      err?.message ||
+      "FarmVista could not start the camera."
+    );
+
+  }
+
+}
 
       function stopCamera() {
 
@@ -3873,11 +3928,17 @@ function hideAllScreens() {
 
 async function setupTorch() {
 
+  torchBtn.hidden =
+    true;
+
+
   if (
     !cameraTrack ||
     !cameraTrack.getCapabilities
   ) {
+
     return;
+
   }
 
 
@@ -3888,69 +3949,35 @@ async function setupTorch() {
 
 
     if (
-      capabilities &&
-      capabilities.torch
+      capabilities?.torch
     ) {
 
       torchBtn.hidden =
         false;
 
-
-      /*
-        Automatically turn the flashlight ON
-        when the grain-ticket camera opens.
-      */
-
-      await cameraTrack.applyConstraints({
-        advanced: [
-          {
-            torch: true
-          }
-        ]
-      });
-
-
-      torchOn =
-        true;
-
-
-      torchBtn.classList.add(
+      torchBtn.classList.remove(
         "active"
       );
 
-
       torchBtn.textContent =
-        "🔦 Flashlight On";
+        "🔦 Flashlight";
+
+      torchOn =
+        false;
 
     }
 
   }
   catch (err) {
 
-    /*
-      Some phones/browsers expose the camera but
-      will not allow automatic torch control.
-
-      Camera still works normally in that case.
-    */
-
     console.warn(
-      "[Grain Ticket] Automatic flashlight failed:",
+      "[Grain Ticket] Torch capability check failed:",
       err
     );
 
 
-    torchOn =
-      false;
-
-
-    torchBtn.classList.remove(
-      "active"
-    );
-
-
-    torchBtn.textContent =
-      "🔦 Flashlight";
+    torchBtn.hidden =
+      true;
 
   }
 
