@@ -533,15 +533,17 @@
      * fv-perms-hero.js also uses Maintenance Add
      * to automatically enable the QR Scanner capability.
      */
-    const maintenanceAllowed =
-      can(
-        CAP.QL_MAINT_ADD,
-        "view"
-      ) ||
-      can(
-        CAP.MAINTENANCE,
-        "add"
-      );
+const maintenanceQuickLinkAllowed =
+  can(
+    CAP.QL_MAINT_ADD,
+    "view"
+  );
+
+const equipmentServiceRequestAllowed =
+  can(
+    CAP.MAINTENANCE,
+    "add"
+  );
 
     const equipmentAllowed =
       canAny(
@@ -602,28 +604,29 @@
      * =========================================================
      */
 
-    setVisible(
-      els.qlMaintAdd,
-      maintenanceAllowed
-    );
+setVisible(
+  els.qlMaintAdd,
+  maintenanceQuickLinkAllowed
+);
 
-    setVisible(
-      els.qlMaintAddMobile,
-      maintenanceAllowed
-    );
+setVisible(
+  els.qlMaintAddMobile,
+  maintenanceQuickLinkAllowed
+);
 
-    /*
-     * Mobile Equipment Service Request.
-     *
-     * IMPORTANT:
-     * This follows Maintenance Work Orders -> Add.
-     *
-     * It does NOT follow general Equipment View access.
-     */
-    setVisible(
-      els.qlEquipmentServiceMobile,
-      maintenanceAllowed
-    );
+/*
+ * Mobile Equipment Service Request.
+ *
+ * Maintenance Work Orders -> Add controls ONLY
+ * this mobile quick link.
+ *
+ * Add permission alone does not expose the normal
+ * Add Maintenance quick link or other maintenance areas.
+ */
+setVisible(
+  els.qlEquipmentServiceMobile,
+  equipmentServiceRequestAllowed
+);
 
     /*
      * =========================================================
