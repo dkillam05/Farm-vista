@@ -960,6 +960,107 @@
   max-width:100%;
 }
 
+
+
+/* ============================================================
+   GRAIN DASHBOARD HEADER + COMPACT BOARD REFINEMENTS
+============================================================ */
+
+.grain-section-head{
+  display:grid;
+  grid-template-columns:34px minmax(0,1fr) auto;
+  gap:10px;
+  align-items:center;
+  padding:13px 15px !important;
+  border-bottom:1px solid var(--border);
+  background:linear-gradient(90deg,rgba(47,108,60,.12),transparent) !important;
+}
+
+.grain-section-icon{
+  width:24px;
+  height:24px;
+  display:grid;
+  place-items:center;
+  color:#2f6c3c;
+  font-size:19px;
+}
+
+.grain-section-head strong{
+  display:block;
+  font-size:15px;
+  font-weight:950;
+}
+
+.grain-section-sub{
+  margin-top:2px;
+  color:var(--muted,#67706b);
+  font-size:12px;
+  font-weight:700;
+}
+
+.loadout-card > .loadout-head,
+.ticket-dashboard > .sum-title{
+  margin:0;
+}
+
+/* Remove the forced empty vertical space from the first version */
+.loadout-card,
+.ticket-dashboard{
+  min-height:0 !important;
+  height:auto !important;
+}
+
+/* Keep content naturally sized to the rows it actually has */
+.loadout-table-wrap,
+.ticket-table-wrap{
+  height:auto !important;
+  min-height:0 !important;
+}
+
+.loadout-table tbody,
+.ticket-table tbody{
+  height:auto !important;
+}
+
+.loadout-footer-note{
+  margin-top:10px !important;
+  margin-bottom:12px !important;
+}
+
+/* Slightly more balanced desktop widths */
+#grain-live-grid{
+  grid-template-columns:minmax(0,1.12fr) minmax(500px,.88fr) !important;
+}
+
+/* Add Load stays dashboard-green with white type */
+.loadout-add-btn{
+  background:#3B7E46 !important;
+  color:#fff !important;
+  -webkit-text-fill-color:#fff !important;
+  border:0 !important;
+  box-shadow:none !important;
+}
+
+/* Compact the blank space between legend/table/footer */
+.loadout-legend{
+  margin-top:10px !important;
+  margin-bottom:0 !important;
+}
+
+.loadout-table-wrap{
+  margin-top:10px !important;
+}
+
+/* Keep desktop ticket panel aligned without stretching either side */
+.ticket-dashboard{
+  align-self:start;
+}
+
+/* Remove old helper-card spacing that is no longer needed */
+#grain-live-grid{
+  margin-top:14px !important;
+}
+
 </style>
 </head>
 <body>
@@ -973,26 +1074,16 @@
         moisture, and shrink across the season.
       </p>
 
-      <div class="card">
-        <h2 class="card-title">Overview</h2>
-        <ul class="list">
-          <li>🛢️&nbsp; Track on-farm inventory by bin and bag</li>
-          <li>📄&nbsp; Manage contracts and monitor remaining balances</li>
-          <li>🎟️&nbsp; Capture tickets (incl. OCR) with grades and dockage</li>
-          <li>📊&nbsp; See moisture, test weight, and shrink history</li>
-          <li>🔁&nbsp; Reconcile loads from field → storage → delivery</li>
-        </ul>
-      </div>
-
-      
-<div class="grain-live-grid" id="grain-live-grid">
+      <div class="grain-live-grid" id="grain-live-grid">
 
   <section class="sum-card loadout-card" id="grain-loadout-summary" aria-label="Load Out and Dispatch">
 
-    <div class="loadout-head">
+    <header class="grain-section-head loadout-head">
+      <div class="grain-section-icon" aria-hidden="true">🚛</div>
+
       <div class="loadout-title-wrap">
-        <div class="sum-title" style="margin:0;">Load Out / Dispatch</div>
-        <div class="loadout-subtitle">
+        <strong>Load Out / Dispatch</strong>
+        <div class="grain-section-sub">
           Open loads, missing tickets, and tickets linked today.
         </div>
       </div>
@@ -1004,7 +1095,7 @@
       >
         + Add Load
       </button>
-    </div>
+    </header>
 
     <div class="loadout-legend">
       <span class="loadout-legend-item">
@@ -1060,9 +1151,13 @@
   id="grain-tickets-summary"
 >
 
-  <div class="sum-title">
-    Grain Tickets
-  </div>
+  <header class="grain-section-head grain-ticket-head">
+    <div class="grain-section-icon" aria-hidden="true">🎟️</div>
+    <div>
+      <strong>Grain Tickets</strong>
+      <div class="grain-section-sub">Recent scanned and entered tickets</div>
+    </div>
+  </header>
 
 
   <div class="ticket-kpis">
@@ -3176,7 +3271,7 @@ if (els.tickets) {
   }
 
   function loLoadGoogleMaps(){
-    if (window.google?.maps?.DistanceMatrixService) {
+    if (window.google?.maps?.DirectionsService) {
       return Promise.resolve(window.google.maps);
     }
 
@@ -3193,7 +3288,7 @@ if (els.tickets) {
         const started = Date.now();
 
         const check = () => {
-          if (window.google?.maps?.DistanceMatrixService) {
+          if (window.google?.maps?.DirectionsService) {
             resolve(window.google.maps);
             return;
           }
@@ -3227,10 +3322,10 @@ if (els.tickets) {
         `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&v=weekly`;
 
       script.onload = () => {
-        if (window.google?.maps?.DistanceMatrixService) {
+        if (window.google?.maps?.DirectionsService) {
           resolve(window.google.maps);
         } else {
-          reject(new Error("Google Maps loaded without Distance Matrix."));
+          reject(new Error("Google Maps loaded without Directions Service."));
         }
       };
 
@@ -3250,25 +3345,27 @@ if (els.tickets) {
     loState.etaAt = null;
     loState.etaMinutes = null;
     loState.etaDistanceText = "";
-    loEls.eta.value = "—";
 
     if (!location) {
-      return;
+      loEls.eta.value = "—";
+      return false;
     }
 
     const destinationAddress = loFormatAddress(location);
     const originAddress = loCompanyAddress();
 
     if (!destinationAddress) {
+      loEls.eta.value = "—";
       loEls.etaHelp.textContent =
         "This destination does not have a complete address saved.";
-      return;
+      return false;
     }
 
     if (!originAddress) {
+      loEls.eta.value = "—";
       loEls.etaHelp.textContent =
         "Company address is missing from company/main.";
-      return;
+      return false;
     }
 
     loEls.eta.value = "Calculating…";
@@ -3278,70 +3375,70 @@ if (els.tickets) {
     try {
       const maps = await loLoadGoogleMaps();
 
-      const service = new maps.DistanceMatrixService();
+      if (!maps?.DirectionsService) {
+        throw new Error("Google Directions Service is unavailable.");
+      }
 
-      service.getDistanceMatrix(
-        {
-          origins: [originAddress],
-          destinations: [destinationAddress],
-          travelMode: maps.TravelMode.DRIVING,
-          unitSystem: maps.UnitSystem.IMPERIAL
-        },
-        (response,status) => {
-          const element =
-            response?.rows?.[0]?.elements?.[0];
+      const service = new maps.DirectionsService();
 
-          if (
-            status !== "OK" ||
-            !element ||
-            element.status !== "OK" ||
-            !element.duration?.value
-          ) {
-            loEls.eta.value = "—";
-
-            const detail =
-              element?.status && element.status !== "OK"
-                ? ` (${element.status})`
-                : status && status !== "OK"
-                  ? ` (${status})`
-                  : "";
-
-            loEls.etaHelp.textContent =
-              `Could not calculate drive-time ETA${detail}. Check that Distance Matrix is enabled for the Google Maps key.`;
-            return;
+      const routeResult = await new Promise((resolve,reject) => {
+        service.route(
+          {
+            origin: originAddress,
+            destination: destinationAddress,
+            travelMode: maps.TravelMode.DRIVING
+          },
+          (result,status) => {
+            if (status === "OK" && result?.routes?.[0]?.legs?.[0]) {
+              resolve(result.routes[0].legs[0]);
+            } else {
+              reject(new Error(`Google route failed (${status || "UNKNOWN"}).`));
+            }
           }
+        );
+      });
 
-          const minutes =
-            Math.max(
-              1,
-              Math.round(element.duration.value / 60)
-            );
+      const seconds =
+        Number(routeResult.duration?.value || 0);
 
-          const eta =
-            new Date(Date.now() + minutes * 60000);
+      if (!seconds) {
+        throw new Error("Google returned no drive time.");
+      }
 
-          loState.etaMinutes = minutes;
-          loState.etaAt = eta;
-          loState.etaDistanceText =
-            loClean(element.distance?.text);
+      const minutes =
+        Math.max(
+          1,
+          Math.round(seconds / 60)
+        );
 
-          loEls.eta.value =
-            loFormatClock(eta);
+      const eta =
+        new Date(Date.now() + minutes * 60000);
 
-          loEls.etaHelp.textContent =
-            `${element.duration.text}${
-              element.distance?.text
-                ? ` • ${element.distance.text}`
-                : ""
-            } from ${loClean(loState.company?.name) || "company location"}.`;
-        }
-      );
+      loState.etaMinutes = minutes;
+      loState.etaAt = eta;
+      loState.etaDistanceText =
+        loClean(routeResult.distance?.text);
+
+      loEls.eta.value =
+        loFormatClock(eta);
+
+      loEls.etaHelp.textContent =
+        `${routeResult.duration?.text || `${minutes} min`}${
+          routeResult.distance?.text
+            ? ` • ${routeResult.distance.text}`
+            : ""
+        } from ${loClean(loState.company?.name) || "company location"}.`;
+
+      return true;
+
     } catch (error) {
       console.warn("[grain loadout] ETA:", error);
 
       loEls.eta.value = "—";
       loEls.etaHelp.textContent =
-        `ETA could not be calculated: ${error?.message || "Google Maps route request failed."}`;
+        `ETA could not be calculated: ${error?.message || "Google route request failed."}`;
+
+      return false;
     }
   }
 
@@ -3437,7 +3534,7 @@ if (els.tickets) {
           ? "Ticket Missing"
           : status === "linked"
             ? "Ticket Linked"
-            : "Dispatched";
+            : "In Transit";
 
       const statusClass =
         status === "missing"
@@ -3510,7 +3607,7 @@ if (els.tickets) {
     ).length;
 
     loEls.countNote.textContent =
-      `${open} dispatched • ${missing} ticket missing • ${linked} linked today`;
+      `${open} in transit • ${missing} ticket missing • ${linked} linked today`;
   }
 
   async function loLoadReferenceData(){
@@ -3678,6 +3775,24 @@ if (els.tickets) {
         "error"
       );
       return;
+    }
+
+    if (!loState.etaAt) {
+      loEls.saveBtn.disabled = true;
+      loEls.saveBtn.textContent = "Calculating ETA…";
+
+      const etaReady = await loUpdateEta();
+
+      if (!etaReady) {
+        loEls.saveBtn.disabled = false;
+        loEls.saveBtn.textContent = "Assign Load";
+
+        loShowMessage(
+          "ETA could not be calculated. Check the destination address or Google Maps setup.",
+          "error"
+        );
+        return;
+      }
     }
 
     loState.saving = true;
@@ -3875,8 +3990,14 @@ if (els.tickets) {
   loEls.customer?.addEventListener("change",loRenderContracts);
   loEls.crop?.addEventListener("change",loRenderContracts);
   loEls.destination?.addEventListener("change", async () => {
+    loEls.saveBtn.disabled = true;
     loEls.eta.value = "Calculating…";
+
     await loUpdateEta();
+
+    if (!loState.saving) {
+      loEls.saveBtn.disabled = false;
+    }
   });
 
   try {
