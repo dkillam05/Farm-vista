@@ -3339,6 +3339,109 @@ if (els.tickets) {
     return window.__FV_LOADOUT_MAPS_PROMISE;
   }
 
+  function loWithTimeout(promise, milliseconds, message){
+    return Promise.race([
+      promise,
+      new Promise((_,reject) => {
+        setTimeout(
+          () => reject(new Error(message || "Request timed out.")),
+          milliseconds
+        );
+      })
+    ]);
+  }
+
+  function loHaversineMiles(a,b){
+    const toRad = degrees => degrees * Math.PI / 180;
+    const earthMiles = 3958.8;
+
+    const lat1 = toRad(a.lat);
+    const lat2 = toRad(b.lat);
+    const dLat = toRad(b.lat - a.lat);
+    const dLng = toRad(b.lng - a.lng);
+
+    const sinLat = Math.sin(dLat / 2);
+    const sinLng = Math.sin(dLng / 2);
+
+    const h =
+      sinLat * sinLat +
+      Math.cos(lat1) *
+      Math.cos(lat2) *
+      sinLng * sinLng;
+
+    return 2 * earthMiles * Math.asin(Math.sqrt(h));
+  }
+
+  async function loGeocodeAddress(maps,address){
+    if (!maps?.Geocoder) {
+      throw new Error("Google Geocoder is unavailable.");
+    }
+
+    const geocoder = new maps.Geocoder();
+
+    return loWithTimeout(
+      new Promise((resolve,reject) => {
+        geocoder.geocode(
+          {address},
+          (results,status) => {
+            const location =
+              results?.[0]?.geometry?.location;
+
+            if (status === "OK" && location) {
+              resolve({
+                lat:location.lat(),
+                lng:location.lng()
+              });
+            } else {
+              reject(
+                new Error(
+                  `Geocoding failed (${status || "UNKNOWN"}).`
+                )
+              );
+            }
+          }
+        );
+      }),
+      8000,
+      "Address lookup timed out."
+    );
+  }
+
+  async function loApproximateEtaFromAddresses(
+    maps,
+    originAddress,
+    destinationAddress
+  ){
+    const [origin,destination] =
+      await Promise.all([
+        loGeocodeAddress(maps,originAddress),
+        loGeocodeAddress(maps,destinationAddress)
+      ]);
+
+    const straightMiles =
+      loHaversineMiles(origin,destination);
+
+    /*
+      Road distance is generally longer than straight-line distance.
+      Use a conservative 1.22 road factor plus 5 minutes for
+      getting out of the yard / elevator approach.
+    */
+    const estimatedRoadMiles =
+      Math.max(1,straightMiles * 1.22);
+
+    const estimatedMinutes =
+      Math.max(
+        5,
+        Math.round((estimatedRoadMiles / 50) * 60 + 5)
+      );
+
+    return {
+      minutes:estimatedMinutes,
+      distanceText:`~${Math.round(estimatedRoadMiles)} mi`,
+      approximate:true
+    };
+  }
+
   async function loUpdateEta(){
     const location = loSelectedLocation();
 
@@ -3351,8 +3454,11 @@ if (els.tickets) {
       return false;
     }
 
-    const destinationAddress = loFormatAddress(location);
-    const originAddress = loCompanyAddress();
+    const destinationAddress =
+      loFormatAddress(location);
+
+    const originAddress =
+      loCompanyAddress();
 
     if (!destinationAddress) {
       loEls.eta.value = "—";
@@ -3373,70 +3479,147 @@ if (els.tickets) {
       `From ${originAddress} to ${destinationAddress}`;
 
     try {
-      const maps = await loLoadGoogleMaps();
+      const maps =
+        await loWithTimeout(
+          loLoadGoogleMaps(),
+          8000,
+          "Google Maps took too long to load."
+        );
 
-      if (!maps?.DirectionsService) {
-        throw new Error("Google Directions Service is unavailable.");
-      }
+      let routeInfo = null;
 
-      const service = new maps.DirectionsService();
+      /*
+        First try Google's actual road route.
+        Never allow this request to hang the form.
+      */
+      try {
+        if (maps?.DirectionsService) {
+          const service =
+            new maps.DirectionsService();
 
-      const routeResult = await new Promise((resolve,reject) => {
-        service.route(
-          {
-            origin: originAddress,
-            destination: destinationAddress,
-            travelMode: maps.TravelMode.DRIVING
-          },
-          (result,status) => {
-            if (status === "OK" && result?.routes?.[0]?.legs?.[0]) {
-              resolve(result.routes[0].legs[0]);
-            } else {
-              reject(new Error(`Google route failed (${status || "UNKNOWN"}).`));
-            }
+          const leg =
+            await loWithTimeout(
+              new Promise((resolve,reject) => {
+                service.route(
+                  {
+                    origin:originAddress,
+                    destination:destinationAddress,
+                    travelMode:maps.TravelMode.DRIVING
+                  },
+                  (result,status) => {
+                    const foundLeg =
+                      result?.routes?.[0]?.legs?.[0];
+
+                    if (
+                      status === "OK" &&
+                      foundLeg
+                    ) {
+                      resolve(foundLeg);
+                    } else {
+                      reject(
+                        new Error(
+                          `Google route failed (${status || "UNKNOWN"}).`
+                        )
+                      );
+                    }
+                  }
+                );
+              }),
+              8000,
+              "Google route request timed out."
+            );
+
+          const seconds =
+            Number(
+              leg.duration?.value || 0
+            );
+
+          if (seconds > 0) {
+            routeInfo = {
+              minutes:
+                Math.max(
+                  1,
+                  Math.round(seconds / 60)
+                ),
+              distanceText:
+                loClean(leg.distance?.text),
+              durationText:
+                loClean(leg.duration?.text),
+              approximate:false
+            };
           }
+        }
+      } catch (routeError) {
+        console.warn(
+          "[grain loadout] road route unavailable; using ETA estimate:",
+          routeError
         );
-      });
-
-      const seconds =
-        Number(routeResult.duration?.value || 0);
-
-      if (!seconds) {
-        throw new Error("Google returned no drive time.");
       }
 
-      const minutes =
-        Math.max(
-          1,
-          Math.round(seconds / 60)
-        );
+      /*
+        If Google road routing is disabled / deprecated / slow,
+        geocode both addresses and derive a usable ETA instead.
+      */
+      if (!routeInfo) {
+        routeInfo =
+          await loApproximateEtaFromAddresses(
+            maps,
+            originAddress,
+            destinationAddress
+          );
+      }
 
       const eta =
-        new Date(Date.now() + minutes * 60000);
+        new Date(
+          Date.now() +
+          routeInfo.minutes * 60000
+        );
 
-      loState.etaMinutes = minutes;
-      loState.etaAt = eta;
+      loState.etaMinutes =
+        routeInfo.minutes;
+
+      loState.etaAt =
+        eta;
+
       loState.etaDistanceText =
-        loClean(routeResult.distance?.text);
+        routeInfo.distanceText || "";
 
       loEls.eta.value =
         loFormatClock(eta);
 
-      loEls.etaHelp.textContent =
-        `${routeResult.duration?.text || `${minutes} min`}${
-          routeResult.distance?.text
-            ? ` • ${routeResult.distance.text}`
-            : ""
-        } from ${loClean(loState.company?.name) || "company location"}.`;
+      if (routeInfo.approximate) {
+        loEls.etaHelp.textContent =
+          `Estimated ${routeInfo.minutes} min • ${routeInfo.distanceText} from ${
+            loClean(loState.company?.name) ||
+            "company location"
+          }.`;
+      } else {
+        loEls.etaHelp.textContent =
+          `${routeInfo.durationText || `${routeInfo.minutes} min`}${
+            routeInfo.distanceText
+              ? ` • ${routeInfo.distanceText}`
+              : ""
+          } from ${
+            loClean(loState.company?.name) ||
+            "company location"
+          }.`;
+      }
 
       return true;
 
     } catch (error) {
-      console.warn("[grain loadout] ETA:", error);
+      console.warn(
+        "[grain loadout] ETA failed:",
+        error
+      );
 
       loEls.eta.value = "—";
+
       loEls.etaHelp.textContent =
-        `ETA could not be calculated: ${error?.message || "Google route request failed."}`;
+        `ETA unavailable: ${
+          error?.message ||
+          "Could not calculate route."
+        }`;
 
       return false;
     }
@@ -3993,7 +4176,11 @@ if (els.tickets) {
     loEls.saveBtn.disabled = true;
     loEls.eta.value = "Calculating…";
 
-    await loUpdateEta();
+    const ok = await loUpdateEta();
+
+    if (!ok && loEls.eta.value === "Calculating…") {
+      loEls.eta.value = "—";
+    }
 
     if (!loState.saving) {
       loEls.saveBtn.disabled = false;
