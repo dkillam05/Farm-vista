@@ -211,7 +211,6 @@
       <ul id="results" class="list" aria-live="polite"></ul>
       <div id="empty" class="empty">No matches.</div>
 
-
       <!-- Contractor Details -->
       <section id="formSection" class="section" aria-hidden="true">
 
@@ -228,7 +227,6 @@
           </div>
 
           <div class="grid2">
-
             <div class="field">
               <label for="contact">Primary Contact</label>
               <input id="contact" class="input" type="text" />
@@ -244,7 +242,6 @@
                 placeholder="(555) 555-5555"
               />
             </div>
-
           </div>
 
           <div class="grid2">
@@ -264,19 +261,6 @@
               <label for="service">Service</label>
               <select id="service" class="input">
                 <option value="">Select Service…</option>
-                <option value="Aerial Application">Aerial Application</option>
-                <option value="Anhydrous Ammonia Application">Anhydrous Ammonia Application</option>
-                <option value="Custom Harvesting">Custom Harvesting</option>
-                <option value="Custom Planting">Custom Planting</option>
-                <option value="Custom Spraying">Custom Spraying</option>
-                <option value="Drainage / Tile">Drainage / Tile</option>
-                <option value="Excavation / Dirt Work">Excavation / Dirt Work</option>
-                <option value="Fertilizer Application">Fertilizer Application</option>
-                <option value="Lime Application">Lime Application</option>
-                <option value="Manure Application">Manure Application</option>
-                <option value="Tillage">Tillage</option>
-                <option value="Trucking">Trucking</option>
-                <option value="Other">Other</option>
               </select>
             </div>
 
@@ -321,7 +305,6 @@
         </div>
       </section>
 
-      <!-- Shared Permissions Hero -->
       <fv-perms-hero id="permsHero" style="display:none;"></fv-perms-hero>
 
     </div>
@@ -333,7 +316,6 @@
 
 
   <script type="module">
-
     import '/Farm-vista/js/fv-perms-hero.js';
 
     import {
@@ -356,7 +338,6 @@
 
     import NAV_MENU from '/Farm-vista/js/menu.js';
 
-
     const $ = id => document.getElementById(id);
 
     const toast = $("toast");
@@ -373,18 +354,37 @@
 
     let rolesLoaded = false;
     let currentRoleName = null;
+    let rolesReadyResolve = null;
+
+    const rolesReady = new Promise(resolve=>{
+      rolesReadyResolve = resolve;
+    });
 
     let basePerms4 = {};
     let effectivePerms4 = {};
 
     const COLLECTION_ROLES = "accountRoles";
 
+    const SERVICES = [
+      "Aerial Application",
+      "Anhydrous Ammonia Application",
+      "Custom Harvesting",
+      "Custom Planting",
+      "Custom Spraying",
+      "Drainage / Tile",
+      "Excavation / Dirt Work",
+      "Fertilizer Application",
+      "Lime Application",
+      "Manure Application",
+      "Tillage",
+      "Trucking",
+      "Other"
+    ];
 
     const emailKey = value =>
       String(value || "")
         .trim()
         .toLowerCase();
-
 
     const showToast = (message="Saved.") => {
       toast.textContent = message;
@@ -392,7 +392,6 @@
       void toast.offsetWidth;
       toast.classList.add("show");
     };
-
 
     const setBusy = on => {
       busy = !!on;
@@ -403,14 +402,13 @@
       });
     };
 
-
     const digitsOnly = value =>
       String(value || "")
         .replace(/\D+/g,"");
 
-
     const formatUSPhone = raw => {
       const digits = digitsOnly(raw);
+
       const core =
         digits.length === 11 && digits.startsWith("1")
           ? digits.slice(1)
@@ -421,18 +419,59 @@
         : String(raw || "").trim();
     };
 
+    $("phone").addEventListener("blur",event=>{
+      event.target.value =
+        formatUSPhone(event.target.value);
+    });
 
-    $("phone").addEventListener(
-      "blur",
-      event => {
-        event.target.value =
-          formatUSPhone(event.target.value);
+
+    /* =========================================================
+       SERVICE DROPDOWN
+       Build options FIRST, then apply saved Firestore value.
+       Same approach used for Crop Type.
+       ========================================================= */
+
+    function renderServiceOptions(savedValue=""){
+      const select = $("service");
+      const saved = String(savedValue || "").trim().toLowerCase();
+
+      select.innerHTML = "";
+
+      const blank = document.createElement("option");
+      blank.value = "";
+      blank.textContent = "Select Service…";
+      select.appendChild(blank);
+
+      let matchedValue = "";
+
+      SERVICES.forEach(service=>{
+        const option = document.createElement("option");
+
+        option.value = service;
+        option.textContent = service;
+
+        if(service.toLowerCase() === saved){
+          matchedValue = service;
+        }
+
+        select.appendChild(option);
+      });
+
+      if(matchedValue){
+        select.value = matchedValue;
+      }else if(saved){
+        select.value = "Other";
+      }else{
+        select.value = "";
       }
-    );
+    }
+
+
+    /* Build blank service list at startup */
+    renderServiceOptions("");
 
 
     function normalizeEntry(value){
-
       if(typeof value === "boolean"){
         return {
           view:value,
@@ -463,16 +502,13 @@
       };
     }
 
-
     function deepClone(obj){
       return JSON.parse(
         JSON.stringify(obj || {})
       );
     }
 
-
     function rebuildEffectiveFromRole(rolePermsRaw){
-
       const out = {};
 
       if(
@@ -483,7 +519,6 @@
       }
 
       Object.keys(rolePermsRaw).forEach(id=>{
-
         if(id === "home"){
           return;
         }
@@ -495,9 +530,7 @@
       return out;
     }
 
-
     function applyOverridesFromContractorData(overrides){
-
       if(
         !overrides ||
         typeof overrides !== "object"
@@ -505,56 +538,50 @@
         return;
       }
 
-      Object.entries(overrides).forEach(
-        ([key,value]) => {
+      Object.entries(overrides).forEach(([key,value])=>{
+        const leafId =
+          key.includes(".")
+            ? key.split(".").pop()
+            : key;
 
-          const leafId =
-            key.includes(".")
-              ? key.split(".").pop()
-              : key;
-
-          if(!effectivePerms4[leafId]){
-            effectivePerms4[leafId] =
-              normalizeEntry(false);
-          }
-
-          if(typeof value === "boolean"){
-
-            const entry =
-              normalizeEntry(
-                effectivePerms4[leafId]
-              );
-
-            entry.view = !!value;
-
-            effectivePerms4[leafId] =
-              entry;
-
-            return;
-          }
-
-          if(
-            value &&
-            typeof value === "object"
-          ){
-
-            const override =
-              normalizeEntry(value);
-
-            effectivePerms4[leafId] = {
-              view:override.view,
-              add:override.add,
-              edit:override.edit,
-              delete:override.delete
-            };
-          }
+        if(!effectivePerms4[leafId]){
+          effectivePerms4[leafId] =
+            normalizeEntry(false);
         }
-      );
+
+        if(typeof value === "boolean"){
+          const entry =
+            normalizeEntry(
+              effectivePerms4[leafId]
+            );
+
+          entry.view =
+            !!value;
+
+          effectivePerms4[leafId] =
+            entry;
+
+          return;
+        }
+
+        if(
+          value &&
+          typeof value === "object"
+        ){
+          const override =
+            normalizeEntry(value);
+
+          effectivePerms4[leafId] = {
+            view:override.view,
+            add:override.add,
+            edit:override.edit,
+            delete:override.delete
+          };
+        }
+      });
     }
 
-
     function collectOverridesDelta(){
-
       const overrides = {};
 
       const base =
@@ -570,7 +597,6 @@
         ]);
 
       ids.forEach(id=>{
-
         if(id === "home"){
           return;
         }
@@ -603,9 +629,7 @@
       return overrides;
     }
 
-
     function updateInviteButtonLabel(){
-
       if(!saveInviteBtn){
         return;
       }
@@ -628,9 +652,7 @@
       );
     }
 
-
     function updateHero(){
-
       const hero =
         $("permsHero");
 
@@ -694,9 +716,7 @@
       };
     }
 
-
     async function fetchRoleDocByName(name){
-
       const db =
         getFirestore();
 
@@ -727,50 +747,72 @@
       return docData;
     }
 
-function ensurePermSelected(value){
-  const sel = $("perm");
-  const wanted = String(value || "").trim();
 
-  if(!wanted) return;
+    /* =========================================================
+       PERMISSION GROUP DROPDOWN
+       Wait for options to load, then explicitly select saved value.
+       ========================================================= */
 
-  if(!rolesLoaded){
-    setTimeout(()=>ensurePermSelected(wanted), 100);
-    return;
-  }
-
-  let option = Array.from(sel.options).find(
-    o => String(o.value || "").trim().toLowerCase() === wanted.toLowerCase()
-  );
-
-  if(!option){
-    option = document.createElement("option");
-    option.value = wanted;
-    option.textContent = wanted;
-    sel.appendChild(option);
-  }
-
-  sel.value = option.value;
-}
-
-
-
-    async function populatePermissionGroups(){
+    async function selectPermissionGroup(savedValue){
+      await rolesReady;
 
       const select =
         $("perm");
 
-      try{
+      const saved =
+        String(savedValue || "")
+          .trim();
 
+      if(!saved){
+        select.value = "";
+        return;
+      }
+
+      let matchedOption =
+        Array.from(select.options).find(
+          option =>
+            String(option.value || "")
+              .trim()
+              .toLowerCase() ===
+            saved.toLowerCase()
+        );
+
+      if(!matchedOption){
+        matchedOption =
+          document.createElement("option");
+
+        matchedOption.value =
+          saved;
+
+        matchedOption.textContent =
+          saved;
+
+        select.appendChild(
+          matchedOption
+        );
+      }
+
+      select.value =
+        matchedOption.value;
+    }
+
+
+    async function populatePermissionGroups(){
+      const select =
+        $("perm");
+
+      try{
         const {mode} =
           await ready;
 
         if(mode !== "firebase"){
-
           select.innerHTML =
-            '<option selected>Standard</option>';
+            '<option value="Standard">Standard</option>';
 
           rolesLoaded =
             true;
+
+          rolesReadyResolve?.();
 
           return;
         }
@@ -801,19 +843,49 @@ function ensurePermSelected(value){
           }
         });
 
-        select.innerHTML =
-          roles.length
-            ? '<option value="">Select Permission Group…</option>' +
-              roles
-                .map(
-                  role =>
-                    `<option value="${role}">${role}</option>`
-                )
-                .join("")
-            : '<option selected>Standard</option>';
+        select.innerHTML = "";
+
+        const blank =
+          document.createElement("option");
+
+        blank.value =
+          "";
+
+        blank.textContent =
+          "Select Permission Group…";
+
+        select.appendChild(blank);
+
+        if(roles.length){
+          roles.forEach(role=>{
+            const option =
+              document.createElement("option");
+
+            option.value =
+              role;
+
+            option.textContent =
+              role;
+
+            select.appendChild(option);
+          });
+        }else{
+          const option =
+            document.createElement("option");
+
+          option.value =
+            "Standard";
+
+          option.textContent =
+            "Standard";
+
+          select.appendChild(option);
+        }
 
         rolesLoaded =
           true;
+
+        rolesReadyResolve?.();
 
         select.addEventListener(
           "change",
@@ -827,7 +899,6 @@ function ensurePermSelected(value){
               event.target.value || "";
 
             if(!value){
-
               currentRoleName =
                 null;
 
@@ -845,7 +916,6 @@ function ensurePermSelected(value){
             setBusy(true);
 
             try{
-
               currentRoleName =
                 value;
 
@@ -874,20 +944,15 @@ function ensurePermSelected(value){
                   basePerms4
                 );
 
-              if(
-                sel &&
-                sel.data &&
-                sel.data.overrides
-              ){
-                applyOverridesFromContractorData(
-                  sel.data.overrides
-                );
-              }
+              /*
+                If user manually changes the Permission Group,
+                start from that new group's defaults.
+                Do NOT reapply old contractor overrides here.
+              */
 
               updateHero();
 
             }catch(error){
-
               console.error(
                 "Failed to load role:",
                 error
@@ -905,25 +970,24 @@ function ensurePermSelected(value){
               updateHero();
 
             }finally{
-
               setBusy(false);
-
             }
           }
         );
 
       }catch(error){
-
         console.error(
           "Roles load failed:",
           error
         );
 
         select.innerHTML =
-          '<option selected>Standard</option>';
+          '<option value="Standard">Standard</option>';
 
         rolesLoaded =
           true;
+
+        rolesReadyResolve?.();
       }
     }
 
@@ -931,29 +995,7 @@ function ensurePermSelected(value){
     populatePermissionGroups();
 
 
-function ensureServiceSelected(value){
-  const sel = $("service");
-  const wanted = String(value || "").trim();
-
-  if(!wanted){
-    sel.value = "";
-    return;
-  }
-
-  const option = Array.from(sel.options).find(
-    o => String(o.value || "").trim().toLowerCase() === wanted.toLowerCase()
-  );
-
-  if(option){
-    sel.value = option.value;
-  }else{
-    sel.value = "Other";
-  }
-}
-
-
     function renderList(){
-
       const search =
         $("q")
           .value
@@ -963,7 +1005,6 @@ function ensureServiceSelected(value){
       const items =
         all
           .filter(item=>{
-
             if(
               statusFilter !== "all" &&
               (item.data.status || "")
@@ -1001,36 +1042,28 @@ function ensureServiceSelected(value){
                 )
           );
 
-
       resultsEl.innerHTML =
         "";
 
-
       if(!items.length){
-
         emptyEl.style.display =
           "block";
 
         return;
       }
 
-
       emptyEl.style.display =
         "none";
 
-
       for(const item of items){
-
         const li =
           document.createElement("li");
-
 
         const left =
           document.createElement("div");
 
         left.className =
           "left";
-
 
         const metaParts =
           [
@@ -1039,7 +1072,6 @@ function ensureServiceSelected(value){
             item.data.email
           ]
             .filter(Boolean);
-
 
         left.innerHTML =
           `
@@ -1052,13 +1084,11 @@ function ensureServiceSelected(value){
             </div>
           `;
 
-
         const right =
           document.createElement("div");
 
         right.className =
           "right";
-
 
         const button =
           document.createElement("button");
@@ -1069,14 +1099,12 @@ function ensureServiceSelected(value){
         button.textContent =
           "Edit";
 
-
         button.addEventListener(
           "click",
           ()=>{
             loadIntoForm(item);
           }
         );
-
 
         right.appendChild(button);
 
@@ -1089,15 +1117,12 @@ function ensureServiceSelected(value){
 
 
     (function wireChips(){
-
       document
         .querySelectorAll(".chip")
         .forEach(chip=>{
-
           chip.addEventListener(
             "click",
             ()=>{
-
               document
                 .querySelectorAll(".chip")
                 .forEach(
@@ -1115,12 +1140,10 @@ function ensureServiceSelected(value){
             }
           );
         });
-
     })();
 
 
     async function bootDirectory(){
-
       await ready;
 
       const col =
@@ -1132,7 +1155,6 @@ function ensureServiceSelected(value){
       onSnapshot(
         col,
         snapshot => {
-
           all =
             snapshot.docs.map(
               docSnap => ({
@@ -1152,7 +1174,6 @@ function ensureServiceSelected(value){
 
 
     function clearForm(){
-
       [
         "company",
         "contact",
@@ -1168,13 +1189,10 @@ function ensureServiceSelected(value){
           }
         });
 
-
-      $("service").value =
-        "";
+      renderServiceOptions("");
 
       $("status").value =
         "Active";
-
 
       if(
         $("perm").options.length
@@ -1183,18 +1201,15 @@ function ensureServiceSelected(value){
           0;
       }
 
-
       formSection
         .classList
         .remove("show");
-
 
       formSection
         .setAttribute(
           "aria-hidden",
           "true"
         );
-
 
       sel =
         null;
@@ -1215,13 +1230,11 @@ function ensureServiceSelected(value){
 
 
     function collectAndValidate(){
-
       const company =
         $("company");
 
       const email =
         $("email");
-
 
       if(
         !company.checkValidity()
@@ -1230,14 +1243,12 @@ function ensureServiceSelected(value){
         return null;
       }
 
-
       if(
         !email.checkValidity()
       ){
         email.reportValidity();
         return null;
       }
-
 
       return {
         company:company.value.trim(),
@@ -1256,10 +1267,8 @@ function ensureServiceSelected(value){
 
 
     async function upsertContractor(values){
-
       const db =
         getFirestore();
-
 
       const payload = {
         company:values.company,
@@ -1290,12 +1299,10 @@ function ensureServiceSelected(value){
         updatedAt:serverTimestamp()
       };
 
-
       const newId =
         emailKey(
           values.email
         );
-
 
       const newRef =
         doc(
@@ -1304,13 +1311,11 @@ function ensureServiceSelected(value){
           newId
         );
 
-
       if(
         sel &&
         sel.id &&
         sel.id !== newId
       ){
-
         const oldRef =
           doc(
             db,
@@ -1318,18 +1323,15 @@ function ensureServiceSelected(value){
             sel.id
           );
 
-
         const oldSnap =
           await getDoc(
             oldRef
           );
 
-
         const createdAt =
           oldSnap.exists()
             ? oldSnap.data()?.createdAt
             : serverTimestamp();
-
 
         await setDoc(
           newRef,
@@ -1342,7 +1344,6 @@ function ensureServiceSelected(value){
           }
         );
 
-
         if(
           oldSnap.exists()
         ){
@@ -1350,7 +1351,6 @@ function ensureServiceSelected(value){
             oldRef
           );
         }
-
 
         sel = {
           id:newId,
@@ -1360,12 +1360,10 @@ function ensureServiceSelected(value){
         };
 
       }else{
-
         const snapshot =
           await getDoc(
             newRef
           );
-
 
         if(
           !snapshot.exists()
@@ -1373,7 +1371,6 @@ function ensureServiceSelected(value){
           payload.createdAt =
             serverTimestamp();
         }
-
 
         await setDoc(
           newRef,
@@ -1383,7 +1380,6 @@ function ensureServiceSelected(value){
           }
         );
 
-
         sel = {
           id:newId,
           data:{
@@ -1391,7 +1387,6 @@ function ensureServiceSelected(value){
           }
         };
       }
-
 
       try{
         await window.FVUserContext
@@ -1401,20 +1396,27 @@ function ensureServiceSelected(value){
           });
       }catch{}
 
-
       updateInviteButtonLabel();
 
       return newId;
     }
 
 
-    async function loadIntoForm(item){
+    /* =========================================================
+       LOAD CONTRACTOR
+       IMPORTANT:
+       1. Read saved Firestore data.
+       2. Build Service dropdown.
+       3. Select saved Service.
+       4. Wait for Permission Groups.
+       5. Select saved Permission Group.
+       ========================================================= */
 
+    async function loadIntoForm(item){
       sel = {
         id:item.id,
         data:item.data
       };
-
 
       $("company").value =
         item.data.company || "";
@@ -1428,7 +1430,11 @@ function ensureServiceSelected(value){
       $("phone").value =
         item.data.phone || "";
 
-      ensureServiceSelected(
+      /*
+        BUILD SERVICE OPTIONS FIRST.
+        THEN APPLY THE FIRESTORE VALUE.
+      */
+      renderServiceOptions(
         item.data.service || ""
       );
 
@@ -1438,21 +1444,21 @@ function ensureServiceSelected(value){
       $("notes").value =
         item.data.notes || "";
 
-
       const permValue =
         item.data.permissionGroup ||
         "Standard";
 
-
-      ensurePermSelected(
+      /*
+        WAIT FOR PERMISSION GROUP OPTIONS TO EXIST.
+        THEN APPLY THE FIRESTORE VALUE.
+      */
+      await selectPermissionGroup(
         permValue
       );
-
 
       formSection
         .classList
         .add("show");
-
 
       formSection
         .setAttribute(
@@ -1460,18 +1466,13 @@ function ensureServiceSelected(value){
           "false"
         );
 
-
       updateInviteButtonLabel();
-
 
       setBusy(true);
 
-
       try{
-
         currentRoleName =
           permValue;
-
 
         const roleDoc =
           currentRoleName
@@ -1479,7 +1480,6 @@ function ensureServiceSelected(value){
                 currentRoleName
               )
             : null;
-
 
         const rawPerms =
           (
@@ -1491,33 +1491,27 @@ function ensureServiceSelected(value){
           ) ||
           {};
 
-
         basePerms4 =
           rebuildEffectiveFromRole(
             rawPerms
           );
-
 
         effectivePerms4 =
           deepClone(
             basePerms4
           );
 
-
         applyOverridesFromContractorData(
           item.data.overrides || {}
         );
 
-
         updateHero();
 
       }catch(error){
-
         console.error(
           "Failed to load role/overrides:",
           error
         );
-
 
         currentRoleName =
           null;
@@ -1531,9 +1525,7 @@ function ensureServiceSelected(value){
         updateHero();
 
       }finally{
-
         setBusy(false);
-
 
         window.scrollTo({
           top:
@@ -1556,7 +1548,6 @@ function ensureServiceSelected(value){
       .addEventListener(
         "click",
         ()=>{
-
           if(busy){
             return;
           }
@@ -1570,7 +1561,6 @@ function ensureServiceSelected(value){
       .addEventListener(
         "click",
         async ()=>{
-
           if(
             busy ||
             !sel
@@ -1578,18 +1568,14 @@ function ensureServiceSelected(value){
             return;
           }
 
-
           const values =
             collectAndValidate();
-
 
           if(!values){
             return;
           }
 
-
           try{
-
             setBusy(true);
 
             await ready;
@@ -1608,7 +1594,6 @@ function ensureServiceSelected(value){
             });
 
           }catch(error){
-
             console.error(error);
 
             alert(
@@ -1620,9 +1605,7 @@ function ensureServiceSelected(value){
             );
 
           }finally{
-
             setBusy(false);
-
           }
         }
       );
@@ -1632,7 +1615,6 @@ function ensureServiceSelected(value){
       .addEventListener(
         "click",
         async ()=>{
-
           if(
             busy ||
             !sel
@@ -1640,10 +1622,8 @@ function ensureServiceSelected(value){
             return;
           }
 
-
           const now =
             Date.now();
-
 
           if(
             now -
@@ -1653,28 +1633,21 @@ function ensureServiceSelected(value){
             return;
           }
 
-
           lastInviteAt =
             now;
 
-
           const values =
             collectAndValidate();
-
 
           if(!values){
             return;
           }
 
-
           try{
-
             setBusy(true);
-
 
             const {mode} =
               await ready;
-
 
             if(
               mode !==
@@ -1687,44 +1660,35 @@ function ensureServiceSelected(value){
               return;
             }
 
-
             await upsertContractor(
               values
             );
-
 
             await sendPasswordResetEmail(
               getAuth(),
               values.email
             );
 
-
             showToast(
               "Saved & invite resent."
             );
-
 
             window.scrollTo({
               top:0,
               behavior:"smooth"
             });
 
-
           }catch(error){
-
             console.error(error);
-
 
             const code =
               error?.code ||
               "";
 
-
             if(
               code ===
               "auth/user-not-found"
             ){
-
               alert(
                 "Resend failed.\n\n" +
                 "This email does not have a login account yet.\n" +
@@ -1737,14 +1701,12 @@ function ensureServiceSelected(value){
               code ===
                 "auth/unauthorized-continue-uri"
             ){
-
               alert(
                 "Invite failed due to domain settings.\n" +
                 "Add your site under Firebase Auth → Settings → Authorized domains."
               );
 
             }else{
-
               alert(
                 "Invite failed.\n\n" +
                 (
@@ -1752,13 +1714,10 @@ function ensureServiceSelected(value){
                   error
                 )
               );
-
             }
 
           }finally{
-
             setBusy(false);
-
           }
         }
       );
