@@ -807,41 +807,110 @@ Updates:
 
     function showContent(){ $('content').hidden = false; }
 
-    function setupReturnButtons(typeKey){
-      const btnOrigin = $('btnReturnOrigin');
-      const btnHome   = $('btnReturnHome');
-      const wrap      = $('returnActions');
-      if(!btnOrigin || !btnHome || !wrap) return;
+function setupReturnButtons(typeKey){
+  const btnOrigin = $('btnReturnOrigin');
+  const btnHome   = $('btnReturnHome');
+  const wrap      = $('returnActions');
 
-      let cfg = null;
+  if(!btnOrigin || !btnHome || !wrap) return;
 
-      if(from && FROM_MAP[from]) cfg = FROM_MAP[from];
-      else{
-        switch(typeKey){
-          case 'tractor':   cfg = FROM_MAP.tractors; break;
-          case 'combine':   cfg = FROM_MAP.combines; break;
-          case 'truck':     cfg = FROM_MAP.trucks; break;
-          case 'trailer':   cfg = FROM_MAP.trailers; break;
-          case 'implement': cfg = FROM_MAP.implements; break;
-          case 'sprayer':   cfg = FROM_MAP.sprayers; break;
-          case 'construction': cfg = FROM_MAP.construction; break;
-          case 'starfire':  cfg = FROM_MAP.starfire; break;
-          default: cfg = FROM_MAP.lookup; break;
-        }
-      }
+  let cfg = null;
 
-      if(cfg){
-        btnOrigin.textContent = cfg.label;
-        btnOrigin.href        = cfg.href;
-        btnOrigin.hidden      = false;
-      }else{
-        btnOrigin.hidden = true;
-      }
+  /*
+    QR / scanner access:
+    Only show Return to Home.
+  */
+  if(from === 'scanner'){
+    btnOrigin.hidden = true;
 
-      btnHome.href   = '/Farm-vista/index.html';
-      btnHome.hidden = false;
-      wrap.hidden    = false;
+    btnHome.href = '/Farm-vista/index.html';
+    btnHome.hidden = false;
+
+    wrap.hidden = false;
+    return;
+  }
+
+
+  /*
+    Determine where the normal Return button
+    would send the user.
+  */
+  if(from && FROM_MAP[from]){
+    cfg = FROM_MAP[from];
+  }else{
+    switch(typeKey){
+      case 'tractor':
+        cfg = FROM_MAP.tractors;
+        break;
+
+      case 'combine':
+        cfg = FROM_MAP.combines;
+        break;
+
+      case 'truck':
+        cfg = FROM_MAP.trucks;
+        break;
+
+      case 'trailer':
+        cfg = FROM_MAP.trailers;
+        break;
+
+      case 'implement':
+        cfg = FROM_MAP.implements;
+        break;
+
+      case 'sprayer':
+        cfg = FROM_MAP.sprayers;
+        break;
+
+      case 'construction':
+        cfg = FROM_MAP.construction;
+        break;
+
+      case 'starfire':
+        cfg = FROM_MAP.starfire;
+        break;
+
+      default:
+        cfg = FROM_MAP.lookup;
+        break;
     }
+  }
+
+
+  /*
+    Permission check.
+
+    If FarmVista's permission controller says
+    the user cannot access equipment overview,
+    do not give them a Return-to-equipment button.
+
+    They can still use the QR hub itself,
+    then return Home.
+  */
+  const canViewEquipment =
+    !window.FV ||
+    typeof window.FV.can !== 'function' ||
+    window.FV.can('cap-kpi-equipment');
+
+
+  if(cfg && canViewEquipment){
+    btnOrigin.textContent = cfg.label;
+    btnOrigin.href = cfg.href;
+    btnOrigin.hidden = false;
+  }else{
+    btnOrigin.hidden = true;
+  }
+
+
+  /*
+    Home is ALWAYS available.
+  */
+  btnHome.href = '/Farm-vista/index.html';
+  btnHome.hidden = false;
+
+  wrap.hidden = false;
+}
 
     function fmtNum(v){
       if(v == null || v === '') return '';
