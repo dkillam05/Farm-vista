@@ -1564,7 +1564,7 @@
               value="—"
             >
             <div id="loadout-eta-help" class="loadout-help">
-              ETA uses Google Routes from the company address to the selected elevator.
+              ETA uses Google Routes directly from the company address to the selected elevator.
             </div>
           </div>
 
@@ -2850,33 +2850,6 @@ if (els.tickets) {
 
 <script>
   /*
-    Google Maps JavaScript API — Dynamic Library Import bootstrap.
-    This is Google's supported loader for google.maps.importLibrary().
-  */
-  (g=>{var h,a,k,p="The Google Maps JavaScript API",c="google",l="importLibrary",q="__ib__",m=document,b=window;
-  b=b[c]||(b[c]={});
-  var d=b.maps||(b.maps={}),r=new Set,e=new URLSearchParams,
-  u=()=>h||(h=new Promise(async(f,n)=>{
-    await (a=m.createElement("script"));
-    e.set("libraries",[...r]+"");
-    for(k in g)e.set(k.replace(/[A-Z]/g,t=>"_"+t[0].toLowerCase()),g[k]);
-    e.set("callback",c+".maps."+q);
-    a.src=`https://maps.${c}apis.com/maps/api/js?`+e;
-    d[q]=f;
-    a.onerror=()=>h=n(Error(p+" could not load."));
-    a.nonce=m.querySelector("script[nonce]")?.nonce||"";
-    m.head.append(a)
-  }));
-  d[l]?console.warn(p+" only loads once. Ignoring:",g):
-  d[l]=(f,...n)=>r.add(f)&&u().then(()=>d[l](f,...n))
-  })({
-    key:"AIzaSyD5qLrXZch_rM4sVXmBrpGDH3Zp7RgfVHc",
-    v:"weekly"
-  });
-</script>
-
-<script>
-  /*
     UI fallback: keep Add Load modal usable even if the Firestore
     module ever has a data-loading error.
   */
@@ -3309,7 +3282,7 @@ if (els.tickets) {
     loEls.loadedTime.value = loFormatClock(new Date());
     loEls.eta.value = "—";
     loEls.etaHelp.textContent =
-      "ETA uses Google Routes from the company address to the selected elevator.";
+      "ETA uses Google Routes directly from the company address to the selected elevator.";
 
     loState.etaAt = null;
     loState.etaMinutes = null;
@@ -3331,50 +3304,9 @@ if (els.tickets) {
     loShowMessage("");
   }
 
-  async function loLoadGoogleMaps(){
+  const LOADOUT_ROUTES_API_KEY =
+    "AIzaSyD5qLrXZch_rM4sVXmBrpGDH3Zp7RgfVHc";
 
-    if (
-      !window.google?.maps?.importLibrary
-    ) {
-
-      throw new Error(
-        "Google Maps importLibrary loader is unavailable."
-      );
-
-    }
-
-
-    /*
-      Request the Routes library directly.
-      The bootstrap loader handles downloading the Maps JavaScript API
-      and the requested library exactly once.
-    */
-
-    const routesLibrary =
-      await window.google.maps.importLibrary(
-        "routes"
-      );
-
-
-    if (
-      !routesLibrary?.Route
-    ) {
-
-      throw new Error(
-        "Google Routes library did not load."
-      );
-
-    }
-
-
-    return {
-      maps:
-        window.google.maps,
-
-      routesLibrary
-    };
-
-  }
 
   function loFormatMiles(
     meters
@@ -3409,6 +3341,46 @@ if (els.tickets) {
         : `${miles.toFixed(
             1
           )} mi`;
+
+  }
+
+
+  function loParseGoogleDuration(
+    duration
+  ) {
+
+    const text =
+      loClean(
+        duration
+      );
+
+
+    const match =
+      text.match(
+        /^([0-9.]+)s$/
+      );
+
+
+    if (
+      !match
+    ) {
+
+      return 0;
+
+    }
+
+
+    const seconds =
+      Number(
+        match[1]
+      );
+
+
+    return Number.isFinite(
+      seconds
+    )
+      ? seconds
+      : 0;
 
   }
 
@@ -3488,6 +3460,23 @@ if (els.tickets) {
     }
 
 
+    if (
+      !LOADOUT_ROUTES_API_KEY
+    ) {
+
+      loEls.eta.value =
+        "—";
+
+
+      loEls.etaHelp.textContent =
+        "Routes API key is missing.";
+
+
+      return false;
+
+    }
+
+
     loEls.eta.value =
       "Calculating…";
 
@@ -3498,49 +3487,103 @@ if (els.tickets) {
 
     try {
 
-      const {
-        routesLibrary
-      } =
-        await loLoadGoogleMaps();
+      /*
+        Direct Routes API request.
+
+        This intentionally bypasses google.maps entirely so another
+        FarmVista script cannot cause this page to reuse a Maps session
+        that was initialized under a different Google Cloud project.
+      */
+
+      const response =
+        await fetch(
+          "https://routes.googleapis.com/directions/v2:computeRoutes",
+          {
+            method:
+              "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+
+              "X-Goog-Api-Key":
+                LOADOUT_ROUTES_API_KEY,
+
+              "X-Goog-FieldMask":
+                "routes.duration,routes.distanceMeters"
+            },
+
+            body:
+              JSON.stringify({
+                origin: {
+                  address:
+                    originAddress
+                },
+
+                destination: {
+                  address:
+                    destinationAddress
+                },
+
+                travelMode:
+                  "DRIVE",
+
+                routingPreference:
+                  "TRAFFIC_AWARE",
+
+                computeAlternativeRoutes:
+                  false,
+
+                languageCode:
+                  "en-US",
+
+                units:
+                  "IMPERIAL"
+              })
+          }
+        );
 
 
-      const {
-        Route
-      } =
-        routesLibrary;
+      let data =
+        null;
 
 
-      const {
-        routes
-      } =
-        await Route.computeRoutes({
-          origin:
-            originAddress,
+      try {
 
-          destination:
-            destinationAddress,
+        data =
+          await response.json();
 
-          travelMode:
-            "DRIVING",
+      }
+      catch (_) {
 
-          routingPreference:
-            "TRAFFIC_AWARE",
+        data =
+          null;
 
-          departureTime:
-            new Date(),
+      }
 
-          fields: [
-            "durationMillis",
-            "distanceMeters"
-          ]
-        });
+
+      if (
+        !response.ok
+      ) {
+
+        const googleMessage =
+          data?.error?.message ||
+          data?.message ||
+          `Google Routes returned HTTP ${response.status}.`;
+
+
+        throw new Error(
+          googleMessage
+        );
+
+      }
 
 
       const route =
         Array.isArray(
-          routes
+          data?.routes
         )
-          ? routes[0]
+          ? data.routes[0]
           : null;
 
 
@@ -3555,18 +3598,14 @@ if (els.tickets) {
       }
 
 
-      const durationMillis =
-        Number(
-          route.durationMillis ||
-          0
+      const durationSeconds =
+        loParseGoogleDuration(
+          route.duration
         );
 
 
       if (
-        !Number.isFinite(
-          durationMillis
-        ) ||
-        durationMillis <=
+        durationSeconds <=
           0
       ) {
 
@@ -3577,12 +3616,17 @@ if (els.tickets) {
       }
 
 
+      const durationMillis =
+        durationSeconds *
+        1000;
+
+
       const minutes =
         Math.max(
           1,
           Math.round(
-            durationMillis /
-            60000
+            durationSeconds /
+            60
           )
         );
 
@@ -3632,7 +3676,7 @@ if (els.tickets) {
 
 
       console.log(
-        "[grain loadout] Routes API ETA:",
+        "[grain loadout] Direct Routes API ETA:",
         {
           origin:
             originAddress,
@@ -3641,8 +3685,6 @@ if (els.tickets) {
             destinationAddress,
 
           minutes,
-
-          durationMillis,
 
           distanceMeters:
             route.distanceMeters,
@@ -3663,7 +3705,7 @@ if (els.tickets) {
     ) {
 
       console.error(
-        "[grain loadout] Routes API ETA failed:",
+        "[grain loadout] Direct Routes API ETA failed:",
         error
       );
 
