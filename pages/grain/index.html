@@ -1061,6 +1061,45 @@
   margin-top:14px !important;
 }
 
+
+
+/* ============================================================
+   STACK LOAD OUT ABOVE GRAIN TICKETS
+============================================================ */
+
+#grain-live-grid{
+  display:grid !important;
+  grid-template-columns:1fr !important;
+  gap:14px !important;
+  width:100% !important;
+  max-width:none !important;
+  align-items:start !important;
+}
+
+#grain-live-grid > .sum-card{
+  width:100% !important;
+  max-width:none !important;
+}
+
+.ticket-dashboard{
+  position:static !important;
+  top:auto !important;
+  align-self:auto !important;
+}
+
+.loadout-table,
+.ticket-table{
+  width:100% !important;
+}
+
+.loadout-table{
+  min-width:1100px;
+}
+
+.ticket-table{
+  min-width:1000px;
+}
+
 </style>
 </head>
 <body>
@@ -1525,7 +1564,7 @@
               value="—"
             >
             <div id="loadout-eta-help" class="loadout-help">
-              ETA uses the current Google driving route from the company address to the selected elevator.
+              ETA uses Google Routes from the company address to the selected elevator.
             </div>
           </div>
 
@@ -2810,8 +2849,30 @@ if (els.tickets) {
 
 
 <script>
-  // Same Google Maps key already used by the FarmVista main dashboard.
-  window.FV_GOOGLE_MAPS_KEY = window.FV_GOOGLE_MAPS_KEY || "AIzaSyD5qLrXZch_rM4sVXmBrpGDH3Zp7RgfVHc";
+  /*
+    Google Maps JavaScript API — Dynamic Library Import bootstrap.
+    This is Google's supported loader for google.maps.importLibrary().
+  */
+  (g=>{var h,a,k,p="The Google Maps JavaScript API",c="google",l="importLibrary",q="__ib__",m=document,b=window;
+  b=b[c]||(b[c]={});
+  var d=b.maps||(b.maps={}),r=new Set,e=new URLSearchParams,
+  u=()=>h||(h=new Promise(async(f,n)=>{
+    await (a=m.createElement("script"));
+    e.set("libraries",[...r]+"");
+    for(k in g)e.set(k.replace(/[A-Z]/g,t=>"_"+t[0].toLowerCase()),g[k]);
+    e.set("callback",c+".maps."+q);
+    a.src=`https://maps.${c}apis.com/maps/api/js?`+e;
+    d[q]=f;
+    a.onerror=()=>h=n(Error(p+" could not load."));
+    a.nonce=m.querySelector("script[nonce]")?.nonce||"";
+    m.head.append(a)
+  }));
+  d[l]?console.warn(p+" only loads once. Ignoring:",g):
+  d[l]=(f,...n)=>r.add(f)&&u().then(()=>d[l](f,...n))
+  })({
+    key:"AIzaSyD5qLrXZch_rM4sVXmBrpGDH3Zp7RgfVHc",
+    v:"weekly"
+  });
 </script>
 
 <script>
@@ -3248,7 +3309,7 @@ if (els.tickets) {
     loEls.loadedTime.value = loFormatClock(new Date());
     loEls.eta.value = "—";
     loEls.etaHelp.textContent =
-      "ETA uses the current Google driving route from the company address to the selected elevator.";
+      "ETA uses Google Routes from the company address to the selected elevator.";
 
     loState.etaAt = null;
     loState.etaMinutes = null;
@@ -3270,190 +3331,50 @@ if (els.tickets) {
     loShowMessage("");
   }
 
-  function loLoadGoogleMaps(){
+  async function loLoadGoogleMaps(){
+
     if (
-      window.google?.maps?.importLibrary
+      !window.google?.maps?.importLibrary
     ) {
-      return Promise.resolve(
-        window.google.maps
+
+      throw new Error(
+        "Google Maps importLibrary loader is unavailable."
       );
+
     }
 
-    if (
-      window.__FV_LOADOUT_MAPS_PROMISE
-    ) {
-      return window.__FV_LOADOUT_MAPS_PROMISE;
-    }
 
-    window.__FV_LOADOUT_MAPS_PROMISE =
-      new Promise(
-        (
-          resolve,
-          reject
-        ) => {
+    /*
+      Request the Routes library directly.
+      The bootstrap loader handles downloading the Maps JavaScript API
+      and the requested library exactly once.
+    */
 
-          const key =
-            loClean(
-              window.FV_GOOGLE_MAPS_KEY
-            ) ||
-            loClean(
-              localStorage.getItem(
-                "fv_google_maps_key"
-              )
-            );
-
-
-          if (
-            !key
-          ) {
-
-            reject(
-              new Error(
-                "Google Maps API key is not configured."
-              )
-            );
-
-            return;
-
-          }
-
-
-          const existing =
-            document.querySelector(
-              'script[data-fv-loadout-google-maps="1"]'
-            );
-
-
-          if (
-            existing
-          ) {
-
-            existing.addEventListener(
-              "load",
-              () => {
-
-                if (
-                  window.google?.maps?.importLibrary
-                ) {
-
-                  resolve(
-                    window.google.maps
-                  );
-
-                }
-                else {
-
-                  reject(
-                    new Error(
-                      "Google Maps loaded, but importLibrary is unavailable."
-                    )
-                  );
-
-                }
-
-              },
-              {
-                once:
-                  true
-              }
-            );
-
-
-            existing.addEventListener(
-              "error",
-              () => {
-
-                reject(
-                  new Error(
-                    "Google Maps JavaScript API could not be loaded."
-                  )
-                );
-
-              },
-              {
-                once:
-                  true
-              }
-            );
-
-
-            return;
-
-          }
-
-
-          const script =
-            document.createElement(
-              "script"
-            );
-
-
-          script.async =
-            true;
-
-
-          script.defer =
-            true;
-
-
-          script.dataset.fvLoadoutGoogleMaps =
-            "1";
-
-
-          script.src =
-            `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(
-              key
-            )}&v=weekly&loading=async`;
-
-
-          script.onload =
-            () => {
-
-              if (
-                window.google?.maps?.importLibrary
-              ) {
-
-                resolve(
-                  window.google.maps
-                );
-
-              }
-              else {
-
-                reject(
-                  new Error(
-                    "Google Maps loaded, but importLibrary is unavailable."
-                  )
-                );
-
-              }
-
-            };
-
-
-          script.onerror =
-            () => {
-
-              reject(
-                new Error(
-                  "Google Maps JavaScript API could not be loaded."
-                )
-              );
-
-            };
-
-
-          document.head.appendChild(
-            script
-          );
-
-        }
+    const routesLibrary =
+      await window.google.maps.importLibrary(
+        "routes"
       );
 
 
-    return window.__FV_LOADOUT_MAPS_PROMISE;
+    if (
+      !routesLibrary?.Route
+    ) {
+
+      throw new Error(
+        "Google Routes library did not load."
+      );
+
+    }
+
+
+    return {
+      maps:
+        window.google.maps,
+
+      routesLibrary
+    };
+
   }
-
 
   function loFormatMiles(
     meters
@@ -3471,7 +3392,8 @@ if (els.tickets) {
       !Number.isFinite(
         miles
       ) ||
-      miles <= 0
+      miles <=
+        0
     ) {
 
       return "";
@@ -3576,29 +3498,16 @@ if (els.tickets) {
 
     try {
 
-      const maps =
+      const {
+        routesLibrary
+      } =
         await loLoadGoogleMaps();
 
 
       const {
         Route
       } =
-        await maps.importLibrary(
-          "routes"
-        );
-
-
-      if (
-        !Route ||
-        typeof Route.computeRoutes !==
-          "function"
-      ) {
-
-        throw new Error(
-          "Google Routes library did not load."
-        );
-
-      }
+        routesLibrary;
 
 
       const {
@@ -3731,9 +3640,9 @@ if (els.tickets) {
           destination:
             destinationAddress,
 
-          durationMillis,
-
           minutes,
+
+          durationMillis,
 
           distanceMeters:
             route.distanceMeters,
