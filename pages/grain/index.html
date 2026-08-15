@@ -2715,6 +2715,11 @@ if (els.tickets) {
 
 
 <script>
+  // Same Google Maps key already used by the FarmVista main dashboard.
+  window.FV_GOOGLE_MAPS_KEY = window.FV_GOOGLE_MAPS_KEY || "AIzaSyD5qLrXZch_rM4sVXmBrpGDH3Zp7RgfVHc";
+</script>
+
+<script>
   /*
     UI fallback: keep Add Load modal usable even if the Firestore
     module ever has a data-loading error.
@@ -3293,8 +3298,16 @@ if (els.tickets) {
             !element.duration?.value
           ) {
             loEls.eta.value = "—";
+
+            const detail =
+              element?.status && element.status !== "OK"
+                ? ` (${element.status})`
+                : status && status !== "OK"
+                  ? ` (${status})`
+                  : "";
+
             loEls.etaHelp.textContent =
-              "Could not calculate a drive-time ETA for this destination.";
+              `Could not calculate drive-time ETA${detail}. Check that Distance Matrix is enabled for the Google Maps key.`;
             return;
           }
 
@@ -3328,7 +3341,7 @@ if (els.tickets) {
 
       loEls.eta.value = "—";
       loEls.etaHelp.textContent =
-        "ETA is unavailable until Google Maps is configured for this page.";
+        `ETA could not be calculated: ${error?.message || "Google Maps route request failed."}`;
     }
   }
 
@@ -3861,7 +3874,10 @@ if (els.tickets) {
 
   loEls.customer?.addEventListener("change",loRenderContracts);
   loEls.crop?.addEventListener("change",loRenderContracts);
-  loEls.destination?.addEventListener("change",loUpdateEta);
+  loEls.destination?.addEventListener("change", async () => {
+    loEls.eta.value = "Calculating…";
+    await loUpdateEta();
+  });
 
   try {
     await loLoadReferenceData();
