@@ -38,7 +38,7 @@
 //  • QR Scanner Pop-up + Camera Pop-up appear under Extra Features.
 //  • They auto turn ON/OFF based on REAL current use cases:
 //      - QR Scanner Pop-up -> ONLY when Maintenance Work Orders has Add enabled
-//      - Camera Pop-up -> ONLY when Expenditures has Add enabled
+//      - Camera Pop-up -> when Expenditures OR Grain Tickets (OCR) has Add enabled
 //  • The toggle button is disabled (locked) because these are dependency-driven.
 
 import NAV_MENU from '/Farm-vista/js/menu.js';
@@ -66,9 +66,10 @@ const CAPABILITIES = [
 
   So we match the menu NODE by id/label, then require Add=true for that node.
 
-  CURRENT REAL USE ONLY:
+  CURRENT REAL USE:
     - QR Scanner Pop-up -> Maintenance Work Orders (Add)
     - Camera Pop-up -> Expenditures (Add)
+    - Camera Pop-up -> Grain Tickets (OCR) (Add)
 
   Best path (future):
     - set `requiresCaps: ['cap-camera-popup','cap-qr-scanner']` on NAV_MENU items.
@@ -96,14 +97,40 @@ const CAPABILITY_DEPENDENCY_RULES = [
       return isWorkOrders && isMaintenance;
     }
   },
+
   {
     capId: 'cap-camera-popup',
     action: 'add',
     match: (node) => {
-      const hay = `${(node.id || '').toLowerCase()} ${(node.label || '').toLowerCase()}`;
+      const id =
+        String(node.id || '')
+          .trim()
+          .toLowerCase();
 
-      // ONLY Expenditures (not generic expenses/ocr/etc)
-      return hay.includes('expenditures') || hay.includes('expenditure');
+      const hay =
+        `${id} ${String(node.label || '').toLowerCase()}`;
+
+      /*
+       * Camera Pop-up is required when ADD is enabled for:
+       *
+       * 1) Expenditures
+       * 2) Grain Tickets (OCR)
+       *
+       * Grain Tickets uses the exact NAV_MENU permission id:
+       * grain-tix
+       */
+
+      const isExpenditures =
+        hay.includes('expenditures') ||
+        hay.includes('expenditure');
+
+      const isGrainTickets =
+        id === 'grain-tix';
+
+      return (
+        isExpenditures ||
+        isGrainTickets
+      );
     }
   }
 ];
@@ -154,7 +181,6 @@ function buildNavIndex(menu) {
         label: it.label || it.id,
         depth,
         parent,
-        // NEW: allow NAV_MENU items to declare required capabilities directly
         requiresCaps: Array.isArray(it.requiresCaps) ? it.requiresCaps.slice() : []
       };
 
@@ -176,6 +202,7 @@ function buildNavIndex(menu) {
 class FVPermsHero extends HTMLElement {
   constructor() {
     super();
+
     this._config = {
       mode: 'role',
       name: '',
@@ -185,29 +212,49 @@ class FVPermsHero extends HTMLElement {
       onDeleteRole: null,
       onResetOverrides: null
     };
-    this._root = this; // no shadow; share theme CSS
+
+    this._root = this;
     this._hasRendered = false;
 
-    // Which groups (Equipment, Grain, etc.) are expanded
     this._openGroups = new Set();
-    // Which leaf rows (sub menus like eq-tractors, eq-trucks) are expanded
     this._openRows = new Set();
-    this._navIndex = { byParent: {}, byId: {} };
 
-    // Prevent accidental recursion when auto-syncing capabilities
+    this._navIndex = {
+      byParent: {},
+      byId: {}
+    };
+
     this._syncingAutoCaps = false;
   }
 
   set config(cfg) {
-    const merged = Object.assign({}, this._config, cfg || {});
-    const srcPerms = merged.perms || {};
+    const merged =
+      Object.assign(
+        {},
+        this._config,
+        cfg || {}
+      );
+
+    const srcPerms =
+      merged.perms || {};
+
     const normalizedPerms = {};
+
     Object.keys(srcPerms).forEach(k => {
       if (k === 'home') return;
-      normalizedPerms[k] = normalizeEntry(srcPerms[k]);
+
+      normalizedPerms[k] =
+        normalizeEntry(
+          srcPerms[k]
+        );
     });
-    merged.perms = normalizedPerms;
-    this._config = merged;
+
+    merged.perms =
+      normalizedPerms;
+
+    this._config =
+      merged;
+
     this.render();
   }
 
@@ -225,49 +272,108 @@ class FVPermsHero extends HTMLElement {
 
   _isActionEnabled(perms, id, action) {
     if (!perms || !id) return false;
-    const p = normalizeEntry(perms[id]);
+
+    const p =
+      normalizeEntry(
+        perms[id]
+      );
+
     return !!p[action];
   }
 
   _computeSummary() {
-    const cfg = this._config;
-    const menu = NAV_MENU || { items: [] };
-    const perms = cfg.perms || {};
+    const cfg =
+      this._config;
 
-    const { byParent, byId } = buildNavIndex(menu);
-    this._navIndex = { byParent, byId };
+    const menu =
+      NAV_MENU || {
+        items: []
+      };
 
-    const allNodes = Object.values(byId);
+    const perms =
+      cfg.perms || {};
 
-    const totalNav = allNodes.length;
-    let enabledNav = 0;
+    const {
+      byParent,
+      byId
+    } = buildNavIndex(menu);
 
-    // Track which capabilities are *required* by any enabled menu entry
-    const requiredCaps = new Set();
-    const requiredBy = {}; // capId -> {count, examples[]}
+    this._navIndex = {
+      byParent,
+      byId
+    };
 
-    const addReq = (capId, exampleLabel) => {
+    const allNodes =
+      Object.values(byId);
+
+    const totalNav =
+      allNodes.length;
+
+    let enabledNav =
+      0;
+
+    const requiredCaps =
+      new Set();
+
+    const requiredBy =
+      {};
+
+    const addReq = (
+      capId,
+      exampleLabel
+    ) => {
       requiredCaps.add(capId);
-      requiredBy[capId] = requiredBy[capId] || { count: 0, examples: [] };
+
+      requiredBy[capId] =
+        requiredBy[capId] || {
+          count: 0,
+          examples: []
+        };
+
       requiredBy[capId].count++;
-      if (exampleLabel && requiredBy[capId].examples.length < 4) {
-        if (!requiredBy[capId].examples.includes(exampleLabel)) {
-          requiredBy[capId].examples.push(exampleLabel);
+
+      if (
+        exampleLabel &&
+        requiredBy[capId].examples.length < 4
+      ) {
+        if (
+          !requiredBy[capId].examples.includes(
+            exampleLabel
+          )
+        ) {
+          requiredBy[capId].examples.push(
+            exampleLabel
+          );
         }
       }
     };
 
     allNodes.forEach(n => {
-      const on = normalizePermForSummary(perms, n.id);
+      const on =
+        normalizePermForSummary(
+          perms,
+          n.id
+        );
+
       if (on) {
         enabledNav++;
 
-        // Direct declaration support from NAV_MENU (preferred)
-        (n.requiresCaps || []).forEach(capId => addReq(capId, n.label));
+        (n.requiresCaps || []).forEach(
+          capId =>
+            addReq(
+              capId,
+              n.label
+            )
+        );
       }
     });
 
-    // Narrow dependency rules (REAL use cases only)
+    /*
+     * Dependency-driven capabilities.
+     *
+     * This is where Grain Tickets ADD now triggers
+     * the Camera Pop-up capability.
+     */
     allNodes.forEach(n => {
       CAPABILITY_DEPENDENCY_RULES.forEach(rule => {
         if (!rule || !rule.capId) return;
@@ -275,24 +381,55 @@ class FVPermsHero extends HTMLElement {
 
         if (!rule.match(n)) return;
 
-        const action = rule.action || 'add';
-        if (this._isActionEnabled(perms, n.id, action)) {
-          addReq(rule.capId, n.label);
+        const action =
+          rule.action || 'add';
+
+        if (
+          this._isActionEnabled(
+            perms,
+            n.id,
+            action
+          )
+        ) {
+          addReq(
+            rule.capId,
+            n.label
+          );
         }
       });
     });
 
-    const totalCaps = CAPABILITIES.length;
-    let enabledCaps = 0;
-    let chatbotEnabled = false;
-    const enabledCapLabels = [];
+    const totalCaps =
+      CAPABILITIES.length;
+
+    let enabledCaps =
+      0;
+
+    let chatbotEnabled =
+      false;
+
+    const enabledCapLabels =
+      [];
 
     CAPABILITIES.forEach(cap => {
-      const on = normalizePermForSummary(perms, cap.id);
+      const on =
+        normalizePermForSummary(
+          perms,
+          cap.id
+        );
+
       if (on) {
         enabledCaps++;
-        enabledCapLabels.push(cap.label);
-        if (cap.id === 'cap-chatbot') chatbotEnabled = true;
+
+        enabledCapLabels.push(
+          cap.label
+        );
+
+        if (
+          cap.id === 'cap-chatbot'
+        ) {
+          chatbotEnabled = true;
+        }
       }
     });
 
@@ -311,193 +448,438 @@ class FVPermsHero extends HTMLElement {
   /* ---------- Internal perm helpers ---------- */
 
   _getPerm(id) {
-    const perms = this._config.perms || {};
-    perms[id] = normalizeEntry(perms[id]);
-    this._config.perms = perms;
+    const perms =
+      this._config.perms || {};
+
+    perms[id] =
+      normalizeEntry(
+        perms[id]
+      );
+
+    this._config.perms =
+      perms;
+
     return perms[id];
   }
 
   _setPerm(id, entry) {
-    const perms = this._config.perms || {};
-    perms[id] = normalizeEntry(entry);
-    this._config.perms = perms;
+    const perms =
+      this._config.perms || {};
+
+    perms[id] =
+      normalizeEntry(entry);
+
+    this._config.perms =
+      perms;
   }
 
   _emitPermsChange() {
-    if (typeof this._config.onPermsChange === 'function') {
-      const clone = Object.assign({}, this._config.perms || {});
-      this._config.onPermsChange(clone);
+    if (
+      typeof this._config.onPermsChange ===
+      'function'
+    ) {
+      const clone =
+        Object.assign(
+          {},
+          this._config.perms || {}
+        );
+
+      this._config.onPermsChange(
+        clone
+      );
     }
   }
 
   /* ---------- Auto-capabilities (QR + Camera) ---------- */
 
   _syncAutoCapabilities(requiredCaps) {
-    if (this._syncingAutoCaps) return false;
-    this._syncingAutoCaps = true;
+    if (this._syncingAutoCaps) {
+      return false;
+    }
 
-    let changed = false;
+    this._syncingAutoCaps =
+      true;
+
+    let changed =
+      false;
 
     CAPABILITIES.forEach(cap => {
       if (!cap.auto) return;
-      const shouldBeOn = requiredCaps && requiredCaps.has(cap.id);
-      const p = this._getPerm(cap.id);
-      const wasOn = !!p.view;
 
-      if (wasOn !== shouldBeOn) {
-        p.view = !!shouldBeOn;
-        this._setPerm(cap.id, p);
-        changed = true;
+      const shouldBeOn =
+        requiredCaps &&
+        requiredCaps.has(
+          cap.id
+        );
+
+      const p =
+        this._getPerm(
+          cap.id
+        );
+
+      const wasOn =
+        !!p.view;
+
+      if (
+        wasOn !== shouldBeOn
+      ) {
+        p.view =
+          !!shouldBeOn;
+
+        this._setPerm(
+          cap.id,
+          p
+        );
+
+        changed =
+          true;
       }
     });
 
-    this._syncingAutoCaps = false;
+    this._syncingAutoCaps =
+      false;
+
     return changed;
   }
 
   _walkGroupAndDescendants(groupId, fn) {
-    const { byParent } = this._navIndex || {};
+    const {
+      byParent
+    } = this._navIndex || {};
+
     if (!byParent) return;
-    const stack = [groupId];
-    while (stack.length) {
-      const id = stack.pop();
+
+    const stack =
+      [groupId];
+
+    while (
+      stack.length
+    ) {
+      const id =
+        stack.pop();
+
       fn(id);
-      const children = byParent[id] || [];
-      children.forEach(child => {
-        stack.push(child.id);
-      });
+
+      const children =
+        byParent[id] || [];
+
+      children.forEach(
+        child => {
+          stack.push(
+            child.id
+          );
+        }
+      );
     }
   }
 
   _isGroupFullyAllOn(groupId) {
-    let allOn = true;
-    this._walkGroupAndDescendants(groupId, (id) => {
-      const p = this._getPerm(id);
-      if (!(p.view && p.add && p.edit && p.delete)) {
-        allOn = false;
+    let allOn =
+      true;
+
+    this._walkGroupAndDescendants(
+      groupId,
+      id => {
+        const p =
+          this._getPerm(id);
+
+        if (
+          !(
+            p.view &&
+            p.add &&
+            p.edit &&
+            p.delete
+          )
+        ) {
+          allOn =
+            false;
+        }
       }
-    });
+    );
+
     return allOn;
   }
 
   _toggleGroupAll(groupId) {
-    const currentlyAll = this._isGroupFullyAllOn(groupId);
-    const next = !currentlyAll;
+    const currentlyAll =
+      this._isGroupFullyAllOn(
+        groupId
+      );
 
-    this._walkGroupAndDescendants(groupId, (id) => {
-      const p = this._getPerm(id);
-      p.view = next;
-      p.add = next;
-      p.edit = next;
-      p.delete = next;
-      this._setPerm(id, p);
-    });
+    const next =
+      !currentlyAll;
+
+    this._walkGroupAndDescendants(
+      groupId,
+      id => {
+        const p =
+          this._getPerm(id);
+
+        p.view =
+          next;
+
+        p.add =
+          next;
+
+        p.edit =
+          next;
+
+        p.delete =
+          next;
+
+        this._setPerm(
+          id,
+          p
+        );
+      }
+    );
 
     this._emitPermsChange();
     this.render();
   }
 
   _isGroupActionAllOn(groupId, action) {
-    let allOn = true;
-    this._walkGroupAndDescendants(groupId, (id) => {
-      const p = this._getPerm(id);
-      if (!p[action]) allOn = false;
-    });
+    let allOn =
+      true;
+
+    this._walkGroupAndDescendants(
+      groupId,
+      id => {
+        const p =
+          this._getPerm(id);
+
+        if (!p[action]) {
+          allOn =
+            false;
+        }
+      }
+    );
+
     return allOn;
   }
 
   _toggleGroupAction(groupId, action) {
-    const allOn = this._isGroupActionAllOn(groupId, action);
-    const next = !allOn;
-    this._walkGroupAndDescendants(groupId, (id) => {
-      const p = this._getPerm(id);
-      p[action] = next;
-      this._setPerm(id, p);
-    });
+    const allOn =
+      this._isGroupActionAllOn(
+        groupId,
+        action
+      );
+
+    const next =
+      !allOn;
+
+    this._walkGroupAndDescendants(
+      groupId,
+      id => {
+        const p =
+          this._getPerm(id);
+
+        p[action] =
+          next;
+
+        this._setPerm(
+          id,
+          p
+        );
+      }
+    );
+
     this._emitPermsChange();
     this.render();
   }
 
   _toggleLeafAction(id, action) {
-    const p = this._getPerm(id);
-    p[action] = !p[action];
-    this._setPerm(id, p);
+    const p =
+      this._getPerm(id);
+
+    p[action] =
+      !p[action];
+
+    this._setPerm(
+      id,
+      p
+    );
+
     this._emitPermsChange();
     this.render();
   }
 
   _toggleCapability(id) {
-    // Auto capabilities are dependency-driven (locked)
-    const cap = CAPABILITIES.find(c => c.id === id);
-    if (cap && cap.auto) return;
+    const cap =
+      CAPABILITIES.find(
+        c => c.id === id
+      );
 
-    const p = this._getPerm(id);
-    p.view = !p.view; // simple On/Off via view flag
-    this._setPerm(id, p);
+    if (
+      cap &&
+      cap.auto
+    ) {
+      return;
+    }
+
+    const p =
+      this._getPerm(id);
+
+    p.view =
+      !p.view;
+
+    this._setPerm(
+      id,
+      p
+    );
+
     this._emitPermsChange();
     this.render();
   }
 
   _toggleGroupOpen(groupId) {
-    if (this._openGroups.has(groupId)) {
-      this._openGroups.delete(groupId);
+    if (
+      this._openGroups.has(
+        groupId
+      )
+    ) {
+      this._openGroups.delete(
+        groupId
+      );
     } else {
-      this._openGroups.add(groupId);
+      this._openGroups.add(
+        groupId
+      );
     }
+
     this.render();
   }
 
   _toggleRowOpen(rowId) {
-    if (this._openRows.has(rowId)) {
-      this._openRows.delete(rowId);
+    if (
+      this._openRows.has(
+        rowId
+      )
+    ) {
+      this._openRows.delete(
+        rowId
+      );
     } else {
-      this._openRows.add(rowId);
+      this._openRows.add(
+        rowId
+      );
     }
+
     this.render();
   }
 
   /* ---------- Indicator helpers ---------- */
 
   _isAnyActionOn(id) {
-    const p = this._getPerm(id);
-    return !!(p.view || p.add || p.edit || p.delete);
+    const p =
+      this._getPerm(id);
+
+    return !!(
+      p.view ||
+      p.add ||
+      p.edit ||
+      p.delete
+    );
   }
 
-  // Returns counts for descendants ONLY (excludes the id itself)
   _descendantActionStats(id) {
-    const { byParent } = this._navIndex || {};
-    if (!byParent) return { total: 0, enabled: 0 };
+    const {
+      byParent
+    } = this._navIndex || {};
 
-    let total = 0;
-    let enabled = 0;
-
-    const stack = [...(byParent[id] || []).map(n => n.id)];
-    while (stack.length) {
-      const cur = stack.pop();
-      total++;
-      if (this._isAnyActionOn(cur)) enabled++;
-      const kids = byParent[cur] || [];
-      kids.forEach(k => stack.push(k.id));
+    if (!byParent) {
+      return {
+        total: 0,
+        enabled: 0
+      };
     }
 
-    return { total, enabled };
+    let total =
+      0;
+
+    let enabled =
+      0;
+
+    const stack = [
+      ...(byParent[id] || [])
+        .map(n => n.id)
+    ];
+
+    while (
+      stack.length
+    ) {
+      const cur =
+        stack.pop();
+
+      total++;
+
+      if (
+        this._isAnyActionOn(
+          cur
+        )
+      ) {
+        enabled++;
+      }
+
+      const kids =
+        byParent[cur] || [];
+
+      kids.forEach(
+        k =>
+          stack.push(
+            k.id
+          )
+      );
+    }
+
+    return {
+      total,
+      enabled
+    };
   }
 
   _hasChildren(id) {
-    const { byParent } = this._navIndex || {};
-    const kids = (byParent && byParent[id]) ? byParent[id] : [];
-    return Array.isArray(kids) && kids.length > 0;
+    const {
+      byParent
+    } = this._navIndex || {};
+
+    const kids =
+      byParent &&
+      byParent[id]
+        ? byParent[id]
+        : [];
+
+    return (
+      Array.isArray(kids) &&
+      kids.length > 0
+    );
   }
 
   /* ---------- Nested matrix helpers ---------- */
 
   _buildMenuTreeHtml(requiredBy) {
-    const menu = NAV_MENU || { items: [] };
-    const { byParent, byId } = buildNavIndex(menu);
-    this._navIndex = { byParent, byId };
+    const menu =
+      NAV_MENU || {
+        items: []
+      };
 
-    const roots = byParent['__ROOT__'] || [];
-    if (!roots.length && !CAPABILITIES.length) {
+    const {
+      byParent,
+      byId
+    } = buildNavIndex(menu);
+
+    this._navIndex = {
+      byParent,
+      byId
+    };
+
+    const roots =
+      byParent['__ROOT__'] || [];
+
+    if (
+      !roots.length &&
+      !CAPABILITIES.length
+    ) {
       return `
         <div class="perm-matrix-empty">
           No navigation menus configured. Once menus are added to NAV_MENU, they will appear here.
@@ -505,36 +887,74 @@ class FVPermsHero extends HTMLElement {
       `;
     }
 
-    const renderGroupBlock = (node) => {
-      const isOpen = this._openGroups.has(node.id);
-      const openClass = isOpen ? 'perm-group-open' : 'perm-group-closed';
+    const renderGroupBlock = node => {
+      const isOpen =
+        this._openGroups.has(
+          node.id
+        );
 
-      const groupRow = this._buildRowHtml(node, true);
+      const openClass =
+        isOpen
+          ? 'perm-group-open'
+          : 'perm-group-closed';
 
-      const children = byParent[node.id] || [];
-      let childrenHtml = '';
-      children.forEach(child => {
-        if (child.type === 'group') {
-          childrenHtml += renderGroupBlock(child);
-        } else {
-          childrenHtml += this._buildRowHtml(child, false);
+      const groupRow =
+        this._buildRowHtml(
+          node,
+          true
+        );
+
+      const children =
+        byParent[node.id] || [];
+
+      let childrenHtml =
+        '';
+
+      children.forEach(
+        child => {
+          if (
+            child.type === 'group'
+          ) {
+            childrenHtml +=
+              renderGroupBlock(
+                child
+              );
+          } else {
+            childrenHtml +=
+              this._buildRowHtml(
+                child,
+                false
+              );
+          }
         }
-      });
+      );
 
-      const hasChildren = children.length > 0;
-      const allOn = this._isGroupFullyAllOn(node.id);
+      const hasChildren =
+        children.length > 0;
 
-      // Group header indicator (descendants enabled)
-      const ds = this._descendantActionStats(node.id);
-      const showSubBadge = ds.total > 0 && ds.enabled > 0;
-      const subBadge = showSubBadge
-        ? `
-          <span class="perm-sub-indicator" title="${ds.enabled} sub-items enabled">
-            <span class="perm-sub-dot" aria-hidden="true"></span>
-            <span class="perm-sub-count">${ds.enabled}</span>
-          </span>
-        `
-        : '';
+      const allOn =
+        this._isGroupFullyAllOn(
+          node.id
+        );
+
+      const ds =
+        this._descendantActionStats(
+          node.id
+        );
+
+      const showSubBadge =
+        ds.total > 0 &&
+        ds.enabled > 0;
+
+      const subBadge =
+        showSubBadge
+          ? `
+            <span class="perm-sub-indicator" title="${ds.enabled} sub-items enabled">
+              <span class="perm-sub-dot" aria-hidden="true"></span>
+              <span class="perm-sub-count">${ds.enabled}</span>
+            </span>
+          `
+          : '';
 
       return `
         <div class="perm-group ${openClass}" data-group-id="${node.id}">
@@ -542,46 +962,85 @@ class FVPermsHero extends HTMLElement {
             <button type="button" class="perm-group-chevron" aria-label="Toggle ${node.label}">
               <span class="chevron">${isOpen ? '▾' : '▸'}</span>
             </button>
+
             <div class="perm-group-title">
               ${node.label}
               ${subBadge}
             </div>
+
             <div class="perm-group-header-actions">
-              <button type="button"
-                      class="perm-pill perm-pill-all ${allOn ? 'perm-pill-on' : 'perm-pill-off'}"
-                      data-group-all="${node.id}">
+              <button
+                type="button"
+                class="perm-pill perm-pill-all ${allOn ? 'perm-pill-on' : 'perm-pill-off'}"
+                data-group-all="${node.id}">
                 All
               </button>
             </div>
           </div>
+
           <div class="perm-group-body">
             ${groupRow}
-            ${hasChildren ? `<div class="perm-group-children">${childrenHtml}</div>` : ''}
+
+            ${
+              hasChildren
+                ? `<div class="perm-group-children">${childrenHtml}</div>`
+                : ''
+            }
           </div>
         </div>
       `;
     };
 
-    let html = '';
+    let html =
+      '';
 
-    roots.forEach(node => {
-      if (node.type === 'group') {
-        html += renderGroupBlock(node);
-      } else {
-        html += this._buildRowHtml(node, false);
+    roots.forEach(
+      node => {
+        if (
+          node.type === 'group'
+        ) {
+          html +=
+            renderGroupBlock(
+              node
+            );
+        } else {
+          html +=
+            this._buildRowHtml(
+              node,
+              false
+            );
+        }
       }
-    });
+    );
 
-    // Extra capabilities as their own collapsible group with simple On/Off
-    if (CAPABILITIES.length) {
-      const capsGroupId = '__CAPS__';
-      const isOpen = this._openGroups.has(capsGroupId);
-      const openClass = isOpen ? 'perm-group-open' : 'perm-group-closed';
+    if (
+      CAPABILITIES.length
+    ) {
+      const capsGroupId =
+        '__CAPS__';
 
-      let capsRows = '';
-      CAPABILITIES.forEach(cap => {
-        capsRows += this._buildCapabilityRowHtml(cap, requiredBy);
-      });
+      const isOpen =
+        this._openGroups.has(
+          capsGroupId
+        );
+
+      const openClass =
+        isOpen
+          ? 'perm-group-open'
+          : 'perm-group-closed';
+
+      let capsRows =
+        '';
+
+      CAPABILITIES.forEach(
+        cap => {
+          capsRows +=
+            this._buildCapabilityRowHtml(
+              cap,
+              requiredBy
+            );
+        }
+      );
 
       html += `
         <div class="perm-group ${openClass}" data-group-id="${capsGroupId}">
@@ -589,8 +1048,12 @@ class FVPermsHero extends HTMLElement {
             <button type="button" class="perm-group-chevron" aria-label="Toggle Extra Features">
               <span class="chevron">${isOpen ? '▾' : '▸'}</span>
             </button>
-            <div class="perm-group-title">Extra Features</div>
+
+            <div class="perm-group-title">
+              Extra Features
+            </div>
           </div>
+
           <div class="perm-group-body">
             <div class="perm-group-children">
               ${capsRows}
@@ -604,33 +1067,64 @@ class FVPermsHero extends HTMLElement {
   }
 
   _buildRowHtml(node, isGroupRow) {
-    const id = node.id;
-    const depth = node.depth || 0;
-    const p = this._getPerm(id);
+    const id =
+      node.id;
 
-    const rowType = isGroupRow ? 'group' : 'leaf';
+    const depth =
+      node.depth || 0;
 
-    // Groups: always show pills.
-    // Leaves: collapsed by default; open only if _openRows has id.
-    const isLeaf = !isGroupRow;
-    const isOpenRow = !isLeaf || this._openRows.has(id);
-    const rowStateClass = isOpenRow ? 'perm-row-open' : 'perm-row-closed';
+    const p =
+      this._getPerm(id);
 
-    // mark group row inside body so we can style it (darker + underline, NOT larger)
-    const groupRowClass = isGroupRow ? 'perm-row-groupbase' : '';
+    const rowType =
+      isGroupRow
+        ? 'group'
+        : 'leaf';
 
-    const indentClass = `perm-row-label-depth-${Math.min(depth, 3)}`;
+    const isLeaf =
+      !isGroupRow;
 
-    // Leaf: simple green dot if ANY action enabled on that leaf (Weather, etc.)
-    const leafOnDot = (!isGroupRow && this._isAnyActionOn(id))
-      ? `<span class="perm-on-dot" aria-hidden="true"></span>`
-      : '';
+    const isOpenRow =
+      !isLeaf ||
+      this._openRows.has(id);
 
-    // Leaf indicator (only if this leaf has children and something beneath it is enabled)
-    let deepBadge = '';
-    if (!isGroupRow && this._hasChildren(id)) {
-      const ds = this._descendantActionStats(id);
-      if (ds.total > 0 && ds.enabled > 0) {
+    const rowStateClass =
+      isOpenRow
+        ? 'perm-row-open'
+        : 'perm-row-closed';
+
+    const groupRowClass =
+      isGroupRow
+        ? 'perm-row-groupbase'
+        : '';
+
+    const indentClass =
+      `perm-row-label-depth-${Math.min(depth, 3)}`;
+
+    const leafOnDot =
+      (
+        !isGroupRow &&
+        this._isAnyActionOn(id)
+      )
+        ? `<span class="perm-on-dot" aria-hidden="true"></span>`
+        : '';
+
+    let deepBadge =
+      '';
+
+    if (
+      !isGroupRow &&
+      this._hasChildren(id)
+    ) {
+      const ds =
+        this._descendantActionStats(
+          id
+        );
+
+      if (
+        ds.total > 0 &&
+        ds.enabled > 0
+      ) {
         deepBadge = `
           <span class="perm-sub-indicator perm-sub-indicator-sm" title="${ds.enabled} deeper sub-items enabled">
             <span class="perm-sub-dot" aria-hidden="true"></span>
@@ -641,43 +1135,68 @@ class FVPermsHero extends HTMLElement {
     }
 
     let labelInner;
-    if (isGroupRow) {
-      labelInner = `<span class="perm-row-label-text">${node.label}</span>`;
+
+    if (
+      isGroupRow
+    ) {
+      labelInner =
+        `<span class="perm-row-label-text">${node.label}</span>`;
     } else {
       labelInner = `
-        <button type="button"
-                class="perm-row-toggle"
-                data-row-toggle="${id}">
-          <span class="row-chevron">${isOpenRow ? '▾' : '▸'}</span>
-          <span class="perm-row-label-text">${node.label}</span>
+        <button
+          type="button"
+          class="perm-row-toggle"
+          data-row-toggle="${id}">
+
+          <span class="row-chevron">
+            ${isOpenRow ? '▾' : '▸'}
+          </span>
+
+          <span class="perm-row-label-text">
+            ${node.label}
+          </span>
+
           ${leafOnDot}
           ${deepBadge}
         </button>
       `;
     }
 
-    const makePill = (action, isOn, text) => {
-      const activeClass = isOn ? 'perm-pill-on' : 'perm-pill-off';
+    const makePill = (
+      action,
+      isOn,
+      text
+    ) => {
+      const activeClass =
+        isOn
+          ? 'perm-pill-on'
+          : 'perm-pill-off';
+
       return `
-        <button type="button"
-                class="perm-pill ${activeClass}"
-                data-perm-id="${id}"
-                data-perm-type="${rowType}"
-                data-perm-action="${action}">
+        <button
+          type="button"
+          class="perm-pill ${activeClass}"
+          data-perm-id="${id}"
+          data-perm-type="${rowType}"
+          data-perm-action="${action}">
           ${text}
         </button>
       `;
     };
 
     return `
-      <div class="perm-row ${rowStateClass} ${groupRowClass}" data-perm-row="${id}">
+      <div
+        class="perm-row ${rowStateClass} ${groupRowClass}"
+        data-perm-row="${id}">
+
         <div class="perm-row-label ${indentClass}">
           ${labelInner}
         </div>
+
         <div class="perm-row-pills">
-          ${makePill('view',   p.view,   'View')}
-          ${makePill('add',    p.add,    'Add')}
-          ${makePill('edit',   p.edit,   'Edit')}
+          ${makePill('view', p.view, 'View')}
+          ${makePill('add', p.add, 'Add')}
+          ${makePill('edit', p.edit, 'Edit')}
           ${makePill('delete', p.delete, 'Delete')}
         </div>
       </div>
@@ -685,43 +1204,88 @@ class FVPermsHero extends HTMLElement {
   }
 
   _buildCapabilityRowHtml(cap, requiredBy) {
-    const id = cap.id;
-    const label = cap.label;
-    const p = this._getPerm(id);
-    const isOn = !!p.view;
+    const id =
+      cap.id;
 
-    const isAuto = !!cap.auto;
-    const req = (requiredBy && requiredBy[id]) ? requiredBy[id] : null;
-    const hasNeed = !!(req && req.count > 0);
+    const label =
+      cap.label;
 
-    // Auto caps are locked and dependency-driven:
-    // - If needed -> On + locked
-    // - If not needed -> Off + locked
-    const disabled = isAuto;
-    const activeClass = isOn ? 'perm-pill-on' : 'perm-pill-off';
-    const text = isAuto ? (hasNeed ? 'On' : 'Off') : (isOn ? 'On' : 'Off');
+    const p =
+      this._getPerm(id);
 
-    const reqHint = isAuto
-      ? (hasNeed
-          ? `<div class="cap-hint">Auto: required by ${req.count} enabled menu${req.count === 1 ? '' : 's'}${(req.examples && req.examples.length) ? ` (${req.examples.join(', ')})` : ''}.</div>`
-          : `<div class="cap-hint">Auto: not required by any enabled permissions.</div>`
-        )
-      : '';
+    const isOn =
+      !!p.view;
 
-    const lock = isAuto ? `<span class="cap-lock" title="Auto-managed">🔒</span>` : '';
+    const isAuto =
+      !!cap.auto;
+
+    const req =
+      requiredBy &&
+      requiredBy[id]
+        ? requiredBy[id]
+        : null;
+
+    const hasNeed =
+      !!(
+        req &&
+        req.count > 0
+      );
+
+    const disabled =
+      isAuto;
+
+    const activeClass =
+      isOn
+        ? 'perm-pill-on'
+        : 'perm-pill-off';
+
+    const text =
+      isAuto
+        ? (
+            hasNeed
+              ? 'On'
+              : 'Off'
+          )
+        : (
+            isOn
+              ? 'On'
+              : 'Off'
+          );
+
+    const reqHint =
+      isAuto
+        ? (
+            hasNeed
+              ? `<div class="cap-hint">Auto: required by ${req.count} enabled menu${req.count === 1 ? '' : 's'}${(req.examples && req.examples.length) ? ` (${req.examples.join(', ')})` : ''}.</div>`
+              : `<div class="cap-hint">Auto: not required by any enabled permissions.</div>`
+          )
+        : '';
+
+    const lock =
+      isAuto
+        ? `<span class="cap-lock" title="Auto-managed">🔒</span>`
+        : '';
 
     return `
-      <div class="perm-row cap-row ${isAuto ? 'cap-row-auto' : ''}" data-cap-row="${id}">
+      <div
+        class="perm-row cap-row ${isAuto ? 'cap-row-auto' : ''}"
+        data-cap-row="${id}">
+
         <div class="perm-row-label perm-row-label-depth-0 cap-label">
-          <span class="perm-row-label-text">${label}</span>
+          <span class="perm-row-label-text">
+            ${label}
+          </span>
+
           ${lock}
           ${reqHint}
         </div>
+
         <div class="perm-row-pills">
-          <button type="button"
-                  class="perm-pill ${activeClass} ${disabled ? 'perm-pill-disabled' : ''}"
-                  data-cap-id="${id}"
-                  ${disabled ? 'disabled aria-disabled="true"' : ''}>
+          <button
+            type="button"
+            class="perm-pill ${activeClass} ${disabled ? 'perm-pill-disabled' : ''}"
+            data-cap-id="${id}"
+            ${disabled ? 'disabled aria-disabled="true"' : ''}>
             ${text}
           </button>
         </div>
@@ -734,18 +1298,6 @@ class FVPermsHero extends HTMLElement {
   _renderStyles() {
     return `
       <style>
-        /*
-          IMPORTANT THEME FIX:
-          - This component must FOLLOW the app theme (light/dark/system),
-            not force dark colors.
-          - We do that by:
-            1) Using app CSS variables when present (--text, --muted, --border, --surface, --accent, etc.)
-            2) Providing reasonable LIGHT defaults
-            3) Overriding ONLY when the app explicitly sets dark theme (html/body/:root data-theme="dark")
-            4) Supporting "system" by honoring prefers-color-scheme when no explicit dark/light is set
-        */
-
-        /* Default = LIGHT (uses app vars if they exist) */
         .perm-hero-panel{
           --pv-text: var(--text, #102014);
           --pv-muted: var(--muted, rgba(16,32,20,0.68));
@@ -766,7 +1318,6 @@ class FVPermsHero extends HTMLElement {
           color: var(--pv-text);
         }
 
-        /* Explicit DARK (when your app sets data-theme="dark") */
         :root[data-theme="dark"] .perm-hero-panel,
         html[data-theme="dark"] .perm-hero-panel,
         body[data-theme="dark"] .perm-hero-panel{
@@ -787,7 +1338,6 @@ class FVPermsHero extends HTMLElement {
           --pv-danger: var(--danger, #b3261e);
         }
 
-        /* System theme support when app uses data-theme="system" (or sets nothing) */
         @media (prefers-color-scheme: dark){
           :root[data-theme="system"] .perm-hero-panel,
           html[data-theme="system"] .perm-hero-panel,
@@ -830,6 +1380,7 @@ class FVPermsHero extends HTMLElement {
           gap: 10px;
           align-items: center;
         }
+
         @media (max-width: 900px){
           .perm-hero {
             grid-template-columns: 1fr;
@@ -843,12 +1394,14 @@ class FVPermsHero extends HTMLElement {
           gap: 4px;
           min-width: 0;
         }
+
         .perm-title-row {
           display: flex;
           align-items: center;
           gap: 8px;
           min-width: 0;
         }
+
         .perm-icon {
           width: 28px;
           height: 28px;
@@ -861,6 +1414,7 @@ class FVPermsHero extends HTMLElement {
           box-shadow: 0 6px 14px var(--pv-raise);
           border: 1px solid var(--pv-border);
         }
+
         .perm-title-text {
           font-weight: 800;
           font-size: 16px;
@@ -868,6 +1422,7 @@ class FVPermsHero extends HTMLElement {
           overflow: hidden;
           text-overflow: ellipsis;
         }
+
         .perm-subtitle {
           font-size: 13px;
           color: var(--pv-muted);
@@ -879,6 +1434,7 @@ class FVPermsHero extends HTMLElement {
           gap: 6px;
           margin-top: 4px;
         }
+
         .perm-badge {
           display: inline-flex;
           align-items: center;
@@ -891,11 +1447,13 @@ class FVPermsHero extends HTMLElement {
           color: var(--pv-text);
           border: 1px solid var(--pv-border);
         }
+
         .perm-badge-strong {
           background: rgba(47,108,60,0.95);
           color: #fff;
           border-color: rgba(47,108,60,0.95);
         }
+
         .perm-badge-warn {
           background: rgba(179,38,30,0.95);
           color: #fff;
@@ -909,6 +1467,7 @@ class FVPermsHero extends HTMLElement {
           gap: 8px;
           flex-wrap: wrap;
         }
+
         .perm-btn {
           display: inline-flex;
           align-items: center;
@@ -924,12 +1483,19 @@ class FVPermsHero extends HTMLElement {
           min-height: 32px;
           gap: 6px;
         }
-        .perm-btn:hover { background: var(--pv-chip-2); }
-        .perm-btn:active { transform: translateY(0.5px); }
+
+        .perm-btn:hover {
+          background: var(--pv-chip-2);
+        }
+
+        .perm-btn:active {
+          transform: translateY(0.5px);
+        }
 
         .perm-btn-quiet {
           background: rgba(0,0,0,0.03);
         }
+
         :root[data-theme="dark"] .perm-btn-quiet,
         html[data-theme="dark"] .perm-btn-quiet,
         body[data-theme="dark"] .perm-btn-quiet{
@@ -943,30 +1509,13 @@ class FVPermsHero extends HTMLElement {
           padding: 5px 8px;
           min-width: auto;
         }
-        :root[data-theme="dark"] .perm-btn-danger-icon,
-        html[data-theme="dark"] .perm-btn-danger-icon,
-        body[data-theme="dark"] .perm-btn-danger-icon{
-          border-color: rgba(179,38,30,0.75);
-          color: #ffd7d5;
-          background: rgba(179,38,30,0.12);
-        }
-        .perm-btn-danger-icon:hover{
-          background: rgba(179,38,30,0.12);
-          border-color: rgba(179,38,30,0.85);
-        }
-        :root[data-theme="dark"] .perm-btn-danger-icon:hover,
-        html[data-theme="dark"] .perm-btn-danger-icon:hover,
-        body[data-theme="dark"] .perm-btn-danger-icon:hover{
-          background: rgba(179,38,30,0.18);
-          border-color: rgba(179,38,30,0.95);
-        }
+
         .perm-btn-danger-icon svg {
           width: 18px;
           height: 18px;
           display: block;
         }
 
-        /* ----- Matrix layout (nested) ----- */
         .perm-matrix-card {
           border-radius: 14px;
           border: 1px solid var(--pv-border);
@@ -977,6 +1526,7 @@ class FVPermsHero extends HTMLElement {
           flex-direction: column;
           gap: 6px;
         }
+
         .perm-matrix-header {
           display: flex;
           justify-content: space-between;
@@ -984,15 +1534,18 @@ class FVPermsHero extends HTMLElement {
           gap: 8px;
           flex-wrap: wrap;
         }
+
         .perm-matrix-title {
           font-weight: 900;
           font-size: 14px;
           color: var(--pv-text);
         }
+
         .perm-matrix-sub {
           font-size: 12px;
           color: var(--pv-muted);
         }
+
         .perm-matrix-body {
           margin-top: 4px;
           display: flex;
@@ -1012,6 +1565,7 @@ class FVPermsHero extends HTMLElement {
           background: var(--pv-surface-3);
           overflow: hidden;
         }
+
         .perm-group-header {
           display: flex;
           align-items: center;
@@ -1019,12 +1573,6 @@ class FVPermsHero extends HTMLElement {
           padding: 6px 8px;
           background: rgba(0,0,0,0.02);
           border-bottom: 1px solid rgba(0,0,0,0.06);
-        }
-        :root[data-theme="dark"] .perm-group-header,
-        html[data-theme="dark"] .perm-group-header,
-        body[data-theme="dark"] .perm-group-header{
-          background: rgba(255,255,255,0.035);
-          border-bottom: 1px solid rgba(255,255,255,0.06);
         }
 
         .perm-group-chevron {
@@ -1039,17 +1587,6 @@ class FVPermsHero extends HTMLElement {
           padding: 0;
           cursor: pointer;
           font-size: 12px;
-        }
-        :root[data-theme="dark"] .perm-group-chevron,
-        html[data-theme="dark"] .perm-group-chevron,
-        body[data-theme="dark"] .perm-group-chevron{
-          background: rgba(255,255,255,0.04);
-        }
-        .perm-group-chevron:hover { background: rgba(0,0,0,0.06); }
-        :root[data-theme="dark"] .perm-group-chevron:hover,
-        html[data-theme="dark"] .perm-group-chevron:hover,
-        body[data-theme="dark"] .perm-group-chevron:hover{
-          background: rgba(255,255,255,0.07);
         }
 
         .perm-group-title {
@@ -1066,7 +1603,6 @@ class FVPermsHero extends HTMLElement {
           color: var(--pv-text);
         }
 
-        /* Subtle “has enabled sub-items” indicator (group header + deep badge) */
         .perm-sub-indicator{
           display: inline-flex;
           align-items: center;
@@ -1081,18 +1617,13 @@ class FVPermsHero extends HTMLElement {
           line-height: 1;
           flex: 0 0 auto;
         }
-        :root[data-theme="dark"] .perm-sub-indicator,
-        html[data-theme="dark"] .perm-sub-indicator,
-        body[data-theme="dark"] .perm-sub-indicator{
-          border: 1px solid rgba(255,255,255,0.12);
-          background: rgba(255,255,255,0.05);
-        }
 
         .perm-sub-indicator-sm{
           padding: 2px 6px;
           font-size: 10.5px;
           opacity: 0.95;
         }
+
         .perm-sub-dot{
           width: 6px;
           height: 6px;
@@ -1101,9 +1632,11 @@ class FVPermsHero extends HTMLElement {
           opacity: 0.9;
           display: inline-block;
         }
-        .perm-sub-count{ letter-spacing: 0.2px; }
 
-        /* simple “something on here” dot for leaf rows (Weather etc.) */
+        .perm-sub-count {
+          letter-spacing: 0.2px;
+        }
+
         .perm-on-dot{
           width: 7px;
           height: 7px;
@@ -1121,7 +1654,11 @@ class FVPermsHero extends HTMLElement {
           align-items: center;
           gap: 4px;
         }
-        .perm-group-body { padding: 4px 6px 6px; }
+
+        .perm-group-body {
+          padding: 4px 6px 6px;
+        }
+
         .perm-group-children {
           border-top: 1px solid rgba(0,0,0,0.06);
           margin-top: 4px;
@@ -1130,11 +1667,6 @@ class FVPermsHero extends HTMLElement {
           flex-direction: column;
           gap: 2px;
         }
-        :root[data-theme="dark"] .perm-group-children,
-        html[data-theme="dark"] .perm-group-children,
-        body[data-theme="dark"] .perm-group-children{
-          border-top: 1px solid rgba(255,255,255,0.07);
-        }
 
         .perm-row {
           display: grid;
@@ -1142,11 +1674,15 @@ class FVPermsHero extends HTMLElement {
           align-items: center;
           padding: 3px 4px;
         }
+
         @media (max-width: 720px){
-          .perm-row { grid-template-columns: 1.3fr 2.7fr; }
+          .perm-row {
+            grid-template-columns: 1.3fr 2.7fr;
+          }
         }
+
         .perm-row-label {
-          font-size: 13px; /* keep same size */
+          font-size: 13px;
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
@@ -1155,12 +1691,23 @@ class FVPermsHero extends HTMLElement {
           min-width: 0;
           color: var(--pv-text);
         }
-        .perm-row-label-depth-0 { padding-left: 0; }
-        .perm-row-label-depth-1 { padding-left: 10px; }
-        .perm-row-label-depth-2 { padding-left: 20px; }
-        .perm-row-label-depth-3 { padding-left: 30px; }
 
-        /* Group row inside body: NOT larger, just darker + underlined */
+        .perm-row-label-depth-0 {
+          padding-left: 0;
+        }
+
+        .perm-row-label-depth-1 {
+          padding-left: 10px;
+        }
+
+        .perm-row-label-depth-2 {
+          padding-left: 20px;
+        }
+
+        .perm-row-label-depth-3 {
+          padding-left: 30px;
+        }
+
         .perm-row-groupbase .perm-row-label-text{
           font-weight: 900;
           color: var(--pv-text);
@@ -1168,11 +1715,6 @@ class FVPermsHero extends HTMLElement {
           text-underline-offset: 2px;
           text-decoration-thickness: 1px;
           text-decoration-color: rgba(16,32,20,0.28);
-        }
-        :root[data-theme="dark"] .perm-row-groupbase .perm-row-label-text,
-        html[data-theme="dark"] .perm-row-groupbase .perm-row-label-text,
-        body[data-theme="dark"] .perm-row-groupbase .perm-row-label-text{
-          text-decoration-color: rgba(232,240,234,0.35);
         }
 
         .perm-row-toggle {
@@ -1189,12 +1731,14 @@ class FVPermsHero extends HTMLElement {
           min-width: 0;
           max-width: 100%;
         }
+
         .row-chevron {
           font-size: 11px;
           opacity: 0.85;
           flex: 0 0 auto;
           color: var(--pv-muted);
         }
+
         .perm-row-label-text {
           white-space: nowrap;
           overflow: hidden;
@@ -1209,6 +1753,7 @@ class FVPermsHero extends HTMLElement {
           flex-wrap: wrap;
           align-items: center;
         }
+
         .perm-pill {
           border-radius: 999px;
           border: 1px solid rgba(0,0,0,0.14);
@@ -1221,47 +1766,29 @@ class FVPermsHero extends HTMLElement {
           background: rgba(0,0,0,0.03);
           color: var(--pv-text);
         }
-        :root[data-theme="dark"] .perm-pill,
-        html[data-theme="dark"] .perm-pill,
-        body[data-theme="dark"] .perm-pill{
-          border: 1px solid rgba(255,255,255,0.16);
-          background: rgba(255,255,255,0.04);
-          color: var(--pv-text);
-        }
-
-        .perm-pill:hover{ background: rgba(0,0,0,0.06); }
-        :root[data-theme="dark"] .perm-pill:hover,
-        html[data-theme="dark"] .perm-pill:hover,
-        body[data-theme="dark"] .perm-pill:hover{
-          background: rgba(255,255,255,0.07);
-        }
-        .perm-pill:active{ transform: translateY(0.5px); }
 
         .perm-pill-on {
-  background: var(--pv-accent);
-  color: #fff !important;
-  border-color: rgba(47,108,60,0.95);
-  box-shadow: 0 6px 14px rgba(0,0,0,0.18);
-}
+          background: var(--pv-accent);
+          color: #fff !important;
+          border-color: rgba(47,108,60,0.95);
+          box-shadow: 0 6px 14px rgba(0,0,0,0.18);
+        }
 
-.perm-pill-on:hover,
-.perm-pill-on:focus,
-.perm-pill-on:active {
-  color: #fff !important;
-}
+        .perm-pill-on:hover,
+        .perm-pill-on:focus,
+        .perm-pill-on:active {
+          color: #fff !important;
+        }
+
         .perm-pill-off {
           background: rgba(0,0,0,0.03);
           color: var(--pv-muted);
           border-color: rgba(0,0,0,0.12);
         }
-        :root[data-theme="dark"] .perm-pill-off,
-        html[data-theme="dark"] .perm-pill-off,
-        body[data-theme="dark"] .perm-pill-off{
-          background: rgba(255,255,255,0.04);
-          border-color: rgba(255,255,255,0.14);
-        }
 
-        .perm-pill-all { min-width: 52px; }
+        .perm-pill-all {
+          min-width: 52px;
+        }
 
         .perm-pill-disabled{
           cursor: not-allowed;
@@ -1269,29 +1796,38 @@ class FVPermsHero extends HTMLElement {
           filter: grayscale(0.05);
         }
 
-        .perm-row-closed .perm-row-pills { display: none; }
+        .perm-row-closed .perm-row-pills {
+          display: none;
+        }
 
-        .perm-group-closed .perm-group-body { display: none; }
-        .perm-group-open .perm-group-body { display: block; }
+        .perm-group-closed .perm-group-body {
+          display: none;
+        }
 
-        /* Capability row extras */
+        .perm-group-open .perm-group-body {
+          display: block;
+        }
+
         .cap-row .cap-label{
           display: flex;
           flex-direction: column;
           align-items: flex-start;
           gap: 2px;
         }
+
         .cap-row .perm-row-label-text{
           display: inline-flex;
           align-items: center;
           gap: 6px;
           max-width: 100%;
         }
+
         .cap-lock{
           font-size: 12px;
           opacity: 0.9;
           flex: 0 0 auto;
         }
+
         .cap-hint{
           font-size: 11px;
           color: var(--pv-muted);
@@ -1305,18 +1841,24 @@ class FVPermsHero extends HTMLElement {
   /* ---------- Render ---------- */
 
   render() {
-    this._hasRendered = true;
-    const cfg = this._config;
+    this._hasRendered =
+      true;
 
-    // Build index + compute summary (includes requiredCaps/requiredBy)
-    let summary = this._computeSummary();
+    const cfg =
+      this._config;
 
-    // Auto-sync dependency-driven capabilities (QR + Camera)
-    const changed = this._syncAutoCapabilities(summary.requiredCaps);
+    let summary =
+      this._computeSummary();
+
+    const changed =
+      this._syncAutoCapabilities(
+        summary.requiredCaps
+      );
+
     if (changed) {
-      // Recompute so badges + capability rows reflect the new state
-      summary = this._computeSummary();
-      // Emit once so Firestore saves the auto state
+      summary =
+        this._computeSummary();
+
       this._emitPermsChange();
     }
 
@@ -1330,34 +1872,63 @@ class FVPermsHero extends HTMLElement {
       requiredBy
     } = summary;
 
-    const mode = cfg.mode === 'employee' ? 'employee' : 'role';
-    const nameLabel = cfg.name || (mode === 'employee' ? 'Employee' : 'Role');
+    const mode =
+      cfg.mode === 'employee'
+        ? 'employee'
+        : 'role';
 
-    // Protect built-in Administrator role from deletion
-    const isProtectedRole = (
-      mode === 'role' &&
-      (cfg.name || '').toString().trim().toLowerCase() === 'administrator'
-    );
+    const nameLabel =
+      cfg.name ||
+      (
+        mode === 'employee'
+          ? 'Employee'
+          : 'Role'
+      );
 
-    const baseRoleLine = (mode === 'employee' && cfg.baseRoleName)
-      ? `<div class="perm-subtitle">Base role: <strong>${cfg.baseRoleName}</strong></div>`
-      : '';
+    const isProtectedRole =
+      (
+        mode === 'role' &&
+        (cfg.name || '')
+          .toString()
+          .trim()
+          .toLowerCase() ===
+          'administrator'
+      );
 
-    const navBadgeText = totalNav > 0
-      ? `${enabledNav}/${totalNav} menus enabled`
-      : 'No menus configured';
+    const baseRoleLine =
+      (
+        mode === 'employee' &&
+        cfg.baseRoleName
+      )
+        ? `<div class="perm-subtitle">Base role: <strong>${cfg.baseRoleName}</strong></div>`
+        : '';
 
-    let capBadge = '';
-    if (totalCaps > 0) {
+    const navBadgeText =
+      totalNav > 0
+        ? `${enabledNav}/${totalNav} menus enabled`
+        : 'No menus configured';
+
+    let capBadge =
+      '';
+
+    if (
+      totalCaps > 0
+    ) {
       capBadge = `
         <span class="perm-badge">
-          <span>Features: ${enabledCaps}/${totalCaps}</span>
+          <span>
+            Features: ${enabledCaps}/${totalCaps}
+          </span>
         </span>
       `;
     }
 
-    let chatbotBadge = '';
-    if (chatbotEnabled) {
+    let chatbotBadge =
+      '';
+
+    if (
+      chatbotEnabled
+    ) {
       chatbotBadge = `
         <span class="perm-badge perm-badge-strong">
           <span>AI Chatbot</span>
@@ -1371,163 +1942,364 @@ class FVPermsHero extends HTMLElement {
       `;
     }
 
-    let extraCapsBadge = '';
-    if (enabledCapLabels.length > 0) {
-      const others = enabledCapLabels.filter(l => l !== 'AI Chatbot');
-      if (others.length > 0) {
+    let extraCapsBadge =
+      '';
+
+    if (
+      enabledCapLabels.length > 0
+    ) {
+      const others =
+        enabledCapLabels.filter(
+          l =>
+            l !== 'AI Chatbot'
+        );
+
+      if (
+        others.length > 0
+      ) {
         extraCapsBadge = `
           <span class="perm-badge">
-            <span>KPI / Extra: ${others.length}</span>
+            <span>
+              KPI / Extra: ${others.length}
+            </span>
           </span>
         `;
       }
     }
 
-    const subtitle = (mode === 'employee')
-      ? 'Employee-specific overrides on top of a base role.'
-      : 'Base permissions for a group of employees. New menus and features start locked until enabled here.';
+    const subtitle =
+      mode === 'employee'
+        ? 'Employee-specific overrides on top of a base role.'
+        : 'Base permissions for a group of employees. New menus and features start locked until enabled here.';
 
-    const deleteBtn = (!isProtectedRole && cfg.onDeleteRole)
-      ? `
-        <button type="button" class="perm-btn perm-btn-danger-icon" data-role="delete-role" title="Delete role">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path fill="currentColor" d="M9 3a1 1 0 0 0-.94.66L7.38 5H5a1 1 0 1 0 0 2h1v11a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V7h1a1 1 0 1 0 0-2h-2.38l-.68-1.34A1 1 0 0 0 15 3H9zm1 4a1 1 0 0 1 1 1v9a1 1 0 1 1-2 0V8a1 1 0 0 1 1-1zm4 0a1 1 0 0 1 1 1v9a1 1 0 1 1-2 0V8a1 1 0 0 1 1-1zM9 5h6l.34.68L15.62 6H8.38l.28-.32L9 5z"/>
-          </svg>
-        </button>
-      `
-      : '';
+    const deleteBtn =
+      (
+        !isProtectedRole &&
+        cfg.onDeleteRole
+      )
+        ? `
+          <button
+            type="button"
+            class="perm-btn perm-btn-danger-icon"
+            data-role="delete-role"
+            title="Delete role">
 
-    const resetBtn = (mode === 'employee' && cfg.onResetOverrides)
-      ? `
-        <button type="button" class="perm-btn perm-btn-quiet" data-role="reset-overrides">
-          Reset Overrides
-        </button>
-      `
-      : '';
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M9 3a1 1 0 0 0-.94.66L7.38 5H5a1 1 0 1 0 0 2h1v11a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V7h1a1 1 0 1 0 0-2h-2.38l-.68-1.34A1 1 0 0 0 15 3H9zm1 4a1 1 0 0 1 1 1v9a1 1 0 1 1-2 0V8a1 1 0 0 1 1-1zm4 0a1 1 0 0 1 1 1v9a1 1 0 1 1-2 0V8a1 1 0 0 1 1-1zM9 5h6l.34.68L15.62 6H8.38l.28-.32L9 5z"/>
+            </svg>
+          </button>
+        `
+        : '';
 
-    const matrixHtml = this._buildMenuTreeHtml(requiredBy);
+    const resetBtn =
+      (
+        mode === 'employee' &&
+        cfg.onResetOverrides
+      )
+        ? `
+          <button
+            type="button"
+            class="perm-btn perm-btn-quiet"
+            data-role="reset-overrides">
+            Reset Overrides
+          </button>
+        `
+        : '';
+
+    const matrixHtml =
+      this._buildMenuTreeHtml(
+        requiredBy
+      );
 
     const html = `
       ${this._renderStyles()}
+
       <div class="perm-hero-panel">
+
         <div class="perm-hero">
+
           <div class="perm-main">
+
             <div class="perm-title-row">
-              <div class="perm-icon" aria-hidden="true">🔒</div>
-              <div class="perm-title-text">
-                ${mode === 'employee' ? 'Employee Permissions' : 'Role Permissions'} • ${nameLabel}
+
+              <div
+                class="perm-icon"
+                aria-hidden="true">
+                🔒
               </div>
+
+              <div class="perm-title-text">
+                ${
+                  mode === 'employee'
+                    ? 'Employee Permissions'
+                    : 'Role Permissions'
+                } • ${nameLabel}
+              </div>
+
             </div>
+
             <div class="perm-subtitle">
               ${subtitle}
             </div>
+
             ${baseRoleLine}
+
             <div class="perm-badges">
-              <span class="perm-badge perm-badge-strong">${navBadgeText}</span>
+
+              <span class="perm-badge perm-badge-strong">
+                ${navBadgeText}
+              </span>
+
               ${capBadge}
               ${chatbotBadge}
               ${extraCapsBadge}
+
             </div>
+
           </div>
+
           <div class="perm-right">
             ${resetBtn}
             ${deleteBtn}
           </div>
+
         </div>
 
         <div class="perm-matrix-card">
+
           <div class="perm-matrix-header">
+
             <div class="perm-matrix-title">
               Menu Permissions
             </div>
+
             <div class="perm-matrix-sub">
               Expand a menu, then expand a sub-menu if you need to change its actions.
               Group controls and “All” cascade to sub-menus. Extra Features use simple On/Off.
               QR/Camera pop-ups auto-toggle based on enabled items that need them.
             </div>
+
           </div>
+
           <div class="perm-matrix-body">
             ${matrixHtml}
           </div>
+
         </div>
+
       </div>
     `;
 
-    this._root.innerHTML = html;
+    this._root.innerHTML =
+      html;
 
-    // Wire up delete/reset
-    const del = this._root.querySelector('[data-role="delete-role"]');
-    if (!isProtectedRole && del && typeof this._config.onDeleteRole === 'function') {
-      del.addEventListener('click', () => this._config.onDeleteRole());
+    const del =
+      this._root.querySelector(
+        '[data-role="delete-role"]'
+      );
+
+    if (
+      !isProtectedRole &&
+      del &&
+      typeof this._config.onDeleteRole ===
+        'function'
+    ) {
+      del.addEventListener(
+        'click',
+        () =>
+          this._config.onDeleteRole()
+      );
     }
-    const reset = this._root.querySelector('[data-role="reset-overrides"]');
-    if (reset && typeof this._config.onResetOverrides === 'function') {
-      reset.addEventListener('click', () => this._config.onResetOverrides());
+
+    const reset =
+      this._root.querySelector(
+        '[data-role="reset-overrides"]'
+      );
+
+    if (
+      reset &&
+      typeof this._config.onResetOverrides ===
+        'function'
+    ) {
+      reset.addEventListener(
+        'click',
+        () =>
+          this._config.onResetOverrides()
+      );
     }
 
-    // Wire up group expand/collapse
-    this._root.querySelectorAll('[data-group-toggle]').forEach(btn => {
-      const id = btn.getAttribute('data-group-toggle');
-      if (!id) return;
-      btn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        this._toggleGroupOpen(id);
-      });
-    });
+    this._root
+      .querySelectorAll(
+        '[data-group-toggle]'
+      )
+      .forEach(btn => {
 
-    // Wire up group "All" pills (menus only)
-    this._root.querySelectorAll('[data-group-all]').forEach(btn => {
-      const id = btn.getAttribute('data-group-all');
-      if (!id) return;
-      btn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        this._toggleGroupAll(id);
-      });
-    });
+        const id =
+          btn.getAttribute(
+            'data-group-toggle'
+          );
 
-    // Wire up per-row pills for menus
-    this._root.querySelectorAll('.perm-pill[data-perm-id]').forEach(btn => {
-      const id = btn.getAttribute('data-perm-id');
-      const action = btn.getAttribute('data-perm-action');
-      const type = btn.getAttribute('data-perm-type');
-      if (!id || !action || !type) return;
-      btn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (type === 'group') {
-          this._toggleGroupAction(id, action);
-        } else {
-          this._toggleLeafAction(id, action);
+        if (!id) return;
+
+        btn.addEventListener(
+          'click',
+          e => {
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            this._toggleGroupOpen(
+              id
+            );
+          }
+        );
+      });
+
+    this._root
+      .querySelectorAll(
+        '[data-group-all]'
+      )
+      .forEach(btn => {
+
+        const id =
+          btn.getAttribute(
+            'data-group-all'
+          );
+
+        if (!id) return;
+
+        btn.addEventListener(
+          'click',
+          e => {
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            this._toggleGroupAll(
+              id
+            );
+          }
+        );
+      });
+
+    this._root
+      .querySelectorAll(
+        '.perm-pill[data-perm-id]'
+      )
+      .forEach(btn => {
+
+        const id =
+          btn.getAttribute(
+            'data-perm-id'
+          );
+
+        const action =
+          btn.getAttribute(
+            'data-perm-action'
+          );
+
+        const type =
+          btn.getAttribute(
+            'data-perm-type'
+          );
+
+        if (
+          !id ||
+          !action ||
+          !type
+        ) {
+          return;
         }
-      });
-    });
 
-    // Wire up capability On/Off pills (auto caps are locked in _toggleCapability)
-    this._root.querySelectorAll('[data-cap-id]').forEach(btn => {
-      const id = btn.getAttribute('data-cap-id');
-      if (!id) return;
-      btn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        this._toggleCapability(id);
-      });
-    });
+        btn.addEventListener(
+          'click',
+          e => {
 
-    // Wire up row expand/collapse for leaf rows (sub menus)
-    this._root.querySelectorAll('[data-row-toggle]').forEach(btn => {
-      const id = btn.getAttribute('data-row-toggle');
-      if (!id) return;
-      btn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        this._toggleRowOpen(id);
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (
+              type === 'group'
+            ) {
+              this._toggleGroupAction(
+                id,
+                action
+              );
+            } else {
+              this._toggleLeafAction(
+                id,
+                action
+              );
+            }
+          }
+        );
       });
-    });
+
+    this._root
+      .querySelectorAll(
+        '[data-cap-id]'
+      )
+      .forEach(btn => {
+
+        const id =
+          btn.getAttribute(
+            'data-cap-id'
+          );
+
+        if (!id) return;
+
+        btn.addEventListener(
+          'click',
+          e => {
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            this._toggleCapability(
+              id
+            );
+          }
+        );
+      });
+
+    this._root
+      .querySelectorAll(
+        '[data-row-toggle]'
+      )
+      .forEach(btn => {
+
+        const id =
+          btn.getAttribute(
+            'data-row-toggle'
+          );
+
+        if (!id) return;
+
+        btn.addEventListener(
+          'click',
+          e => {
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            this._toggleRowOpen(
+              id
+            );
+          }
+        );
+      });
   }
 }
 
-if (!customElements.get('fv-perms-hero')) {
-  customElements.define('fv-perms-hero', FVPermsHero);
+if (
+  !customElements.get(
+    'fv-perms-hero'
+  )
+) {
+  customElements.define(
+    'fv-perms-hero',
+    FVPermsHero
+  );
 }
