@@ -3955,26 +3955,32 @@ if (els.tickets) {
       getDoc(doc(db,"company","main"))
     ]);
 
-    loState.drivers = employeeSnapshot.docs
-      .map(snapshot => {
-        const data = snapshot.data() || {};
+loState.drivers = employeeSnapshot.docs
+  .map(snapshot => {
+    const data = snapshot.data() || {};
 
-        return {
-          id:snapshot.id,
-          uid:loClean(data.uid || data.userUid || data.authUid) || null,
-          name:loDisplayDriverName(data),
-          email:loClean(data.email),
-          phone:loClean(data.phone)
-        };
-      })
-      .filter(item => item.name)
-      .sort((a,b) =>
-        a.name.localeCompare(
-          b.name,
-          undefined,
-          {numeric:true,sensitivity:"base"}
-        )
-      );
+    return {
+      id:snapshot.id,
+      uid:loClean(data.uid || data.userUid || data.authUid) || null,
+      name:loDisplayDriverName(data),
+      email:loClean(data.email),
+      phone:loClean(data.phone),
+      roles:Array.isArray(data.roles) ? data.roles : [],
+      active:data.active !== false && loNorm(data.status || "Active") === "active"
+    };
+  })
+  .filter(item =>
+    item.name &&
+    item.active &&
+    item.roles.some(role => loNorm(role) === "semi driver")
+  )
+  .sort((a,b) =>
+    a.name.localeCompare(
+      b.name,
+      undefined,
+      {numeric:true,sensitivity:"base"}
+    )
+  );
 
     loState.customers = customerSnapshot.docs
       .map(snapshot => ({
