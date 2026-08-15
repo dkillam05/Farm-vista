@@ -542,7 +542,7 @@ const maintenanceQuickLinkAllowed =
 
 const equipmentServiceRequestAllowed =
   can(
-    CAP.MAINTENANCE,
+    CAP.EQUIPMENT_WORK_ORDERS,
     "add"
   );
 
