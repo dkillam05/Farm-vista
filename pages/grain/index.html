@@ -1100,7 +1100,7 @@
     <div class="loadout-legend">
       <span class="loadout-legend-item">
         <span class="loadout-dot"></span>
-        Dispatched
+        In Transit
       </span>
 
       <span class="loadout-legend-item">
@@ -1525,7 +1525,7 @@
               value="—"
             >
             <div id="loadout-eta-help" class="loadout-help">
-              ETA uses the company/main address as the starting point and the selected elevator address as the destination.
+              ETA uses the current Google driving route from the company address to the selected elevator.
             </div>
           </div>
 
@@ -3248,7 +3248,7 @@ if (els.tickets) {
     loEls.loadedTime.value = loFormatClock(new Date());
     loEls.eta.value = "—";
     loEls.etaHelp.textContent =
-      "ETA uses the company/main address as the starting point and the selected elevator address as the destination.";
+      "ETA uses the current Google driving route from the company address to the selected elevator.";
 
     loState.etaAt = null;
     loState.etaMinutes = null;
@@ -3271,358 +3271,509 @@ if (els.tickets) {
   }
 
   function loLoadGoogleMaps(){
-    if (window.google?.maps?.DirectionsService) {
-      return Promise.resolve(window.google.maps);
+    if (
+      window.google?.maps?.importLibrary
+    ) {
+      return Promise.resolve(
+        window.google.maps
+      );
     }
 
-    if (window.__FV_LOADOUT_MAPS_PROMISE) {
+    if (
+      window.__FV_LOADOUT_MAPS_PROMISE
+    ) {
       return window.__FV_LOADOUT_MAPS_PROMISE;
     }
 
-    window.__FV_LOADOUT_MAPS_PROMISE = new Promise((resolve,reject) => {
-      const existing = document.querySelector(
-        'script[data-fv-loadout-google-maps="1"]'
+    window.__FV_LOADOUT_MAPS_PROMISE =
+      new Promise(
+        (
+          resolve,
+          reject
+        ) => {
+
+          const key =
+            loClean(
+              window.FV_GOOGLE_MAPS_KEY
+            ) ||
+            loClean(
+              localStorage.getItem(
+                "fv_google_maps_key"
+              )
+            );
+
+
+          if (
+            !key
+          ) {
+
+            reject(
+              new Error(
+                "Google Maps API key is not configured."
+              )
+            );
+
+            return;
+
+          }
+
+
+          const existing =
+            document.querySelector(
+              'script[data-fv-loadout-google-maps="1"]'
+            );
+
+
+          if (
+            existing
+          ) {
+
+            existing.addEventListener(
+              "load",
+              () => {
+
+                if (
+                  window.google?.maps?.importLibrary
+                ) {
+
+                  resolve(
+                    window.google.maps
+                  );
+
+                }
+                else {
+
+                  reject(
+                    new Error(
+                      "Google Maps loaded, but importLibrary is unavailable."
+                    )
+                  );
+
+                }
+
+              },
+              {
+                once:
+                  true
+              }
+            );
+
+
+            existing.addEventListener(
+              "error",
+              () => {
+
+                reject(
+                  new Error(
+                    "Google Maps JavaScript API could not be loaded."
+                  )
+                );
+
+              },
+              {
+                once:
+                  true
+              }
+            );
+
+
+            return;
+
+          }
+
+
+          const script =
+            document.createElement(
+              "script"
+            );
+
+
+          script.async =
+            true;
+
+
+          script.defer =
+            true;
+
+
+          script.dataset.fvLoadoutGoogleMaps =
+            "1";
+
+
+          script.src =
+            `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(
+              key
+            )}&v=weekly&loading=async`;
+
+
+          script.onload =
+            () => {
+
+              if (
+                window.google?.maps?.importLibrary
+              ) {
+
+                resolve(
+                  window.google.maps
+                );
+
+              }
+              else {
+
+                reject(
+                  new Error(
+                    "Google Maps loaded, but importLibrary is unavailable."
+                  )
+                );
+
+              }
+
+            };
+
+
+          script.onerror =
+            () => {
+
+              reject(
+                new Error(
+                  "Google Maps JavaScript API could not be loaded."
+                )
+              );
+
+            };
+
+
+          document.head.appendChild(
+            script
+          );
+
+        }
       );
 
-      if (existing) {
-        const started = Date.now();
-
-        const check = () => {
-          if (window.google?.maps?.DirectionsService) {
-            resolve(window.google.maps);
-            return;
-          }
-
-          if (Date.now() - started > 12000) {
-            reject(new Error("Google Maps did not finish loading."));
-            return;
-          }
-
-          setTimeout(check,100);
-        };
-
-        check();
-        return;
-      }
-
-      const key =
-        loClean(window.FV_GOOGLE_MAPS_KEY) ||
-        loClean(localStorage.getItem("fv_google_maps_key"));
-
-      if (!key) {
-        reject(new Error("Google Maps key is not configured on this page."));
-        return;
-      }
-
-      const script = document.createElement("script");
-      script.async = true;
-      script.defer = true;
-      script.dataset.fvLoadoutGoogleMaps = "1";
-      script.src =
-        `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&v=weekly`;
-
-      script.onload = () => {
-        if (window.google?.maps?.DirectionsService) {
-          resolve(window.google.maps);
-        } else {
-          reject(new Error("Google Maps loaded without Directions Service."));
-        }
-      };
-
-      script.onerror = () => {
-        reject(new Error("Google Maps could not be loaded."));
-      };
-
-      document.head.appendChild(script);
-    });
 
     return window.__FV_LOADOUT_MAPS_PROMISE;
   }
 
-  function loWithTimeout(promise, milliseconds, message){
-    return Promise.race([
-      promise,
-      new Promise((_,reject) => {
-        setTimeout(
-          () => reject(new Error(message || "Request timed out.")),
-          milliseconds
-        );
-      })
-    ]);
-  }
 
-  function loHaversineMiles(a,b){
-    const toRad = degrees => degrees * Math.PI / 180;
-    const earthMiles = 3958.8;
+  function loFormatMiles(
+    meters
+  ) {
 
-    const lat1 = toRad(a.lat);
-    const lat2 = toRad(b.lat);
-    const dLat = toRad(b.lat - a.lat);
-    const dLng = toRad(b.lng - a.lng);
+    const miles =
+      Number(
+        meters ||
+        0
+      ) /
+      1609.344;
 
-    const sinLat = Math.sin(dLat / 2);
-    const sinLng = Math.sin(dLng / 2);
 
-    const h =
-      sinLat * sinLat +
-      Math.cos(lat1) *
-      Math.cos(lat2) *
-      sinLng * sinLng;
+    if (
+      !Number.isFinite(
+        miles
+      ) ||
+      miles <= 0
+    ) {
 
-    return 2 * earthMiles * Math.asin(Math.sqrt(h));
-  }
+      return "";
 
-  async function loGeocodeAddress(maps,address){
-    if (!maps?.Geocoder) {
-      throw new Error("Google Geocoder is unavailable.");
     }
 
-    const geocoder = new maps.Geocoder();
 
-    return loWithTimeout(
-      new Promise((resolve,reject) => {
-        geocoder.geocode(
-          {address},
-          (results,status) => {
-            const location =
-              results?.[0]?.geometry?.location;
+    return miles >=
+      10
+        ? `${Math.round(
+            miles
+          )} mi`
+        : `${miles.toFixed(
+            1
+          )} mi`;
 
-            if (status === "OK" && location) {
-              resolve({
-                lat:location.lat(),
-                lng:location.lng()
-              });
-            } else {
-              reject(
-                new Error(
-                  `Geocoding failed (${status || "UNKNOWN"}).`
-                )
-              );
-            }
-          }
-        );
-      }),
-      8000,
-      "Address lookup timed out."
-    );
   }
 
-  async function loApproximateEtaFromAddresses(
-    maps,
-    originAddress,
-    destinationAddress
-  ){
-    const [origin,destination] =
-      await Promise.all([
-        loGeocodeAddress(maps,originAddress),
-        loGeocodeAddress(maps,destinationAddress)
-      ]);
-
-    const straightMiles =
-      loHaversineMiles(origin,destination);
-
-    /*
-      Road distance is generally longer than straight-line distance.
-      Use a conservative 1.22 road factor plus 5 minutes for
-      getting out of the yard / elevator approach.
-    */
-    const estimatedRoadMiles =
-      Math.max(1,straightMiles * 1.22);
-
-    const estimatedMinutes =
-      Math.max(
-        5,
-        Math.round((estimatedRoadMiles / 50) * 60 + 5)
-      );
-
-    return {
-      minutes:estimatedMinutes,
-      distanceText:`~${Math.round(estimatedRoadMiles)} mi`,
-      approximate:true
-    };
-  }
 
   async function loUpdateEta(){
-    const location = loSelectedLocation();
 
-    loState.etaAt = null;
-    loState.etaMinutes = null;
-    loState.etaDistanceText = "";
+    const location =
+      loSelectedLocation();
 
-    if (!location) {
-      loEls.eta.value = "—";
+
+    loState.etaAt =
+      null;
+
+
+    loState.etaMinutes =
+      null;
+
+
+    loState.etaDistanceText =
+      "";
+
+
+    if (
+      !location
+    ) {
+
+      loEls.eta.value =
+        "—";
+
+
       return false;
+
     }
 
+
     const destinationAddress =
-      loFormatAddress(location);
+      loFormatAddress(
+        location
+      );
+
 
     const originAddress =
       loCompanyAddress();
 
-    if (!destinationAddress) {
-      loEls.eta.value = "—";
+
+    if (
+      !destinationAddress
+    ) {
+
+      loEls.eta.value =
+        "—";
+
+
       loEls.etaHelp.textContent =
         "This destination does not have a complete address saved.";
+
+
       return false;
+
     }
 
-    if (!originAddress) {
-      loEls.eta.value = "—";
+
+    if (
+      !originAddress
+    ) {
+
+      loEls.eta.value =
+        "—";
+
+
       loEls.etaHelp.textContent =
         "Company address is missing from company/main.";
+
+
       return false;
+
     }
 
-    loEls.eta.value = "Calculating…";
+
+    loEls.eta.value =
+      "Calculating…";
+
+
     loEls.etaHelp.textContent =
       `From ${originAddress} to ${destinationAddress}`;
 
+
     try {
+
       const maps =
-        await loWithTimeout(
-          loLoadGoogleMaps(),
-          8000,
-          "Google Maps took too long to load."
+        await loLoadGoogleMaps();
+
+
+      const {
+        Route
+      } =
+        await maps.importLibrary(
+          "routes"
         );
 
-      let routeInfo = null;
 
-      /*
-        First try Google's actual road route.
-        Never allow this request to hang the form.
-      */
-      try {
-        if (maps?.DirectionsService) {
-          const service =
-            new maps.DirectionsService();
+      if (
+        !Route ||
+        typeof Route.computeRoutes !==
+          "function"
+      ) {
 
-          const leg =
-            await loWithTimeout(
-              new Promise((resolve,reject) => {
-                service.route(
-                  {
-                    origin:originAddress,
-                    destination:destinationAddress,
-                    travelMode:maps.TravelMode.DRIVING
-                  },
-                  (result,status) => {
-                    const foundLeg =
-                      result?.routes?.[0]?.legs?.[0];
-
-                    if (
-                      status === "OK" &&
-                      foundLeg
-                    ) {
-                      resolve(foundLeg);
-                    } else {
-                      reject(
-                        new Error(
-                          `Google route failed (${status || "UNKNOWN"}).`
-                        )
-                      );
-                    }
-                  }
-                );
-              }),
-              8000,
-              "Google route request timed out."
-            );
-
-          const seconds =
-            Number(
-              leg.duration?.value || 0
-            );
-
-          if (seconds > 0) {
-            routeInfo = {
-              minutes:
-                Math.max(
-                  1,
-                  Math.round(seconds / 60)
-                ),
-              distanceText:
-                loClean(leg.distance?.text),
-              durationText:
-                loClean(leg.duration?.text),
-              approximate:false
-            };
-          }
-        }
-      } catch (routeError) {
-        console.warn(
-          "[grain loadout] road route unavailable; using ETA estimate:",
-          routeError
+        throw new Error(
+          "Google Routes library did not load."
         );
+
       }
 
-      /*
-        If Google road routing is disabled / deprecated / slow,
-        geocode both addresses and derive a usable ETA instead.
-      */
-      if (!routeInfo) {
-        routeInfo =
-          await loApproximateEtaFromAddresses(
-            maps,
+
+      const {
+        routes
+      } =
+        await Route.computeRoutes({
+          origin:
             originAddress,
-            destinationAddress
-          );
+
+          destination:
+            destinationAddress,
+
+          travelMode:
+            "DRIVING",
+
+          routingPreference:
+            "TRAFFIC_AWARE",
+
+          departureTime:
+            new Date(),
+
+          fields: [
+            "durationMillis",
+            "distanceMeters"
+          ]
+        });
+
+
+      const route =
+        Array.isArray(
+          routes
+        )
+          ? routes[0]
+          : null;
+
+
+      if (
+        !route
+      ) {
+
+        throw new Error(
+          "Google Routes returned no driving route."
+        );
+
       }
+
+
+      const durationMillis =
+        Number(
+          route.durationMillis ||
+          0
+        );
+
+
+      if (
+        !Number.isFinite(
+          durationMillis
+        ) ||
+        durationMillis <=
+          0
+      ) {
+
+        throw new Error(
+          "Google Routes returned no drive time."
+        );
+
+      }
+
+
+      const minutes =
+        Math.max(
+          1,
+          Math.round(
+            durationMillis /
+            60000
+          )
+        );
+
 
       const eta =
         new Date(
           Date.now() +
-          routeInfo.minutes * 60000
+          durationMillis
         );
 
+
+      const distanceText =
+        loFormatMiles(
+          route.distanceMeters
+        );
+
+
       loState.etaMinutes =
-        routeInfo.minutes;
+        minutes;
+
 
       loState.etaAt =
         eta;
 
+
       loState.etaDistanceText =
-        routeInfo.distanceText || "";
+        distanceText;
+
 
       loEls.eta.value =
-        loFormatClock(eta);
+        loFormatClock(
+          eta
+        );
 
-      if (routeInfo.approximate) {
-        loEls.etaHelp.textContent =
-          `Estimated ${routeInfo.minutes} min • ${routeInfo.distanceText} from ${
-            loClean(loState.company?.name) ||
-            "company location"
-          }.`;
-      } else {
-        loEls.etaHelp.textContent =
-          `${routeInfo.durationText || `${routeInfo.minutes} min`}${
-            routeInfo.distanceText
-              ? ` • ${routeInfo.distanceText}`
-              : ""
-          } from ${
-            loClean(loState.company?.name) ||
-            "company location"
-          }.`;
-      }
+
+      loEls.etaHelp.textContent =
+        `${minutes} min${
+          distanceText
+            ? ` • ${distanceText}`
+            : ""
+        } from ${
+          loClean(
+            loState.company?.name
+          ) ||
+          "company location"
+        }.`;
+
+
+      console.log(
+        "[grain loadout] Routes API ETA:",
+        {
+          origin:
+            originAddress,
+
+          destination:
+            destinationAddress,
+
+          durationMillis,
+
+          minutes,
+
+          distanceMeters:
+            route.distanceMeters,
+
+          distanceText,
+
+          estimatedArrival:
+            eta
+        }
+      );
+
 
       return true;
 
-    } catch (error) {
-      console.warn(
-        "[grain loadout] ETA failed:",
+    }
+    catch (
+      error
+    ) {
+
+      console.error(
+        "[grain loadout] Routes API ETA failed:",
         error
       );
 
-      loEls.eta.value = "—";
+
+      loEls.eta.value =
+        "—";
+
 
       loEls.etaHelp.textContent =
         `ETA unavailable: ${
           error?.message ||
-          "Could not calculate route."
+          "Google Routes request failed."
         }`;
 
+
       return false;
+
     }
+
   }
 
   function loLoadStatus(load){
@@ -4089,7 +4240,7 @@ if (els.tickets) {
         estimatedDriveMinutes:loState.etaMinutes || null,
         estimatedDistanceText:loState.etaDistanceText || null,
 
-        status:"dispatched",
+        status:"in_transit",
 
         grainTicketId:null,
         elevatorTicketNumber:null,
