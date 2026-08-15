@@ -2666,15 +2666,15 @@
         "";
 
 
-      if (
-        !selectedId &&
-        matches.length === 1
-      ) {
+/*
+  Never automatically select a contract.
 
-        selectedId =
-          matches[0].id;
+  OCR scanned tickets are reconciled later
+  using the grain reconciliation page.
 
-      }
+  Manual tickets may still have a contract
+  selected by the user.
+*/
 
 
       elements.contractSelect.value =
@@ -3822,23 +3822,34 @@
 
       try {
 
-        const matching =
-          matchingContracts();
+const isOcrScan =
+  clean(
+    state.ticket.entryMethod
+  ) ===
+  "ocr_scan";
 
 
-        const selectedContract =
-          state.selectedContract;
+const selectedContract =
+  state.selectedContract;
 
 
-        const matchingContractIds =
-          selectedContract
-            ? [
-                selectedContract.id
-              ]
-            : matching.map(
-                contract =>
-                  contract.id
-              );
+/*
+  OCR tickets are NEVER assigned to a contract here.
+
+  They will be assigned later from the
+  grain reconciliation page.
+
+  Manual tickets may still use the contract
+  selected by the user.
+*/
+const matchingContractIds =
+  isOcrScan
+    ? []
+    : selectedContract
+        ? [
+            selectedContract.id
+          ]
+        : [];
 
 
         const payload = {
@@ -3947,24 +3958,34 @@
             ),
 
 
-          validationStatus:
-            matchingContractIds.length
-              ? "verified"
-              : "needs_review",
+validationStatus:
+  "verified",
 
-          customerContractMatched:
-            matchingContractIds.length >
-            0,
+customerContractMatched:
+  matchingContractIds.length >
+  0,
 
-          matchingContractIds,
+matchingContractIds:
 
+  matchingContractIds,
 
-          reviewReasons:
-            matchingContractIds.length
-              ? []
-              : [
-                  "contract_not_matched"
-                ],
+contractId:
+  matchingContractIds.length
+    ? matchingContractIds[0]
+    : null,
+
+contractNumber:
+  selectedContract
+    ?.contractNumber ||
+  null,
+
+reconciliationStatus:
+  matchingContractIds.length
+    ? "reconciled"
+    : "unreconciled",
+
+reviewReasons:
+  [],
 
 
           reviewedAt:
