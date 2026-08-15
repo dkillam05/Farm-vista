@@ -940,6 +940,26 @@
   }
 }
 
+
+
+/* Prevent horizontal scrolling inside Add Load popup */
+.loadout-modal{
+  overflow-x:hidden !important;
+}
+
+.loadout-form,
+.loadout-form-grid,
+.loadout-field{
+  min-width:0;
+  max-width:100%;
+}
+
+.loadout-input,
+.loadout-select{
+  min-width:0;
+  max-width:100%;
+}
+
 </style>
 </head>
 <body>
@@ -1410,7 +1430,7 @@
               value="—"
             >
             <div id="loadout-eta-help" class="loadout-help">
-              ETA uses the selected elevator address and your current location when location access is available.
+              ETA uses the company/main address as the starting point and the selected elevator address as the destination.
             </div>
           </div>
 
@@ -2765,6 +2785,7 @@ if (els.tickets) {
     locations: [],
     contracts: [],
     loads: [],
+    company: null,
     previewSequence: 1,
     etaAt: null,
     etaMinutes: null,
@@ -2877,6 +2898,26 @@ if (els.tickets) {
     return [
       location.street,
       [cityState, location.zip].filter(Boolean).join(" ")
+    ]
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  function loCompanyAddress(){
+    const company = loState.company || {};
+
+    const cityState = [
+      loClean(company.addressCity),
+      loClean(company.addressState)
+    ]
+      .filter(Boolean)
+      .join(", ");
+
+    return [
+      loClean(company.addressStreet),
+      [cityState, loClean(company.addressZip)]
+        .filter(Boolean)
+        .join(" ")
     ]
       .filter(Boolean)
       .join(", ");
@@ -3076,9 +3117,8 @@ if (els.tickets) {
     loEls.contractNote.textContent =
       `${matches.length} open matching contract${matches.length === 1 ? "" : "s"}.`;
 
-    if (matches.length === 1) {
-      loEls.contract.value = matches[0].id;
-    }
+    // Contract is intentionally never auto-selected.
+    // Loader must choose the contract each time.
   }
 
   function loPreviewNextNumber(){
@@ -3108,7 +3148,7 @@ if (els.tickets) {
     loEls.loadedTime.value = loFormatClock(new Date());
     loEls.eta.value = "—";
     loEls.etaHelp.textContent =
-      "ETA uses the selected elevator address and your current location when location access is available.";
+      "ETA uses the company/main address as the starting point and the selected elevator address as the destination.";
 
     loState.etaAt = null;
     loState.etaMinutes = null;
@@ -3212,6 +3252,7 @@ if (els.tickets) {
     }
 
     const destinationAddress = loFormatAddress(location);
+    const originAddress = loCompanyAddress();
 
     if (!destinationAddress) {
       loEls.etaHelp.textContent =
@@ -3219,97 +3260,76 @@ if (els.tickets) {
       return;
     }
 
-    if (!navigator.geolocation) {
+    if (!originAddress) {
       loEls.etaHelp.textContent =
-        "Current-location access is not available on this device.";
+        "Company address is missing from company/main.";
       return;
     }
 
     loEls.eta.value = "Calculating…";
     loEls.etaHelp.textContent =
-      `Destination: ${destinationAddress}`;
+      `From ${originAddress} to ${destinationAddress}`;
 
-    navigator.geolocation.getCurrentPosition(
-      async position => {
-        try {
-          const maps = await loLoadGoogleMaps();
+    try {
+      const maps = await loLoadGoogleMaps();
 
-          const origin = {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude
-          };
+      const service = new maps.DistanceMatrixService();
 
-          const service = new maps.DistanceMatrixService();
+      service.getDistanceMatrix(
+        {
+          origins: [originAddress],
+          destinations: [destinationAddress],
+          travelMode: maps.TravelMode.DRIVING,
+          unitSystem: maps.UnitSystem.IMPERIAL
+        },
+        (response,status) => {
+          const element =
+            response?.rows?.[0]?.elements?.[0];
 
-          service.getDistanceMatrix(
-            {
-              origins: [origin],
-              destinations: [destinationAddress],
-              travelMode: maps.TravelMode.DRIVING,
-              unitSystem: maps.UnitSystem.IMPERIAL
-            },
-            (response,status) => {
-              const element =
-                response?.rows?.[0]?.elements?.[0];
+          if (
+            status !== "OK" ||
+            !element ||
+            element.status !== "OK" ||
+            !element.duration?.value
+          ) {
+            loEls.eta.value = "—";
+            loEls.etaHelp.textContent =
+              "Could not calculate a drive-time ETA for this destination.";
+            return;
+          }
 
-              if (
-                status !== "OK" ||
-                !element ||
-                element.status !== "OK" ||
-                !element.duration?.value
-              ) {
-                loEls.eta.value = "—";
-                loEls.etaHelp.textContent =
-                  "Could not calculate a drive-time ETA for this destination.";
-                return;
-              }
+          const minutes =
+            Math.max(
+              1,
+              Math.round(element.duration.value / 60)
+            );
 
-              const minutes =
-                Math.max(
-                  1,
-                  Math.round(element.duration.value / 60)
-                );
+          const eta =
+            new Date(Date.now() + minutes * 60000);
 
-              const eta =
-                new Date(Date.now() + minutes * 60000);
+          loState.etaMinutes = minutes;
+          loState.etaAt = eta;
+          loState.etaDistanceText =
+            loClean(element.distance?.text);
 
-              loState.etaMinutes = minutes;
-              loState.etaAt = eta;
-              loState.etaDistanceText =
-                loClean(element.distance?.text);
+          loEls.eta.value =
+            loFormatClock(eta);
 
-              loEls.eta.value =
-                loFormatClock(eta);
-
-              loEls.etaHelp.textContent =
-                `${element.duration.text}${
-                  element.distance?.text
-                    ? ` • ${element.distance.text}`
-                    : ""
-                } drive from current location.`;
-            }
-          );
-        } catch (error) {
-          console.warn("[grain loadout] ETA:", error);
-
-          loEls.eta.value = "—";
           loEls.etaHelp.textContent =
-            "ETA is unavailable until Google Maps is configured for this page.";
+            `${element.duration.text}${
+              element.distance?.text
+                ? ` • ${element.distance.text}`
+                : ""
+            } from ${loClean(loState.company?.name) || "company location"}.`;
         }
-      },
-      error => {
-        console.warn("[grain loadout] location access:", error);
+      );
+    } catch (error) {
+      console.warn("[grain loadout] ETA:", error);
 
-        loEls.eta.value = "—";
-        loEls.etaHelp.textContent =
-          "Location access was not granted. Load can still be assigned.";
-      },
-      {
-        enableHighAccuracy:false,
-        timeout:8000,
-        maximumAge:120000
-      }
-    );
+      loEls.eta.value = "—";
+      loEls.etaHelp.textContent =
+        "ETA is unavailable until Google Maps is configured for this page.";
+    }
   }
 
   function loLoadStatus(load){
@@ -3487,14 +3507,16 @@ if (els.tickets) {
       buyerSnapshot,
       locationSnapshot,
       contractSnapshot,
-      loadSnapshot
+      loadSnapshot,
+      companySnapshot
     ] = await Promise.all([
       getDocs(collection(db,"employees")),
       getDocs(collection(db,"grain_customers")),
       getDocs(collection(db,"grain_buyers")),
       getDocs(collection(db,"grain_delivery_locations")),
       getDocs(collection(db,"grain_contracts")),
-      getDocs(collection(db,LOADOUT_COLLECTION))
+      getDocs(collection(db,LOADOUT_COLLECTION)),
+      getDoc(doc(db,"company","main"))
     ]);
 
     loState.drivers = employeeSnapshot.docs
@@ -3574,6 +3596,14 @@ if (els.tickets) {
         id:snapshot.id,
         ...snapshot.data()
       }));
+
+    loState.company =
+      companySnapshot.exists()
+        ? {
+            id:companySnapshot.id,
+            ...companySnapshot.data()
+          }
+        : null;
 
     loRenderSelect(
       loEls.driver,
