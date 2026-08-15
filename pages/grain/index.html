@@ -749,6 +749,63 @@
   cursor:not-allowed;
 }
 
+.loadout-subdriver-wrap{
+  display:none;
+}
+
+.loadout-subdriver-wrap.show{
+  display:block;
+}
+
+.loadout-subdriver-row{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:8px;
+  align-items:end;
+}
+
+.loadout-add-driver-btn{
+  appearance:none;
+  border:1px solid #3B7E46;
+  border-radius:10px;
+  background:var(--surface);
+  color:#2F6C3C;
+  padding:10px 12px;
+  font-weight:900;
+  cursor:pointer;
+  white-space:nowrap;
+}
+
+.loadout-add-driver-panel{
+  display:none;
+  margin-top:10px;
+  padding:12px;
+  border:1px solid var(--border);
+  border-radius:12px;
+  background:var(--surface-2,rgba(255,255,255,.04));
+}
+
+.loadout-add-driver-panel.show{
+  display:block;
+}
+
+.loadout-add-driver-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px;
+}
+
+.loadout-add-driver-grid .full{
+  grid-column:1 / -1;
+}
+
+.loadout-add-driver-actions{
+  display:flex;
+  justify-content:flex-end;
+  gap:8px;
+  margin-top:10px;
+}
+
 @media (max-width:1100px){
   .grain-live-grid{
     grid-template-columns:1fr;
@@ -1493,16 +1550,101 @@
           </div>
 
           <div class="loadout-field full">
-            <label for="loadout-driver">Driver</label>
+            <label for="loadout-driver">Driver / Trucking Sub</label>
             <select
               id="loadout-driver"
               class="loadout-select"
               required
             >
-              <option value="">Select driver</option>
+              <option value="">Select driver or trucking subcontractor</option>
             </select>
             <div class="loadout-help">
-              Drivers stay available even when they already have an open load.
+              FarmVista employees are listed first A–Z, followed by active subcontractors with Trucking selected.
+            </div>
+          </div>
+
+          <div
+            id="loadout-subdriver-wrap"
+            class="loadout-field full loadout-subdriver-wrap"
+          >
+            <label for="loadout-subdriver">Subcontractor Driver</label>
+
+            <div class="loadout-subdriver-row">
+              <select
+                id="loadout-subdriver"
+                class="loadout-select"
+              >
+                <option value="">Select subcontractor driver</option>
+              </select>
+
+              <button
+                id="loadout-add-subdriver-btn"
+                type="button"
+                class="loadout-add-driver-btn"
+              >
+                + Add Driver
+              </button>
+            </div>
+
+            <div
+              id="loadout-add-driver-panel"
+              class="loadout-add-driver-panel"
+            >
+              <div class="loadout-add-driver-grid">
+                <div>
+                  <label for="loadout-subdriver-first">First Name</label>
+                  <input
+                    id="loadout-subdriver-first"
+                    class="loadout-input"
+                    type="text"
+                    autocomplete="given-name"
+                  >
+                </div>
+
+                <div>
+                  <label for="loadout-subdriver-last">Last Name</label>
+                  <input
+                    id="loadout-subdriver-last"
+                    class="loadout-input"
+                    type="text"
+                    autocomplete="family-name"
+                  >
+                </div>
+
+                <div class="full">
+                  <label for="loadout-subdriver-cell">Cell Number</label>
+                  <input
+                    id="loadout-subdriver-cell"
+                    class="loadout-input"
+                    type="tel"
+                    inputmode="tel"
+                    autocomplete="tel"
+                    placeholder="(555) 555-5555"
+                  >
+                </div>
+              </div>
+
+              <div class="loadout-add-driver-actions">
+                <button
+                  id="loadout-subdriver-cancel"
+                  type="button"
+                  class="loadout-btn"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  id="loadout-subdriver-save"
+                  type="button"
+                  class="loadout-btn primary"
+                >
+                  Save Driver
+                </button>
+              </div>
+            </div>
+
+            <div class="loadout-help">
+              Drivers added here are saved to this subcontractor for future loads.
             </div>
           </div>
 
@@ -2955,6 +3097,7 @@ if (els.tickets) {
 
   const loState = {
     drivers: [],
+    subcontractors: [],
     customers: [],
     buyers: [],
     locations: [],
@@ -2980,6 +3123,15 @@ if (els.tickets) {
     loadNumber: $lo("loadout-load-number"),
     loadedTime: $lo("loadout-loaded-time"),
     driver: $lo("loadout-driver"),
+    subdriverWrap: $lo("loadout-subdriver-wrap"),
+    subdriver: $lo("loadout-subdriver"),
+    addSubdriverBtn: $lo("loadout-add-subdriver-btn"),
+    addDriverPanel: $lo("loadout-add-driver-panel"),
+    subdriverFirst: $lo("loadout-subdriver-first"),
+    subdriverLast: $lo("loadout-subdriver-last"),
+    subdriverCell: $lo("loadout-subdriver-cell"),
+    subdriverCancel: $lo("loadout-subdriver-cancel"),
+    subdriverSave: $lo("loadout-subdriver-save"),
     destination: $lo("loadout-destination"),
     customer: $lo("loadout-customer"),
     crop: $lo("loadout-crop"),
@@ -3194,10 +3346,278 @@ if (els.tickets) {
     ) || null;
   }
 
-  function loSelectedDriver(){
-    return loState.drivers.find(
-      item => item.id === loEls.driver.value
+  function loSelectedSubcontractor(){
+    const value = loClean(loEls.driver?.value);
+
+    if (!value.startsWith("sub:")) {
+      return null;
+    }
+
+    const subcontractorId = value.slice(4);
+
+    return loState.subcontractors.find(
+      item => item.id === subcontractorId
     ) || null;
+  }
+
+  function loSelectedDriver(){
+    const value = loClean(loEls.driver?.value);
+
+    if (value.startsWith("emp:")) {
+      const employeeId = value.slice(4);
+
+      const employee = loState.drivers.find(
+        item => item.id === employeeId
+      );
+
+      return employee
+        ? {
+            ...employee,
+            driverType:"employee",
+            employeeId:employee.id,
+            subcontractorId:null,
+            subcontractorDriverId:null,
+            subcontractorName:null
+          }
+        : null;
+    }
+
+    if (value.startsWith("sub:")) {
+      const subcontractor = loSelectedSubcontractor();
+      const subdriverId = loClean(loEls.subdriver?.value);
+
+      if (!subcontractor || !subdriverId) {
+        return null;
+      }
+
+      const subdriver = subcontractor.drivers.find(
+        item => item.id === subdriverId
+      );
+
+      return subdriver
+        ? {
+            ...subdriver,
+            driverType:"subcontractor",
+            employeeId:null,
+            subcontractorId:subcontractor.id,
+            subcontractorDriverId:subdriver.id,
+            subcontractorName:subcontractor.company,
+            email:null,
+            uid:null
+          }
+        : null;
+    }
+
+    return null;
+  }
+
+  function loDriverMatchesLoad(load, driver){
+    if (!load || !driver) {
+      return false;
+    }
+
+    if (driver.driverType === "employee") {
+      return loClean(load.driverEmployeeId) === loClean(driver.employeeId || driver.id);
+    }
+
+    if (driver.driverType === "subcontractor") {
+      return (
+        loClean(load.driverSubcontractorId) === loClean(driver.subcontractorId) &&
+        loClean(load.driverSubcontractorDriverId) === loClean(driver.subcontractorDriverId || driver.id)
+      );
+    }
+
+    return false;
+  }
+
+  function loRenderDriverSelector(){
+    if (!loEls.driver) {
+      return;
+    }
+
+    loEls.driver.innerHTML = "";
+
+    const blank = document.createElement("option");
+    blank.value = "";
+    blank.textContent = "Select driver or trucking subcontractor";
+    loEls.driver.appendChild(blank);
+
+    if (loState.drivers.length) {
+      const employeeGroup = document.createElement("optgroup");
+      employeeGroup.label = "FarmVista Employees";
+
+      loState.drivers.forEach(driver => {
+        const option = document.createElement("option");
+        option.value = `emp:${driver.id}`;
+        option.textContent = driver.name;
+        employeeGroup.appendChild(option);
+      });
+
+      loEls.driver.appendChild(employeeGroup);
+    }
+
+    if (loState.subcontractors.length) {
+      const subGroup = document.createElement("optgroup");
+      subGroup.label = "Trucking Subcontractors";
+
+      loState.subcontractors.forEach(subcontractor => {
+        const option = document.createElement("option");
+        option.value = `sub:${subcontractor.id}`;
+        option.textContent = subcontractor.company;
+        subGroup.appendChild(option);
+      });
+
+      loEls.driver.appendChild(subGroup);
+    }
+  }
+
+  function loRenderSubdriverSelect(){
+    if (!loEls.subdriver) {
+      return;
+    }
+
+    const subcontractor = loSelectedSubcontractor();
+
+    loEls.subdriver.innerHTML = "";
+
+    const blank = document.createElement("option");
+    blank.value = "";
+    blank.textContent = subcontractor
+      ? "Select subcontractor driver"
+      : "Select subcontractor first";
+    loEls.subdriver.appendChild(blank);
+
+    if (!subcontractor) {
+      loEls.subdriverWrap?.classList.remove("show");
+      loEls.addDriverPanel?.classList.remove("show");
+      return;
+    }
+
+    loEls.subdriverWrap?.classList.add("show");
+
+    const drivers = Array.isArray(subcontractor.drivers)
+      ? subcontractor.drivers.slice().sort((a,b) =>
+          a.name.localeCompare(
+            b.name,
+            undefined,
+            {numeric:true,sensitivity:"base"}
+          )
+        )
+      : [];
+
+    drivers.forEach(driver => {
+      const option = document.createElement("option");
+      option.value = driver.id;
+      option.textContent = driver.name;
+      loEls.subdriver.appendChild(option);
+    });
+
+    if (!drivers.length) {
+      blank.textContent = "No drivers saved — add one below";
+    }
+  }
+
+  function loFormatUSCell(value){
+    const digits = loClean(value).replace(/\D/g,"").replace(/^1(?=\d{10}$)/,"");
+
+    if (digits.length !== 10) {
+      return "";
+    }
+
+    return `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
+  }
+
+  function loResetAddDriverPanel(){
+    if (loEls.subdriverFirst) loEls.subdriverFirst.value = "";
+    if (loEls.subdriverLast) loEls.subdriverLast.value = "";
+    if (loEls.subdriverCell) loEls.subdriverCell.value = "";
+    loEls.addDriverPanel?.classList.remove("show");
+  }
+
+  function loOpenAddDriverPanel(){
+    if (!loSelectedSubcontractor()) {
+      loShowMessage("Select a trucking subcontractor first.","error");
+      return;
+    }
+
+    loShowMessage("");
+    loEls.addDriverPanel?.classList.add("show");
+    setTimeout(() => loEls.subdriverFirst?.focus(),0);
+  }
+
+  async function loSaveSubcontractorDriver(){
+    const subcontractor = loSelectedSubcontractor();
+
+    if (!subcontractor) {
+      loShowMessage("Select a trucking subcontractor first.","error");
+      return;
+    }
+
+    const firstName = loClean(loEls.subdriverFirst?.value);
+    const lastName = loClean(loEls.subdriverLast?.value);
+    const phone = loFormatUSCell(loEls.subdriverCell?.value);
+
+    if (!firstName || !lastName || !phone) {
+      loShowMessage(
+        "Enter the subcontractor driver's first name, last name, and a valid 10-digit cell number.",
+        "error"
+      );
+      return;
+    }
+
+    const driverId =
+      (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2,10)}`);
+
+    const newDriver = {
+      id:driverId,
+      firstName,
+      lastName,
+      name:`${firstName} ${lastName}`,
+      phone,
+      active:true,
+      createdAtISO:new Date().toISOString()
+    };
+
+    const nextDrivers = [
+      ...(Array.isArray(subcontractor.drivers) ? subcontractor.drivers : []),
+      newDriver
+    ];
+
+    loEls.subdriverSave.disabled = true;
+    loEls.subdriverSave.textContent = "Saving…";
+
+    try {
+      await updateDoc(
+        doc(db,"subcontractors",subcontractor.id),
+        {
+          drivers:nextDrivers,
+          updatedAt:serverTimestamp()
+        }
+      );
+
+      subcontractor.drivers = nextDrivers;
+
+      loRenderSubdriverSelect();
+      loEls.subdriver.value = driverId;
+      loResetAddDriverPanel();
+
+      loShowMessage(
+        `${newDriver.name} added to ${subcontractor.company}.`,
+        "good"
+      );
+    }
+    catch (error) {
+      console.error("[grain loadout] subcontractor driver save failed:",error);
+
+      loShowMessage(
+        "Driver could not be saved. Check Firestore permissions for subcontractors.",
+        "error"
+      );
+    }
+    finally {
+      loEls.subdriverSave.disabled = false;
+      loEls.subdriverSave.textContent = "Save Driver";
+    }
   }
 
   function loSelectedCustomer(){
@@ -3329,6 +3749,8 @@ if (els.tickets) {
     loState.etaMinutes = null;
     loState.etaDistanceText = "";
 
+    loResetAddDriverPanel();
+    loRenderSubdriverSelect();
     loRenderContracts();
 
     loEls.backdrop.classList.add("open");
@@ -3939,6 +4361,7 @@ if (els.tickets) {
   async function loLoadReferenceData(){
     const [
       employeeSnapshot,
+      subcontractorSnapshot,
       customerSnapshot,
       buyerSnapshot,
       locationSnapshot,
@@ -3947,6 +4370,7 @@ if (els.tickets) {
       companySnapshot
     ] = await Promise.all([
       getDocs(collection(db,"employees")),
+      getDocs(collection(db,"subcontractors")),
       getDocs(collection(db,"grain_customers")),
       getDocs(collection(db,"grain_buyers")),
       getDocs(collection(db,"grain_delivery_locations")),
@@ -3981,6 +4405,53 @@ loState.drivers = employeeSnapshot.docs
       {numeric:true,sensitivity:"base"}
     )
   );
+
+    loState.subcontractors = subcontractorSnapshot.docs
+      .map(snapshot => {
+        const data = snapshot.data() || {};
+
+        const drivers = Array.isArray(data.drivers)
+          ? data.drivers
+              .map((driver,index) => {
+                const firstName = loClean(driver?.firstName);
+                const lastName = loClean(driver?.lastName);
+                const name = loClean(
+                  driver?.name ||
+                  [firstName,lastName].filter(Boolean).join(" ")
+                );
+
+                return {
+                  id:loClean(driver?.id) || `legacy-${index}`,
+                  firstName,
+                  lastName,
+                  name,
+                  phone:loClean(driver?.phone || driver?.cell || driver?.cellPhone),
+                  active:driver?.active !== false
+                };
+              })
+              .filter(driver => driver.name && driver.active)
+          : [];
+
+        return {
+          id:snapshot.id,
+          company:loClean(data.company || data.name),
+          service:loClean(data.service),
+          active:data.active !== false && loNorm(data.status || "Active") === "active",
+          drivers
+        };
+      })
+      .filter(item =>
+        item.company &&
+        item.active &&
+        loNorm(item.service) === "trucking"
+      )
+      .sort((a,b) =>
+        a.company.localeCompare(
+          b.company,
+          undefined,
+          {numeric:true,sensitivity:"base"}
+        )
+      );
 
     loState.customers = customerSnapshot.docs
       .map(snapshot => ({
@@ -4048,12 +4519,8 @@ loState.drivers = employeeSnapshot.docs
           }
         : null;
 
-    loRenderSelect(
-      loEls.driver,
-      loState.drivers,
-      "Select driver",
-      item => item.name
-    );
+    loRenderDriverSelector();
+    loRenderSubdriverSelect();
 
     loRenderSelect(
       loEls.customer,
@@ -4250,8 +4717,14 @@ loState.drivers = employeeSnapshot.docs
     const contract = loSelectedContract();
 
     if (!driver || !destination || !customer || !crop) {
+      const needsSubDriver =
+        loSelectedSubcontractor() &&
+        !loClean(loEls.subdriver?.value);
+
       loShowMessage(
-        "Select Driver, Destination, Customer, and Crop.",
+        needsSubDriver
+          ? "Select or add a driver for this trucking subcontractor."
+          : "Select Driver, Destination, Customer, and Crop.",
         "error"
       );
       return;
@@ -4317,7 +4790,7 @@ loState.drivers = employeeSnapshot.docs
       */
       const olderUnlinked = loState.loads
         .filter(load =>
-          loClean(load.driverEmployeeId) === driver.id &&
+          loDriverMatchesLoad(load,driver) &&
           !(load.grainTicketId || load.ticketId || load.elevatorTicketNumber) &&
           loNorm(load.status) !== "ticket_missing"
         )
@@ -4357,7 +4830,23 @@ loState.drivers = employeeSnapshot.docs
         loadSequence:nextSequence,
         loadDate:today,
 
-        driverEmployeeId:driver.id,
+        driverType:driver.driverType || "employee",
+        driverEmployeeId:
+          driver.driverType === "employee"
+            ? (driver.employeeId || driver.id)
+            : null,
+        driverSubcontractorId:
+          driver.driverType === "subcontractor"
+            ? driver.subcontractorId
+            : null,
+        driverSubcontractorName:
+          driver.driverType === "subcontractor"
+            ? driver.subcontractorName
+            : null,
+        driverSubcontractorDriverId:
+          driver.driverType === "subcontractor"
+            ? (driver.subcontractorDriverId || driver.id)
+            : null,
         driverUid:driver.uid || null,
         driverName:driver.name,
         driverEmail:driver.email || null,
@@ -4637,6 +5126,15 @@ loState.drivers = employeeSnapshot.docs
       }
     }
   );
+
+  loEls.driver?.addEventListener("change",() => {
+    loResetAddDriverPanel();
+    loRenderSubdriverSelect();
+  });
+
+  loEls.addSubdriverBtn?.addEventListener("click",loOpenAddDriverPanel);
+  loEls.subdriverCancel?.addEventListener("click",loResetAddDriverPanel);
+  loEls.subdriverSave?.addEventListener("click",loSaveSubcontractorDriver);
 
   loEls.customer?.addEventListener("change",loRenderContracts);
   loEls.crop?.addEventListener("change",loRenderContracts);
