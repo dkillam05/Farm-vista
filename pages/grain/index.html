@@ -2948,6 +2948,9 @@ if (els.tickets) {
   const LOADOUT_COLLECTION = "grain_loadouts";
   const LOADOUT_COUNTER_COLLECTION = "grain_loadout_counters";
 
+  const LOADOUT_SMS_FUNCTION_URL =
+    "https://sendloadtickettext-300398089669.us-central1.run.app";
+
   const $lo = id => document.getElementById(id);
 
   const loState = {
@@ -4070,6 +4073,161 @@ if (els.tickets) {
     loRenderTable();
   }
 
+  async function loSendLoadText({
+    loadId,
+    loadNumber,
+    driver,
+    customer,
+    destination,
+    crop
+  }) {
+
+    const phone =
+      loClean(
+        driver?.phone
+      );
+
+
+    if (
+      !phone
+    ) {
+
+      return {
+        ok:false,
+        skipped:true,
+        status:"no_phone",
+        error:"Driver does not have a phone number saved."
+      };
+
+    }
+
+
+    const requestBody = {
+      loadId:
+        loadId,
+
+      loadNumber:
+        loadNumber,
+
+      to:
+        phone,
+
+      driverName:
+        loClean(
+          driver?.name
+        ),
+
+      crop:
+        loClean(
+          crop
+        ),
+
+      customer:
+        loClean(
+          customer?.name
+        ),
+
+      buyer:
+        loClean(
+          destination?.buyerName
+        ),
+
+      destinationName:
+        loClean(
+          destination?.locationName
+        ),
+
+      deliveryStreet:
+        loClean(
+          destination?.street
+        ),
+
+      deliveryCity:
+        loClean(
+          destination?.city
+        ),
+
+      deliveryState:
+        loClean(
+          destination?.state
+        ),
+
+      deliveryZip:
+        loClean(
+          destination?.zip
+        )
+    };
+
+
+    const response =
+      await fetch(
+        LOADOUT_SMS_FUNCTION_URL,
+        {
+          method:
+            "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json"
+          },
+
+          body:
+            JSON.stringify(
+              requestBody
+            )
+        }
+      );
+
+
+    let result =
+      null;
+
+
+    try {
+
+      result =
+        await response.json();
+
+    }
+    catch (_) {
+
+      result =
+        null;
+
+    }
+
+
+    if (
+      !response.ok ||
+      !result?.ok
+    ) {
+
+      throw new Error(
+        result?.error ||
+        `SMS function returned HTTP ${response.status}.`
+      );
+
+    }
+
+
+    return {
+      ok:true,
+      status:
+        loClean(
+          result.status
+        ) ||
+        "sent",
+
+      messageSid:
+        loClean(
+          result.messageSid
+        ) ||
+        null
+    };
+
+  }
+
+
   async function loAssignLoad(event){
     event.preventDefault();
 
@@ -4261,16 +4419,178 @@ if (els.tickets) {
         ...payload
       };
 
-      loShowMessage(
-        `Load ${createdLoad.loadNumber} assigned.`,
-        "good"
-      );
+
+      /*
+        Send the driver the load information after Firestore has
+        successfully created the load. SMS failure does NOT delete
+        or invalidate the load.
+      */
+      let smsResult =
+        null;
+
+
+      try {
+
+        smsResult =
+          await loSendLoadText({
+            loadId:
+              newLoadId,
+
+            loadNumber:
+              loadNumber,
+
+            driver:
+              driver,
+
+            customer:
+              customer,
+
+            destination:
+              destination,
+
+            crop:
+              crop
+          });
+
+
+        if (
+          smsResult?.skipped
+        ) {
+
+          await updateDoc(
+            doc(
+              db,
+              LOADOUT_COLLECTION,
+              newLoadId
+            ),
+            {
+              smsStatus:
+                "no_phone",
+
+              smsSentTo:
+                driver.phone || null,
+
+              smsError:
+                smsResult.error || null,
+
+              smsUpdatedAt:
+                serverTimestamp(),
+
+              updatedAt:
+                serverTimestamp()
+            }
+          );
+
+        }
+        else {
+
+          await updateDoc(
+            doc(
+              db,
+              LOADOUT_COLLECTION,
+              newLoadId
+            ),
+            {
+              smsStatus:
+                smsResult.status || "sent",
+
+              smsSentTo:
+                driver.phone || null,
+
+              smsMessageSid:
+                smsResult.messageSid || null,
+
+              smsSentAt:
+                serverTimestamp(),
+
+              smsError:
+                null,
+
+              smsUpdatedAt:
+                serverTimestamp(),
+
+              updatedAt:
+                serverTimestamp()
+            }
+          );
+
+        }
+
+      }
+      catch (
+        smsError
+      ) {
+
+        console.error(
+          "[grain loadout] SMS send failed:",
+          smsError
+        );
+
+
+        await updateDoc(
+          doc(
+            db,
+            LOADOUT_COLLECTION,
+            newLoadId
+          ),
+          {
+            smsStatus:
+              "failed",
+
+            smsSentTo:
+              driver.phone || null,
+
+            smsError:
+              smsError?.message ||
+              "SMS could not be sent.",
+
+            smsUpdatedAt:
+              serverTimestamp(),
+
+            updatedAt:
+              serverTimestamp()
+          }
+        );
+
+      }
+
+
+      if (
+        smsResult?.ok
+      ) {
+
+        loShowMessage(
+          `Load ${createdLoad.loadNumber} assigned and text sent.`,
+          "good"
+        );
+
+      }
+      else if (
+        smsResult?.skipped
+      ) {
+
+        loShowMessage(
+          `Load ${createdLoad.loadNumber} assigned. Driver has no phone number saved.`,
+          "error"
+        );
+
+      }
+      else {
+
+        loShowMessage(
+          `Load ${createdLoad.loadNumber} assigned, but the text could not be sent.`,
+          "error"
+        );
+
+      }
+
 
       await loLoadReferenceData();
 
+
       setTimeout(() => {
         loCloseModal();
-      }, 350);
+      }, 900);
 
     } catch (error) {
       console.error("[grain loadout] assign failed:", error);
