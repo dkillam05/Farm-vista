@@ -890,7 +890,57 @@
 
   </div>
 
+<!-- ==========================================================
+     CROP SELECTION
+=========================================================== -->
 
+<div
+  id="cropScreen"
+  class="result-screen"
+>
+
+  <div class="result-card">
+
+    <div class="result-title">
+      Select Crop
+    </div>
+
+    <div class="result-text">
+      FarmVista could not determine the crop from the ticket.
+      Select the crop to continue.
+    </div>
+
+    <div class="result-actions">
+
+      <button
+        id="cropCornBtn"
+        class="result-btn primary"
+        type="button"
+      >
+        Corn
+      </button>
+
+      <button
+        id="cropSoybeansBtn"
+        class="result-btn primary"
+        type="button"
+      >
+        Soybeans
+      </button>
+
+      <button
+        id="cropWheatBtn"
+        class="result-btn primary"
+        type="button"
+      >
+        Wheat
+      </button>
+
+    </div>
+
+  </div>
+
+</div>
 
   <!-- ==========================================================
        ERROR
@@ -1153,10 +1203,16 @@ const ALIAS_COLLECTION =
         );
 
 
-      const errorScreen =
-        document.getElementById(
-          "errorScreen"
-        );
+const cropScreen =
+  document.getElementById(
+    "cropScreen"
+  );
+
+
+const errorScreen =
+  document.getElementById(
+    "errorScreen"
+  );
 
 
       const errorText =
@@ -1177,10 +1233,28 @@ const ALIAS_COLLECTION =
         );
 
 
-      const tryAgainBtn =
-        document.getElementById(
-          "tryAgainBtn"
-        );
+const cropCornBtn =
+  document.getElementById(
+    "cropCornBtn"
+  );
+
+
+const cropSoybeansBtn =
+  document.getElementById(
+    "cropSoybeansBtn"
+  );
+
+
+const cropWheatBtn =
+  document.getElementById(
+    "cropWheatBtn"
+  );
+
+
+const tryAgainBtn =
+  document.getElementById(
+    "tryAgainBtn"
+  );
 
 
       const errorHomeBtn =
@@ -3420,30 +3494,138 @@ reconciliationStatus:
 }
       
       
+// ==========================================================
+// CROP SELECTION
+// ==========================================================
 
+function normalizeScannedCrop(
+  value
+) {
+
+  const crop =
+    String(
+      value ||
+      ""
+    )
+      .trim()
+      .toLowerCase();
+
+
+  if (
+    crop.includes(
+      "corn"
+    )
+  ) {
+
+    return "Corn";
+
+  }
+
+
+  if (
+    crop.includes(
+      "soy"
+    )
+  ) {
+
+    return "Soybeans";
+
+  }
+
+
+  if (
+    crop.includes(
+      "wheat"
+    )
+  ) {
+
+    return "Wheat";
+
+  }
+
+
+  return "";
+
+}
+
+
+function askDriverForCrop() {
+
+  return new Promise(
+    resolve => {
+
+      cropScreen.classList.add(
+        "show"
+      );
+
+
+      const choose =
+        crop => {
+
+          cropScreen.classList.remove(
+            "show"
+          );
+
+
+          resolve(
+            crop
+          );
+
+        };
+
+
+      cropCornBtn.onclick =
+        () =>
+          choose(
+            "Corn"
+          );
+
+
+      cropSoybeansBtn.onclick =
+        () =>
+          choose(
+            "Soybeans"
+          );
+
+
+      cropWheatBtn.onclick =
+        () =>
+          choose(
+            "Wheat"
+          );
+
+    }
+  );
+
+}
 
 
       // ==========================================================
       // SCREEN HELPERS
       // ==========================================================
 
-      function hideAllScreens() {
+function hideAllScreens() {
 
-        processingScreen.classList.remove(
-          "show"
-        );
-
-
-        resultScreen.classList.remove(
-          "show"
-        );
+  processingScreen.classList.remove(
+    "show"
+  );
 
 
-        errorScreen.classList.remove(
-          "show"
-        );
+  resultScreen.classList.remove(
+    "show"
+  );
 
-      }
+
+  cropScreen.classList.remove(
+    "show"
+  );
+
+
+  errorScreen.classList.remove(
+    "show"
+  );
+
+}
 
 
       function showCameraScreen() {
@@ -4419,6 +4601,43 @@ if (
 
 }
 
+          /*
+  CROP
+
+  First use the crop OCR found.
+
+  If OCR did not identify the crop,
+  ask the driver to select it before saving.
+*/
+
+let scannedCrop =
+  normalizeScannedCrop(
+    result.grainTicket?.crop
+  );
+
+
+if (
+  !scannedCrop
+) {
+
+  processingScreen.classList.remove(
+    "show"
+  );
+
+
+  scannedCrop =
+    await askDriverForCrop();
+
+
+  showProcessing(
+    "Finishing grain ticket…"
+  );
+
+}
+
+
+result.grainTicket.crop =
+  scannedCrop;
 
 /*
   HARD OCR VALIDATION
@@ -4519,21 +4738,6 @@ processing =
 showResult();
 
 
-/*
-  Driver does not review the ticket.
-
-  Give them a short success message, then return Home.
-*/
-
-setTimeout(
-  () => {
-
-    location.href =
-      HOME_URL;
-
-  },
-  1400
-);
 
         }
         catch (err) {
