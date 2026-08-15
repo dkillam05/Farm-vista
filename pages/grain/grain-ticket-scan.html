@@ -1031,6 +1031,8 @@
       getFirestore,
       collection,
       getDocs,
+      query,
+      where,
       addDoc,
       serverTimestamp,
       getStorage,
@@ -2892,6 +2894,182 @@ const contractMatches =
 // SAVE SCANNED GRAIN TICKET
 // ==========================================================
 
+async function findDuplicateGrainTicket(
+  grainTicket,
+  matching
+) {
+
+  const ticketNumber =
+    String(
+      grainTicket?.ticketNumber ||
+      ""
+    ).trim();
+
+
+  if (
+    !ticketNumber
+  ) {
+
+    return null;
+
+  }
+
+
+  const buyer =
+    matching?.buyerMatch?.buyer ||
+    null;
+
+
+  const buyerId =
+    String(
+      buyer?.id ||
+      ""
+    ).trim();
+
+
+  /*
+    BEST CHECK:
+    Same FarmVista buyer/elevator ID
+    AND same ticket number.
+  */
+
+  if (
+    buyerId
+  ) {
+
+    const duplicateQuery =
+      query(
+        collection(
+          db,
+          TICKET_COLLECTION
+        ),
+        where(
+          "buyerId",
+          "==",
+          buyerId
+        ),
+        where(
+          "ticketNumber",
+          "==",
+          ticketNumber
+        )
+      );
+
+
+    const snapshot =
+      await getDocs(
+        duplicateQuery
+      );
+
+
+    if (
+      !snapshot.empty
+    ) {
+
+      return {
+        id:
+          snapshot.docs[0].id,
+
+        ...snapshot.docs[0].data()
+      };
+
+    }
+
+  }
+
+
+  /*
+    FALLBACK CHECK:
+
+    If FarmVista could not match the elevator to a buyer,
+    compare the OCR elevator wording and ticket number.
+
+    We load tickets with the same ticket number and then
+    normalize the elevator names in JavaScript so differences
+    in capitalization/punctuation do not matter.
+  */
+
+  const elevatorName =
+    normalizeMatchText(
+      grainTicket?.elevatorName
+    );
+
+
+  if (
+    !elevatorName
+  ) {
+
+    return null;
+
+  }
+
+
+  const ticketQuery =
+    query(
+      collection(
+        db,
+        TICKET_COLLECTION
+      ),
+      where(
+        "ticketNumber",
+        "==",
+        ticketNumber
+      )
+    );
+
+
+  const snapshot =
+    await getDocs(
+      ticketQuery
+    );
+
+
+  const duplicate =
+    snapshot.docs.find(
+      docSnapshot => {
+
+        const data =
+          docSnapshot.data() ||
+          {};
+
+
+        const existingElevator =
+          normalizeMatchText(
+            data.ocrElevatorName ||
+            data.buyerName ||
+            ""
+          );
+
+
+        return (
+          existingElevator &&
+          existingElevator ===
+            elevatorName
+        );
+
+      }
+    );
+
+
+  if (
+    !duplicate
+  ) {
+
+    return null;
+
+  }
+
+
+  return {
+    id:
+      duplicate.id,
+
+    ...duplicate.data()
+  };
+
+}
+
+
 function safeFilePart(
   value
 ) {
@@ -3073,6 +3251,59 @@ async function saveScannedTicket(
     matchScannedTicket(
       grainTicket
     );
+
+
+  /*
+    DUPLICATE PROTECTION
+
+    A ticket is considered a duplicate only when BOTH match:
+
+    1. Elevator / Buyer
+    2. Ticket Number
+
+    Check BEFORE uploading the image so duplicate scans
+    do not create extra Storage files.
+  */
+
+  processingText.textContent =
+    "Checking for duplicate ticket…";
+
+
+  const duplicateTicket =
+    await findDuplicateGrainTicket(
+      grainTicket,
+      matching
+    );
+
+
+  if (
+    duplicateTicket
+  ) {
+
+    console.warn(
+      "[Grain Ticket] Duplicate prevented:",
+      {
+        existingTicketId:
+          duplicateTicket.id,
+
+        ticketNumber:
+          grainTicket.ticketNumber,
+
+        elevator:
+          grainTicket.elevatorName,
+
+        buyerId:
+          matching?.buyerMatch?.buyer?.id ||
+          null
+      }
+    );
+
+
+    throw new Error(
+      "It appears this ticket is already in the system."
+    );
+
+  }
 
 
   processingText.textContent =
