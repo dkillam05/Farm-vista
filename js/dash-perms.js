@@ -34,11 +34,12 @@
     KPI_GRAIN: "cap-kpi-grain",
     KPI_EQUIP: "cap-kpi-equipment",
 
-    FIELD_BOUNDARIES: "office-field-boundaries",
-    MAINTENANCE: "crop-maint",
-    FIELD_WEATHER: "crop-weather",
-    EQUIPMENT: "equipment",
-    PRETRIP: "logistics-pre-trip",
+FIELD_BOUNDARIES: "office-field-boundaries",
+MAINTENANCE: "crop-maint",
+FIELD_WEATHER: "crop-weather",
+EQUIPMENT: "equipment",
+EQUIPMENT_WORK_ORDERS: "eq-maint-workorders",
+PRETRIP: "logistics-pre-trip",
 
     QL_BOUNDARIES: "cap-quick-field-boundaries",
     QL_MAINT_ADD: "cap-quick-maintenance-add",
