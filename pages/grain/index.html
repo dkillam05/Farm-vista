@@ -2598,7 +2598,12 @@ if (els.tickets) {
             if((full + partial) <= 0) return;
 
             const sku = x.bagSku || {};
-            const partialFeet = Array.isArray(x.partialFeet) ? x.partialFeet : [];
+            const partialFeet =
+              Array.isArray(x.partialFeet)
+                ? x.partialFeet
+                : Array.isArray(counts.partialFeet)
+                  ? counts.partialFeet
+                  : [];
 
             const bus = computeBushels({ cropType: (x.cropType || x.crop || ''), sku, counts, partialFeet });
 
@@ -2626,6 +2631,7 @@ if (els.tickets) {
       binSelCrop.addEventListener('change', loadBinSummary);
       bagSelCrop.addEventListener('change', loadBagSummary);
       document.addEventListener('fv:grain-perms-ready', refreshAll);
+      document.addEventListener('fv:grain-inventory-posted', refreshAll);
 
       refreshAll();
     })();
@@ -2635,8 +2641,14 @@ if (els.tickets) {
   import {
     ready,
     getFirestore,
+    getAuth,
     collection,
-    getDocs
+    getDocs,
+    doc,
+    getDoc,
+    setDoc,
+    updateDoc,
+    serverTimestamp
   } from "/Farm-vista/js/firebase-init.js";
 
 
@@ -2645,6 +2657,10 @@ if (els.tickets) {
 
   const db =
     getFirestore();
+
+
+  const auth =
+    getAuth();
 
 
   const tbody =
@@ -2911,11 +2927,16 @@ if (els.tickets) {
     ticket
   ) {
 
+    /*
+      IMPORTANT:
+      OCR can read a contract number even when FarmVista has NOT
+      linked the ticket to a real grain_contracts document.
+
+      Only a real Firestore contract ID counts as assigned.
+    */
     return !!String(
       ticket.contractId ||
       ticket.grainContractId ||
-      ticket.contractNumber ||
-      ticket.contractNo ||
       ""
     ).trim();
 
@@ -2927,6 +2948,3209 @@ if (els.tickets) {
   ) {
 
     return !isNeedsReview(ticket) && !ticketHasContract(ticket);
+
+  }
+
+
+
+  /* ============================================================
+     VERIFIED TICKET AUTO-POSTING
+
+     A ticket posts only when ALL are true:
+       1) validationStatus === "verified"
+       2) scanValid !== false
+       3) netBushels > 0
+       4) a real load-out is linked
+       5) that load-out has a real contractId
+       6) that load-out has a grain source
+       7) this ticket has not already been posted
+
+     Posting does two separate accounting jobs:
+       • Contract: full ticket net bushels are delivered.
+       • Inventory: removes as much as the estimated source has
+         available, but never drives estimated inventory negative.
+
+     A deterministic document in grain_ticket_postings prevents
+     ordinary refresh/reload duplication. If firebase-init exports
+     runTransaction, FarmVista uses an atomic Firestore transaction.
+  ============================================================ */
+
+  const TICKET_POSTING_COLLECTION =
+    "grain_ticket_postings";
+
+  const LOADOUT_COLLECTION_FOR_POSTING =
+    "grain_loadouts";
+
+  let ticketPostingBusy =
+    false;
+
+
+  function postingClean(
+    value
+  ) {
+
+    return String(
+      value ?? ""
+    )
+      .trim();
+
+  }
+
+
+  function postingNorm(
+    value
+  ) {
+
+    return postingClean(
+      value
+    )
+      .toLowerCase();
+
+  }
+
+
+  function postingNum(
+    value,
+    fallback = 0
+  ) {
+
+    const number =
+      Number(
+        value
+      );
+
+
+    return Number.isFinite(
+      number
+    )
+      ? number
+      : fallback;
+
+  }
+
+
+  function postingRoundBu(
+    value
+  ) {
+
+    return Math.round(
+      postingNum(
+        value,
+        0
+      ) *
+      100
+    ) /
+    100;
+
+  }
+
+
+  function postingUser() {
+
+    const user =
+      auth.currentUser;
+
+
+    return {
+      uid:
+        user?.uid ||
+        null,
+
+      email:
+        user?.email ||
+        null,
+
+      name:
+        user?.displayName ||
+        user?.email ||
+        "FarmVista Auto Posting"
+    };
+
+  }
+
+
+  function ticketIsVerifiedForPosting(
+    ticket
+  ) {
+
+    return (
+      postingNorm(
+        ticket?.validationStatus
+      ) ===
+        "verified" &&
+
+      ticket?.scanValid !==
+        false &&
+
+      postingNum(
+        ticket?.netBushels
+      ) >
+        0
+    );
+
+  }
+
+
+  function ticketAlreadyPosted(
+    ticket
+  ) {
+
+    return (
+      ticket?.inventoryPosted ===
+        true &&
+      ticket?.contractPosted ===
+        true
+    );
+  }
+
+
+  function postingFindLinkedLoad(
+    ticket,
+    loads
+  ) {
+
+    const directId =
+      postingClean(
+        ticket?.loadoutId ||
+        ticket?.loadOutId ||
+        ticket?.grainLoadoutId ||
+        ticket?.loadId
+      );
+
+
+    if (
+      directId
+    ) {
+
+      const direct =
+        loads.find(
+          load =>
+            postingClean(
+              load.id
+            ) ===
+            directId
+        );
+
+
+      if (
+        direct
+      ) {
+
+        return direct;
+
+      }
+
+    }
+
+
+    const byTicketId =
+      loads.find(
+        load =>
+          postingClean(
+            load.grainTicketId ||
+            load.ticketId
+          ) ===
+          postingClean(
+            ticket.id
+          )
+      );
+
+
+    if (
+      byTicketId
+    ) {
+
+      return byTicketId;
+
+    }
+
+
+    /*
+      Existing FarmVista load linking also stores the elevator
+      ticket number on the load. Use that only as a final explicit
+      link fallback.
+    */
+    const ticketNumber =
+      postingClean(
+        ticket.ticketNumber
+      );
+
+
+    if (
+      ticketNumber
+    ) {
+
+      const byTicketNumber =
+        loads.find(
+          load =>
+            postingClean(
+              load.elevatorTicketNumber
+            ) ===
+            ticketNumber
+        );
+
+
+      if (
+        byTicketNumber
+      ) {
+
+        return byTicketNumber;
+
+      }
+
+    }
+
+
+    return null;
+
+  }
+
+
+  function postingContractId(
+    ticket,
+    load
+  ) {
+
+    return postingClean(
+      load?.contractId ||
+      ticket?.contractId ||
+      ticket?.grainContractId
+    );
+
+  }
+
+
+  function postingSourceType(
+    load
+  ) {
+
+    return postingNorm(
+      load?.grainSourceType
+    );
+
+  }
+
+
+  function postingHasValidSource(
+    load
+  ) {
+
+    const type =
+      postingSourceType(
+        load
+      );
+
+
+    if (
+      type ===
+      "bin"
+    ) {
+
+      return !!(
+        postingClean(
+          load.grainSourceSiteId
+        ) &&
+        Number.isFinite(
+          Number(
+            load.grainSourceBinIndex
+          )
+        )
+      );
+
+    }
+
+
+    if (
+      type ===
+      "grain_bag"
+    ) {
+
+      return !!postingClean(
+        load.grainSourceId
+      );
+
+    }
+
+
+    return false;
+
+  }
+
+
+  function postingCropFactor(
+    crop
+  ) {
+
+    try {
+
+      const api =
+        window.FVGrainCapacity;
+
+
+      if (
+        api &&
+        typeof api.getFactor ===
+          "function"
+      ) {
+
+        const factor =
+          Number(
+            api.getFactor(
+              crop
+            )
+          );
+
+
+        if (
+          Number.isFinite(
+            factor
+          ) &&
+          factor >
+            0
+        ) {
+
+          return factor;
+
+        }
+
+      }
+
+    }
+    catch (_) {}
+
+
+    return 1;
+
+  }
+
+
+  function postingEstimateCornBuPerFoot(
+    diameterFt
+  ) {
+
+    const diameter =
+      Number(
+        diameterFt
+      ) ||
+      0;
+
+
+    if (
+      diameter >=
+      12
+    ) {
+
+      return 60;
+
+    }
+
+
+    if (
+      diameter >=
+      11
+    ) {
+
+      return 50;
+
+    }
+
+
+    if (
+      diameter >=
+      10
+    ) {
+
+      return 39;
+
+    }
+
+
+    if (
+      diameter >=
+      9
+    ) {
+
+      return 30;
+
+    }
+
+
+    if (
+      diameter >
+      0
+    ) {
+
+      return 25;
+
+    }
+
+
+    return 0;
+
+  }
+
+
+  async function postingBagBuPerFoot(
+    bagData
+  ) {
+
+    const sku =
+      bagData?.bagSku ||
+      {};
+
+
+    const lengthFt =
+      postingNum(
+        sku.sizeFeet ||
+        sku.lengthFt,
+        0
+      );
+
+
+    const diameterFt =
+      postingNum(
+        sku.diameterFt ||
+        sku.diameter,
+        0
+      );
+
+
+    const crop =
+      postingClean(
+        bagData?.cropType ||
+        bagData?.crop
+      );
+
+
+    let cornBuPerFoot =
+      0;
+
+
+    const productId =
+      postingClean(
+        sku.id
+      );
+
+
+    if (
+      productId
+    ) {
+
+      try {
+
+        const productSnapshot =
+          await getDoc(
+            doc(
+              db,
+              "productsGrainBags",
+              productId
+            )
+          );
+
+
+        if (
+          productSnapshot.exists()
+        ) {
+
+          const product =
+            productSnapshot.data() ||
+            {};
+
+
+          const productLength =
+            postingNum(
+              product.lengthFt,
+              lengthFt
+            );
+
+
+          const cornBushels =
+            postingNum(
+              product.bushels,
+              0
+            );
+
+
+          if (
+            productLength >
+              0 &&
+            cornBushels >
+              0
+          ) {
+
+            cornBuPerFoot =
+              cornBushels /
+              productLength;
+
+          }
+
+        }
+
+      }
+      catch (
+        error
+      ) {
+
+        console.warn(
+          "[grain posting] bag product lookup failed:",
+          error
+        );
+
+      }
+
+    }
+
+
+    if (
+      cornBuPerFoot <=
+      0
+    ) {
+
+      cornBuPerFoot =
+        postingEstimateCornBuPerFoot(
+          diameterFt
+        );
+
+    }
+
+
+    return {
+      lengthFt,
+      crop,
+      cropBuPerFoot:
+        cornBuPerFoot *
+        postingCropFactor(
+          crop
+        )
+    };
+
+  }
+
+
+  function postingBagCurrentFeet(
+    bagData,
+    lengthFt
+  ) {
+
+    const counts =
+      bagData?.counts ||
+      {};
+
+
+    const full =
+      Math.max(
+        0,
+        Math.floor(
+          postingNum(
+            counts.full,
+            0
+          )
+        )
+      );
+
+
+    const partial =
+      Math.max(
+        0,
+        Math.floor(
+          postingNum(
+            counts.partial,
+            0
+          )
+        )
+      );
+
+
+    const partialFeetRaw =
+      Array.isArray(
+        bagData?.partialFeet
+      )
+        ? bagData.partialFeet
+        : Array.isArray(
+            counts.partialFeet
+          )
+          ? counts.partialFeet
+          : [];
+
+
+    let partialFeetTotal =
+      partialFeetRaw.reduce(
+        (
+          sum,
+          value
+        ) =>
+          sum +
+          Math.max(
+            0,
+            postingNum(
+              value,
+              0
+            )
+          ),
+        0
+      );
+
+
+    /*
+      Legacy partial bags that do not carry footage were already
+      estimated as half a bag by the dashboard KPI. Preserve that
+      same rule here.
+    */
+    if (
+      partial >
+        0 &&
+      partialFeetTotal <=
+        0 &&
+      lengthFt >
+        0
+    ) {
+
+      partialFeetTotal =
+        partial *
+        0.5 *
+        lengthFt;
+
+    }
+
+
+    return (
+      full *
+      lengthFt
+    ) +
+    partialFeetTotal;
+
+  }
+
+
+  function postingBagCountsFromFeet(
+    remainingFeet,
+    lengthFt
+  ) {
+
+    const safeFeet =
+      Math.max(
+        0,
+        remainingFeet
+      );
+
+
+    if (
+      !(lengthFt > 0)
+    ) {
+
+      return {
+        full:0,
+        partial:0,
+        partialFeet:[]
+      };
+
+    }
+
+
+    const full =
+      Math.floor(
+        safeFeet /
+        lengthFt
+      );
+
+
+    let remainder =
+      safeFeet -
+      (
+        full *
+        lengthFt
+      );
+
+
+    /*
+      Remove floating point dust.
+    */
+    if (
+      remainder <
+      0.01
+    ) {
+
+      remainder =
+        0;
+
+    }
+
+
+    return {
+      full,
+      partial:
+        remainder >
+          0
+            ? 1
+            : 0,
+      partialFeet:
+        remainder >
+          0
+            ? [
+                Number(
+                  remainder.toFixed(
+                    2
+                  )
+                )
+              ]
+            : []
+    };
+
+  }
+
+
+  async function postingResolveBagPlan(
+    load,
+    ticket
+  ) {
+
+    const sourceId =
+      postingClean(
+        load.grainSourceId
+      );
+
+
+    if (
+      !sourceId
+    ) {
+
+      throw new Error(
+        "The linked load does not contain a grain bag source ID."
+      );
+
+    }
+
+
+    const bagRef =
+      doc(
+        db,
+        "grain_bag_events",
+        sourceId
+      );
+
+
+    const bagSnapshot =
+      await getDoc(
+        bagRef
+      );
+
+
+    if (
+      !bagSnapshot.exists()
+    ) {
+
+      throw new Error(
+        "The selected grain bag source no longer exists."
+      );
+
+    }
+
+
+    const bagData =
+      bagSnapshot.data() ||
+      {};
+
+
+    if (
+      postingNorm(
+        bagData.type
+      ) !==
+      "putdown"
+    ) {
+
+      throw new Error(
+        "The selected grain bag source is not a putDown record."
+      );
+
+    }
+
+
+    const capacity =
+      await postingBagBuPerFoot(
+        bagData
+      );
+
+
+    if (
+      !(capacity.lengthFt > 0) ||
+      !(capacity.cropBuPerFoot > 0)
+    ) {
+
+      throw new Error(
+        "FarmVista could not determine bushels-per-foot for this grain bag."
+      );
+
+    }
+
+
+    const currentFeet =
+      postingBagCurrentFeet(
+        bagData,
+        capacity.lengthFt
+      );
+
+
+    const availableBushels =
+      Math.max(
+        0,
+        currentFeet *
+        capacity.cropBuPerFoot
+      );
+
+
+    const ticketBushels =
+      postingRoundBu(
+        ticket.netBushels
+      );
+
+
+    const inventoryBushels =
+      postingRoundBu(
+        Math.min(
+          ticketBushels,
+          availableBushels
+        )
+      );
+
+
+    const feetToRemove =
+      inventoryBushels /
+      capacity.cropBuPerFoot;
+
+
+    const remainingFeet =
+      Math.max(
+        0,
+        currentFeet -
+        feetToRemove
+      );
+
+
+    const countsAfter =
+      postingBagCountsFromFeet(
+        remainingFeet,
+        capacity.lengthFt
+      );
+
+
+    return {
+      ref:
+        bagRef,
+
+      data:
+        bagData,
+
+      currentFeet,
+
+      remainingFeet,
+
+      availableBushels:
+        postingRoundBu(
+          availableBushels
+        ),
+
+      inventoryBushels,
+
+      shortfallBushels:
+        postingRoundBu(
+          Math.max(
+            0,
+            ticketBushels -
+            inventoryBushels
+          )
+        ),
+
+      countsAfter,
+
+      cropBuPerFoot:
+        capacity.cropBuPerFoot,
+
+      lengthFt:
+        capacity.lengthFt
+    };
+
+  }
+
+
+  async function postingRunTransaction(
+    work
+  ) {
+
+    /*
+      firebase-init may or may not currently export runTransaction.
+      Load it dynamically so this page remains compatible with the
+      existing FarmVista Firebase wrapper.
+    */
+    try {
+
+      const module =
+        await import(
+          "/Farm-vista/js/firebase-init.js"
+        );
+
+
+      if (
+        typeof module.runTransaction ===
+        "function"
+      ) {
+
+        return await module.runTransaction(
+          db,
+          work
+        );
+
+      }
+
+    }
+    catch (
+      error
+    ) {
+
+      console.warn(
+        "[grain posting] runTransaction unavailable; using guarded fallback.",
+        error
+      );
+
+    }
+
+
+    return null;
+
+  }
+
+
+  async function postingFallbackClaim(
+    postingRef,
+    ticket,
+    load
+  ) {
+
+    const existing =
+      await getDoc(
+        postingRef
+      );
+
+
+    if (
+      existing.exists() &&
+      postingNorm(
+        existing.data()?.status
+      ) ===
+        "complete"
+    ) {
+
+      return false;
+
+    }
+
+
+    const token =
+      globalThis.crypto?.randomUUID?.() ||
+      `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+
+    await setDoc(
+      postingRef,
+      {
+        status:
+          "processing",
+
+        claimToken:
+          token,
+
+        ticketId:
+          ticket.id,
+
+        loadoutId:
+          load.id,
+
+        updatedAt:
+          serverTimestamp()
+      },
+      {
+        merge:true
+      }
+    );
+
+
+    const verify =
+      await getDoc(
+        postingRef
+      );
+
+
+    return (
+      verify.exists() &&
+      postingClean(
+        verify.data()?.claimToken
+      ) ===
+      token
+    );
+
+  }
+
+
+  async function postingApplyContractFallback(
+    contractId,
+    ticketBushels
+  ) {
+
+    const contractRef =
+      doc(
+        db,
+        "grain_contracts",
+        contractId
+      );
+
+
+    const snapshot =
+      await getDoc(
+        contractRef
+      );
+
+
+    if (
+      !snapshot.exists()
+    ) {
+
+      throw new Error(
+        "The linked grain contract could not be found."
+      );
+
+    }
+
+
+    const data =
+      snapshot.data() ||
+      {};
+
+
+    const deliveredBefore =
+      postingNum(
+        data.deliveredBushels,
+        0
+      );
+
+
+    const contractBushels =
+      postingNum(
+        data.contractBushels,
+        0
+      );
+
+
+    const deliveredAfter =
+      postingRoundBu(
+        deliveredBefore +
+        ticketBushels
+      );
+
+
+    const openAfter =
+      postingRoundBu(
+        Math.max(
+          0,
+          contractBushels >
+            0
+            ? contractBushels -
+              deliveredAfter
+            : postingNum(
+                data.openBushels,
+                0
+              ) -
+              ticketBushels
+        )
+      );
+
+
+    await updateDoc(
+      contractRef,
+      {
+        deliveredBushels:
+          deliveredAfter,
+
+        openBushels:
+          openAfter,
+
+        updatedAt:
+          serverTimestamp()
+      }
+    );
+
+
+    return {
+      deliveredBefore,
+      deliveredAfter,
+      openAfter
+    };
+
+  }
+
+
+  async function postingApplyBinFallback(
+    load,
+    ticket
+  ) {
+
+    const siteId =
+      postingClean(
+        load.grainSourceSiteId
+      );
+
+
+    const binIndex =
+      Number(
+        load.grainSourceBinIndex
+      );
+
+
+    if (
+      !siteId ||
+      !Number.isFinite(
+        binIndex
+      ) ||
+      binIndex <
+        0
+    ) {
+
+      throw new Error(
+        "The linked load does not contain a valid bin source."
+      );
+
+    }
+
+
+    const siteRef =
+      doc(
+        db,
+        "binSites",
+        siteId
+      );
+
+
+    const snapshot =
+      await getDoc(
+        siteRef
+      );
+
+
+    if (
+      !snapshot.exists()
+    ) {
+
+      throw new Error(
+        "The selected grain bin site could not be found."
+      );
+
+    }
+
+
+    const data =
+      snapshot.data() ||
+      {};
+
+
+    const bins =
+      Array.isArray(
+        data.bins
+      )
+        ? [
+            ...data.bins
+          ]
+        : [];
+
+
+    const bin =
+      bins[
+        binIndex
+      ] ||
+      {};
+
+
+    const onHandBefore =
+      Math.max(
+        0,
+        postingNum(
+          bin.onHand,
+          0
+        )
+      );
+
+
+    const ticketBushels =
+      postingRoundBu(
+        ticket.netBushels
+      );
+
+
+    const inventoryBushels =
+      postingRoundBu(
+        Math.min(
+          ticketBushels,
+          onHandBefore
+        )
+      );
+
+
+    const onHandAfter =
+      postingRoundBu(
+        Math.max(
+          0,
+          onHandBefore -
+          inventoryBushels
+        )
+      );
+
+
+    const who =
+      postingUser();
+
+
+    bins[
+      binIndex
+    ] = {
+      ...bin,
+
+      onHand:
+        onHandAfter,
+
+      lastUpdatedBy:
+        who.name,
+
+      lastUpdatedUid:
+        who.uid,
+
+      lastUpdatedMs:
+        Date.now()
+    };
+
+
+    await setDoc(
+      siteRef,
+      {
+        bins
+      },
+      {
+        merge:true
+      }
+    );
+
+
+    const movementRef =
+      doc(
+        db,
+        "binMovements",
+        `ticket_${ticket.id}`
+      );
+
+
+    await setDoc(
+      movementRef,
+      {
+        siteId,
+        siteName:
+          postingClean(
+            load.grainSourceSiteName
+          ) ||
+          postingClean(
+            data.name
+          ) ||
+          null,
+
+        binIndex,
+
+        binNum:
+          load.grainSourceBinNumber ??
+          bin.num ??
+          (
+            binIndex +
+            1
+          ),
+
+        direction:
+          "out",
+
+        bushels:
+          inventoryBushels,
+
+        ticketNetBushels:
+          ticketBushels,
+
+        inventoryShortfallBushels:
+          postingRoundBu(
+            Math.max(
+              0,
+              ticketBushels -
+              inventoryBushels
+            )
+          ),
+
+        loadoutId:
+          load.id,
+
+        loadNumber:
+          postingClean(
+            load.loadNumber
+          ) ||
+          null,
+
+        grainTicketId:
+          ticket.id,
+
+        ticketNumber:
+          postingClean(
+            ticket.ticketNumber
+          ) ||
+          null,
+
+        note:
+          `Auto-posted from Grain Ticket ${postingClean(ticket.ticketNumber) || ticket.id}`,
+
+        submittedBy:
+          who.name,
+
+        submittedByUid:
+          who.uid,
+
+        dateISO:
+          postingClean(
+            load.loadDate ||
+            ticket.ticketDate
+          ) ||
+          null,
+
+        createdAt:
+          serverTimestamp()
+      },
+      {
+        merge:true
+      }
+    );
+
+
+    return {
+      inventoryBushels,
+      onHandBefore,
+      onHandAfter,
+      movementId:
+        movementRef.id,
+      shortfallBushels:
+        postingRoundBu(
+          Math.max(
+            0,
+            ticketBushels -
+            inventoryBushels
+          )
+        )
+    };
+
+  }
+
+
+  async function postingApplyBagFallback(
+    load,
+    ticket,
+    bagPlan
+  ) {
+
+    const ticketBushels =
+      postingRoundBu(
+        ticket.netBushels
+      );
+
+
+    const who =
+      postingUser();
+
+
+    const sourcePatch = {
+      "counts.full":
+        bagPlan.countsAfter.full,
+
+      "counts.partial":
+        bagPlan.countsAfter.partial,
+
+      "counts.partialFeet":
+        bagPlan.countsAfter.partialFeet,
+
+      partialFeet:
+        bagPlan.countsAfter.partialFeet,
+
+      updatedAt:
+        serverTimestamp()
+    };
+
+
+    if (
+      bagPlan.remainingFeet <=
+      0.01
+    ) {
+
+      sourcePatch.status =
+        "pickedUp";
+
+      sourcePatch.pickedUpAt =
+        postingClean(
+          load.loadDate ||
+          ticket.ticketDate
+        ) ||
+        null;
+
+      sourcePatch.pickedUpBy =
+        {
+          employeeId:
+            who.email ||
+            who.uid ||
+            null,
+
+          name:
+            who.name,
+
+          email:
+            who.email
+        };
+
+    }
+
+
+    await updateDoc(
+      bagPlan.ref,
+      sourcePatch
+    );
+
+
+    const pickupRef =
+      doc(
+        db,
+        "grain_bag_events",
+        `ticket_${ticket.id}`
+      );
+
+
+    await setDoc(
+      pickupRef,
+      {
+        type:
+          "pickUp",
+
+        autoPostedFromTicket:
+          true,
+
+        field: {
+          id:
+            postingClean(
+              bagPlan.data?.field?.id ||
+              load.grainSourceFieldId
+            ) ||
+            null,
+
+          name:
+            postingClean(
+              bagPlan.data?.field?.name ||
+              load.grainSourceFieldName
+            ) ||
+            null
+        },
+
+        cropYear:
+          bagPlan.data?.cropYear ??
+          load.grainSourceCropYear ??
+          null,
+
+        crop:
+          postingClean(
+            bagPlan.data?.cropType ||
+            bagPlan.data?.crop ||
+            ticket.crop
+          ) ||
+          null,
+
+        countsPicked: {
+          full:
+            0,
+
+          partial:
+            0
+        },
+
+        bushelsPicked:
+          bagPlan.inventoryBushels,
+
+        ticketNetBushels:
+          ticketBushels,
+
+        inventoryShortfallBushels:
+          bagPlan.shortfallBushels,
+
+        feetPicked:
+          Number(
+            (
+              bagPlan.currentFeet -
+              bagPlan.remainingFeet
+            )
+              .toFixed(
+                2
+              )
+          ),
+
+        bushelsPerFoot:
+          Number(
+            bagPlan.cropBuPerFoot.toFixed(
+              4
+            )
+          ),
+
+        appliedTo: [
+          {
+            refPutDownId:
+              postingClean(
+                load.grainSourceId
+              ),
+
+            takeFull:
+              0,
+
+            takePartial:
+              0,
+
+            takeBushels:
+              bagPlan.inventoryBushels,
+
+            takeFeet:
+              Number(
+                (
+                  bagPlan.currentFeet -
+                  bagPlan.remainingFeet
+                )
+                  .toFixed(
+                    2
+                  )
+              )
+          }
+        ],
+
+        notes:
+          `Auto-posted from Grain Ticket ${postingClean(ticket.ticketNumber) || ticket.id}`,
+
+        pickedUpDate:
+          postingClean(
+            load.loadDate ||
+            ticket.ticketDate
+          ) ||
+          null,
+
+        pickedUpBy: {
+          employeeId:
+            who.email ||
+            who.uid ||
+            null,
+
+          name:
+            who.name,
+
+          email:
+            who.email
+        },
+
+        loadoutId:
+          load.id,
+
+        loadNumber:
+          postingClean(
+            load.loadNumber
+          ) ||
+          null,
+
+        grainTicketId:
+          ticket.id,
+
+        ticketNumber:
+          postingClean(
+            ticket.ticketNumber
+          ) ||
+          null,
+
+        createdAt:
+          serverTimestamp(),
+
+        updatedAt:
+          serverTimestamp()
+      },
+      {
+        merge:true
+      }
+    );
+
+
+    return {
+      inventoryBushels:
+        bagPlan.inventoryBushels,
+
+      onHandBefore:
+        bagPlan.availableBushels,
+
+      onHandAfter:
+        postingRoundBu(
+          Math.max(
+            0,
+            bagPlan.availableBushels -
+            bagPlan.inventoryBushels
+          )
+        ),
+
+      movementId:
+        pickupRef.id,
+
+      shortfallBushels:
+        bagPlan.shortfallBushels
+    };
+
+  }
+
+
+  async function postingPostOneTicket(
+    ticket,
+    load
+  ) {
+
+    const ticketBushels =
+      postingRoundBu(
+        ticket.netBushels
+      );
+
+
+    const contractId =
+      postingContractId(
+        ticket,
+        load
+      );
+
+
+    if (
+      !contractId
+    ) {
+
+      return {
+        posted:false,
+        reason:"no_contract"
+      };
+
+    }
+
+
+    if (
+      !postingHasValidSource(
+        load
+      )
+    ) {
+
+      return {
+        posted:false,
+        reason:"no_source"
+      };
+
+    }
+
+
+    const postingRef =
+      doc(
+        db,
+        TICKET_POSTING_COLLECTION,
+        ticket.id
+      );
+
+
+    const existingPosting =
+      await getDoc(
+        postingRef
+      );
+
+
+    if (
+      existingPosting.exists() &&
+      postingNorm(
+        existingPosting.data()?.status
+      ) ===
+        "complete"
+    ) {
+
+      /*
+        Keep ticket bookkeeping healed even if a prior page closed
+        immediately after the accounting transaction completed.
+      */
+      if (
+        !ticketAlreadyPosted(
+          ticket
+        )
+      ) {
+
+        const completed =
+          existingPosting.data() ||
+          {};
+
+
+        await updateDoc(
+          doc(
+            db,
+            "grain_tickets",
+            ticket.id
+          ),
+          {
+            contractId:
+              contractId,
+
+            inventoryPosted:
+              true,
+
+            inventoryPostedAt:
+              completed.completedAt ||
+              serverTimestamp(),
+
+            inventoryMovementId:
+              completed.inventoryMovementId ||
+              null,
+
+            inventoryPostedBushels:
+              completed.inventoryPostedBushels ??
+              null,
+
+            inventoryShortfallBushels:
+              completed.inventoryShortfallBushels ??
+              0,
+
+            contractPosted:
+              true,
+
+            contractPostedAt:
+              completed.completedAt ||
+              serverTimestamp(),
+
+            postedContractId:
+              contractId,
+
+            postingId:
+              ticket.id,
+
+            updatedAt:
+              serverTimestamp()
+          }
+        );
+
+      }
+
+
+      return {
+        posted:false,
+        reason:"already_posted"
+      };
+
+    }
+
+
+    const sourceType =
+      postingSourceType(
+        load
+      );
+
+
+    const contractRef =
+      doc(
+        db,
+        "grain_contracts",
+        contractId
+      );
+
+
+    const ticketRef =
+      doc(
+        db,
+        "grain_tickets",
+        ticket.id
+      );
+
+
+    let bagPlan =
+      null;
+
+
+    if (
+      sourceType ===
+      "grain_bag"
+    ) {
+
+      bagPlan =
+        await postingResolveBagPlan(
+          load,
+          ticket
+        );
+
+    }
+
+
+    /*
+      First choice: a true Firestore transaction.
+    */
+    const transactionResult =
+      await postingRunTransaction(
+        async transaction => {
+
+          const postingSnapshot =
+            await transaction.get(
+              postingRef
+            );
+
+
+          if (
+            postingSnapshot.exists() &&
+            postingNorm(
+              postingSnapshot.data()?.status
+            ) ===
+              "complete"
+          ) {
+
+            return {
+              alreadyPosted:true
+            };
+
+          }
+
+
+          const contractSnapshot =
+            await transaction.get(
+              contractRef
+            );
+
+
+          if (
+            !contractSnapshot.exists()
+          ) {
+
+            throw new Error(
+              "The linked grain contract could not be found."
+            );
+
+          }
+
+
+          const contract =
+            contractSnapshot.data() ||
+            {};
+
+
+          const deliveredBefore =
+            postingNum(
+              contract.deliveredBushels,
+              0
+            );
+
+
+          const contractBushels =
+            postingNum(
+              contract.contractBushels,
+              0
+            );
+
+
+          const deliveredAfter =
+            postingRoundBu(
+              deliveredBefore +
+              ticketBushels
+            );
+
+
+          const openAfter =
+            postingRoundBu(
+              Math.max(
+                0,
+                contractBushels >
+                  0
+                  ? contractBushels -
+                    deliveredAfter
+                  : postingNum(
+                      contract.openBushels,
+                      0
+                    ) -
+                    ticketBushels
+              )
+            );
+
+
+          let inventoryResult =
+            null;
+
+
+          if (
+            sourceType ===
+            "bin"
+          ) {
+
+            const siteId =
+              postingClean(
+                load.grainSourceSiteId
+              );
+
+
+            const binIndex =
+              Number(
+                load.grainSourceBinIndex
+              );
+
+
+            const siteRef =
+              doc(
+                db,
+                "binSites",
+                siteId
+              );
+
+
+            const siteSnapshot =
+              await transaction.get(
+                siteRef
+              );
+
+
+            if (
+              !siteSnapshot.exists()
+            ) {
+
+              throw new Error(
+                "The selected grain bin site could not be found."
+              );
+
+            }
+
+
+            const siteData =
+              siteSnapshot.data() ||
+              {};
+
+
+            const bins =
+              Array.isArray(
+                siteData.bins
+              )
+                ? [
+                    ...siteData.bins
+                  ]
+                : [];
+
+
+            const bin =
+              bins[
+                binIndex
+              ] ||
+              {};
+
+
+            const onHandBefore =
+              Math.max(
+                0,
+                postingNum(
+                  bin.onHand,
+                  0
+                )
+              );
+
+
+            const inventoryBushels =
+              postingRoundBu(
+                Math.min(
+                  ticketBushels,
+                  onHandBefore
+                )
+              );
+
+
+            const onHandAfter =
+              postingRoundBu(
+                Math.max(
+                  0,
+                  onHandBefore -
+                  inventoryBushels
+                )
+              );
+
+
+            const who =
+              postingUser();
+
+
+            bins[
+              binIndex
+            ] = {
+              ...bin,
+
+              onHand:
+                onHandAfter,
+
+              lastUpdatedBy:
+                who.name,
+
+              lastUpdatedUid:
+                who.uid,
+
+              lastUpdatedMs:
+                Date.now()
+            };
+
+
+            transaction.set(
+              siteRef,
+              {
+                bins
+              },
+              {
+                merge:true
+              }
+            );
+
+
+            const movementRef =
+              doc(
+                db,
+                "binMovements",
+                `ticket_${ticket.id}`
+              );
+
+
+            transaction.set(
+              movementRef,
+              {
+                siteId,
+
+                siteName:
+                  postingClean(
+                    load.grainSourceSiteName
+                  ) ||
+                  postingClean(
+                    siteData.name
+                  ) ||
+                  null,
+
+                binIndex,
+
+                binNum:
+                  load.grainSourceBinNumber ??
+                  bin.num ??
+                  (
+                    binIndex +
+                    1
+                  ),
+
+                direction:
+                  "out",
+
+                bushels:
+                  inventoryBushels,
+
+                ticketNetBushels:
+                  ticketBushels,
+
+                inventoryShortfallBushels:
+                  postingRoundBu(
+                    Math.max(
+                      0,
+                      ticketBushels -
+                      inventoryBushels
+                    )
+                  ),
+
+                loadoutId:
+                  load.id,
+
+                loadNumber:
+                  postingClean(
+                    load.loadNumber
+                  ) ||
+                  null,
+
+                grainTicketId:
+                  ticket.id,
+
+                ticketNumber:
+                  postingClean(
+                    ticket.ticketNumber
+                  ) ||
+                  null,
+
+                note:
+                  `Auto-posted from Grain Ticket ${postingClean(ticket.ticketNumber) || ticket.id}`,
+
+                submittedBy:
+                  who.name,
+
+                submittedByUid:
+                  who.uid,
+
+                dateISO:
+                  postingClean(
+                    load.loadDate ||
+                    ticket.ticketDate
+                  ) ||
+                  null,
+
+                createdAt:
+                  serverTimestamp()
+              },
+              {
+                merge:true
+              }
+            );
+
+
+            inventoryResult = {
+              inventoryBushels,
+              onHandBefore,
+              onHandAfter,
+              movementId:
+                movementRef.id,
+              shortfallBushels:
+                postingRoundBu(
+                  Math.max(
+                    0,
+                    ticketBushels -
+                    inventoryBushels
+                  )
+                )
+            };
+
+          }
+          else if (
+            sourceType ===
+            "grain_bag"
+          ) {
+
+            /*
+              Re-read the source inside the transaction to make sure
+              another ticket did not change it between planning and write.
+            */
+            const bagSnapshot =
+              await transaction.get(
+                bagPlan.ref
+              );
+
+
+            if (
+              !bagSnapshot.exists()
+            ) {
+
+              throw new Error(
+                "The selected grain bag source could not be found."
+              );
+
+            }
+
+
+            const currentBag =
+              bagSnapshot.data() ||
+              {};
+
+
+            const currentFeet =
+              postingBagCurrentFeet(
+                currentBag,
+                bagPlan.lengthFt
+              );
+
+
+            const availableBushels =
+              Math.max(
+                0,
+                currentFeet *
+                bagPlan.cropBuPerFoot
+              );
+
+
+            const inventoryBushels =
+              postingRoundBu(
+                Math.min(
+                  ticketBushels,
+                  availableBushels
+                )
+              );
+
+
+            const feetToRemove =
+              inventoryBushels /
+              bagPlan.cropBuPerFoot;
+
+
+            const remainingFeet =
+              Math.max(
+                0,
+                currentFeet -
+                feetToRemove
+              );
+
+
+            const countsAfter =
+              postingBagCountsFromFeet(
+                remainingFeet,
+                bagPlan.lengthFt
+              );
+
+
+            const who =
+              postingUser();
+
+
+            const sourcePatch = {
+              "counts.full":
+                countsAfter.full,
+
+              "counts.partial":
+                countsAfter.partial,
+
+              "counts.partialFeet":
+                countsAfter.partialFeet,
+
+              partialFeet:
+                countsAfter.partialFeet,
+
+              updatedAt:
+                serverTimestamp()
+            };
+
+
+            if (
+              remainingFeet <=
+              0.01
+            ) {
+
+              sourcePatch.status =
+                "pickedUp";
+
+              sourcePatch.pickedUpAt =
+                postingClean(
+                  load.loadDate ||
+                  ticket.ticketDate
+                ) ||
+                null;
+
+              sourcePatch.pickedUpBy = {
+                employeeId:
+                  who.email ||
+                  who.uid ||
+                  null,
+
+                name:
+                  who.name,
+
+                email:
+                  who.email
+              };
+
+            }
+
+
+            transaction.update(
+              bagPlan.ref,
+              sourcePatch
+            );
+
+
+            const pickupRef =
+              doc(
+                db,
+                "grain_bag_events",
+                `ticket_${ticket.id}`
+              );
+
+
+            transaction.set(
+              pickupRef,
+              {
+                type:
+                  "pickUp",
+
+                autoPostedFromTicket:
+                  true,
+
+                field: {
+                  id:
+                    postingClean(
+                      currentBag?.field?.id ||
+                      load.grainSourceFieldId
+                    ) ||
+                    null,
+
+                  name:
+                    postingClean(
+                      currentBag?.field?.name ||
+                      load.grainSourceFieldName
+                    ) ||
+                    null
+                },
+
+                cropYear:
+                  currentBag?.cropYear ??
+                  load.grainSourceCropYear ??
+                  null,
+
+                crop:
+                  postingClean(
+                    currentBag?.cropType ||
+                    currentBag?.crop ||
+                    ticket.crop
+                  ) ||
+                  null,
+
+                countsPicked: {
+                  full:
+                    0,
+
+                  partial:
+                    0
+                },
+
+                bushelsPicked:
+                  inventoryBushels,
+
+                ticketNetBushels:
+                  ticketBushels,
+
+                inventoryShortfallBushels:
+                  postingRoundBu(
+                    Math.max(
+                      0,
+                      ticketBushels -
+                      inventoryBushels
+                    )
+                  ),
+
+                feetPicked:
+                  Number(
+                    (
+                      currentFeet -
+                      remainingFeet
+                    )
+                      .toFixed(
+                        2
+                      )
+                  ),
+
+                bushelsPerFoot:
+                  Number(
+                    bagPlan.cropBuPerFoot.toFixed(
+                      4
+                    )
+                  ),
+
+                appliedTo: [
+                  {
+                    refPutDownId:
+                      postingClean(
+                        load.grainSourceId
+                      ),
+
+                    takeFull:
+                      0,
+
+                    takePartial:
+                      0,
+
+                    takeBushels:
+                      inventoryBushels,
+
+                    takeFeet:
+                      Number(
+                        (
+                          currentFeet -
+                          remainingFeet
+                        )
+                          .toFixed(
+                            2
+                          )
+                      )
+                  }
+                ],
+
+                notes:
+                  `Auto-posted from Grain Ticket ${postingClean(ticket.ticketNumber) || ticket.id}`,
+
+                pickedUpDate:
+                  postingClean(
+                    load.loadDate ||
+                    ticket.ticketDate
+                  ) ||
+                  null,
+
+                pickedUpBy: {
+                  employeeId:
+                    who.email ||
+                    who.uid ||
+                    null,
+
+                  name:
+                    who.name,
+
+                  email:
+                    who.email
+                },
+
+                loadoutId:
+                  load.id,
+
+                loadNumber:
+                  postingClean(
+                    load.loadNumber
+                  ) ||
+                  null,
+
+                grainTicketId:
+                  ticket.id,
+
+                ticketNumber:
+                  postingClean(
+                    ticket.ticketNumber
+                  ) ||
+                  null,
+
+                createdAt:
+                  serverTimestamp(),
+
+                updatedAt:
+                  serverTimestamp()
+              },
+              {
+                merge:true
+              }
+            );
+
+
+            inventoryResult = {
+              inventoryBushels,
+
+              onHandBefore:
+                postingRoundBu(
+                  availableBushels
+                ),
+
+              onHandAfter:
+                postingRoundBu(
+                  Math.max(
+                    0,
+                    availableBushels -
+                    inventoryBushels
+                  )
+                ),
+
+              movementId:
+                pickupRef.id,
+
+              shortfallBushels:
+                postingRoundBu(
+                  Math.max(
+                    0,
+                    ticketBushels -
+                    inventoryBushels
+                  )
+                )
+            };
+
+          }
+          else {
+
+            throw new Error(
+              "Unsupported grain source type."
+            );
+
+          }
+
+
+          transaction.update(
+            contractRef,
+            {
+              deliveredBushels:
+                deliveredAfter,
+
+              openBushels:
+                openAfter,
+
+              updatedAt:
+                serverTimestamp()
+            }
+          );
+
+
+          transaction.set(
+            postingRef,
+            {
+              status:
+                "complete",
+
+              ticketId:
+                ticket.id,
+
+              ticketNumber:
+                postingClean(
+                  ticket.ticketNumber
+                ) ||
+                null,
+
+              loadoutId:
+                load.id,
+
+              loadNumber:
+                postingClean(
+                  load.loadNumber
+                ) ||
+                null,
+
+              contractId,
+
+              sourceType,
+
+              sourceName:
+                postingClean(
+                  load.grainSourceName
+                ) ||
+                null,
+
+              ticketNetBushels:
+                ticketBushels,
+
+              inventoryPostedBushels:
+                inventoryResult.inventoryBushels,
+
+              inventoryShortfallBushels:
+                inventoryResult.shortfallBushels,
+
+              inventoryMovementId:
+                inventoryResult.movementId,
+
+              contractDeliveredBefore:
+                postingRoundBu(
+                  deliveredBefore
+                ),
+
+              contractDeliveredAfter:
+                deliveredAfter,
+
+              contractOpenAfter:
+                openAfter,
+
+              completedAt:
+                serverTimestamp(),
+
+              updatedAt:
+                serverTimestamp()
+            },
+            {
+              merge:true
+            }
+          );
+
+
+          transaction.update(
+            ticketRef,
+            {
+              contractId,
+
+              inventoryPosted:
+                true,
+
+              inventoryPostedAt:
+                serverTimestamp(),
+
+              inventoryMovementId:
+                inventoryResult.movementId,
+
+              inventoryPostedBushels:
+                inventoryResult.inventoryBushels,
+
+              inventoryShortfallBushels:
+                inventoryResult.shortfallBushels,
+
+              contractPosted:
+                true,
+
+              contractPostedAt:
+                serverTimestamp(),
+
+              postedContractId:
+                contractId,
+
+              postingId:
+                ticket.id,
+
+              loadoutId:
+                load.id,
+
+              loadNumber:
+                postingClean(
+                  load.loadNumber
+                ) ||
+                null,
+
+              updatedAt:
+                serverTimestamp()
+            }
+          );
+
+
+          return {
+            alreadyPosted:false,
+            inventoryResult,
+            deliveredAfter,
+            openAfter
+          };
+
+        }
+      );
+
+
+    if (
+      transactionResult !==
+      null
+    ) {
+
+      if (
+        transactionResult?.alreadyPosted
+      ) {
+
+        return {
+          posted:false,
+          reason:"already_posted"
+        };
+
+      }
+
+
+      Object.assign(
+        ticket,
+        {
+          contractId,
+          inventoryPosted:true,
+          contractPosted:true,
+          inventoryMovementId:
+            transactionResult?.inventoryResult?.movementId ||
+            null,
+          inventoryPostedBushels:
+            transactionResult?.inventoryResult?.inventoryBushels ??
+            null,
+          inventoryShortfallBushels:
+            transactionResult?.inventoryResult?.shortfallBushels ??
+            0,
+          postedContractId:
+            contractId,
+          loadoutId:
+            load.id,
+          loadNumber:
+            postingClean(
+              load.loadNumber
+            ) ||
+            null
+        }
+      );
+
+
+      return {
+        posted:true,
+        sourceType,
+        inventoryBushels:
+          transactionResult?.inventoryResult?.inventoryBushels ??
+          0,
+        shortfallBushels:
+          transactionResult?.inventoryResult?.shortfallBushels ??
+          0,
+        contractId
+      };
+
+    }
+
+
+    /*
+      Guarded fallback for projects where firebase-init does not yet
+      export runTransaction. The deterministic posting document and
+      claim token still prevent normal refresh duplication.
+    */
+    const claimed =
+      await postingFallbackClaim(
+        postingRef,
+        ticket,
+        load
+      );
+
+
+    if (
+      !claimed
+    ) {
+
+      return {
+        posted:false,
+        reason:"already_posted"
+      };
+
+    }
+
+
+    try {
+
+      let inventoryResult =
+        null;
+
+
+      if (
+        sourceType ===
+        "bin"
+      ) {
+
+        inventoryResult =
+          await postingApplyBinFallback(
+            load,
+            ticket
+          );
+
+      }
+      else if (
+        sourceType ===
+        "grain_bag"
+      ) {
+
+        inventoryResult =
+          await postingApplyBagFallback(
+            load,
+            ticket,
+            bagPlan
+          );
+
+      }
+      else {
+
+        throw new Error(
+          "Unsupported grain source type."
+        );
+
+      }
+
+
+      const contractResult =
+        await postingApplyContractFallback(
+          contractId,
+          ticketBushels
+        );
+
+
+      await setDoc(
+        postingRef,
+        {
+          status:
+            "complete",
+
+          ticketId:
+            ticket.id,
+
+          ticketNumber:
+            postingClean(
+              ticket.ticketNumber
+            ) ||
+            null,
+
+          loadoutId:
+            load.id,
+
+          loadNumber:
+            postingClean(
+              load.loadNumber
+            ) ||
+            null,
+
+          contractId,
+
+          sourceType,
+
+          sourceName:
+            postingClean(
+              load.grainSourceName
+            ) ||
+            null,
+
+          ticketNetBushels:
+            ticketBushels,
+
+          inventoryPostedBushels:
+            inventoryResult.inventoryBushels,
+
+          inventoryShortfallBushels:
+            inventoryResult.shortfallBushels,
+
+          inventoryMovementId:
+            inventoryResult.movementId,
+
+          contractDeliveredBefore:
+            postingRoundBu(
+              contractResult.deliveredBefore
+            ),
+
+          contractDeliveredAfter:
+            postingRoundBu(
+              contractResult.deliveredAfter
+            ),
+
+          contractOpenAfter:
+            postingRoundBu(
+              contractResult.openAfter
+            ),
+
+          completedAt:
+            serverTimestamp(),
+
+          updatedAt:
+            serverTimestamp()
+        },
+        {
+          merge:true
+        }
+      );
+
+
+      await updateDoc(
+        ticketRef,
+        {
+          contractId,
+
+          inventoryPosted:
+            true,
+
+          inventoryPostedAt:
+            serverTimestamp(),
+
+          inventoryMovementId:
+            inventoryResult.movementId,
+
+          inventoryPostedBushels:
+            inventoryResult.inventoryBushels,
+
+          inventoryShortfallBushels:
+            inventoryResult.shortfallBushels,
+
+          contractPosted:
+            true,
+
+          contractPostedAt:
+            serverTimestamp(),
+
+          postedContractId:
+            contractId,
+
+          postingId:
+            ticket.id,
+
+          loadoutId:
+            load.id,
+
+          loadNumber:
+            postingClean(
+              load.loadNumber
+            ) ||
+            null,
+
+          updatedAt:
+            serverTimestamp()
+        }
+      );
+
+
+      Object.assign(
+        ticket,
+        {
+          contractId,
+          inventoryPosted:true,
+          contractPosted:true,
+          inventoryMovementId:
+            inventoryResult.movementId,
+          inventoryPostedBushels:
+            inventoryResult.inventoryBushels,
+          inventoryShortfallBushels:
+            inventoryResult.shortfallBushels,
+          postedContractId:
+            contractId,
+          loadoutId:
+            load.id,
+          loadNumber:
+            postingClean(
+              load.loadNumber
+            ) ||
+            null
+        }
+      );
+
+
+      return {
+        posted:true,
+        sourceType,
+        inventoryBushels:
+          inventoryResult.inventoryBushels,
+        shortfallBushels:
+          inventoryResult.shortfallBushels,
+        contractId
+      };
+
+    }
+    catch (
+      error
+    ) {
+
+      await setDoc(
+        postingRef,
+        {
+          status:
+            "error",
+
+          errorMessage:
+            error?.message ||
+            String(
+              error
+            ),
+
+          updatedAt:
+            serverTimestamp()
+        },
+        {
+          merge:true
+        }
+      );
+
+
+      throw error;
+
+    }
+
+  }
+
+
+  async function postEligibleTickets(
+    tickets
+  ) {
+
+    if (
+      ticketPostingBusy
+    ) {
+
+      return;
+
+    }
+
+
+    ticketPostingBusy =
+      true;
+
+
+    try {
+
+      const loadSnapshot =
+        await getDocs(
+          collection(
+            db,
+            LOADOUT_COLLECTION_FOR_POSTING
+          )
+        );
+
+
+      const loads =
+        loadSnapshot.docs.map(
+          snapshot => ({
+            id:
+              snapshot.id,
+
+            ...snapshot.data()
+          })
+        );
+
+
+      let postedCount =
+        0;
+
+
+      for (
+        const ticket of tickets
+      ) {
+
+        if (
+          !ticketIsVerifiedForPosting(
+            ticket
+          )
+        ) {
+
+          continue;
+
+        }
+
+
+        if (
+          ticketAlreadyPosted(
+            ticket
+          )
+        ) {
+
+          continue;
+
+        }
+
+
+        const load =
+          postingFindLinkedLoad(
+            ticket,
+            loads
+          );
+
+
+        if (
+          !load
+        ) {
+
+          continue;
+
+        }
+
+
+        /*
+          Do not retroactively post old historical load-outs on first
+          deployment. New loads created by this file carry this flag.
+          An older load becomes eligible after it is opened and saved.
+        */
+        if (
+          load.autoPostingEligible !==
+          true
+        ) {
+
+          continue;
+
+        }
+
+
+        const contractId =
+          postingContractId(
+            ticket,
+            load
+          );
+
+
+        if (
+          !contractId ||
+          !postingHasValidSource(
+            load
+          )
+        ) {
+
+          continue;
+
+        }
+
+
+        try {
+
+          const result =
+            await postingPostOneTicket(
+              ticket,
+              load
+            );
+
+
+          if (
+            result?.posted
+          ) {
+
+            postedCount +=
+              1;
+
+
+            console.log(
+              "[grain posting] ticket posted:",
+              {
+                ticketId:
+                  ticket.id,
+
+                ticketNumber:
+                  ticket.ticketNumber,
+
+                loadoutId:
+                  load.id,
+
+                loadNumber:
+                  load.loadNumber,
+
+                contractId:
+                  result.contractId,
+
+                sourceType:
+                  result.sourceType,
+
+                inventoryBushels:
+                  result.inventoryBushels,
+
+                inventoryShortfallBushels:
+                  result.shortfallBushels
+              }
+            );
+
+          }
+
+        }
+        catch (
+          error
+        ) {
+
+          console.error(
+            "[grain posting] ticket posting failed:",
+            {
+              ticketId:
+                ticket.id,
+
+              ticketNumber:
+                ticket.ticketNumber,
+
+              loadoutId:
+                load.id,
+
+              error
+            }
+          );
+
+        }
+
+      }
+
+
+      if (
+        postedCount >
+        0
+      ) {
+
+        document.dispatchEvent(
+          new CustomEvent(
+            "fv:grain-inventory-posted",
+            {
+              detail: {
+                postedCount
+              }
+            }
+          )
+        );
+
+
+        document.dispatchEvent(
+          new CustomEvent(
+            "fv:grain-ticket-posted",
+            {
+              detail: {
+                postedCount
+              }
+            }
+          )
+        );
+
+      }
+
+    }
+    finally {
+
+      ticketPostingBusy =
+        false;
+
+    }
 
   }
 
@@ -3312,7 +6536,7 @@ if (els.tickets) {
         );
 
 
-      allTickets =
+      const loadedTickets =
         snapshot.docs
           .map(
             docSnapshot => ({
@@ -3335,11 +6559,24 @@ if (els.tickets) {
               createdMillis(
                 a
               )
-          )
-          .slice(
-            0,
-            50
           );
+
+
+      /*
+        Auto-post verified tickets before rendering.
+        postEligibleTickets mutates successfully posted ticket objects
+        so the UI immediately reflects the real contract assignment.
+      */
+      await postEligibleTickets(
+        loadedTickets
+      );
+
+
+      allTickets =
+        loadedTickets.slice(
+          0,
+          50
+        );
 
 
       updateKPIs();
@@ -3436,8 +6673,10 @@ if (els.tickets) {
     - Ticket table
     - Today's Tickets
     - Verified
+    - Needs Contract
     - Needs Review
     - Today's Net Bushels
+    - Verified ticket posting to inventory + contract
 
     No page reload.
   */
@@ -5476,6 +8715,53 @@ loState.drivers = employeeSnapshot.docs
       a.label.localeCompare(b.label,undefined,{numeric:true,sensitivity:"base"})
     );
 
+    /*
+      Build Grain Bag load-out sources from open putDown events.
+
+      Automatic ticket posting can convert a full bag into a partial
+      bag with an exact remaining-foot value. Preserve that detail in
+      the source picker rather than relying only on integer bag counts.
+    */
+    const grainBagProductsSnapshot =
+      await getDocs(
+        collection(
+          db,
+          "productsGrainBags"
+        )
+      );
+
+    const grainBagProductsById =
+      new Map(
+        grainBagProductsSnapshot.docs.map(
+          snapshot => [
+            snapshot.id,
+            snapshot.data() || {}
+          ]
+        )
+      );
+
+    const loBagFactor = crop => {
+      try {
+        const api = window.FVGrainCapacity;
+        if (api && typeof api.getFactor === "function") {
+          const factor = Number(api.getFactor(crop));
+          if (Number.isFinite(factor) && factor > 0) return factor;
+        }
+      }
+      catch (_) {}
+      return 1;
+    };
+
+    const loFallbackBuPerFoot = diameter => {
+      const d = Number(diameter) || 0;
+      if (d >= 12) return 60;
+      if (d >= 11) return 50;
+      if (d >= 10) return 39;
+      if (d >= 9) return 30;
+      if (d > 0) return 25;
+      return 0;
+    };
+
     loState.bagSources = bagEventSnapshot.docs
       .map(snapshot => ({
         id:snapshot.id,
@@ -5485,10 +8771,8 @@ loState.drivers = employeeSnapshot.docs
       .filter(event => loNorm(event.status) !== "pickedup")
       .map(event => {
         const counts = event.counts || {};
-        const full = Number(counts.full || 0);
-        const partial = Number(counts.partial || 0);
-
-        if ((full + partial) <= 0) return null;
+        const full = Math.max(0,Number(counts.full || 0));
+        const partial = Math.max(0,Number(counts.partial || 0));
 
         const fieldName = loClean(event.field?.name) || "Unknown Field";
         const crop = loClean(event.cropType || event.crop);
@@ -5498,13 +8782,63 @@ loState.drivers = employeeSnapshot.docs
         const sizeFeet = Number(event.bagSku?.sizeFeet || event.bagSku?.lengthFt || 0);
         const bagLocation = loClean(event.bagSku?.location);
 
+        const partialFeetList =
+          Array.isArray(event.partialFeet)
+            ? event.partialFeet
+            : Array.isArray(counts.partialFeet)
+              ? counts.partialFeet
+              : [];
+
+        let partialFeetTotal =
+          partialFeetList.reduce(
+            (sum,value) => sum + Math.max(0,Number(value) || 0),
+            0
+          );
+
+        if (partial > 0 && partialFeetTotal <= 0 && sizeFeet > 0) {
+          partialFeetTotal = partial * 0.5 * sizeFeet;
+        }
+
+        const totalFeet =
+          (full * sizeFeet) +
+          partialFeetTotal;
+
+        if (!(totalFeet > 0)) return null;
+
+        const product =
+          grainBagProductsById.get(
+            loClean(event.bagSku?.id)
+          ) || null;
+
+        const productLength =
+          Number(product?.lengthFt || sizeFeet || 0);
+
+        const cornBushels =
+          Number(product?.bushels || 0);
+
+        let cornBuPerFoot =
+          cornBushels > 0 && productLength > 0
+            ? cornBushels / productLength
+            : loFallbackBuPerFoot(diameter);
+
+        const availableBushels =
+          Math.max(
+            0,
+            totalFeet *
+            cornBuPerFoot *
+            loBagFactor(crop)
+          );
+
+        if (!(availableBushels > 0)) return null;
+
         const details = [
           crop,
           year ? `CY ${year}` : "",
           brand,
           diameter ? `${diameter}'` : "",
           sizeFeet ? `${sizeFeet}'` : "",
-          bagLocation
+          bagLocation,
+          `${Math.round(availableBushels).toLocaleString("en-US")} bu`
         ].filter(Boolean);
 
         return {
@@ -5520,6 +8854,7 @@ loState.drivers = employeeSnapshot.docs
           sizeFeet:sizeFeet || null,
           bagLocation,
           counts:{full,partial},
+          availableBushels,
           label:`${fieldName}${details.length ? ` — ${details.join(" • ")}` : ""}`,
           searchText:`${fieldName} ${crop} ${year} ${brand} ${bagLocation}`
         };
@@ -6047,6 +9382,13 @@ loState.drivers = employeeSnapshot.docs
         linkedDate:null,
         ticketLinkedAt:null,
 
+        /*
+          Safety gate for the verified-ticket posting engine.
+          New loads are eligible. Opening an older load and saving it
+          with this version also opts that load into automatic posting.
+        */
+        autoPostingEligible:true,
+
         createdByUid:auth.currentUser?.uid || null,
         createdByName:
           auth.currentUser?.displayName ||
@@ -6504,6 +9846,27 @@ loEls.addSubdriverBtn?.addEventListener("click",loOpenAddDriverPanel);
   setInterval(
     loBackgroundRefresh,
     30000
+  );
+
+
+  /*
+    When the Grain Ticket module posts a verified ticket, reload the
+    load-out reference data so contract remaining bushels and source
+    inventory labels stay current without a full page refresh.
+  */
+  document.addEventListener(
+    "fv:grain-ticket-posted",
+    async () => {
+      try {
+        await loLoadReferenceData();
+      }
+      catch (error) {
+        console.warn(
+          "[grain loadout] refresh after ticket posting failed:",
+          error
+        );
+      }
+    }
   );
 
 </script>
