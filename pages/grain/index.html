@@ -7789,11 +7789,109 @@ function loCloseDriverMenu(){
     }, 0);
   }
 
-  function loSetSelectValue(select,value){
-    if (!select) return;
-    select.value = value || "";
-    select.dispatchEvent(new Event("change",{bubbles:true}));
+function loSetSelectValue(select,value){
+
+  if (!select) {
+    return;
   }
+
+  const wanted =
+    loClean(value);
+
+
+  /*
+    Set the real HTML select first.
+  */
+  const matchingOption =
+    Array.from(select.options || [])
+      .find(option =>
+        loClean(option.value) === wanted
+      );
+
+
+  if (matchingOption) {
+
+    select.value =
+      matchingOption.value;
+
+    matchingOption.selected =
+      true;
+
+  }
+  else {
+
+    select.value =
+      "";
+
+  }
+
+
+  /*
+    Fire both events so FarmVista's select enhancer sees
+    programmatic changes made while opening the Edit popup.
+  */
+  select.dispatchEvent(
+    new Event(
+      "input",
+      {
+        bubbles:true
+      }
+    )
+  );
+
+
+  select.dispatchEvent(
+    new Event(
+      "change",
+      {
+        bubbles:true
+      }
+    )
+  );
+
+
+  /*
+    Some FarmVista styled selects rebuild their visible label
+    asynchronously. Re-apply the value on the next paint so the
+    displayed selection matches the real SELECT value.
+  */
+  requestAnimationFrame(
+    () => {
+
+      if (matchingOption) {
+
+        select.value =
+          matchingOption.value;
+
+        matchingOption.selected =
+          true;
+
+      }
+
+
+      select.dispatchEvent(
+        new Event(
+          "input",
+          {
+            bubbles:true
+          }
+        )
+      );
+
+
+      select.dispatchEvent(
+        new Event(
+          "change",
+          {
+            bubbles:true
+          }
+        )
+      );
+
+    }
+  );
+
+}
 
   function loOpenEditModal(load){
     if (!load) return;
@@ -7825,11 +7923,38 @@ function loCloseDriverMenu(){
       loRenderSubdriverSelect();
     }
 
-    loSetSelectValue(loEls.destination,loClean(load.destinationId));
-    loSetSelectValue(loEls.customer,loClean(load.customerId));
-    loSetSelectValue(loEls.crop,loClean(load.crop));
-    loRenderContracts();
-    loEls.contract.value = loClean(load.contractId);
+/*
+  Restore the saved Firestore selections.
+*/
+loSetSelectValue(
+  loEls.destination,
+  loClean(load.destinationId)
+);
+
+loSetSelectValue(
+  loEls.customer,
+  loClean(load.customerId)
+);
+
+loSetSelectValue(
+  loEls.crop,
+  loClean(load.crop)
+);
+
+
+/*
+  Customer + Crop must be restored BEFORE contracts are rebuilt.
+*/
+loRenderContracts();
+
+
+/*
+  Now restore the saved contract using the same select-sync helper.
+*/
+loSetSelectValue(
+  loEls.contract,
+  loClean(load.contractId)
+);
 
     const isPreload =
       load.isPreload === true ||
