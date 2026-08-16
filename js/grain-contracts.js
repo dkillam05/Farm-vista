@@ -38,7 +38,6 @@ import {
   getDocs,
   doc,
   updateDoc,
-  writeBatch,
   serverTimestamp
 } from "/Farm-vista/js/firebase-init.js";
 
@@ -729,42 +728,39 @@ function rebuildContractTotalsFromTickets(
 
 async function syncAllContractTotals() {
 
-  const batch =
-    writeBatch(db);
+  await Promise.all(
 
+    state.contracts.map(
+      contract => {
 
-  state.contracts.forEach(
-    contract => {
+        return updateDoc(
+          doc(
+            db,
+            CONTRACT_COLLECTION,
+            contract.id
+          ),
+          {
+            deliveredBushels:
+              numberValue(
+                contract.deliveredBushels
+              ),
 
-      batch.update(
-        doc(
-          db,
-          CONTRACT_COLLECTION,
-          contract.id
-        ),
-        {
-          deliveredBushels:
-            numberValue(
-              contract.deliveredBushels
-            ),
+            openBushels:
+              numberValue(
+                contract.openBushels
+              ),
 
-          openBushels:
-            numberValue(
-              contract.openBushels
-            ),
+            updatedAt:
+              serverTimestamp()
+          }
+        );
 
-          updatedAt:
-            serverTimestamp()
-        }
-      );
+      }
+    )
 
-    }
   );
 
-
-  await batch.commit();
 }
-
 
 async function syncSingleContractTotals(
   contractId
@@ -2700,7 +2696,6 @@ async function assignTicketsToContract(
       "That grain contract could not be found."
     );
 
-
     return;
   }
 
@@ -2731,6 +2726,10 @@ async function assignTicketsToContract(
   }
 
 
+  /*
+    Buyer + Customer must match.
+  */
+
   const invalidTicket =
     tickets.find(
       ticket => {
@@ -2757,10 +2756,13 @@ async function assignTicketsToContract(
       "One or more selected tickets do not match this contract's Buyer and Customer."
     );
 
-
     return;
   }
 
+
+  /*
+    Crop must match.
+  */
 
   const cropMismatch =
     tickets.find(
@@ -2782,13 +2784,26 @@ async function assignTicketsToContract(
   if (cropMismatch) {
 
     alert(
-      `Ticket ${cropMismatch.ticketNumber || cropMismatch.id} is ${cropMismatch.crop || "a different crop"} and cannot be assigned to this ${contract.crop || ""} contract.`
+      `Ticket ${
+        cropMismatch.ticketNumber ||
+        cropMismatch.id
+      } is ${
+        cropMismatch.crop ||
+        "a different crop"
+      } and cannot be assigned to this ${
+        contract.crop ||
+        ""
+      } contract.`
     );
-
 
     return;
   }
 
+
+  /*
+    Calculate what the contract will look like
+    after these tickets are assigned.
+  */
 
   const currentTotals =
     calculateContractTotals(
@@ -2798,18 +2813,22 @@ async function assignTicketsToContract(
 
   const addingBushels =
     tickets.reduce(
-      (total, ticket) =>
-        total +
-        numberValue(
-          ticket.netBushels
-        ),
+      (total, ticket) => {
+
+        return (
+          total +
+          numberValue(
+            ticket.netBushels
+          )
+        );
+
+      },
       0
     );
 
 
   const afterDelivered =
-    currentTotals
-      .deliveredBushels +
+    currentTotals.deliveredBushels +
     addingBushels;
 
 
@@ -2819,6 +2838,12 @@ async function assignTicketsToContract(
     ) -
     afterDelivered;
 
+
+  /*
+    OVERHAUL WARNING
+
+    Allow it, but make the user acknowledge it.
+  */
 
   if (
     afterOpen < 0
@@ -2832,11 +2857,39 @@ async function assignTicketsToContract(
 
     const confirmed =
       window.confirm(
-        `This assignment will put Contract ${contract.contractNumber || contract.id} over by ${formatBushels(overhaul)} bushels.\n\n` +
-        `Contract: ${formatBushels(contract.contractBushels)} bu\n` +
-        `Currently assigned: ${formatBushels(currentTotals.deliveredBushels)} bu\n` +
-        `Adding: ${formatBushels(addingBushels)} bu\n` +
-        `After assignment: ${formatBushels(afterDelivered)} bu\n\n` +
+        `This assignment will put Contract ${
+          contract.contractNumber ||
+          contract.id
+        } over by ${
+          formatBushels(
+            overhaul
+          )
+        } bushels.\n\n` +
+
+        `Contract: ${
+          formatBushels(
+            contract.contractBushels
+          )
+        } bu\n` +
+
+        `Currently assigned: ${
+          formatBushels(
+            currentTotals.deliveredBushels
+          )
+        } bu\n` +
+
+        `Adding: ${
+          formatBushels(
+            addingBushels
+          )
+        } bu\n` +
+
+        `After assignment: ${
+          formatBushels(
+            afterDelivered
+          )
+        } bu\n\n` +
+
         `Continue and record the overhaul?`
       );
 
@@ -2859,42 +2912,52 @@ async function assignTicketsToContract(
 
   try {
 
-    const batch =
-      writeBatch(db);
+    /*
+      Update every grain ticket.
 
+      firebase-init.js does not currently expose
+      Firestore writeBatch(), so use updateDoc().
+    */
 
-    tickets.forEach(
-      ticket => {
+    await Promise.all(
 
-        batch.update(
-          doc(
-            db,
-            TICKET_COLLECTION,
-            ticket.id
-          ),
-          {
-            contractId:
-              contract.id,
+      tickets.map(
+        ticket => {
 
-            contractNumber:
-              contract.contractNumber ||
-              null,
+          return updateDoc(
+            doc(
+              db,
+              TICKET_COLLECTION,
+              ticket.id
+            ),
+            {
+              contractId:
+                contract.id,
 
-            contractAssignedAt:
-              serverTimestamp(),
+              contractNumber:
+                contract.contractNumber ||
+                null,
 
-            updatedAt:
-              serverTimestamp()
-          }
-        );
+              contractAssignedAt:
+                serverTimestamp(),
 
-      }
+              updatedAt:
+                serverTimestamp()
+            }
+          );
+
+        }
+      )
+
     );
 
 
+    /*
+      Then update the contract snapshot totals.
+    */
+
     const resultingDelivered =
-      currentTotals
-        .deliveredBushels +
+      currentTotals.deliveredBushels +
       addingBushels;
 
 
@@ -2905,7 +2968,7 @@ async function assignTicketsToContract(
       resultingDelivered;
 
 
-    batch.update(
+    await updateDoc(
       doc(
         db,
         CONTRACT_COLLECTION,
@@ -2924,8 +2987,9 @@ async function assignTicketsToContract(
     );
 
 
-    await batch.commit();
-
+    /*
+      Update our local ticket state.
+    */
 
     tickets.forEach(
       ticket => {
@@ -2945,6 +3009,11 @@ async function assignTicketsToContract(
     state.selectedTicketIds
       .clear();
 
+
+    /*
+      Recalculate all contract totals from the
+      actual assigned grain tickets.
+    */
 
     await rebuildContractTotalsFromTickets(
       false
@@ -2966,12 +3035,23 @@ async function assignTicketsToContract(
 
 
     alert(
-      "The ticket assignment could not be saved. No local totals were kept."
+      "The ticket assignment could not be saved. The page will refresh the Firestore data."
     );
+
+
+    /*
+      Reload actual Firestore state because some
+      individual ticket updates may have completed.
+    */
+
+    state.busy =
+      false;
 
 
     await refreshData();
 
+
+    return;
 
   } finally {
 
