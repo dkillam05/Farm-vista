@@ -1095,8 +1095,39 @@ if (
         "https://fv-ocr-300398089669.us-central1.run.app/fvOcr";
 
 
-      const HOME_URL =
-        "/Farm-vista/index.html";
+const HOME_URL =
+  "/Farm-vista/index.html";
+
+
+const urlParams =
+  new URLSearchParams(
+    window.location.search
+  );
+
+
+const guestToken =
+  String(
+    urlParams.get("t") ||
+    ""
+  ).trim();
+
+
+const isGuestScan =
+  Boolean(
+    guestToken
+  );
+
+
+console.log(
+  "[Grain Ticket] Scan mode:",
+  {
+    isGuestScan,
+    hasGuestToken:
+      Boolean(
+        guestToken
+      )
+  }
+);
 
 
       const MAX_IMAGE_SIDE =
@@ -1452,19 +1483,50 @@ function findSignedInEmployee() {
 
 async function loadFarmVistaData() {
 
-  signedInUser =
-    auth.currentUser;
+signedInUser =
+  auth.currentUser;
 
 
-  if (
-    !signedInUser
-  ) {
+/*
+  NORMAL FARMVISTA SCAN:
+  User must be signed in.
 
-    throw new Error(
-      "You must be signed in to scan a grain ticket."
-    );
+  GUEST LOAD-OUT SCAN:
+  Login is not required because the secure load-out
+  token will identify the driver/load-out.
+*/
 
-  }
+if (
+  !signedInUser &&
+  !isGuestScan
+) {
+
+  throw new Error(
+    "You must be signed in to scan a grain ticket."
+  );
+
+}
+
+
+/*
+  Guest scans do NOT load FarmVista collections directly.
+
+  Their ticket will be saved through the secure guest
+  Cloud Function instead.
+*/
+
+if (
+  isGuestScan
+) {
+
+  console.log(
+    "[Grain Ticket] Guest load-out scan."
+  );
+
+
+  return null;
+
+}
 
 
   processingText.textContent =
@@ -3197,6 +3259,26 @@ async function saveScannedTicket(
   ocrResult
 ) {
 
+  /*
+    Guest-driver scans must never write directly
+    through the normal authenticated FarmVista path.
+
+    They will use the secure guest load-out
+    Cloud Function instead.
+  */
+
+  if (
+    isGuestScan
+  ) {
+
+    return await saveGuestScannedTicket(
+      file,
+      ocrResult
+    );
+
+  }
+
+
   if (
     !ocrResult?.grainTicket
   ) {
@@ -3354,9 +3436,13 @@ const driverName =
         )
       : ""
   ) ||
-  signedInUser.displayName ||
-  signedInUser.email ||
-  "FarmVista Driver";
+  signedInUser?.displayName ||
+  signedInUser?.email ||
+  (
+    isGuestScan
+      ? "Guest Driver"
+      : "FarmVista Driver"
+  );
 
 
   const payload = {
@@ -3886,23 +3972,77 @@ function hideAllScreens() {
       }
 
 
-      function showResult() {
+function showResult() {
 
-        processingScreen.classList.remove(
-          "show"
-        );
-
-
-        errorScreen.classList.remove(
-          "show"
-        );
+  processingScreen.classList.remove(
+    "show"
+  );
 
 
-        resultScreen.classList.add(
-          "show"
-        );
+  errorScreen.classList.remove(
+    "show"
+  );
 
-      }
+
+  /*
+    Outside trucking-company driver:
+
+    One scan only.
+    No FarmVista Home button.
+    No Scan Another Ticket button.
+  */
+
+  if (
+    isGuestScan
+  ) {
+
+    const resultTitle =
+      resultScreen.querySelector(
+        ".result-title"
+      );
+
+
+    const resultText =
+      resultScreen.querySelector(
+        ".result-text"
+      );
+
+
+    if (
+      resultTitle
+    ) {
+
+      resultTitle.textContent =
+        "Grain Ticket Received";
+
+    }
+
+
+    if (
+      resultText
+    ) {
+
+      resultText.textContent =
+        "Your grain ticket was successfully submitted. You may close this window.";
+
+    }
+
+
+    retakeBtn.style.display =
+      "none";
+
+
+    homeBtn.style.display =
+      "none";
+
+  }
+
+
+  resultScreen.classList.add(
+    "show"
+  );
+
+}
 
 
       function showError(
@@ -5077,17 +5217,70 @@ showResult();
       );
 
 
-      closeBtn.addEventListener(
-        "click",
-        () => {
+closeBtn.addEventListener(
+  "click",
+  () => {
 
-          stopCamera();
+    stopCamera();
 
-          location.href =
-            HOME_URL;
 
-        }
-      );
+    if (
+      isGuestScan
+    ) {
+
+      /*
+        Guest was not logged into FarmVista,
+        so never send them to the FarmVista home page.
+      */
+
+      document.body.innerHTML =
+        `
+          <div
+            style="
+              min-height:100vh;
+              display:grid;
+              place-items:center;
+              padding:24px;
+              background:#f4f6f4;
+              color:#111;
+              font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+              text-align:center;
+            "
+          >
+            <div>
+              <div
+                style="
+                  font-size:22px;
+                  font-weight:900;
+                  margin-bottom:8px;
+                "
+              >
+                Scan Closed
+              </div>
+
+              <div
+                style="
+                  color:#666;
+                  font-size:14px;
+                "
+              >
+                You may close this window.
+              </div>
+            </div>
+          </div>
+        `;
+
+
+      return;
+
+    }
+
+
+    location.href =
+      HOME_URL;
+
+  }
+);
 
 
       torchBtn.addEventListener(
