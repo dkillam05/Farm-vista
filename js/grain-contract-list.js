@@ -1569,20 +1569,248 @@ function openEditModal(
     `Contract ${contract.contractNumber || contract.id}`;
 
 
-  $("edit-buyer").value =
-    contract.buyerId || "";
+/* ============================================================
+   RESTORE SAVED CONTRACT PICKERS
+
+   Handles:
+   - normal current records using IDs
+   - older/imported records that may only have saved names
+   - capitalization differences
+   - FarmVista styled SELECT synchronization
+============================================================ */
+
+function restoreSelectValue(
+  select,
+  wantedValue,
+  wantedText = ""
+) {
+
+  if (!select) {
+    return;
+  }
 
 
-  $("edit-customer").value =
-    contract.customerId || "";
+  const cleanValue =
+    clean(
+      wantedValue
+    );
 
 
-  $("edit-crop").value =
-    contract.crop || "";
+  const cleanText =
+    clean(
+      wantedText
+    )
+      .toLowerCase();
 
 
-  $("edit-contract-type").value =
-    contract.contractType || "";
+  let matchedOption =
+    null;
+
+
+  /*
+    First choice:
+    exact option VALUE match.
+  */
+  if (cleanValue) {
+
+    matchedOption =
+      Array.from(
+        select.options
+      )
+        .find(
+          option =>
+            clean(
+              option.value
+            ) ===
+            cleanValue
+        ) ||
+      null;
+
+  }
+
+
+  /*
+    Second choice:
+    case-insensitive VALUE match.
+
+    Important for Crop / Contract Type.
+  */
+  if (
+    !matchedOption &&
+    cleanValue
+  ) {
+
+    matchedOption =
+      Array.from(
+        select.options
+      )
+        .find(
+          option =>
+            clean(
+              option.value
+            )
+              .toLowerCase() ===
+            cleanValue.toLowerCase()
+        ) ||
+      null;
+
+  }
+
+
+  /*
+    Third choice:
+    match visible OPTION text.
+
+    This allows older contracts that have a buyer/customer name
+    but may be missing the corresponding Firestore ID to restore.
+  */
+  if (
+    !matchedOption &&
+    cleanText
+  ) {
+
+    matchedOption =
+      Array.from(
+        select.options
+      )
+        .find(
+          option =>
+            clean(
+              option.textContent
+            )
+              .toLowerCase() ===
+            cleanText
+        ) ||
+      null;
+
+  }
+
+
+  if (matchedOption) {
+
+    select.value =
+      matchedOption.value;
+
+
+    matchedOption.selected =
+      true;
+
+  }
+  else {
+
+    select.value =
+      "";
+
+  }
+
+
+  /*
+    Notify FarmVista / browser UI that the value changed.
+  */
+  select.dispatchEvent(
+    new Event(
+      "input",
+      {
+        bubbles:true
+      }
+    )
+  );
+
+
+  select.dispatchEvent(
+    new Event(
+      "change",
+      {
+        bubbles:true
+      }
+    )
+  );
+
+
+  /*
+    Re-apply after the browser/custom select UI has painted.
+  */
+  requestAnimationFrame(
+    () => {
+
+      if (matchedOption) {
+
+        select.value =
+          matchedOption.value;
+
+
+        matchedOption.selected =
+          true;
+
+      }
+
+
+      select.dispatchEvent(
+        new Event(
+          "input",
+          {
+            bubbles:true
+          }
+        )
+      );
+
+
+      select.dispatchEvent(
+        new Event(
+          "change",
+          {
+            bubbles:true
+          }
+        )
+      );
+
+    }
+  );
+
+}
+
+
+
+/*
+  Buyer / Elevator
+*/
+restoreSelectValue(
+  $("edit-buyer"),
+  contract.buyerId,
+  contract.buyerName
+);
+
+
+/*
+  Customer
+*/
+restoreSelectValue(
+  $("edit-customer"),
+  contract.customerId,
+  contract.customerName
+);
+
+
+/*
+  Crop
+*/
+restoreSelectValue(
+  $("edit-crop"),
+  contract.crop,
+  contract.crop
+);
+
+
+/*
+  Contract Type
+*/
+restoreSelectValue(
+  $("edit-contract-type"),
+  contract.contractType ||
+  contract.type,
+  contract.contractType ||
+  contract.type
+);
 
 
   $("edit-contract-number").value =
@@ -1603,10 +1831,14 @@ function openEditModal(
   );
 
 
-  populateLocationPicker(
-    contract.buyerId,
-    contract.deliveryLocationId
-  );
+const restoredBuyerId =
+  $("edit-buyer").value;
+
+
+populateLocationPicker(
+  restoredBuyerId,
+  contract.deliveryLocationId
+);
 
 
   $("edit-delivery-start").value =
