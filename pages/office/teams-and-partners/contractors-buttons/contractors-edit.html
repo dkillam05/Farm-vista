@@ -175,6 +175,39 @@
       box-shadow:0 0 0 44px var(--card-surface,var(--surface)) inset!important;
     }
 
+
+
+    /* =========================================================
+       TRUCKING SUBCONTRACTOR DRIVERS
+       ========================================================= */
+    .driver-section{display:none;border-top:1px solid var(--border);margin-top:2px;padding-top:16px;gap:12px}
+    .driver-section.show{display:grid}
+    .driver-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+    .driver-head-title{font-weight:900;font-size:17px}
+    .driver-head-sub{margin-top:3px;color:var(--muted,#87908a);font-size:13px}
+    .driver-add-btn{min-width:auto;background:#2F6C3C!important;color:#fff!important;border-color:transparent!important}
+    .driver-list{display:grid;gap:9px}
+    .driver-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px;border:1px solid var(--border);border-radius:11px;background:var(--card-surface,var(--surface))}
+    .driver-name{font-weight:850}
+    .driver-phone{margin-top:2px;color:var(--muted,#87908a);font-size:13px}
+    .driver-row-actions{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+    .driver-mini-btn{appearance:none;border:1px solid var(--border);border-radius:9px;background:var(--surface);color:var(--text);padding:7px 10px;font-weight:800;cursor:pointer}
+    .driver-mini-btn.archive{color:#9F2530;border-color:rgba(159,37,48,.35)}
+    .driver-empty{padding:12px;border:1px dashed var(--border);border-radius:10px;color:var(--muted,#87908a);font-size:13px}
+    .driver-editor{display:none;padding:13px;border:1px solid var(--border);border-radius:12px;background:var(--card-surface,var(--surface));gap:12px}
+    .driver-editor.show{display:grid}
+    .driver-editor-title{font-weight:900}
+    .driver-editor-actions{display:flex;gap:9px;justify-content:flex-end;flex-wrap:wrap}
+    .driver-archive-title{margin-top:5px;font-size:13px;font-weight:850;color:var(--muted,#87908a)}
+    .driver-row.archived{opacity:.68}
+    .driver-row.archived .driver-name::after{content:" • Archived";font-size:11px;font-weight:800;color:var(--muted,#87908a)}
+    @media(max-width:620px){
+      .driver-row{grid-template-columns:1fr}
+      .driver-row-actions{justify-content:flex-start}
+      .driver-editor-actions{justify-content:stretch}
+      .driver-editor-actions .btn{flex:1 1 130px}
+    }
+
     .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 72px);transform:translateX(-50%);
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
     .toast.show{display:block;animation:fadeout 2.8s forwards;}
@@ -296,6 +329,49 @@
             ></textarea>
           </div>
 
+          <!-- Only shown when this contractor's Service is Trucking -->
+          <div id="driverSection" class="driver-section" aria-hidden="true">
+            <div class="driver-head">
+              <div>
+                <div class="driver-head-title">Trucking Drivers</div>
+                <div class="driver-head-sub">Manage the drivers available for Load Out / Dispatch.</div>
+              </div>
+              <button id="addDriver" class="btn driver-add-btn" type="button">+ Add Driver</button>
+            </div>
+
+            <div id="driverList" class="driver-list"></div>
+
+            <div id="driverEditor" class="driver-editor" aria-hidden="true">
+              <div id="driverEditorTitle" class="driver-editor-title">Add Driver</div>
+
+              <div class="grid2">
+                <div class="field">
+                  <label for="driverFirst">First Name<span class="req">*</span></label>
+                  <input id="driverFirst" class="input" type="text" autocomplete="given-name" />
+                </div>
+                <div class="field">
+                  <label for="driverLast">Last Name<span class="req">*</span></label>
+                  <input id="driverLast" class="input" type="text" autocomplete="family-name" />
+                </div>
+              </div>
+
+              <div class="field">
+                <label for="driverCell">Cell Number<span class="req">*</span></label>
+                <input id="driverCell" class="input" type="tel" autocomplete="tel" placeholder="(555) 555-5555" />
+              </div>
+
+              <div class="driver-editor-actions">
+                <button id="cancelDriver" class="btn" type="button">Cancel</button>
+                <button id="saveDriver" class="btn btn-primary" type="button">Save Driver</button>
+              </div>
+            </div>
+
+            <div id="archivedDriversWrap" style="display:none;">
+              <div class="driver-archive-title">Archived Drivers</div>
+              <div id="archivedDriverList" class="driver-list" style="margin-top:8px;"></div>
+            </div>
+          </div>
+
           <div class="actions">
             <button id="clear" class="btn" type="button">Cancel</button>
             <button id="save" class="btn" type="button">Save</button>
@@ -352,6 +428,9 @@
     let busy = false;
     let lastInviteAt = 0;
 
+    let editingDriverId = null;
+    let driverBusy = false;
+
     let rolesLoaded = false;
     let currentRoleName = null;
     let rolesReadyResolve = null;
@@ -396,7 +475,7 @@
     const setBusy = on => {
       busy = !!on;
 
-      ["save","saveInvite","clear","perm"].forEach(id=>{
+      ["save","saveInvite","clear","perm","addDriver","saveDriver","cancelDriver"].forEach(id=>{
         const el = $(id);
         if(el) el.disabled = on;
       });
@@ -423,6 +502,327 @@
       event.target.value =
         formatUSPhone(event.target.value);
     });
+
+    $("driverCell")?.addEventListener("blur",event=>{
+      event.target.value =
+        formatUSPhone(event.target.value);
+    });
+
+
+    /* =========================================================
+       TRUCKING DRIVER MANAGEMENT
+       Drivers are stored on subcontractors/{contractorId}.drivers
+       Archive is non-destructive: active:false keeps load history safe.
+       ========================================================= */
+
+    function isTruckingService(value){
+      return String(value || "")
+        .trim()
+        .toLowerCase() === "trucking";
+    }
+
+    function driverName(driver){
+      return String(
+        driver?.name ||
+        [driver?.firstName,driver?.lastName].filter(Boolean).join(" ") ||
+        ""
+      ).trim();
+    }
+
+    function currentDrivers(){
+      return Array.isArray(sel?.data?.drivers)
+        ? sel.data.drivers
+        : [];
+    }
+
+    function closeDriverEditor(){
+      editingDriverId = null;
+
+      $("driverFirst").value = "";
+      $("driverLast").value = "";
+      $("driverCell").value = "";
+
+      $("driverEditorTitle").textContent = "Add Driver";
+      $("saveDriver").textContent = "Save Driver";
+
+      $("driverEditor")
+        .classList
+        .remove("show");
+
+      $("driverEditor")
+        .setAttribute("aria-hidden","true");
+    }
+
+    function openDriverEditor(driver=null){
+      if(!sel){
+        return;
+      }
+
+      editingDriverId = driver?.id || null;
+
+      $("driverFirst").value = driver?.firstName || "";
+      $("driverLast").value = driver?.lastName || "";
+      $("driverCell").value = driver?.phone || driver?.cell || "";
+
+      $("driverEditorTitle").textContent =
+        editingDriverId
+          ? "Edit Driver"
+          : "Add Driver";
+
+      $("saveDriver").textContent =
+        editingDriverId
+          ? "Save Changes"
+          : "Save Driver";
+
+      $("driverEditor")
+        .classList
+        .add("show");
+
+      $("driverEditor")
+        .setAttribute("aria-hidden","false");
+
+      setTimeout(()=>$("driverFirst")?.focus(),0);
+    }
+
+    async function saveDriversToContractor(nextDrivers){
+      if(!sel?.id){
+        throw new Error("No contractor selected.");
+      }
+
+      await setDoc(
+        doc(
+          getFirestore(),
+          "subcontractors",
+          sel.id
+        ),
+        {
+          drivers:nextDrivers,
+          updatedAt:serverTimestamp()
+        },
+        {merge:true}
+      );
+
+      sel.data = {
+        ...(sel.data || {}),
+        drivers:nextDrivers
+      };
+
+      const found = all.find(item=>item.id === sel.id);
+      if(found){
+        found.data = {
+          ...(found.data || {}),
+          drivers:nextDrivers
+        };
+      }
+    }
+
+    async function archiveDriver(driver){
+      if(driverBusy || !sel?.id || !driver?.id){
+        return;
+      }
+
+      const name = driverName(driver) || "this driver";
+
+      if(!window.confirm(`Archive ${name}?\n\nThey will no longer appear as an available driver on Load Out / Dispatch. Previous loads will not be changed.`)){
+        return;
+      }
+
+      driverBusy = true;
+
+      try{
+        const nextDrivers = currentDrivers().map(item=>
+          item.id === driver.id
+            ? {
+                ...item,
+                active:false,
+                archivedAtISO:new Date().toISOString(),
+                updatedAtISO:new Date().toISOString()
+              }
+            : item
+        );
+
+        await saveDriversToContractor(nextDrivers);
+
+        closeDriverEditor();
+        renderDriverSection();
+        showToast(`${name} archived.`);
+
+      }catch(error){
+        console.error("Driver archive failed:",error);
+        alert(
+          "Driver could not be archived.\n\n" +
+          (error?.message || error)
+        );
+      }finally{
+        driverBusy = false;
+      }
+    }
+
+    function renderDriverRows(container,drivers,{archived=false}={}){
+      container.innerHTML = "";
+
+      if(!drivers.length){
+        if(!archived){
+          container.innerHTML = '<div class="driver-empty">No active drivers saved for this trucking subcontractor.</div>';
+        }
+        return;
+      }
+
+      drivers.forEach(driver=>{
+        const row = document.createElement("div");
+        row.className = `driver-row${archived ? " archived" : ""}`;
+
+        const info = document.createElement("div");
+        const name = document.createElement("div");
+        name.className = "driver-name";
+        name.textContent = driverName(driver) || "Unnamed Driver";
+
+        const phone = document.createElement("div");
+        phone.className = "driver-phone";
+        phone.textContent = driver.phone || driver.cell || "No cell number";
+
+        info.appendChild(name);
+        info.appendChild(phone);
+        row.appendChild(info);
+
+        if(!archived){
+          const actions = document.createElement("div");
+          actions.className = "driver-row-actions";
+
+          const edit = document.createElement("button");
+          edit.type = "button";
+          edit.className = "driver-mini-btn";
+          edit.textContent = "Edit";
+          edit.addEventListener("click",()=>openDriverEditor(driver));
+
+          const archive = document.createElement("button");
+          archive.type = "button";
+          archive.className = "driver-mini-btn archive";
+          archive.textContent = "Archive";
+          archive.addEventListener("click",()=>archiveDriver(driver));
+
+          actions.appendChild(edit);
+          actions.appendChild(archive);
+          row.appendChild(actions);
+        }
+
+        container.appendChild(row);
+      });
+    }
+
+    function renderDriverSection(){
+      const section = $("driverSection");
+      const shouldShow =
+        !!sel &&
+        isTruckingService($("service")?.value);
+
+      section.classList.toggle("show",shouldShow);
+      section.setAttribute("aria-hidden",shouldShow ? "false" : "true");
+
+      if(!shouldShow){
+        closeDriverEditor();
+        return;
+      }
+
+      const drivers = currentDrivers().slice().sort((a,b)=>
+        driverName(a).localeCompare(
+          driverName(b),
+          undefined,
+          {numeric:true,sensitivity:"base"}
+        )
+      );
+
+      const active = drivers.filter(driver=>driver.active !== false);
+      const archived = drivers.filter(driver=>driver.active === false);
+
+      renderDriverRows($("driverList"),active);
+      renderDriverRows($("archivedDriverList"),archived,{archived:true});
+
+      $("archivedDriversWrap").style.display =
+        archived.length ? "block" : "none";
+    }
+
+    async function saveDriver(){
+      if(driverBusy || !sel?.id){
+        return;
+      }
+
+      const firstName = $("driverFirst").value.trim();
+      const lastName = $("driverLast").value.trim();
+      const phone = formatUSPhone($("driverCell").value);
+      const phoneDigits = digitsOnly(phone);
+      const coreDigits =
+        phoneDigits.length === 11 && phoneDigits.startsWith("1")
+          ? phoneDigits.slice(1)
+          : phoneDigits;
+
+      if(!firstName || !lastName){
+        alert("Enter the driver's first and last name.");
+        return;
+      }
+
+      if(coreDigits.length !== 10){
+        alert("Enter a valid 10-digit cell number.");
+        $("driverCell").focus();
+        return;
+      }
+
+      const nowISO = new Date().toISOString();
+      const id =
+        editingDriverId ||
+        globalThis.crypto?.randomUUID?.() ||
+        `${Date.now()}-${Math.random().toString(36).slice(2,10)}`;
+
+      const existing = currentDrivers().find(driver=>driver.id === id) || {};
+
+      const savedDriver = {
+        ...existing,
+        id,
+        firstName,
+        lastName,
+        name:`${firstName} ${lastName}`,
+        phone,
+        active:true,
+        createdAtISO:existing.createdAtISO || nowISO,
+        updatedAtISO:nowISO
+      };
+
+      const nextDrivers = editingDriverId
+        ? currentDrivers().map(driver=>driver.id === id ? savedDriver : driver)
+        : [...currentDrivers(),savedDriver];
+
+      driverBusy = true;
+      $("saveDriver").disabled = true;
+      $("saveDriver").textContent = "Saving…";
+
+      try{
+        await saveDriversToContractor(nextDrivers);
+        closeDriverEditor();
+        renderDriverSection();
+        showToast(
+          editingDriverId
+            ? "Driver updated."
+            : "Driver added."
+        );
+      }catch(error){
+        console.error("Driver save failed:",error);
+        alert(
+          "Driver could not be saved.\n\n" +
+          (error?.message || error)
+        );
+      }finally{
+        driverBusy = false;
+        $("saveDriver").disabled = false;
+        if(!$("driverEditor").classList.contains("show")){
+          $("saveDriver").textContent = "Save Driver";
+        }
+      }
+    }
+
+    $("addDriver")?.addEventListener("click",()=>openDriverEditor());
+    $("cancelDriver")?.addEventListener("click",closeDriverEditor);
+    $("saveDriver")?.addEventListener("click",saveDriver);
+    $("service")?.addEventListener("change",renderDriverSection);
 
 
     /* =========================================================
@@ -1225,6 +1625,9 @@
 
       updateHero();
 
+      closeDriverEditor();
+      renderDriverSection();
+
       updateInviteButtonLabel();
     }
 
@@ -1328,16 +1731,32 @@
             oldRef
           );
 
-        const createdAt =
+        const oldData =
           oldSnap.exists()
-            ? oldSnap.data()?.createdAt
-            : serverTimestamp();
+            ? (oldSnap.data() || {})
+            : {};
+
+        const createdAt =
+          oldData.createdAt ||
+          serverTimestamp();
+
+        /*
+          IMPORTANT: preserve trucking drivers when an email change
+          moves the contractor to a new email-keyed document ID.
+        */
+        const drivers =
+          Array.isArray(oldData.drivers)
+            ? oldData.drivers
+            : Array.isArray(sel?.data?.drivers)
+              ? sel.data.drivers
+              : [];
 
         await setDoc(
           newRef,
           {
             ...payload,
-            createdAt
+            createdAt,
+            drivers
           },
           {
             merge:false
@@ -1355,7 +1774,8 @@
         sel = {
           id:newId,
           data:{
-            ...payload
+            ...payload,
+            drivers
           }
         };
 
@@ -1383,7 +1803,10 @@
         sel = {
           id:newId,
           data:{
-            ...payload
+            ...payload,
+            drivers:Array.isArray(sel?.data?.drivers)
+              ? sel.data.drivers
+              : []
           }
         };
       }
@@ -1465,6 +1888,9 @@
           "aria-hidden",
           "false"
         );
+
+      closeDriverEditor();
+      renderDriverSection();
 
       updateInviteButtonLabel();
 
@@ -1584,6 +2010,8 @@
               values
             );
 
+            renderDriverSection();
+
             showToast(
               "Contractor saved."
             );
@@ -1663,6 +2091,8 @@
             await upsertContractor(
               values
             );
+
+            renderDriverSection();
 
             await sendPasswordResetEmail(
               getAuth(),
