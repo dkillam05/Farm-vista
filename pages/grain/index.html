@@ -693,28 +693,24 @@
   box-sizing:border-box;
   display:flex;
   align-items:center;
-  justify-content:space-between;
-  gap:12px;
   border:1px solid var(--border);
   border-radius:10px;
-  background:var(--surface);
+  background-color:var(--surface);
   color:var(--text);
-  padding:10px 11px;
+  padding:10px 36px 10px 11px;
   font:inherit;
   text-align:left;
   cursor:pointer;
+  background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="14" height="8" viewBox="0 0 14 8"><path d="M1 1l6 6 6-6" fill="none" stroke="%2367706B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+  background-repeat:no-repeat;
+  background-position:right 10px center;
+  background-size:14px 8px;
 }
 
 .loadout-driver-button:focus{
   outline:2px solid color-mix(in srgb,#3B7E46 40%,transparent);
   outline-offset:1px;
   border-color:#3B7E46;
-}
-
-.loadout-driver-chevron{
-  flex:0 0 auto;
-  color:var(--muted,#87908a);
-  font-size:12px;
 }
 
 .loadout-driver-menu{
@@ -783,21 +779,6 @@
 .loadout-driver-choice.selected{
   font-weight:850;
   background:rgba(59,126,70,.10);
-}
-
-.loadout-driver-native{
-  position:absolute !important;
-  width:1px !important;
-  height:1px !important;
-  padding:0 !important;
-  margin:0 !important;
-  border:0 !important;
-  opacity:0 !important;
-  pointer-events:none !important;
-  overflow:hidden !important;
-  clip:rect(0 0 0 0) !important;
-  clip-path:inset(50%) !important;
-  white-space:nowrap !important;
 }
 
 .loadout-input[readonly]{
@@ -1686,7 +1667,6 @@
                 <span id="loadout-driver-button-text">
                   Select driver or trucking subcontractor
                 </span>
-                <span class="loadout-driver-chevron" aria-hidden="true">▾</span>
               </button>
 
               <div
@@ -1698,17 +1678,14 @@
 
               <!--
                 Hidden value holder used by the existing load-out logic.
-                The visible picker above is custom so category headers can
-                be true non-selectable rows in every browser.
+                This is an INPUT, not a SELECT, so FarmVista's global select
+                enhancer cannot create a second visible dropdown.
               -->
-              <select
+              <input
                 id="loadout-driver"
-                class="loadout-driver-native"
-                tabindex="-1"
-                aria-hidden="true"
+                type="hidden"
+                value=""
               >
-                <option value="">Select driver or trucking subcontractor</option>
-              </select>
 
             </div>
 
@@ -3663,29 +3640,22 @@ function loCloseDriverMenu(){
     }
 
     /*
-      Keep the hidden native SELECT as the single source of the selected
-      value so all existing load-out logic continues to work unchanged.
+      The hidden INPUT is the single source of the selected value.
+      Keep a valid existing selection; otherwise return it to blank.
     */
-    loEls.driver.innerHTML = "";
+    const currentValue = loClean(loEls.driver.value);
 
-    const blank = document.createElement("option");
-    blank.value = "";
-    blank.textContent = "Select driver or trucking subcontractor";
-    loEls.driver.appendChild(blank);
+    const currentIsEmployee =
+      currentValue.startsWith("emp:") &&
+      loState.drivers.some(driver => `emp:${driver.id}` === currentValue);
 
-    loState.drivers.forEach(driver => {
-      const option = document.createElement("option");
-      option.value = `emp:${driver.id}`;
-      option.textContent = driver.name;
-      loEls.driver.appendChild(option);
-    });
+    const currentIsSubcontractor =
+      currentValue.startsWith("sub:") &&
+      loState.subcontractors.some(subcontractor => `sub:${subcontractor.id}` === currentValue);
 
-    loState.subcontractors.forEach(subcontractor => {
-      const option = document.createElement("option");
-      option.value = `sub:${subcontractor.id}`;
-      option.textContent = subcontractor.company;
-      loEls.driver.appendChild(option);
-    });
+    if (!currentIsEmployee && !currentIsSubcontractor) {
+      loEls.driver.value = "";
+    }
 
 
     /*
