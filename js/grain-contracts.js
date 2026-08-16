@@ -1,27 +1,13 @@
 // /Farm-vista/js/grain-contracts.js
-// Rev: 2026-08-16-grain-contracts-dashboard-v1
+// Rev: 2026-08-16-grain-contracts-dashboard-v2
 //
-// PURPOSE:
-// Complete Grain Contracts workspace.
-//
-// SECTION 1:
-// - Live contracts grid
-// - Contract filters
-// - Contract edit modal
-// - Assigned/Open/Overhaul bushels calculated from grain_tickets
-//
-// SECTION 2:
-// - Buyer + Customer reconciliation filters
-// - Unassigned grain tickets on left
-// - Matching contracts on right
-// - Drag/drop single ticket
-// - Multi-select + Assign Selected
-// - Assign All Matching Crop tickets
-// - Writes actual contractId + contractNumber to grain_tickets
-// - Recalculates grain_contracts deliveredBushels/openBushels
-//
-// SECTION 3:
-// - Settlement reconciliation shell for next build
+// UPDATES:
+// - Assigned tickets now display directly on each contract reconciliation card
+// - Assigned ticket rows show ticket #, bushels, date, location, driver
+// - Clicking an assigned ticket opens a ticket detail modal
+// - Ticket modal can open the existing full grain-ticket detail page
+// - Newly assigned tickets immediately appear under their contract
+// - Keeps drag/drop, multi-select, Assign Selected, Assign All
 //
 // FIRESTORE:
 // grain_contracts
@@ -44,167 +30,498 @@ import {
 
 await ready;
 
-const db = getFirestore();
+const db =
+  getFirestore();
 
 
 /* ============================================================
    COLLECTIONS
 ============================================================ */
 
-const CONTRACT_COLLECTION = "grain_contracts";
-const BUYER_COLLECTION = "grain_buyers";
-const CUSTOMER_COLLECTION = "grain_customers";
-const LOCATION_COLLECTION = "grain_delivery_locations";
-const TICKET_COLLECTION = "grain_tickets";
+const CONTRACT_COLLECTION =
+  "grain_contracts";
+
+const BUYER_COLLECTION =
+  "grain_buyers";
+
+const CUSTOMER_COLLECTION =
+  "grain_customers";
+
+const LOCATION_COLLECTION =
+  "grain_delivery_locations";
+
+const TICKET_COLLECTION =
+  "grain_tickets";
 
 
 /* ============================================================
    HELPERS
 ============================================================ */
 
-const $ = id =>
-  document.getElementById(id);
+const $ =
+  id =>
+    document.getElementById(
+      id
+    );
 
 
-function clean(value) {
-  return String(value ?? "").trim();
+function clean(
+  value
+) {
+
+  return String(
+    value ??
+    ""
+  )
+    .trim();
+
 }
 
 
-function normalized(value) {
-  return clean(value).toLowerCase();
+function normalized(
+  value
+) {
+
+  return clean(
+    value
+  )
+    .toLowerCase();
+
 }
 
 
-function numberValue(value) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : 0;
+function numberValue(
+  value
+) {
+
+  const n =
+    Number(
+      value
+    );
+
+
+  return Number.isFinite(
+    n
+  )
+    ? n
+    : 0;
+
 }
 
 
-function formatBushels(value) {
-  return numberValue(value).toLocaleString(
-    "en-US",
-    {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2
-    }
-  );
+function formatBushels(
+  value
+) {
+
+  return numberValue(
+    value
+  )
+    .toLocaleString(
+      "en-US",
+      {
+        minimumFractionDigits:
+          0,
+
+        maximumFractionDigits:
+          2
+      }
+    );
+
 }
 
 
-function formatPrice(value) {
-  return numberValue(value).toLocaleString(
-    "en-US",
-    {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    }
-  );
+function formatWholeNumber(
+  value
+) {
+
+  const number =
+    Number(
+      value
+    );
+
+
+  if (
+    !Number.isFinite(
+      number
+    )
+  ) {
+
+    return "—";
+
+  }
+
+
+  return Math.round(
+    number
+  )
+    .toLocaleString(
+      "en-US"
+    );
+
 }
 
 
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+function formatGrade(
+  value,
+  suffix = ""
+) {
+
+  if (
+    value ===
+      null ||
+    value ===
+      undefined ||
+    value ===
+      ""
+  ) {
+
+    return "—";
+
+  }
+
+
+  const number =
+    Number(
+      value
+    );
+
+
+  if (
+    !Number.isFinite(
+      number
+    )
+  ) {
+
+    return clean(
+      value
+    ) ||
+    "—";
+
+  }
+
+
+  return `${number.toFixed(2)}${suffix}`;
+
 }
 
 
-function formatDate(iso) {
-  if (!iso) return "";
+function formatPrice(
+  value
+) {
+
+  return numberValue(
+    value
+  )
+    .toLocaleString(
+      "en-US",
+      {
+        style:
+          "currency",
+
+        currency:
+          "USD",
+
+        minimumFractionDigits:
+          2,
+
+        maximumFractionDigits:
+          2
+      }
+    );
+
+}
+
+
+function escapeHtml(
+  value
+) {
+
+  return String(
+    value ??
+    ""
+  )
+    .replaceAll(
+      "&",
+      "&amp;"
+    )
+    .replaceAll(
+      "<",
+      "&lt;"
+    )
+    .replaceAll(
+      ">",
+      "&gt;"
+    )
+    .replaceAll(
+      '"',
+      "&quot;"
+    )
+    .replaceAll(
+      "'",
+      "&#039;"
+    );
+
+}
+
+
+function formatDate(
+  iso
+) {
+
+  if (
+    !iso
+  ) {
+
+    return "";
+
+  }
+
 
   const parts =
-    String(iso).split("-");
+    String(
+      iso
+    )
+      .split(
+        "-"
+      );
 
-  if (parts.length !== 3) {
-    return String(iso);
+
+  if (
+    parts.length !==
+    3
+  ) {
+
+    return String(
+      iso
+    );
+
   }
+
 
   return `${Number(parts[1])}/${Number(parts[2])}/${parts[0]}`;
+
 }
 
 
-function formatDeliveryWindow(contract) {
-  const start = clean(contract.deliveryStart);
-  const end = clean(contract.deliveryEnd);
+function formatDeliveryWindow(
+  contract
+) {
 
-  if (!start && !end) return "—";
+  const start =
+    clean(
+      contract.deliveryStart
+    );
 
-  if (start && end) {
-    return `${formatDate(start)} – ${formatDate(end)}`;
+
+  const end =
+    clean(
+      contract.deliveryEnd
+    );
+
+
+  if (
+    !start &&
+    !end
+  ) {
+
+    return "—";
+
   }
 
-  return formatDate(start || end);
+
+  if (
+    start &&
+    end
+  ) {
+
+    return `${formatDate(start)} – ${formatDate(end)}`;
+
+  }
+
+
+  return formatDate(
+    start ||
+    end
+  );
+
 }
 
 
-function uniqueSorted(values) {
+function uniqueSorted(
+  values
+) {
+
   return [
     ...new Set(
       values
-        .map(clean)
-        .filter(Boolean)
+        .map(
+          clean
+        )
+        .filter(
+          Boolean
+        )
     )
-  ].sort(
-    (a, b) =>
-      a.localeCompare(
-        b,
-        undefined,
-        {
-          numeric: true,
-          sensitivity: "base"
-        }
-      )
-  );
+  ]
+    .sort(
+      (
+        a,
+        b
+      ) =>
+        a.localeCompare(
+          b,
+          undefined,
+          {
+            numeric:
+              true,
+
+            sensitivity:
+              "base"
+          }
+        )
+    );
+
 }
 
 
-function sortByName(items) {
+function sortByName(
+  items
+) {
+
   items.sort(
-    (a, b) =>
-      clean(a.name).localeCompare(
-        clean(b.name),
-        undefined,
-        {
-          numeric: true,
-          sensitivity: "base"
-        }
+    (
+      a,
+      b
+    ) =>
+      clean(
+        a.name
       )
+        .localeCompare(
+          clean(
+            b.name
+          ),
+          undefined,
+          {
+            numeric:
+              true,
+
+            sensitivity:
+              "base"
+          }
+        )
   );
+
 }
 
 
-function compareContracts(a, b) {
-  const aDate = clean(a.contractDate);
-  const bDate = clean(b.contractDate);
+function compareContracts(
+  a,
+  b
+) {
 
-  if (aDate !== bDate) {
-    return bDate.localeCompare(aDate);
+  const aDate =
+    clean(
+      a.contractDate
+    );
+
+
+  const bDate =
+    clean(
+      b.contractDate
+    );
+
+
+  if (
+    aDate !==
+    bDate
+  ) {
+
+    return bDate.localeCompare(
+      aDate
+    );
+
   }
 
-  return clean(a.contractNumber)
+
+  return clean(
+    a.contractNumber
+  )
     .localeCompare(
-      clean(b.contractNumber),
+      clean(
+        b.contractNumber
+      ),
       undefined,
       {
-        numeric: true,
-        sensitivity: "base"
+        numeric:
+          true,
+
+        sensitivity:
+          "base"
       }
     );
+
 }
 
 
-function addDays(isoDate, days) {
+function compareTickets(
+  a,
+  b
+) {
+
+  const dateCompare =
+    clean(
+      a.ticketDate
+    )
+      .localeCompare(
+        clean(
+          b.ticketDate
+        )
+      );
+
+
+  if (
+    dateCompare !==
+    0
+  ) {
+
+    return dateCompare;
+
+  }
+
+
+  return clean(
+    a.ticketNumber
+  )
+    .localeCompare(
+      clean(
+        b.ticketNumber
+      ),
+      undefined,
+      {
+        numeric:
+          true,
+
+        sensitivity:
+          "base"
+      }
+    );
+
+}
+
+
+function addDays(
+  isoDate,
+  days
+) {
+
   const parts =
     isoDate
-      .split("-")
-      .map(Number);
+      .split(
+        "-"
+      )
+      .map(
+        Number
+      );
+
 
   const date =
     new Date(
@@ -213,22 +530,40 @@ function addDays(isoDate, days) {
       parts[2]
     );
 
+
   date.setDate(
-    date.getDate() + days
+    date.getDate() +
+    days
   );
+
 
   const yyyy =
     date.getFullYear();
 
+
   const mm =
-    String(date.getMonth() + 1)
-      .padStart(2, "0");
+    String(
+      date.getMonth() +
+      1
+    )
+      .padStart(
+        2,
+        "0"
+      );
+
 
   const dd =
-    String(date.getDate())
-      .padStart(2, "0");
+    String(
+      date.getDate()
+    )
+      .padStart(
+        2,
+        "0"
+      );
+
 
   return `${yyyy}-${mm}-${dd}`;
+
 }
 
 
@@ -237,26 +572,52 @@ function addDays(isoDate, days) {
 ============================================================ */
 
 const state = {
-  contracts: [],
-  filteredContracts: [],
-  buyers: [],
-  customers: [],
-  deliveryLocations: [],
-  tickets: [],
 
-  activeContract: null,
+  contracts:
+    [],
 
-  reconcileBuyerId: "",
-  reconcileCustomerId: "",
+  filteredContracts:
+    [],
 
-  selectedTicketIds: new Set(),
+  buyers:
+    [],
 
-  draggingTicketId: null,
+  customers:
+    [],
 
-  editPriceCents: 0,
-  editPriceHasValue: false,
+  deliveryLocations:
+    [],
 
-  busy: false
+  tickets:
+    [],
+
+  activeContract:
+    null,
+
+  activeTicket:
+    null,
+
+  reconcileBuyerId:
+    "",
+
+  reconcileCustomerId:
+    "",
+
+  selectedTicketIds:
+    new Set(),
+
+  draggingTicketId:
+    null,
+
+  editPriceCents:
+    0,
+
+  editPriceHasValue:
+    false,
+
+  busy:
+    false
+
 };
 
 
@@ -264,59 +625,105 @@ const state = {
    START
 ============================================================ */
 
-function onReady(fn) {
-  if (document.readyState === "loading") {
+function onReady(
+  fn
+) {
+
+  if (
+    document.readyState ===
+    "loading"
+  ) {
+
     document.addEventListener(
       "DOMContentLoaded",
       fn,
-      { once: true }
+      {
+        once:
+          true
+      }
     );
-  } else {
-    fn();
+
   }
+  else {
+
+    fn();
+
+  }
+
 }
 
 
-onReady(async function() {
-  setupFilters();
-  setupReconciliationControls();
-  setupModal();
-  setupEditBushels();
-  setupEditPrice();
-  setupEditDates();
+onReady(
+  async function() {
 
-  try {
-    await loadAllData();
+    setupFilters();
 
-    rebuildContractTotalsFromTickets(false);
+    setupReconciliationControls();
 
-    populateAllPickers();
+    setupModal();
 
-    renderAll();
+    setupTicketDetailModal();
 
-  } catch (err) {
-    console.error(
-      "[Grain Contracts] Initial load failed:",
+    setupEditBushels();
+
+    setupEditPrice();
+
+    setupEditDates();
+
+
+    try {
+
+      await loadAllData();
+
+
+      rebuildContractTotalsFromTickets(
+        false
+      );
+
+
+      populateAllPickers();
+
+
+      renderAll();
+
+    }
+    catch (
       err
-    );
+    ) {
 
-    $("contracts-table-body").innerHTML = `
-      <tr>
-        <td colspan="12">
-          <div class="empty-state">
-            <div class="empty-title">
-              Unable to Load Grain Contracts
-            </div>
+      console.error(
+        "[Grain Contracts] Initial load failed:",
+        err
+      );
 
-            <div class="empty-sub">
-              Check the browser console for the Firestore error.
-            </div>
-          </div>
-        </td>
-      </tr>
-    `;
+
+      $("contracts-table-body")
+        .innerHTML = `
+
+          <tr>
+            <td colspan="12">
+
+              <div class="empty-state">
+
+                <div class="empty-title">
+                  Unable to Load Grain Contracts
+                </div>
+
+                <div class="empty-sub">
+                  Check the browser console for the Firestore error.
+                </div>
+
+              </div>
+
+            </td>
+          </tr>
+
+        `;
+
+    }
+
   }
-});
+);
 
 
 /* ============================================================
@@ -324,6 +731,7 @@ onReady(async function() {
 ============================================================ */
 
 async function loadAllData() {
+
   const [
     contractSnapshot,
     buyerSnapshot,
@@ -332,6 +740,7 @@ async function loadAllData() {
     ticketSnapshot
   ] =
     await Promise.all([
+
       getDocs(
         collection(
           db,
@@ -366,57 +775,64 @@ async function loadAllData() {
           TICKET_COLLECTION
         )
       )
+
     ]);
 
 
   state.contracts =
-    contractSnapshot.docs.map(
-      docSnapshot => {
+    contractSnapshot.docs
+      .map(
+        docSnapshot => {
 
-        const data =
-          docSnapshot.data() || {};
+          const data =
+            docSnapshot.data() ||
+            {};
 
-        return {
-          id:
-            docSnapshot.id,
 
-          ...data,
+          return {
 
-          contractBushels:
-            numberValue(
-              data.contractBushels
-            ),
+            id:
+              docSnapshot.id,
 
-          deliveredBushels:
-            numberValue(
-              data.deliveredBushels
-            ),
+            ...data,
 
-          openBushels:
-            Number.isFinite(
-              Number(
-                data.openBushels
-              )
-            )
-              ? Number(
+            contractBushels:
+              numberValue(
+                data.contractBushels
+              ),
+
+            deliveredBushels:
+              numberValue(
+                data.deliveredBushels
+              ),
+
+            openBushels:
+              Number.isFinite(
+                Number(
                   data.openBushels
                 )
-              : (
-                  numberValue(
-                    data.contractBushels
-                  ) -
-                  numberValue(
-                    data.deliveredBushels
+              )
+                ? Number(
+                    data.openBushels
                   )
-                ),
+                : (
+                    numberValue(
+                      data.contractBushels
+                    ) -
+                    numberValue(
+                      data.deliveredBushels
+                    )
+                  ),
 
-          pricePerBushel:
-            numberValue(
-              data.pricePerBushel
-            )
-        };
-      }
-    );
+            pricePerBushel:
+              numberValue(
+                data.pricePerBushel
+              )
+
+          };
+
+        }
+      );
 
 
   state.buyers =
@@ -425,9 +841,12 @@ async function loadAllData() {
         docSnapshot => {
 
           const data =
-            docSnapshot.data() || {};
+            docSnapshot.data() ||
+            {};
+
 
           return {
+
             id:
               docSnapshot.id,
 
@@ -435,7 +854,9 @@ async function loadAllData() {
               clean(
                 data.name
               )
+
           };
+
         }
       )
       .filter(
@@ -450,9 +871,12 @@ async function loadAllData() {
         docSnapshot => {
 
           const data =
-            docSnapshot.data() || {};
+            docSnapshot.data() ||
+            {};
+
 
           return {
+
             id:
               docSnapshot.id,
 
@@ -460,7 +884,9 @@ async function loadAllData() {
               clean(
                 data.name
               )
+
           };
+
         }
       )
       .filter(
@@ -475,9 +901,12 @@ async function loadAllData() {
         docSnapshot => {
 
           const data =
-            docSnapshot.data() || {};
+            docSnapshot.data() ||
+            {};
+
 
           return {
+
             id:
               docSnapshot.id,
 
@@ -515,7 +944,9 @@ async function loadAllData() {
               clean(
                 data.zip
               )
+
           };
+
         }
       );
 
@@ -526,9 +957,12 @@ async function loadAllData() {
         docSnapshot => {
 
           const data =
-            docSnapshot.data() || {};
+            docSnapshot.data() ||
+            {};
+
 
           return {
+
             id:
               docSnapshot.id,
 
@@ -593,7 +1027,9 @@ async function loadAllData() {
               clean(
                 data.deliveryLocationName
               )
+
           };
+
         }
       );
 
@@ -602,24 +1038,32 @@ async function loadAllData() {
     compareContracts
   );
 
+
   sortByName(
     state.buyers
   );
+
 
   sortByName(
     state.customers
   );
 
+
   state.deliveryLocations.sort(
-    (a, b) =>
+    (
+      a,
+      b
+    ) =>
       clean(
         a.locationName
-      ).localeCompare(
-        clean(
-          b.locationName
-        )
       )
+        .localeCompare(
+          clean(
+            b.locationName
+          )
+        )
   );
+
 }
 
 
@@ -627,18 +1071,31 @@ async function loadAllData() {
    CONTRACT TOTALS FROM TICKETS
 ============================================================ */
 
-function getAssignedTickets(contractId) {
-  return state.tickets.filter(
-    ticket =>
-      clean(
-        ticket.contractId
-      ) ===
-      contractId
-  );
+function getAssignedTickets(
+  contractId
+) {
+
+  return state.tickets
+    .filter(
+      ticket =>
+        clean(
+          ticket.contractId
+        ) ===
+        clean(
+          contractId
+        )
+    )
+    .sort(
+      compareTickets
+    );
+
 }
 
 
-function calculateContractTotals(contract) {
+function calculateContractTotals(
+  contract
+) {
+
   const assigned =
     getAssignedTickets(
       contract.id
@@ -647,7 +1104,10 @@ function calculateContractTotals(contract) {
 
   const deliveredBushels =
     assigned.reduce(
-      (total, ticket) =>
+      (
+        total,
+        ticket
+      ) =>
         total +
         numberValue(
           ticket.netBushels
@@ -676,17 +1136,24 @@ function calculateContractTotals(contract) {
 
 
   return {
+
     deliveredBushels,
+
     openBushels,
+
     overhaulBushels,
+
     loadCount:
       assigned.length
+
   };
+
 }
 
 
 function rebuildContractTotalsFromTickets(
-  writeToFirestore = false
+  writeToFirestore =
+    false
 ) {
 
   state.contracts.forEach(
@@ -717,12 +1184,17 @@ function rebuildContractTotalsFromTickets(
   );
 
 
-  if (writeToFirestore) {
+  if (
+    writeToFirestore
+  ) {
+
     return syncAllContractTotals();
+
   }
 
 
   return Promise.resolve();
+
 }
 
 
@@ -740,6 +1212,7 @@ async function syncAllContractTotals() {
             contract.id
           ),
           {
+
             deliveredBushels:
               numberValue(
                 contract.deliveredBushels
@@ -752,6 +1225,7 @@ async function syncAllContractTotals() {
 
             updatedAt:
               serverTimestamp()
+
           }
         );
 
@@ -762,60 +1236,14 @@ async function syncAllContractTotals() {
 
 }
 
-async function syncSingleContractTotals(
-  contractId
-) {
-
-  const contract =
-    state.contracts.find(
-      item =>
-        item.id ===
-        contractId
-    );
-
-
-  if (!contract) {
-    return;
-  }
-
-
-  const totals =
-    calculateContractTotals(
-      contract
-    );
-
-
-  Object.assign(
-    contract,
-    totals
-  );
-
-
-  await updateDoc(
-    doc(
-      db,
-      CONTRACT_COLLECTION,
-      contract.id
-    ),
-    {
-      deliveredBushels:
-        totals.deliveredBushels,
-
-      openBushels:
-        totals.openBushels,
-
-      updatedAt:
-        serverTimestamp()
-    }
-  );
-}
-
 
 /* ============================================================
    CONTRACT STATUS
 ============================================================ */
 
-function getContractStatus(contract) {
+function getContractStatus(
+  contract
+) {
 
   const contracted =
     numberValue(
@@ -834,37 +1262,54 @@ function getContractStatus(contract) {
     delivered;
 
 
-  if (open < 0) {
-    return "over";
-  }
-
-
   if (
-    open === 0 &&
-    contracted > 0
+    open <
+    0
   ) {
-    return "complete";
+
+    return "over";
+
   }
 
 
   if (
-    contracted > 0 &&
-    open > 0 &&
+    open ===
+      0 &&
+    contracted >
+      0
+  ) {
+
+    return "complete";
+
+  }
+
+
+  if (
+    contracted >
+      0 &&
+    open >
+      0 &&
     open <=
       Math.max(
-        contracted * 0.10,
+        contracted *
+        0.10,
         1000
       )
   ) {
+
     return "near";
+
   }
 
 
   return "open";
+
 }
 
 
-function getStatusLabel(contract) {
+function getStatusLabel(
+  contract
+) {
 
   const status =
     getContractStatus(
@@ -873,31 +1318,43 @@ function getStatusLabel(contract) {
 
 
   if (
-    status === "over"
+    status ===
+    "over"
   ) {
+
     return "Overhauled";
+
   }
 
 
   if (
-    status === "complete"
+    status ===
+    "complete"
   ) {
+
     return "Completed";
+
   }
 
 
   if (
-    status === "near"
+    status ===
+    "near"
   ) {
+
     return "Near Full";
+
   }
 
 
   return "Open";
+
 }
 
 
-function getStatusClass(contract) {
+function getStatusClass(
+  contract
+) {
 
   return `status-${getContractStatus(contract)}`;
 
@@ -916,29 +1373,37 @@ function setupFilters() {
     "crop-filter",
     "buyer-filter",
     "customer-filter"
-  ].forEach(
-    id => {
+  ]
+    .forEach(
+      id => {
 
-      const element =
-        $(id);
+        const element =
+          $(
+            id
+          );
 
 
-      if (!element) {
-        return;
+        if (
+          !element
+        ) {
+
+          return;
+
+        }
+
+
+        element.addEventListener(
+          id ===
+            "search-filter"
+            ? "input"
+            : "change",
+
+          applyContractFilters
+        );
+
       }
+    );
 
-
-      element.addEventListener(
-        id ===
-          "search-filter"
-          ? "input"
-          : "change",
-
-        applyContractFilters
-      );
-
-    }
-  );
 }
 
 
@@ -995,8 +1460,12 @@ function populateSimpleFilter(
   values
 ) {
 
-  if (!select) {
+  if (
+    !select
+  ) {
+
     return;
+
   }
 
 
@@ -1007,7 +1476,9 @@ function populateSimpleFilter(
   const firstOption =
     select.options[0]
       ? select.options[0]
-          .cloneNode(true)
+          .cloneNode(
+            true
+          )
       : null;
 
 
@@ -1015,10 +1486,14 @@ function populateSimpleFilter(
     "";
 
 
-  if (firstOption) {
+  if (
+    firstOption
+  ) {
+
     select.appendChild(
       firstOption
     );
+
   }
 
 
@@ -1048,11 +1523,14 @@ function populateSimpleFilter(
 
 
   if (
-    [...select.options].some(
-      option =>
-        option.value ===
-        current
-    )
+    [
+      ...select.options
+    ]
+      .some(
+        option =>
+          option.value ===
+          current
+      )
   ) {
 
     select.value =
@@ -1097,83 +1575,99 @@ function applyContractFilters() {
 
 
   state.filteredContracts =
-    state.contracts.filter(
-      contract => {
+    state.contracts
+      .filter(
+        contract => {
 
-        if (search) {
+          if (
+            search
+          ) {
 
-          const haystack =
-            [
-              contract.contractNumber,
-              contract.buyerName,
-              contract.customerName,
-              contract.crop,
-              contract.contractType,
-              contract.deliveryLocationName,
-              contract.deliveryCity,
-              contract.deliveryState
-            ]
-              .join(" ")
-              .toLowerCase();
+            const haystack =
+              [
+                contract.contractNumber,
+                contract.buyerName,
+                contract.customerName,
+                contract.crop,
+                contract.contractType,
+                contract.deliveryLocationName,
+                contract.deliveryCity,
+                contract.deliveryState
+              ]
+                .join(
+                  " "
+                )
+                .toLowerCase();
+
+
+            if (
+              !haystack.includes(
+                search
+              )
+            ) {
+
+              return false;
+
+            }
+
+          }
 
 
           if (
-            !haystack.includes(
-              search
-            )
+            crop &&
+            contract.crop !==
+            crop
           ) {
+
             return false;
+
           }
 
-        }
 
-
-        if (
-          crop &&
-          contract.crop !==
-            crop
-        ) {
-          return false;
-        }
-
-
-        if (
-          buyer &&
-          contract.buyerName !==
+          if (
+            buyer &&
+            contract.buyerName !==
             buyer
-        ) {
-          return false;
-        }
+          ) {
+
+            return false;
+
+          }
 
 
-        if (
-          customer &&
-          contract.customerName !==
+          if (
+            customer &&
+            contract.customerName !==
             customer
-        ) {
-          return false;
+          ) {
+
+            return false;
+
+          }
+
+
+          if (
+            status !==
+              "all" &&
+            getContractStatus(
+              contract
+            ) !==
+              status
+          ) {
+
+            return false;
+
+          }
+
+
+          return true;
+
         }
-
-
-        if (
-          status !==
-            "all" &&
-          getContractStatus(
-            contract
-          ) !==
-            status
-        ) {
-          return false;
-        }
-
-
-        return true;
-
-      }
-    );
+      );
 
 
   renderContracts();
+
 }
 
 
@@ -1307,6 +1801,7 @@ function renderContractTable() {
   ) {
 
     tbody.innerHTML = `
+
       <tr>
         <td colspan="12">
 
@@ -1324,10 +1819,12 @@ function renderContractTable() {
 
         </td>
       </tr>
+
     `;
 
 
     return;
+
   }
 
 
@@ -1351,56 +1848,47 @@ function renderContractTable() {
       row.innerHTML = `
 
         <td>
-
           <span
             class="status-pill ${getStatusClass(contract)}"
           >
             ${escapeHtml(getStatusLabel(contract))}
           </span>
-
         </td>
-
 
         <td class="contract-number">
           ${escapeHtml(contract.contractNumber || "—")}
         </td>
 
-
         <td>
           ${escapeHtml(contract.buyerName || "—")}
         </td>
-
 
         <td>
           ${escapeHtml(contract.customerName || "—")}
         </td>
 
-
         <td>
           ${escapeHtml(contract.crop || "—")}
         </td>
-
 
         <td>
           ${escapeHtml(contract.contractType || "—")}
         </td>
 
-
         <td class="number-cell">
           ${formatBushels(contract.contractBushels)}
         </td>
-
 
         <td class="number-cell">
           ${formatBushels(contract.deliveredBushels)}
         </td>
 
-
         <td
           class="number-cell ${
             numberValue(
               contract.openBushels
-            ) < 0
+            ) <
+              0
               ? "contract-over"
               : ""
           }"
@@ -1408,16 +1896,13 @@ function renderContractTable() {
           ${formatBushels(contract.openBushels)}
         </td>
 
-
         <td class="center-cell">
           ${numberValue(contract.loadCount).toLocaleString("en-US")}
         </td>
 
-
         <td class="number-cell">
           ${formatPrice(contract.pricePerBushel)}
         </td>
-
 
         <td>
           ${escapeHtml(formatDeliveryWindow(contract))}
@@ -1497,8 +1982,12 @@ function populateObjectSelect(
   placeholder
 ) {
 
-  if (!select) {
+  if (
+    !select
+  ) {
+
     return;
+
   }
 
 
@@ -1555,11 +2044,14 @@ function populateObjectSelect(
 
 
   if (
-    [...select.options].some(
-      option =>
-        option.value ===
-        current
-    )
+    [
+      ...select.options
+    ]
+      .some(
+        option =>
+          option.value ===
+          current
+      )
   ) {
 
     select.value =
@@ -1664,7 +2156,9 @@ function getVisibleUnassignedTickets() {
   if (
     !reconciliationReady()
   ) {
+
     return [];
+
   }
 
 
@@ -1687,40 +2181,7 @@ function getVisibleUnassignedTickets() {
       }
     )
     .sort(
-      (a, b) => {
-
-        const dateCompare =
-          clean(
-            a.ticketDate
-          ).localeCompare(
-            clean(
-              b.ticketDate
-            )
-          );
-
-
-        if (
-          dateCompare !==
-          0
-        ) {
-          return dateCompare;
-        }
-
-
-        return clean(
-          a.ticketNumber
-        ).localeCompare(
-          clean(
-            b.ticketNumber
-          ),
-          undefined,
-          {
-            numeric: true,
-            sensitivity: "base"
-          }
-        );
-
-      }
+      compareTickets
     );
 
 }
@@ -1731,7 +2192,9 @@ function getAvailableContracts() {
   if (
     !reconciliationReady()
   ) {
+
     return [];
+
   }
 
 
@@ -1828,7 +2291,9 @@ function renderReconciliation() {
     !ready;
 
 
-  if (!ready) {
+  if (
+    !ready
+  ) {
 
     message.classList
       .remove(
@@ -1892,6 +2357,7 @@ function renderReconciliation() {
 
 
     return;
+
   }
 
 
@@ -1916,7 +2382,9 @@ function renderReconciliation() {
   for (
     const ticketId
     of
-    [...state.selectedTicketIds]
+    [
+      ...state.selectedTicketIds
+    ]
   ) {
 
     if (
@@ -1945,7 +2413,8 @@ function renderReconciliation() {
   $("unassigned-count")
     .textContent =
       `${tickets.length} ${
-        tickets.length === 1
+        tickets.length ===
+          1
           ? "ticket"
           : "tickets"
       }`;
@@ -1954,7 +2423,8 @@ function renderReconciliation() {
   $("available-contract-count")
     .textContent =
       `${contracts.length} ${
-        contracts.length === 1
+        contracts.length ===
+          1
           ? "contract"
           : "contracts"
       }`;
@@ -1974,7 +2444,7 @@ function renderReconciliation() {
 
 
 /* ============================================================
-   TICKET CARDS
+   UNASSIGNED TICKET CARDS
 ============================================================ */
 
 function renderTicketCards(
@@ -2011,6 +2481,7 @@ function renderTicketCards(
 
 
     return;
+
   }
 
 
@@ -2113,7 +2584,8 @@ function renderTicketCards(
                 ticket.id
               );
 
-          } else {
+          }
+          else {
 
             state.selectedTicketIds
               .delete(
@@ -2155,6 +2627,7 @@ function renderTicketCards(
             event.preventDefault();
 
             return;
+
           }
 
 
@@ -2211,6 +2684,169 @@ function renderTicketCards(
 
 
 /* ============================================================
+   ASSIGNED TICKET HTML
+============================================================ */
+
+function assignedTicketMarkup(
+  contract
+) {
+
+  const assigned =
+    getAssignedTickets(
+      contract.id
+    );
+
+
+  if (
+    !assigned.length
+  ) {
+
+    return `
+
+      <div class="assigned-ticket-section">
+
+        <div class="assigned-ticket-head">
+
+          <div class="assigned-ticket-title">
+            Assigned Tickets
+          </div>
+
+          <div class="assigned-ticket-count">
+            0 tickets
+          </div>
+
+        </div>
+
+        <div class="assigned-ticket-empty">
+          No grain tickets assigned yet.
+        </div>
+
+      </div>
+
+    `;
+
+  }
+
+
+  const rows =
+    assigned
+      .map(
+        ticket => {
+
+          const date =
+            ticket.ticketDate
+              ? formatDate(
+                  ticket.ticketDate
+                )
+              : "No date";
+
+
+          const location =
+            clean(
+              ticket.deliveryLocationName ||
+              ticket.buyerName
+            );
+
+
+          const driver =
+            clean(
+              ticket.driverName
+            );
+
+
+          return `
+
+            <button
+              type="button"
+              class="assigned-ticket-item"
+              data-assigned-ticket-id="${escapeHtml(ticket.id)}"
+            >
+
+              <div class="assigned-ticket-top">
+
+                <div class="assigned-ticket-number">
+                  Ticket ${escapeHtml(ticket.ticketNumber || ticket.id)}
+                </div>
+
+                <div class="assigned-ticket-bu">
+                  ${formatBushels(ticket.netBushels)} bu
+                </div>
+
+              </div>
+
+
+              <div class="assigned-ticket-meta">
+
+                <span>
+                  ${escapeHtml(date)}
+                </span>
+
+                ${
+                  location
+                    ? `
+                      <span>
+                        ${escapeHtml(location)}
+                      </span>
+                    `
+                    : ""
+                }
+
+                ${
+                  driver
+                    ? `
+                      <span>
+                        ${escapeHtml(driver)}
+                      </span>
+                    `
+                    : ""
+                }
+
+              </div>
+
+            </button>
+
+          `;
+
+        }
+      )
+      .join(
+        ""
+      );
+
+
+  return `
+
+    <div class="assigned-ticket-section">
+
+      <div class="assigned-ticket-head">
+
+        <div class="assigned-ticket-title">
+          Assigned Tickets
+        </div>
+
+        <div class="assigned-ticket-count">
+          ${assigned.length} ${
+            assigned.length ===
+              1
+              ? "ticket"
+              : "tickets"
+          }
+        </div>
+
+      </div>
+
+      <div class="assigned-ticket-list">
+        ${rows}
+      </div>
+
+    </div>
+
+  `;
+
+}
+
+
+/* ============================================================
    CONTRACT DROP CARDS
 ============================================================ */
 
@@ -2249,6 +2885,7 @@ function renderContractDropCards(
 
 
     return;
+
   }
 
 
@@ -2274,42 +2911,44 @@ function renderContractDropCards(
 
 
       const selectedMatchingTickets =
-        visibleTickets.filter(
-          ticket => {
+        visibleTickets
+          .filter(
+            ticket => {
 
-            return (
-              state.selectedTicketIds
-                .has(
-                  ticket.id
-                ) &&
+              return (
+                state.selectedTicketIds
+                  .has(
+                    ticket.id
+                  ) &&
 
-              normalized(
-                ticket.crop
-              ) ===
                 normalized(
-                  contract.crop
-                )
-            );
+                  ticket.crop
+                ) ===
+                  normalized(
+                    contract.crop
+                  )
+              );
 
-          }
-        );
+            }
+          );
 
 
       const allMatchingCropTickets =
-        visibleTickets.filter(
-          ticket => {
+        visibleTickets
+          .filter(
+            ticket => {
 
-            return (
-              normalized(
-                ticket.crop
-              ) ===
-              normalized(
-                contract.crop
-              )
-            );
+              return (
+                normalized(
+                  ticket.crop
+                ) ===
+                normalized(
+                  contract.crop
+                )
+              );
 
-          }
-        );
+            }
+          );
 
 
       const card =
@@ -2394,14 +3033,12 @@ function renderContractDropCards(
           <div class="contract-stat">
 
             <div class="contract-stat-label">
-
               ${
                 contract.openBushels <
                   0
                   ? "Overhaul"
                   : "Remaining"
               }
-
             </div>
 
             <div
@@ -2412,7 +3049,6 @@ function renderContractDropCards(
                   : ""
               }"
             >
-
               ${formatBushels(
                 contract.openBushels <
                   0
@@ -2421,7 +3057,6 @@ function renderContractDropCards(
                     )
                   : contract.openBushels
               )}
-
             </div>
 
           </div>
@@ -2440,6 +3075,9 @@ function renderContractDropCards(
           </div>
 
         </div>
+
+
+        ${assignedTicketMarkup(contract)}
 
 
         <div class="contract-actions">
@@ -2480,6 +3118,32 @@ function renderContractDropCards(
       `;
 
 
+      card
+        .querySelectorAll(
+          "[data-assigned-ticket-id]"
+        )
+        .forEach(
+          button => {
+
+            button.addEventListener(
+              "click",
+              event => {
+
+                event.stopPropagation();
+
+
+                openTicketDetail(
+                  button.dataset
+                    .assignedTicketId
+                );
+
+              }
+            );
+
+          }
+        );
+
+
       const selectedBtn =
         card.querySelector(
           ".assign-selected-btn"
@@ -2488,13 +3152,17 @@ function renderContractDropCards(
 
       selectedBtn.addEventListener(
         "click",
-        () => {
+        event => {
+
+          event.stopPropagation();
+
 
           assignTicketsToContract(
-            selectedMatchingTickets.map(
-              ticket =>
-                ticket.id
-            ),
+            selectedMatchingTickets
+              .map(
+                ticket =>
+                  ticket.id
+              ),
             contract.id
           );
 
@@ -2510,13 +3178,17 @@ function renderContractDropCards(
 
       allBtn.addEventListener(
         "click",
-        () => {
+        event => {
+
+          event.stopPropagation();
+
 
           assignTicketsToContract(
-            allMatchingCropTickets.map(
-              ticket =>
-                ticket.id
-            ),
+            allMatchingCropTickets
+              .map(
+                ticket =>
+                  ticket.id
+              ),
             contract.id
           );
 
@@ -2531,7 +3203,9 @@ function renderContractDropCards(
           if (
             state.busy
           ) {
+
             return;
+
           }
 
 
@@ -2543,8 +3217,12 @@ function renderContractDropCards(
             );
 
 
-          if (!ticket) {
+          if (
+            !ticket
+          ) {
+
             return;
+
           }
 
 
@@ -2556,7 +3234,9 @@ function renderContractDropCards(
               contract.crop
             )
           ) {
+
             return;
+
           }
 
 
@@ -2611,8 +3291,12 @@ function renderContractDropCards(
             state.draggingTicketId;
 
 
-          if (!ticketId) {
+          if (
+            !ticketId
+          ) {
+
             return;
+
           }
 
 
@@ -2624,8 +3308,12 @@ function renderContractDropCards(
             );
 
 
-          if (!ticket) {
+          if (
+            !ticket
+          ) {
+
             return;
+
           }
 
 
@@ -2639,16 +3327,25 @@ function renderContractDropCards(
           ) {
 
             alert(
-              `This is a ${ticket.crop || "different crop"} ticket. It cannot be assigned to a ${contract.crop || "different crop"} contract.`
+              `This is a ${
+                ticket.crop ||
+                "different crop"
+              } ticket. It cannot be assigned to a ${
+                contract.crop ||
+                "different crop"
+              } contract.`
             );
 
 
             return;
+
           }
 
 
           assignTicketsToContract(
-            [ticketId],
+            [
+              ticketId
+            ],
             contract.id
           );
 
@@ -2667,6 +3364,327 @@ function renderContractDropCards(
 
 
 /* ============================================================
+   TICKET DETAIL MODAL
+============================================================ */
+
+function setupTicketDetailModal() {
+
+  $("close-ticket-detail-btn")
+    ?.addEventListener(
+      "click",
+      closeTicketDetail
+    );
+
+
+  $("close-ticket-detail-bottom-btn")
+    ?.addEventListener(
+      "click",
+      closeTicketDetail
+    );
+
+
+  $("ticket-detail-modal")
+    ?.addEventListener(
+      "click",
+      event => {
+
+        if (
+          event.target ===
+          $("ticket-detail-modal")
+        ) {
+
+          closeTicketDetail();
+
+        }
+
+      }
+    );
+
+
+  $("open-full-ticket-btn")
+    ?.addEventListener(
+      "click",
+      function() {
+
+        if (
+          !state.activeTicket
+        ) {
+
+          return;
+
+        }
+
+
+        window.location.href =
+          `/Farm-vista/pages/grain/grain-ticket-detail.html?id=${encodeURIComponent(
+            state.activeTicket.id
+          )}`;
+
+      }
+    );
+
+
+  document.addEventListener(
+    "keydown",
+    event => {
+
+      if (
+        event.key !==
+        "Escape"
+      ) {
+
+        return;
+
+      }
+
+
+      if (
+        $("ticket-detail-modal")
+          ?.classList
+          .contains(
+            "open"
+          )
+      ) {
+
+        closeTicketDetail();
+
+      }
+
+    }
+  );
+
+}
+
+
+function openTicketDetail(
+  ticketId
+) {
+
+  const ticket =
+    state.tickets.find(
+      item =>
+        item.id ===
+        ticketId
+    );
+
+
+  if (
+    !ticket
+  ) {
+
+    return;
+
+  }
+
+
+  state.activeTicket =
+    ticket;
+
+
+  $("ticket-detail-title")
+    .textContent =
+      `Grain Ticket ${
+        ticket.ticketNumber ||
+        ticket.id
+      }`;
+
+
+  $("ticket-detail-sub")
+    .textContent =
+      ticket.contractNumber
+        ? `Assigned to Contract ${ticket.contractNumber}`
+        : "Assigned grain ticket";
+
+
+  $("detail-ticket-number")
+    .textContent =
+      clean(
+        ticket.ticketNumber
+      ) ||
+      "—";
+
+
+  $("detail-ticket-date")
+    .textContent =
+      ticket.ticketDate
+        ? formatDate(
+            ticket.ticketDate
+          )
+        : "—";
+
+
+  $("detail-ticket-buyer")
+    .textContent =
+      clean(
+        ticket.buyerName ||
+        ticket.ocrElevatorName
+      ) ||
+      "—";
+
+
+  $("detail-ticket-location")
+    .textContent =
+      clean(
+        ticket.deliveryLocationName
+      ) ||
+      "—";
+
+
+  $("detail-ticket-customer")
+    .textContent =
+      clean(
+        ticket.customerName
+      ) ||
+      "—";
+
+
+  $("detail-ticket-crop")
+    .textContent =
+      clean(
+        ticket.crop
+      ) ||
+      "—";
+
+
+  $("detail-ticket-driver")
+    .textContent =
+      clean(
+        ticket.driverName ||
+        ticket.driverEmail
+      ) ||
+      "—";
+
+
+  $("detail-ticket-contract")
+    .textContent =
+      clean(
+        ticket.contractNumber
+      ) ||
+      "—";
+
+
+  $("detail-ticket-gross")
+    .textContent =
+      formatWholeNumber(
+        ticket.gross
+      );
+
+
+  $("detail-ticket-tare")
+    .textContent =
+      formatWholeNumber(
+        ticket.tare
+      );
+
+
+  $("detail-ticket-net-weight")
+    .textContent =
+      formatWholeNumber(
+        ticket.net
+      );
+
+
+  $("detail-ticket-gross-bu")
+    .textContent =
+      ticket.grossBushels !==
+        undefined
+        ? `${formatBushels(ticket.grossBushels)} bu`
+        : "—";
+
+
+  $("detail-ticket-shrink-bu")
+    .textContent =
+      ticket.shrinkBushels !==
+        undefined
+        ? `${formatBushels(ticket.shrinkBushels)} bu`
+        : "—";
+
+
+  $("detail-ticket-net-bu")
+    .textContent =
+      `${formatBushels(ticket.netBushels)} bu`;
+
+
+  $("detail-ticket-tw")
+    .textContent =
+      formatGrade(
+        ticket.testWeight ??
+        ticket.tw
+      );
+
+
+  $("detail-ticket-mo")
+    .textContent =
+      formatGrade(
+        ticket.moisture ??
+        ticket.mo,
+        "%"
+      );
+
+
+  $("detail-ticket-dm")
+    .textContent =
+      formatGrade(
+        ticket.damage ??
+        ticket.dm,
+        "%"
+      );
+
+
+  $("detail-ticket-fm")
+    .textContent =
+      formatGrade(
+        ticket.foreignMaterial ??
+        ticket.fm,
+        "%"
+      );
+
+
+  $("ticket-detail-modal")
+    .classList
+    .add(
+      "open"
+    );
+
+
+  document.body.style
+    .overflow =
+      "hidden";
+
+}
+
+
+function closeTicketDetail() {
+
+  $("ticket-detail-modal")
+    ?.classList
+    .remove(
+      "open"
+    );
+
+
+  state.activeTicket =
+    null;
+
+
+  if (
+    !$("edit-modal")
+      ?.classList
+      .contains(
+        "open"
+      )
+  ) {
+
+    document.body.style
+      .overflow =
+        "";
+
+  }
+
+}
+
+
+/* ============================================================
    ASSIGN TICKETS
 ============================================================ */
 
@@ -2678,7 +3696,9 @@ async function assignTicketsToContract(
   if (
     state.busy
   ) {
+
     return;
+
   }
 
 
@@ -2690,13 +3710,17 @@ async function assignTicketsToContract(
     );
 
 
-  if (!contract) {
+  if (
+    !contract
+  ) {
 
     alert(
       "That grain contract could not be found."
     );
 
+
     return;
+
   }
 
 
@@ -2710,7 +3734,9 @@ async function assignTicketsToContract(
               ticketId
           )
       )
-      .filter(Boolean)
+      .filter(
+        Boolean
+      )
       .filter(
         ticket =>
           !clean(
@@ -2722,13 +3748,11 @@ async function assignTicketsToContract(
   if (
     !tickets.length
   ) {
+
     return;
+
   }
 
-
-  /*
-    Buyer + Customer must match.
-  */
 
   const invalidTicket =
     tickets.find(
@@ -2750,19 +3774,19 @@ async function assignTicketsToContract(
     );
 
 
-  if (invalidTicket) {
+  if (
+    invalidTicket
+  ) {
 
     alert(
       "One or more selected tickets do not match this contract's Buyer and Customer."
     );
 
+
     return;
+
   }
 
-
-  /*
-    Crop must match.
-  */
 
   const cropMismatch =
     tickets.find(
@@ -2781,7 +3805,9 @@ async function assignTicketsToContract(
     );
 
 
-  if (cropMismatch) {
+  if (
+    cropMismatch
+  ) {
 
     alert(
       `Ticket ${
@@ -2796,14 +3822,11 @@ async function assignTicketsToContract(
       } contract.`
     );
 
+
     return;
+
   }
 
-
-  /*
-    Calculate what the contract will look like
-    after these tickets are assigned.
-  */
 
   const currentTotals =
     calculateContractTotals(
@@ -2813,14 +3836,15 @@ async function assignTicketsToContract(
 
   const addingBushels =
     tickets.reduce(
-      (total, ticket) => {
+      (
+        total,
+        ticket
+      ) => {
 
-        return (
-          total +
+        return total +
           numberValue(
             ticket.netBushels
-          )
-        );
+          );
 
       },
       0
@@ -2839,14 +3863,9 @@ async function assignTicketsToContract(
     afterDelivered;
 
 
-  /*
-    OVERHAUL WARNING
-
-    Allow it, but make the user acknowledge it.
-  */
-
   if (
-    afterOpen < 0
+    afterOpen <
+    0
   ) {
 
     const overhaul =
@@ -2897,7 +3916,9 @@ async function assignTicketsToContract(
     if (
       !confirmed
     ) {
+
       return;
+
     }
 
   }
@@ -2912,13 +3933,6 @@ async function assignTicketsToContract(
 
   try {
 
-    /*
-      Update every grain ticket.
-
-      firebase-init.js does not currently expose
-      Firestore writeBatch(), so use updateDoc().
-    */
-
     await Promise.all(
 
       tickets.map(
@@ -2931,6 +3945,7 @@ async function assignTicketsToContract(
               ticket.id
             ),
             {
+
               contractId:
                 contract.id,
 
@@ -2943,6 +3958,7 @@ async function assignTicketsToContract(
 
               updatedAt:
                 serverTimestamp()
+
             }
           );
 
@@ -2951,10 +3967,6 @@ async function assignTicketsToContract(
 
     );
 
-
-    /*
-      Then update the contract snapshot totals.
-    */
 
     const resultingDelivered =
       currentTotals.deliveredBushels +
@@ -2975,6 +3987,7 @@ async function assignTicketsToContract(
         contract.id
       ),
       {
+
         deliveredBushels:
           resultingDelivered,
 
@@ -2983,13 +3996,10 @@ async function assignTicketsToContract(
 
         updatedAt:
           serverTimestamp()
+
       }
     );
 
-
-    /*
-      Update our local ticket state.
-    */
 
     tickets.forEach(
       ticket => {
@@ -3010,11 +4020,6 @@ async function assignTicketsToContract(
       .clear();
 
 
-    /*
-      Recalculate all contract totals from the
-      actual assigned grain tickets.
-    */
-
     await rebuildContractTotalsFromTickets(
       false
     );
@@ -3025,8 +4030,10 @@ async function assignTicketsToContract(
 
     renderAll();
 
-
-  } catch (error) {
+  }
+  catch (
+    error
+  ) {
 
     console.error(
       "[Grain Contracts] Ticket assignment failed:",
@@ -3039,11 +4046,6 @@ async function assignTicketsToContract(
     );
 
 
-    /*
-      Reload actual Firestore state because some
-      individual ticket updates may have completed.
-    */
-
     state.busy =
       false;
 
@@ -3053,7 +4055,8 @@ async function assignTicketsToContract(
 
     return;
 
-  } finally {
+  }
+  finally {
 
     state.busy =
       false;
@@ -3075,7 +4078,9 @@ async function refreshData() {
   if (
     state.busy
   ) {
+
     return;
+
   }
 
 
@@ -3098,8 +4103,10 @@ async function refreshData() {
 
     renderAll();
 
-
-  } catch (error) {
+  }
+  catch (
+    error
+  ) {
 
     console.error(
       "[Grain Contracts] Refresh failed:",
@@ -3111,8 +4118,8 @@ async function refreshData() {
       "Unable to refresh grain contracts."
     );
 
-
-  } finally {
+  }
+  finally {
 
     state.busy =
       false;
@@ -3190,6 +4197,7 @@ function renderSettlementShell() {
 
 
     return;
+
   }
 
 
@@ -3240,7 +4248,9 @@ function renderSettlementShell() {
 
         }
       )
-      .join("");
+      .join(
+        ""
+      );
 
 }
 
@@ -3268,7 +4278,7 @@ function populateEditPickers() {
 
 
 /* ============================================================
-   MODAL SETUP
+   CONTRACT EDIT MODAL
 ============================================================ */
 
 function setupModal() {
@@ -3328,7 +4338,7 @@ function setupModal() {
 
 
 /* ============================================================
-   OPEN / CLOSE EDIT MODAL
+   OPEN / CLOSE CONTRACT EDIT MODAL
 ============================================================ */
 
 function openEditModal(
@@ -3343,8 +4353,12 @@ function openEditModal(
     );
 
 
-  if (!contract) {
+  if (
+    !contract
+  ) {
+
     return;
+
   }
 
 
@@ -3366,37 +4380,46 @@ function openEditModal(
 
   $("edit-modal-sub")
     .textContent =
-      `Contract ${contract.contractNumber || contract.id}`;
+      `Contract ${
+        contract.contractNumber ||
+        contract.id
+      }`;
 
 
-  $("edit-buyer").value =
-    contract.buyerId ||
-    "";
+  $("edit-buyer")
+    .value =
+      contract.buyerId ||
+      "";
 
 
-  $("edit-customer").value =
-    contract.customerId ||
-    "";
+  $("edit-customer")
+    .value =
+      contract.customerId ||
+      "";
 
 
-  $("edit-crop").value =
-    contract.crop ||
-    "";
+  $("edit-crop")
+    .value =
+      contract.crop ||
+      "";
 
 
-  $("edit-contract-type").value =
-    contract.contractType ||
-    "";
+  $("edit-contract-type")
+    .value =
+      contract.contractType ||
+      "";
 
 
-  $("edit-contract-number").value =
-    contract.contractNumber ||
-    "";
+  $("edit-contract-number")
+    .value =
+      contract.contractNumber ||
+      "";
 
 
-  $("edit-contract-date").value =
-    contract.contractDate ||
-    "";
+  $("edit-contract-date")
+    .value =
+      contract.contractDate ||
+      "";
 
 
   setEditBushels(
@@ -3415,25 +4438,29 @@ function openEditModal(
   );
 
 
-  $("edit-delivery-start").value =
-    contract.deliveryStart ||
-    "";
+  $("edit-delivery-start")
+    .value =
+      contract.deliveryStart ||
+      "";
 
 
-  $("edit-delivery-end").value =
-    contract.deliveryEnd ||
-    "";
+  $("edit-delivery-end")
+    .value =
+      contract.deliveryEnd ||
+      "";
 
 
-  $("edit-delivered").value =
-    formatBushels(
-      contract.deliveredBushels
-    );
+  $("edit-delivered")
+    .value =
+      formatBushels(
+        contract.deliveredBushels
+      );
 
 
-  $("edit-notes").value =
-    contract.notes ||
-    "";
+  $("edit-notes")
+    .value =
+      contract.notes ||
+      "";
 
 
   updateEditDateLimits();
@@ -3449,8 +4476,9 @@ function openEditModal(
     );
 
 
-  document.body.style.overflow =
-    "hidden";
+  document.body.style
+    .overflow =
+      "hidden";
 
 }
 
@@ -3464,8 +4492,9 @@ function closeEditModal() {
     );
 
 
-  document.body.style.overflow =
-    "";
+  document.body.style
+    .overflow =
+      "";
 
 
   state.activeContract =
@@ -3480,7 +4509,8 @@ function closeEditModal() {
 
 function populateLocationPicker(
   buyerId,
-  selectedLocationId = ""
+  selectedLocationId =
+    ""
 ) {
 
   const select =
@@ -3512,13 +4542,16 @@ function populateLocationPicker(
   );
 
 
-  if (!buyerId) {
+  if (
+    !buyerId
+  ) {
 
     select.disabled =
       true;
 
 
     return;
+
   }
 
 
@@ -3580,8 +4613,12 @@ function formatLocationOption(
       location.city,
       location.state
     ]
-      .filter(Boolean)
-      .join(", ");
+      .filter(
+        Boolean
+      )
+      .join(
+        ", "
+      );
 
 
   const address =
@@ -3590,11 +4627,17 @@ function formatLocationOption(
       cityState,
       location.zip
     ]
-      .filter(Boolean)
-      .join(" • ");
+      .filter(
+        Boolean
+      )
+      .join(
+        " • "
+      );
 
 
-  if (!address) {
+  if (
+    !address
+  ) {
 
     return location.locationName;
 
@@ -3616,8 +4659,12 @@ function setupEditBushels() {
     $("edit-contract-bushels");
 
 
-  if (!input) {
+  if (
+    !input
+  ) {
+
     return;
+
   }
 
 
@@ -3636,7 +4683,9 @@ function setupEditBushels() {
           );
 
 
-      if (!digits) {
+      if (
+        !digits
+      ) {
 
         input.value =
           "";
@@ -3650,6 +4699,7 @@ function setupEditBushels() {
 
 
         return;
+
       }
 
 
@@ -3716,7 +4766,9 @@ function updateEditOpenBushels() {
   if (
     !state.activeContract
   ) {
+
     return;
+
   }
 
 
@@ -3740,10 +4792,11 @@ function updateEditOpenBushels() {
     delivered;
 
 
-  $("edit-open").value =
-    formatBushels(
-      open
-    );
+  $("edit-open")
+    .value =
+      formatBushels(
+        open
+      );
 
 
   $("modal-contracted")
@@ -3779,8 +4832,12 @@ function setupEditPrice() {
     $("edit-price");
 
 
-  if (!input) {
+  if (
+    !input
+  ) {
+
     return;
+
   }
 
 
@@ -3799,7 +4856,9 @@ function setupEditPrice() {
           );
 
 
-      if (!digits) {
+      if (
+        !digits
+      ) {
 
         state.editPriceCents =
           0;
@@ -3823,6 +4882,7 @@ function setupEditPrice() {
 
 
         return;
+
       }
 
 
@@ -3889,6 +4949,7 @@ function setEditPrice(
 
 
     return;
+
   }
 
 
@@ -3916,6 +4977,7 @@ function renderEditPrice() {
 
 
     return;
+
   }
 
 
@@ -3928,10 +4990,17 @@ function renderEditPrice() {
     value.toLocaleString(
       "en-US",
       {
-        style: "currency",
-        currency: "USD",
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
+        style:
+          "currency",
+
+        currency:
+          "USD",
+
+        minimumFractionDigits:
+          2,
+
+        maximumFractionDigits:
+          2
       }
     );
 
@@ -3968,6 +5037,7 @@ function validateEditPrice() {
 
 
     return false;
+
   }
 
 
@@ -3989,6 +5059,7 @@ function validateEditPrice() {
 
 
     return false;
+
   }
 
 
@@ -4059,7 +5130,8 @@ function updateEditDateLimits() {
     start.min =
       contractDate.value;
 
-  } else {
+  }
+  else {
 
     start.removeAttribute(
       "min"
@@ -4078,7 +5150,8 @@ function updateEditDateLimits() {
         1
       );
 
-  } else {
+  }
+  else {
 
     end.removeAttribute(
       "min"
@@ -4126,6 +5199,7 @@ function validateEditDates() {
 
 
     return false;
+
   }
 
 
@@ -4142,6 +5216,7 @@ function validateEditDates() {
 
 
     return false;
+
   }
 
 
@@ -4165,7 +5240,9 @@ async function saveContractChanges(
     !state.activeContract ||
     state.busy
   ) {
+
     return;
+
   }
 
 
@@ -4201,7 +5278,8 @@ async function saveContractChanges(
         "Enter Contract Bushels."
       );
 
-  } else {
+  }
+  else {
 
     $("edit-contract-bushels")
       .setCustomValidity(
@@ -4214,7 +5292,9 @@ async function saveContractChanges(
   if (
     !form.reportValidity()
   ) {
+
     return;
+
   }
 
 
@@ -4222,7 +5302,8 @@ async function saveContractChanges(
     state.buyers.find(
       item =>
         item.id ===
-        $("edit-buyer").value
+        $("edit-buyer")
+          .value
     );
 
 
@@ -4230,7 +5311,8 @@ async function saveContractChanges(
     state.customers.find(
       item =>
         item.id ===
-        $("edit-customer").value
+        $("edit-customer")
+          .value
     );
 
 
@@ -4243,7 +5325,9 @@ async function saveContractChanges(
     );
 
 
-  if (!buyer) {
+  if (
+    !buyer
+  ) {
 
     alert(
       "Select Buyer / Elevator."
@@ -4251,10 +5335,13 @@ async function saveContractChanges(
 
 
     return;
+
   }
 
 
-  if (!customer) {
+  if (
+    !customer
+  ) {
 
     alert(
       "Select Customer."
@@ -4262,10 +5349,13 @@ async function saveContractChanges(
 
 
     return;
+
   }
 
 
-  if (!location) {
+  if (
+    !location
+  ) {
 
     alert(
       "Select Delivery Location."
@@ -4273,6 +5363,7 @@ async function saveContractChanges(
 
 
     return;
+
   }
 
 
@@ -4414,8 +5505,10 @@ async function saveContractChanges(
 
     renderAll();
 
-
-  } catch (error) {
+  }
+  catch (
+    error
+  ) {
 
     console.error(
       "[Grain Contracts] Update failed:",
@@ -4427,8 +5520,8 @@ async function saveContractChanges(
       "Unable to update grain contract."
     );
 
-
-  } finally {
+  }
+  finally {
 
     state.busy =
       false;
