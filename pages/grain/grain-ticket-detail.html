@@ -2879,37 +2879,44 @@ function renderBuyerOptions() {
       );
 
 
-      const previousIds =
-        Array.isArray(
-          state.ticket
-            ?.matchingContractIds
-        )
-          ? state.ticket
-              .matchingContractIds
-          : [];
-
-
-      let selectedId =
-        previousIds.find(
-          id =>
-            matches.some(
-              contract =>
-                contract.id ===
-                id
-            )
-        ) ||
-        "";
+const previousIds =
+  Array.isArray(
+    state.ticket
+      ?.matchingContractIds
+  )
+    ? state.ticket
+        .matchingContractIds
+    : [];
 
 
 /*
-  Never automatically select a contract.
+  First restore the actual saved Firestore contractId.
 
-  OCR scanned tickets are reconciled later
-  using the grain reconciliation page.
+  If there is no saved contractId, fall back to the older
+  matchingContractIds array.
 
-  Manual tickets may still have a contract
-  selected by the user.
+  Do NOT automatically assign a contract just because one matches.
+  The user must choose it.
 */
+let selectedId =
+  (
+    state.ticket?.contractId &&
+    matches.some(
+      contract =>
+        contract.id ===
+        state.ticket.contractId
+    )
+  )
+    ? state.ticket.contractId
+    : previousIds.find(
+        id =>
+          matches.some(
+            contract =>
+              contract.id ===
+              id
+          )
+      ) ||
+      "";
 
 
       elements.contractSelect.value =
@@ -4149,34 +4156,22 @@ validateBushels();
 
       try {
 
-const isOcrScan =
-  clean(
-    state.ticket.entryMethod
-  ) ===
-  "ocr_scan";
-
-
 const selectedContract =
   state.selectedContract;
 
 
 /*
-  OCR tickets are NEVER assigned to a contract here.
+  A manually selected contract is authoritative.
 
-  They will be assigned later from the
-  grain reconciliation page.
-
-  Manual tickets may still use the contract
-  selected by the user.
+  OCR tickets are allowed to be assigned here when the user
+  selects a contract on the Grain Ticket Detail page.
 */
 const matchingContractIds =
-  isOcrScan
-    ? []
-    : selectedContract
-        ? [
-            selectedContract.id
-          ]
-        : [];
+  selectedContract
+    ? [
+        selectedContract.id
+      ]
+    : [];
 
 
         const payload = {
