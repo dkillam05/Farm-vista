@@ -191,6 +191,22 @@ export const NAV_MENU = {
       collapsible: true,
       initialOpen: false,
       children: [
+                 {
+          type: 'link',
+          id: 'grain-tix',
+          perm: 'grain-tix',
+          icon: '🎟️',
+          label: 'Grain Tickets',
+          href: '/Farm-vista/pages/grain/grain-ticket-ocr.html'
+        },
+        {
+          type: 'link',
+          id: 'grain-ctr',
+          perm: 'grain-ctr',
+          icon: '📄',
+          label: 'Grain Contracts',
+          href: '/Farm-vista/pages/grain/grain-contracts.html'
+        }
         {
           type: 'link',
           id: 'grain-bins',
@@ -207,22 +223,6 @@ export const NAV_MENU = {
           label: 'Grain Bag Inventory',
           href: '/Farm-vista/pages/grain/grain-bags.html'
         },
-        {
-          type: 'link',
-          id: 'grain-tix',
-          perm: 'grain-tix',
-          icon: '🎟️',
-          label: 'Grain Tickets (OCR)',
-          href: '/Farm-vista/pages/grain/grain-ticket-ocr.html'
-        },
-        {
-          type: 'link',
-          id: 'grain-ctr',
-          perm: 'grain-ctr',
-          icon: '📄',
-          label: 'Grain Contracts',
-          href: '/Farm-vista/pages/grain/grain-contracts.html'
-        }
       ]
     },
 
