@@ -1,5 +1,5 @@
 // /Farm-vista/js/grain-contract-list.js
-// Rev: 2026-08-17-grain-contract-list-v2
+// Rev: 2026-08-17-grain-contract-list-v3-void-support
 //
 // PURPOSE:
 // View and edit existing grain contracts.
@@ -9,11 +9,19 @@
 // grain_buyers
 // grain_customers
 // grain_delivery_locations
+// grain_tickets
 //
 // IMPORTANT:
 // Editing Contract Bushels DOES NOT reset Delivered Bushels.
 //
 // openBushels = contractBushels - deliveredBushels
+//
+// VOID RULES:
+// - Never delete contracts.
+// - Voided contracts are hidden by default.
+// - Voided contracts cannot be edited.
+// - A contract cannot be voided while active tickets are assigned.
+// - Void audit information stays on the contract.
 //
 // EDIT RESTORE:
 // Every time a contract is opened, every edit field is populated
@@ -23,6 +31,7 @@
 import {
   ready,
   getFirestore,
+  getAuth,
   collection,
   getDocs,
   doc,
@@ -35,6 +44,9 @@ await ready;
 
 const db =
   getFirestore();
+
+const auth =
+  getAuth();
 
 
 /* ============================================================
@@ -219,9 +231,6 @@ function setNativeSelectValue(
   }
 
 
-  /*
-    Clear any previous selected state first.
-  */
   options.forEach(
     function(option) {
 
@@ -232,9 +241,6 @@ function setNativeSelectValue(
   );
 
 
-  /*
-    Select the Firestore value.
-  */
   match.selected =
     true;
 
@@ -364,6 +370,8 @@ let activeContract = null;
 let editPriceCents = 0;
 let editPriceHasValue = false;
 
+let showVoided = false;
+
 
 
 /* ============================================================
@@ -403,6 +411,7 @@ onReady(
     setupEditBushels();
     setupEditPrice();
     setupEditDates();
+    setupVoidControls();
 
 
     try {
@@ -503,10 +512,6 @@ async function loadContracts() {
 
             ...data,
 
-
-            /*
-              Explicitly normalize the fields used by the editor.
-            */
 
             buyerId:
               clean(
@@ -871,6 +876,397 @@ async function loadDeliveryLocations() {
 
 
 /* ============================================================
+   VOID CONTROLS
+============================================================ */
+
+function setupVoidControls() {
+
+  const checkbox =
+    $("show-voided-checkbox");
+
+
+  showVoided =
+    Boolean(
+      checkbox?.checked
+    );
+
+
+  checkbox
+    ?.addEventListener(
+      "change",
+      function() {
+
+        showVoided =
+          Boolean(
+            this.checked
+          );
+
+
+        applyFilters();
+
+      }
+    );
+
+
+  $("void-contract-btn")
+    ?.addEventListener(
+      "click",
+      voidActiveContract
+    );
+
+}
+
+
+function currentVoidUser() {
+
+  const user =
+    auth?.currentUser ||
+    null;
+
+
+  return {
+
+    uid:
+      clean(
+        user?.uid
+      ) ||
+      null,
+
+    name:
+      clean(
+        user?.displayName
+      ) ||
+      clean(
+        user?.email
+      ) ||
+      "FarmVista User",
+
+    email:
+      clean(
+        user?.email
+      ) ||
+      null
+
+  };
+
+}
+
+
+async function getActiveTicketsForContract(
+  contractId
+) {
+
+  const snapshot =
+    await getDocs(
+      collection(
+        db,
+        "grain_tickets"
+      )
+    );
+
+
+  return snapshot.docs
+    .map(
+      function(documentSnapshot) {
+
+        return {
+
+          id:
+            documentSnapshot.id,
+
+          ...(
+            documentSnapshot.data() ||
+            {}
+          )
+
+        };
+
+      }
+    )
+    .filter(
+      function(ticket) {
+
+        return (
+          !ticket.voided &&
+          clean(
+            ticket.contractId
+          ) ===
+          clean(
+            contractId
+          )
+        );
+
+      }
+    );
+
+}
+
+
+async function updateVoidContractButton() {
+
+  const button =
+    $("void-contract-btn");
+
+
+  if (!button) {
+    return;
+  }
+
+
+  if (!activeContract) {
+
+    button.disabled =
+      true;
+
+    button.textContent =
+      "Void Contract";
+
+    return;
+
+  }
+
+
+  if (
+    activeContract.voided
+  ) {
+
+    button.disabled =
+      true;
+
+    button.textContent =
+      "Contract Voided";
+
+    return;
+
+  }
+
+
+  button.disabled =
+    false;
+
+  button.textContent =
+    "Void Contract";
+
+}
+
+
+async function voidActiveContract() {
+
+  if (
+    !activeContract ||
+    activeContract.voided
+  ) {
+
+    return;
+
+  }
+
+
+  const button =
+    $("void-contract-btn");
+
+
+  if (button) {
+
+    button.disabled =
+      true;
+
+    button.textContent =
+      "Checking...";
+
+  }
+
+
+  try {
+
+    const activeTickets =
+      await getActiveTicketsForContract(
+        activeContract.id
+      );
+
+
+    if (
+      activeTickets.length
+    ) {
+
+      alert(
+        `Contract ${
+          activeContract.contractNumber ||
+          activeContract.id
+        } cannot be voided because ${
+          activeTickets.length
+        } active grain ticket${
+          activeTickets.length === 1
+            ? " is"
+            : "s are"
+        } assigned to it.\n\nMove or void those tickets first.`
+      );
+
+
+      return;
+
+    }
+
+
+    const reason =
+      clean(
+        window.prompt(
+          `Why are you voiding Contract ${
+            activeContract.contractNumber ||
+            activeContract.id
+          }?`
+        )
+      );
+
+
+    if (!reason) {
+      return;
+    }
+
+
+    const confirmed =
+      window.confirm(
+        `Void Contract ${
+          activeContract.contractNumber ||
+          activeContract.id
+        }?\n\nThe contract will stay in Firestore for history, but it will be hidden by default and cannot receive grain tickets.`
+      );
+
+
+    if (!confirmed) {
+      return;
+    }
+
+
+    /*
+      Check again immediately before saving.
+      This protects against a ticket being assigned while
+      the void confirmation is open.
+    */
+    const finalActiveTickets =
+      await getActiveTicketsForContract(
+        activeContract.id
+      );
+
+
+    if (
+      finalActiveTickets.length
+    ) {
+
+      alert(
+        "This contract now has an active grain ticket assigned to it, so FarmVista stopped the void."
+      );
+
+
+      return;
+
+    }
+
+
+    const who =
+      currentVoidUser();
+
+
+    const payload = {
+
+      voided:
+        true,
+
+      voidedAt:
+        serverTimestamp(),
+
+      voidedByUid:
+        who.uid,
+
+      voidedByName:
+        who.name,
+
+      voidedByEmail:
+        who.email,
+
+      voidReason:
+        reason,
+
+      voidedContractBushels:
+        numberValue(
+          activeContract.contractBushels
+        ),
+
+      voidedDeliveredBushels:
+        numberValue(
+          activeContract.deliveredBushels
+        ),
+
+      voidedOpenBushels:
+        numberValue(
+          activeContract.openBushels
+        ),
+
+      updatedAt:
+        serverTimestamp()
+
+    };
+
+
+    await updateDoc(
+      doc(
+        db,
+        "grain_contracts",
+        activeContract.id
+      ),
+      payload
+    );
+
+
+    Object.assign(
+      activeContract,
+      {
+        ...payload,
+        voided:true,
+        voidReason:reason
+      }
+    );
+
+
+    closeEditModal();
+
+
+    populateFilters();
+
+    applyFilters();
+
+
+  } catch (err) {
+
+    console.error(
+      "[Grain Contracts] Contract void failed:",
+      err
+    );
+
+
+    alert(
+      "Unable to void grain contract."
+    );
+
+
+  } finally {
+
+    if (
+      activeContract &&
+      !activeContract.voided
+    ) {
+
+      updateVoidContractButton();
+
+    }
+
+  }
+
+}
+
+
+
+/* ============================================================
    FILTER SETUP
 ============================================================ */
 
@@ -1077,6 +1473,16 @@ function applyFilters() {
     contracts.filter(
       function(contract) {
 
+        if (
+          contract.voided &&
+          !showVoided
+        ) {
+
+          return false;
+
+        }
+
+
         if (search) {
 
           const haystack =
@@ -1143,6 +1549,21 @@ function applyFilters() {
           );
 
 
+        /*
+          When Show voided is checked,
+          voided records should still appear
+          even if the status dropdown is Open.
+        */
+        if (
+          contract.voided &&
+          showVoided
+        ) {
+
+          return true;
+
+        }
+
+
         if (
           status !== "all" &&
           contractStatus !== status
@@ -1172,6 +1593,15 @@ function applyFilters() {
 function getContractStatus(
   contract
 ) {
+
+  if (
+    contract.voided
+  ) {
+
+    return "voided";
+
+  }
+
 
   const open =
     numberValue(
@@ -1209,6 +1639,13 @@ function getStatusLabel(
     );
 
 
+  if (status === "voided") {
+
+    return "Voided";
+
+  }
+
+
   if (status === "complete") {
 
     return "Completed";
@@ -1237,6 +1674,13 @@ function getStatusClass(
     getContractStatus(
       contract
     );
+
+
+  if (status === "voided") {
+
+    return "status-voided";
+
+  }
 
 
   if (status === "complete") {
@@ -1298,7 +1742,17 @@ function renderSummary() {
     0;
 
 
-  filteredContracts.forEach(
+  const activeFilteredContracts =
+    filteredContracts.filter(
+      function(contract) {
+
+        return !contract.voided;
+
+      }
+    );
+
+
+  activeFilteredContracts.forEach(
     function(contract) {
 
       contracted +=
@@ -1323,7 +1777,7 @@ function renderSummary() {
 
 
   $("summary-contracts").textContent =
-    filteredContracts.length
+    activeFilteredContracts.length
       .toLocaleString(
         "en-US"
       );
@@ -1405,7 +1859,9 @@ function renderDesktopTable() {
 
 
       row.className =
-        "contract-row";
+        contract.voided
+          ? "contract-row voided-record"
+          : "contract-row";
 
 
       row.tabIndex =
@@ -1540,7 +1996,9 @@ function renderMobileCards() {
 
 
       card.className =
-        "mobile-contract-card";
+        contract.voided
+          ? "mobile-contract-card voided-record"
+          : "mobile-contract-card";
 
 
       card.innerHTML =
@@ -1844,12 +2302,6 @@ function setupModal() {
     );
 
 
-  /*
-    This change listener is only for when the USER changes Buyer.
-
-    We do not dispatch a fake change event while restoring
-    an existing contract.
-  */
   $("edit-buyer")
     ?.addEventListener(
       "change",
@@ -1881,9 +2333,6 @@ function openEditModal(
   contractId
 ) {
 
-  /*
-    Find EXACT contract clicked.
-  */
   const contract =
     contracts.find(
       function(item) {
@@ -1913,43 +2362,32 @@ function openEditModal(
   }
 
 
-  /*
-    This is now the active contract.
-  */
   activeContract =
     contract;
 
 
-  /*
-    Reset the entire form so absolutely nothing
-    carries over from the previously opened contract.
-  */
   $("edit-contract-form")
     ?.reset();
 
 
-  /*
-    Buyer and Customer are dynamic lists, so rebuild them
-    fresh before restoring this contract.
-  */
   populateEditPickers();
 
 
-  /*
-    Header.
-  */
   $("edit-modal-sub").textContent =
-    `Contract ${
-      contract.contractNumber ||
-      contract.id
-    }`;
+    contract.voided
+      ? `Contract ${
+          contract.contractNumber ||
+          contract.id
+        } — VOIDED${
+          contract.voidReason
+            ? ` — ${contract.voidReason}`
+            : ""
+        }`
+      : `Contract ${
+          contract.contractNumber ||
+          contract.id
+        }`;
 
-
-  /*
-    ============================================================
-    BUYER / ELEVATOR
-    ============================================================
-  */
 
   const restoredBuyerId =
     setObjectSelectValue(
@@ -1960,12 +2398,6 @@ function openEditModal(
     );
 
 
-  /*
-    ============================================================
-    CUSTOMER
-    ============================================================
-  */
-
   setObjectSelectValue(
     $("edit-customer"),
     contract.customerId,
@@ -1974,43 +2406,11 @@ function openEditModal(
   );
 
 
-  /*
-    ============================================================
-    CROP
-
-    DIRECTLY FROM:
-      grain_contracts.crop
-
-    Firestore examples:
-      "Corn"
-      "Soybeans"
-
-    We use the ORIGINAL HTML select.
-    We do not replace it.
-    We do not add another select.
-    ============================================================
-  */
-
   setNativeSelectValue(
     $("edit-crop"),
     contract.crop
   );
 
-
-  /*
-    ============================================================
-    CONTRACT TYPE
-
-    DIRECTLY FROM:
-      grain_contracts.contractType
-
-    Firestore examples:
-      "Cash"
-      "Basis"
-
-    Again, use the ORIGINAL HTML select.
-    ============================================================
-  */
 
   setNativeSelectValue(
     $("edit-contract-type"),
@@ -2018,23 +2418,11 @@ function openEditModal(
   );
 
 
-  /*
-    ============================================================
-    CONTRACT NUMBER
-    ============================================================
-  */
-
   $("edit-contract-number").value =
     clean(
       contract.contractNumber
     );
 
-
-  /*
-    ============================================================
-    CONTRACT DATE
-    ============================================================
-  */
 
   $("edit-contract-date").value =
     clean(
@@ -2042,38 +2430,15 @@ function openEditModal(
     );
 
 
-  /*
-    ============================================================
-    CONTRACT BUSHELS
-    ============================================================
-  */
-
   setEditBushels(
     contract.contractBushels
   );
 
 
-  /*
-    ============================================================
-    PRICE
-    ============================================================
-  */
-
   setEditPrice(
     contract.pricePerBushel
   );
 
-
-  /*
-    ============================================================
-    DELIVERY LOCATION
-
-    Buyer MUST be restored first because locations are
-    filtered by buyerId.
-
-    Then select Firestore deliveryLocationId.
-    ============================================================
-  */
 
   populateLocationPicker(
     restoredBuyerId ||
@@ -2083,23 +2448,11 @@ function openEditModal(
   );
 
 
-  /*
-    ============================================================
-    DELIVERY START
-    ============================================================
-  */
-
   $("edit-delivery-start").value =
     clean(
       contract.deliveryStart
     );
 
-
-  /*
-    ============================================================
-    DELIVERY END
-    ============================================================
-  */
 
   $("edit-delivery-end").value =
     clean(
@@ -2107,23 +2460,11 @@ function openEditModal(
     );
 
 
-  /*
-    ============================================================
-    DELIVERED BUSHELS
-    ============================================================
-  */
-
   $("edit-delivered").value =
     formatBushels(
       contract.deliveredBushels
     );
 
-
-  /*
-    ============================================================
-    NOTES
-    ============================================================
-  */
 
   $("edit-notes").value =
     clean(
@@ -2131,29 +2472,11 @@ function openEditModal(
     );
 
 
-  /*
-    Recalculate limits and open bushels.
-  */
   updateEditDateLimits();
 
   updateEditOpenBushels();
 
 
-  /*
-    Debug proof.
-
-    ADM 123456789 should show:
-      firestoreCrop: "Soybeans"
-      actualCrop: "Soybeans"
-      firestoreContractType: "Basis"
-      actualContractType: "Basis"
-
-    Bartlett 987654321 should show:
-      firestoreCrop: "Corn"
-      actualCrop: "Corn"
-      firestoreContractType: "Cash"
-      actualContractType: "Cash"
-  */
   console.log(
     "[Grain Contracts] Loaded edit contract:",
     {
@@ -2198,9 +2521,27 @@ function openEditModal(
   );
 
 
-  /*
-    Open ONLY after everything has been populated.
-  */
+  updateVoidContractButton();
+
+
+  if (
+    $("save-edit-btn")
+  ) {
+
+    $("save-edit-btn").disabled =
+      Boolean(
+        contract.voided
+      );
+
+
+    $("save-edit-btn").textContent =
+      contract.voided
+        ? "Contract Voided"
+        : "Save Changes";
+
+  }
+
+
   $("edit-modal")
     .classList
     .add(
@@ -2342,10 +2683,6 @@ function populateLocationPicker(
   );
 
 
-  /*
-    First choice:
-    exact Firestore deliveryLocationId.
-  */
   if (selectedLocationId) {
 
     const exact =
@@ -2380,10 +2717,6 @@ function populateLocationPicker(
   }
 
 
-  /*
-    Fallback for older/imported records:
-    match the saved location snapshot.
-  */
   if (!savedContract) {
     return;
   }
@@ -3179,6 +3512,19 @@ async function saveContractChanges(
   }
 
 
+  if (
+    activeContract.voided
+  ) {
+
+    alert(
+      "Voided grain contracts cannot be edited."
+    );
+
+    return;
+
+  }
+
+
   const form =
     $("edit-contract-form");
 
@@ -3342,17 +3688,9 @@ async function saveContractChanges(
       contractBushels,
 
 
-    /*
-      KEEP EXISTING DELIVERED TOTAL.
-    */
-
     deliveredBushels:
       deliveredBushels,
 
-
-    /*
-      RECOMPUTE OPEN BUSHELS.
-    */
 
     openBushels:
       openBushels,
@@ -3362,10 +3700,6 @@ async function saveContractChanges(
       editPriceCents /
       100,
 
-
-    /*
-      DELIVERY LOCATION SNAPSHOT
-    */
 
     deliveryLocationId:
       location.id,
@@ -3425,11 +3759,6 @@ async function saveContractChanges(
       payload
     );
 
-
-    /*
-      Update local state so the next open uses
-      exactly what was just saved.
-    */
 
     Object.assign(
       activeContract,
