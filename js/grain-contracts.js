@@ -2920,6 +2920,122 @@ function assignedTicketMarkup(
   `;
 }
 
+/* ============================================================
+   CONTRACT WEIGHTED GRADE AVERAGES
+============================================================ */
+
+function calculateContractGradeAverages(
+  contract
+) {
+
+  const tickets =
+    getAssignedTickets(
+      contract.id
+    );
+
+
+  function weightedAverage(
+    getValue
+  ) {
+
+    let weightedTotal =
+      0;
+
+    let weightTotal =
+      0;
+
+
+    tickets.forEach(
+      ticket => {
+
+        const rawValue =
+          getValue(
+            ticket
+          );
+
+
+        const value =
+          Number(
+            rawValue
+          );
+
+
+        const weight =
+          numberValue(
+            ticket.netBushels
+          );
+
+
+        if (
+          !Number.isFinite(
+            value
+          ) ||
+          weight <=
+          0
+        ) {
+
+          return;
+
+        }
+
+
+        weightedTotal +=
+          value *
+          weight;
+
+
+        weightTotal +=
+          weight;
+
+      }
+    );
+
+
+    if (
+      weightTotal <=
+      0
+    ) {
+
+      return null;
+
+    }
+
+
+    return (
+      weightedTotal /
+      weightTotal
+    );
+
+  }
+
+
+  return {
+
+    moisture:
+      weightedAverage(
+        ticket =>
+          ticket.moisture ??
+          ticket.mo
+      ),
+
+    damage:
+      weightedAverage(
+        ticket =>
+          ticket.damage ??
+          ticket.dm
+      ),
+
+    fm:
+      weightedAverage(
+        ticket =>
+          ticket.foreignMaterial ??
+          ticket.fm
+      )
+
+  };
+
+}
+
 
 /* ============================================================
    CONTRACT DROP CARDS
@@ -2999,6 +3115,11 @@ function renderContractDropCards(
                 contract.crop
               )
         );
+
+      const averages =
+  calculateContractGradeAverages(
+    contract
+  );
 
 
       const card =
@@ -3113,6 +3234,72 @@ function renderContractDropCards(
 
             <div class="contract-stat-value">
               ${numberValue(contract.loadCount).toLocaleString("en-US")}
+            </div>
+
+          </div>
+
+        </div>
+
+
+        <div class="contract-average-block">
+
+          <div class="contract-average-title">
+            Average
+          </div>
+
+          <div class="contract-average-grid">
+
+            <div class="contract-average-item">
+
+              <div class="contract-average-label">
+                Moisture
+              </div>
+
+              <div class="contract-average-value">
+                ${
+                  averages.moisture ===
+                  null
+                    ? "—"
+                    : `${averages.moisture.toFixed(2)}%`
+                }
+              </div>
+
+            </div>
+
+
+            <div class="contract-average-item">
+
+              <div class="contract-average-label">
+                Damage
+              </div>
+
+              <div class="contract-average-value">
+                ${
+                  averages.damage ===
+                  null
+                    ? "—"
+                    : `${averages.damage.toFixed(2)}%`
+                }
+              </div>
+
+            </div>
+
+
+            <div class="contract-average-item">
+
+              <div class="contract-average-label">
+                FM
+              </div>
+
+              <div class="contract-average-value">
+                ${
+                  averages.fm ===
+                  null
+                    ? "—"
+                    : `${averages.fm.toFixed(2)}%`
+                }
+              </div>
+
             </div>
 
           </div>
