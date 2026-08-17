@@ -8488,10 +8488,6 @@ loEls.contract.value = contractId;
   }
 
   function loLoadStatus(load){
-    if (load.grainTicketId || load.ticketId || load.elevatorTicketNumber) {
-      return "linked";
-    }
-
     const isPreload =
       load.isPreload === true ||
       loNorm(load.status) === "preload";
@@ -8499,12 +8495,22 @@ loEls.contract.value = contractId;
     const deliveryDate =
       loClean(load.deliveryDate || load.loadDate);
 
+    /*
+      IMPORTANT:
+      A future preload must remain visible as Preload even if a ticket
+      was linked early. The delivery date controls when it becomes a
+      normal linked/in-transit load on the board.
+    */
     if (
       isPreload &&
       deliveryDate &&
       deliveryDate > loLocalISO()
     ) {
       return "preload";
+    }
+
+    if (load.grainTicketId || load.ticketId || load.elevatorTicketNumber) {
+      return "linked";
     }
 
     if (loNorm(load.status) === "ticket_missing") {
