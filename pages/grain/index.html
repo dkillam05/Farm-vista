@@ -7792,104 +7792,57 @@ function loCloseDriverMenu(){
 function loSetSelectValue(select,value){
 
   if (!select) {
-    return;
+    return false;
   }
+
 
   const wanted =
     loClean(value);
 
 
-  /*
-    Set the real HTML select first.
-  */
   const matchingOption =
-    Array.from(select.options || [])
-      .find(option =>
-        loClean(option.value) === wanted
+    Array.from(
+      select.options ||
+      []
+    )
+      .find(
+        option =>
+          loClean(
+            option.value
+          ) ===
+          wanted
       );
 
 
-  if (matchingOption) {
+  if (
+    !matchingOption
+  ) {
 
-    select.value =
-      matchingOption.value;
+    select.value = "";
 
-    matchingOption.selected =
-      true;
-
-  }
-  else {
-
-    select.value =
-      "";
+    return false;
 
   }
 
 
   /*
-    Fire both events so FarmVista's select enhancer sees
-    programmatic changes made while opening the Edit popup.
+    IMPORTANT:
+    Do NOT fire change/input events here.
+
+    During Edit Load, Customer and Crop change handlers rebuild
+    the Contract and Grain Source controls. Firing artificial
+    change events while restoring the saved Firestore values was
+    causing the edit form to clear itself.
   */
-  select.dispatchEvent(
-    new Event(
-      "input",
-      {
-        bubbles:true
-      }
-    )
-  );
+  select.value =
+    matchingOption.value;
 
 
-  select.dispatchEvent(
-    new Event(
-      "change",
-      {
-        bubbles:true
-      }
-    )
-  );
+  matchingOption.selected =
+    true;
 
 
-  /*
-    Some FarmVista styled selects rebuild their visible label
-    asynchronously. Re-apply the value on the next paint so the
-    displayed selection matches the real SELECT value.
-  */
-  requestAnimationFrame(
-    () => {
-
-      if (matchingOption) {
-
-        select.value =
-          matchingOption.value;
-
-        matchingOption.selected =
-          true;
-
-      }
-
-
-      select.dispatchEvent(
-        new Event(
-          "input",
-          {
-            bubbles:true
-          }
-        )
-      );
-
-
-      select.dispatchEvent(
-        new Event(
-          "change",
-          {
-            bubbles:true
-          }
-        )
-      );
-
-    }
-  );
+  return true;
 
 }
 
@@ -7899,39 +7852,22 @@ function loOpenEditModal(load){
     return;
   }
 
-
-  loState.mode =
-    "edit";
-
-
-  loState.editingLoadId =
-    load.id;
-
+  loState.mode = "edit";
+  loState.editingLoadId = load.id;
 
   loResetModalBase();
-
 
   loEls.modalTitle.textContent =
     `Load Out ${loClean(load.loadNumber) || ""}`.trim();
 
-
   loEls.modalSub.textContent =
     "View or edit this load-out ticket, then save or resend the driver text.";
 
-
-  loEls.saveBtn.textContent =
-    "Save Changes";
-
-
-  loEls.resendBtn.style.display =
-    "";
-
+  loEls.saveBtn.textContent = "Save Changes";
+  loEls.resendBtn.style.display = "";
 
   loEls.loadNumber.value =
-    loClean(
-      load.loadNumber
-    );
-
+    loClean(load.loadNumber);
 
   loEls.loadedTime.value =
     loFormatClock(
@@ -7945,9 +7881,7 @@ function loOpenEditModal(load){
   ============================================================ */
 
   if (
-    loNorm(
-      load.driverType
-    ) ===
+    loNorm(load.driverType) ===
     "subcontractor"
   ) {
 
@@ -7956,104 +7890,32 @@ function loOpenEditModal(load){
         load.driverSubcontractorId
       );
 
-
-    let subcontractor =
+    const subcontractor =
       loState.subcontractors.find(
         item =>
           item.id ===
           subcontractorId
       );
 
-
-    /*
-      Older loads may only contain the subcontractor name.
-    */
-    if (
-      !subcontractor &&
-      loClean(
-        load.driverSubcontractorName
-      )
-    ) {
-
-      subcontractor =
-        loState.subcontractors.find(
-          item =>
-            loNorm(
-              item.company
-            ) ===
-            loNorm(
-              load.driverSubcontractorName
-            )
-        ) ||
-        null;
-
-    }
-
-
-    if (
-      subcontractor
-    ) {
+    if (subcontractor) {
 
       loEls.driver.value =
         `sub:${subcontractor.id}`;
 
-
       loSyncDriverButton();
-
 
       loRenderSubdriverSelect();
 
-
-      let subdriverId =
+      const subdriverId =
         loClean(
           load.driverSubcontractorDriverId
         );
 
-
-      let subdriver =
-        subcontractor.drivers.find(
-          item =>
-            item.id ===
-            subdriverId
-        );
-
-
-      /*
-        Fall back to the saved driver name.
-      */
-      if (
-        !subdriver &&
-        loClean(
-          load.driverName
-        )
-      ) {
-
-        subdriver =
-          subcontractor.drivers.find(
-            item =>
-              loNorm(
-                item.name
-              ) ===
-              loNorm(
-                load.driverName
-              )
-          ) ||
-          null;
-
-      }
-
-
-      if (
-        subdriver
-      ) {
-
+      if (subdriverId) {
         loEls.subdriver.value =
-          subdriver.id;
-
+          subdriverId;
       }
-
     }
-
   }
   else {
 
@@ -8062,7 +7924,6 @@ function loOpenEditModal(load){
         load.driverEmployeeId
       );
 
-
     let employee =
       loState.drivers.find(
         item =>
@@ -8070,206 +7931,56 @@ function loOpenEditModal(load){
           employeeId
       );
 
-
     /*
-      Older records may only contain the employee name/email.
+      Your employee document IDs are email addresses,
+      so also fall back to the saved driver email.
     */
     if (
       !employee &&
-      loClean(
-        load.driverEmail
-      )
+      loClean(load.driverEmail)
     ) {
-
       employee =
         loState.drivers.find(
           item =>
-            loNorm(
-              item.email
-            ) ===
-            loNorm(
-              load.driverEmail
-            )
-        ) ||
-        null;
-
+            loNorm(item.email) ===
+            loNorm(load.driverEmail)
+        ) || null;
     }
 
-
-    if (
-      !employee &&
-      loClean(
-        load.driverName
-      )
-    ) {
-
-      employee =
-        loState.drivers.find(
-          item =>
-            loNorm(
-              item.name
-            ) ===
-            loNorm(
-              load.driverName
-            )
-        ) ||
-        null;
-
+    if (employee) {
+      loEls.driver.value =
+        `emp:${employee.id}`;
     }
-
-
-    loEls.driver.value =
-      employee
-        ? `emp:${employee.id}`
-        : "";
-
 
     loSyncDriverButton();
-
-
     loRenderSubdriverSelect();
-
   }
-
 
 
   /* ============================================================
-     DESTINATION / ELEVATOR
+     DESTINATION
   ============================================================ */
 
-  let destination =
-    loState.locations.find(
-      item =>
-        item.id ===
-        loClean(
-          load.destinationId ||
-          load.deliveryLocationId
-        )
+  const destinationId =
+    loClean(
+      load.destinationId
     );
 
-
-  /*
-    Older load records may not contain destinationId.
-    Match against the saved delivery-location name.
-  */
-  if (
-    !destination
-  ) {
-
-    const savedDestinationName =
-      loClean(
-        load.destinationName ||
-        load.deliveryLocationName
-      );
-
-
-    const savedBuyerName =
-      loClean(
-        load.buyerName
-      );
-
-
-    destination =
-      loState.locations.find(
-        item => {
-
-          const sameLocation =
-            loNorm(
-              item.locationName
-            ) ===
-            loNorm(
-              savedDestinationName
-            );
-
-
-          if (
-            !sameLocation
-          ) {
-
-            return false;
-
-          }
-
-
-          /*
-            Buyer name narrows it down when two buyers happen
-            to use similarly named locations.
-          */
-          if (
-            savedBuyerName
-          ) {
-
-            return (
-              loNorm(
-                item.buyerName
-              ) ===
-              loNorm(
-                savedBuyerName
-              )
-            );
-
-          }
-
-
-          return true;
-
-        }
-      ) ||
-      null;
-
-  }
-
-
-  loSetSelectValue(
-    loEls.destination,
-    destination?.id ||
-    ""
-  );
-
+  loEls.destination.value =
+    destinationId;
 
 
   /* ============================================================
      CUSTOMER
   ============================================================ */
 
-  let customer =
-    loState.customers.find(
-      item =>
-        item.id ===
-        loClean(
-          load.customerId
-        )
+  const customerId =
+    loClean(
+      load.customerId
     );
 
-
-  if (
-    !customer &&
-    loClean(
-      load.customerName
-    )
-  ) {
-
-    customer =
-      loState.customers.find(
-        item =>
-          loNorm(
-            item.name
-          ) ===
-          loNorm(
-            load.customerName
-          )
-      ) ||
-      null;
-
-  }
-
-
-  loSetSelectValue(
-    loEls.customer,
-    customer?.id ||
-    ""
-  );
-
+  loEls.customer.value =
+    customerId;
 
 
   /* ============================================================
@@ -8281,103 +7992,37 @@ function loOpenEditModal(load){
       load.crop
     );
 
-
-  const cropOption =
+  const cropMatch =
     Array.from(
-      loEls.crop.options ||
-      []
+      loEls.crop.options
     )
       .find(
         option =>
-          loNorm(
-            option.value
-          ) ===
-          loNorm(
-            savedCrop
-          )
+          loNorm(option.value) ===
+          loNorm(savedCrop)
       );
 
-
-  loSetSelectValue(
-    loEls.crop,
-    cropOption?.value ||
-    ""
-  );
-
+  loEls.crop.value =
+    cropMatch
+      ? cropMatch.value
+      : "";
 
 
   /* ============================================================
      CONTRACT
-     Customer + Crop MUST be restored first.
+
+     MUST happen after Customer and Crop are restored.
   ============================================================ */
 
   loRenderContracts();
 
-
-  let contract =
-    loState.contracts.find(
-      item =>
-        item.id ===
-        loClean(
-          load.contractId
-        )
+  const contractId =
+    loClean(
+      load.contractId
     );
 
-
-  /*
-    Older records may have the contract number but not the ID.
-  */
-  if (
-    !contract
-  ) {
-
-    const savedContractNumber =
-      loClean(
-        load.contractNumber
-      );
-
-
-    if (
-      savedContractNumber
-    ) {
-
-      contract =
-        loState.contracts.find(
-          item => {
-
-            const number =
-              loClean(
-                item.contractNumber ||
-                item.number ||
-                item.contractNo ||
-                item.referenceNumber
-              );
-
-
-            return (
-              loNorm(
-                number
-              ) ===
-              loNorm(
-                savedContractNumber
-              )
-            );
-
-          }
-        ) ||
-        null;
-
-    }
-
-  }
-
-
-  loSetSelectValue(
-    loEls.contract,
-    contract?.id ||
-    ""
-  );
-
+  loEls.contract.value =
+    contractId;
 
 
   /* ============================================================
@@ -8385,17 +8030,12 @@ function loOpenEditModal(load){
   ============================================================ */
 
   const isPreload =
-    load.isPreload ===
-      true ||
-    loNorm(
-      load.status
-    ) ===
+    load.isPreload === true ||
+    loNorm(load.status) ===
       "preload";
-
 
   loEls.preload.checked =
     isPreload;
-
 
   loEls.deliveryDate.value =
     isPreload
@@ -8405,179 +8045,50 @@ function loOpenEditModal(load){
         )
       : "";
 
-
   loApplyPreloadUI();
-
 
 
   /* ============================================================
      GRAIN SOURCE
   ============================================================ */
 
-  const allSources = [
-    ...loState.binSources,
-    ...loState.bagSources
-  ];
-
-
   let sourceValue =
     loClean(
       load.grainSourceValue
     );
 
-
   /*
-    First rebuild the value from the saved Firestore source IDs.
+    If an older load does not have grainSourceValue,
+    rebuild it from the saved source fields.
   */
-  if (
-    !sourceValue
-  ) {
+  if (!sourceValue) {
 
     if (
-      loNorm(
-        load.grainSourceType
-      ) ===
+      loNorm(load.grainSourceType) ===
       "bin"
     ) {
 
-      const matchingBin =
-        loState.binSources.find(
-          item => {
-
-            if (
-              loClean(
-                item.siteId
-              ) !==
-              loClean(
-                load.grainSourceSiteId
-              )
-            ) {
-
-              return false;
-
-            }
-
-
-            const savedBinNumber =
-              loClean(
-                load.grainSourceBinNumber
-              );
-
-
-            const savedBinIndex =
-              Number(
-                load.grainSourceBinIndex
-              );
-
-
-            if (
-              savedBinNumber
-            ) {
-
-              return (
-                loClean(
-                  item.binNum
-                ) ===
-                savedBinNumber
-              );
-
-            }
-
-
-            if (
-              Number.isFinite(
-                savedBinIndex
-              )
-            ) {
-
-              return (
-                Number(
-                  item.binIndex
-                ) ===
-                savedBinIndex
-              );
-
-            }
-
-
-            return true;
-
-          }
-        );
-
-
       sourceValue =
-        matchingBin?.value ||
-        "";
+        `bin:${loClean(load.grainSourceSiteId)}:${loClean(load.grainSourceBinNumber)}`;
 
     }
     else if (
-      loNorm(
-        load.grainSourceType
-      ) ===
+      loNorm(load.grainSourceType) ===
       "grain_bag"
     ) {
 
-      const matchingBag =
-        loState.bagSources.find(
-          item =>
-            item.id ===
-            loClean(
-              load.grainSourceId
-            )
-        );
-
-
       sourceValue =
-        matchingBag?.value ||
-        "";
+        `bag:${loClean(load.grainSourceId)}`;
 
     }
-
   }
-
-
-  /*
-    Last fallback: match the saved source label/name.
-    This keeps older load records usable.
-  */
-  if (
-    !sourceValue &&
-    loClean(
-      load.grainSourceName
-    )
-  ) {
-
-    const sourceByName =
-      allSources.find(
-        item =>
-          loNorm(
-            item.label
-          ) ===
-          loNorm(
-            load.grainSourceName
-          )
-      );
-
-
-    sourceValue =
-      sourceByName?.value ||
-      "";
-
-  }
-
 
   loEls.source.value =
     sourceValue;
 
-
-  loRenderSourceSelector(
-    ""
-  );
-
+  loRenderSourceSelector("");
 
   loSyncSourceButton();
-
 
 
   /* ============================================================
@@ -8593,7 +8104,6 @@ function loOpenEditModal(load){
           )
         : null;
 
-
   loState.etaMinutes =
     Number(
       load.estimatedDriveMinutes ||
@@ -8601,12 +8111,10 @@ function loOpenEditModal(load){
     ) ||
     null;
 
-
   loState.etaDistanceText =
     loClean(
       load.estimatedDistanceText
     );
-
 
   loEls.eta.value =
     loState.etaAt
@@ -8614,7 +8122,6 @@ function loOpenEditModal(load){
           loState.etaAt
         )
       : "—";
-
 
   loEls.etaHelp.textContent =
     loState.etaMinutes
@@ -8626,6 +8133,50 @@ function loOpenEditModal(load){
       : "ETA can be recalculated by changing the destination.";
 
 
+  /* ============================================================
+     DEBUG CHECK
+
+     This lets us see EXACTLY what the real HTML controls contain.
+  ============================================================ */
+
+  console.log(
+    "[grain loadout edit restore]",
+    {
+      loadNumber:
+        load.loadNumber,
+
+      destinationSaved:
+        destinationId,
+
+      destinationActual:
+        loEls.destination.value,
+
+      customerSaved:
+        customerId,
+
+      customerActual:
+        loEls.customer.value,
+
+      cropSaved:
+        savedCrop,
+
+      cropActual:
+        loEls.crop.value,
+
+      contractSaved:
+        contractId,
+
+      contractActual:
+        loEls.contract.value,
+
+      sourceSaved:
+        sourceValue,
+
+      sourceActual:
+        loEls.source.value
+    }
+  );
+
 
   /* ============================================================
      OPEN MODAL
@@ -8635,86 +8186,68 @@ function loOpenEditModal(load){
     "open"
   );
 
-
   document.body.style.overflow =
     "hidden";
 
 
   /*
-    One more synchronization after the popup becomes visible.
-    This is important because FarmVista's styled SELECT controls
-    may refresh their displayed label when the modal opens.
+    Do one final direct assignment AFTER the modal opens.
+
+    No input/change events.
+    No requestAnimationFrame contract rebuilding.
   */
-  requestAnimationFrame(
+  setTimeout(
     () => {
 
-      if (
-        destination
-      ) {
+      loEls.destination.value =
+        destinationId;
 
-        loSetSelectValue(
-          loEls.destination,
-          destination.id
-        );
+      loEls.customer.value =
+        customerId;
 
-      }
-
-
-      if (
-        customer
-      ) {
-
-        loSetSelectValue(
-          loEls.customer,
-          customer.id
-        );
-
-      }
-
-
-      if (
-        cropOption
-      ) {
-
-        loSetSelectValue(
-          loEls.crop,
-          cropOption.value
-        );
-
-      }
-
+      loEls.crop.value =
+        cropMatch
+          ? cropMatch.value
+          : "";
 
       /*
-        Crop/customer change handlers can rebuild the contracts,
-        so rebuild once more and then restore the selected contract.
+        Build contracts once with the final customer/crop values.
       */
       loRenderContracts();
 
-
-      if (
-        contract
-      ) {
-
-        loSetSelectValue(
-          loEls.contract,
-          contract.id
-        );
-
-      }
-
+      loEls.contract.value =
+        contractId;
 
       loEls.source.value =
         sourceValue;
 
-
-      loRenderSourceSelector(
-        ""
-      );
-
+      loRenderSourceSelector("");
 
       loSyncSourceButton();
 
-    }
+
+      console.log(
+        "[grain loadout edit final]",
+        {
+          destination:
+            loEls.destination.value,
+
+          customer:
+            loEls.customer.value,
+
+          crop:
+            loEls.crop.value,
+
+          contract:
+            loEls.contract.value,
+
+          source:
+            loEls.source.value
+        }
+      );
+
+    },
+    50
   );
 
 }
