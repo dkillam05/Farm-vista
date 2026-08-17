@@ -856,7 +856,7 @@
               </h2>
 
               <p class="card-sub">
-                Verify where this grain was delivered, who it was sold under, and exactly which bin or grain bag it came from.
+                Use the same FarmVista flow as Assign Load: Crop → Grain Source → Destination → Sold Under → Contract.
               </p>
 
               <div
@@ -867,6 +867,64 @@
               </div>
 
               <div class="load-details-grid">
+
+                <div class="field full">
+                  <label for="ticketCrop">
+                    Crop
+                  </label>
+
+                  <select
+                    id="ticketCrop"
+                    class="control"
+                  ></select>
+
+                  <div class="load-detail-help">
+                    Start with the crop. Each choice below will narrow to only matching load details.
+                  </div>
+                </div>
+
+
+                <div class="field full">
+                  <label for="grainSourceButton">
+                    Grain Source
+                  </label>
+
+                  <div
+                    id="grainSourcePicker"
+                    class="load-picker"
+                  >
+                    <button
+                      id="grainSourceButton"
+                      type="button"
+                      class="load-picker-button"
+                      aria-haspopup="listbox"
+                      aria-expanded="false"
+                      disabled
+                    >
+                      <span id="grainSourceButtonText">
+                        Select crop first
+                      </span>
+                    </button>
+
+                    <div
+                      id="grainSourceMenu"
+                      class="load-picker-menu"
+                      role="listbox"
+                      aria-label="Grain source"
+                    ></div>
+
+                    <input
+                      id="grainSourceValue"
+                      type="hidden"
+                      value=""
+                    >
+                  </div>
+
+                  <div class="load-detail-help">
+                    Only bins and grain bags with available inventory matching the selected crop are shown.
+                  </div>
+                </div>
+
 
                 <div class="field full">
                   <label for="destinationButton">
@@ -883,9 +941,10 @@
                       class="load-picker-button"
                       aria-haspopup="listbox"
                       aria-expanded="false"
+                      disabled
                     >
                       <span id="destinationButtonText">
-                        Select destination
+                        Select grain source first
                       </span>
                     </button>
 
@@ -916,7 +975,7 @@
                 </div>
 
 
-                <div class="field">
+                <div class="field full">
                   <label for="customerButton">
                     Sold Under / Customer
                   </label>
@@ -931,9 +990,10 @@
                       class="load-picker-button"
                       aria-haspopup="listbox"
                       aria-expanded="false"
+                      disabled
                     >
                       <span id="customerButtonText">
-                        Select customer
+                        Select destination first
                       </span>
                     </button>
 
@@ -958,59 +1018,6 @@
                 </div>
 
 
-                <div class="field">
-                  <label for="ticketCrop">
-                    Crop
-                  </label>
-
-                  <select
-                    id="ticketCrop"
-                    class="control"
-                  ></select>
-                </div>
-
-
-                <div class="field full">
-                  <label for="grainSourceButton">
-                    Grain Source
-                  </label>
-
-                  <div
-                    id="grainSourcePicker"
-                    class="load-picker"
-                  >
-                    <button
-                      id="grainSourceButton"
-                      type="button"
-                      class="load-picker-button"
-                      aria-haspopup="listbox"
-                      aria-expanded="false"
-                    >
-                      <span id="grainSourceButtonText">
-                        Select bin or grain bag
-                      </span>
-                    </button>
-
-                    <div
-                      id="grainSourceMenu"
-                      class="load-picker-menu"
-                      role="listbox"
-                      aria-label="Grain source"
-                    ></div>
-
-                    <input
-                      id="grainSourceValue"
-                      type="hidden"
-                      value=""
-                    >
-                  </div>
-
-                  <div class="load-detail-help">
-                    Search available bin sites and grain bags. The list filters to the selected crop.
-                  </div>
-                </div>
-
-
                 <div class="field full">
                   <label for="contractSelect">
                     Contract
@@ -1022,7 +1029,7 @@
                     disabled
                   >
                     <option value="">
-                      Select customer and crop first
+                      Complete Crop → Grain Source → Destination → Sold Under first
                     </option>
                   </select>
 
@@ -1030,7 +1037,7 @@
                     id="contractStatus"
                     class="contract-box warning"
                   >
-                    Select customer and crop.
+                    Complete Crop → Grain Source → Destination → Sold Under.
                   </div>
                 </div>
 
@@ -4802,7 +4809,15 @@ function syncDestinationButton() {
             ? `${selected.buyerName} — `
             : ""
         }${selected.locationName}`
-      : "Select destination";
+      : (
+          elements.grainSourceValue.value
+            ? "Select destination"
+            : (
+                elements.crop.value
+                  ? "Select grain source first"
+                  : "Select crop first"
+              )
+        );
 
 
   elements.destinationMenu
@@ -4872,19 +4887,35 @@ function chooseDestination(
       : null;
 
 
+  /* Destination changes everything below it. */
+  elements.customerSelect.value =
+    "";
+
+  state.selectedCustomer =
+    null;
+
+  elements.contractSelect.value =
+    "";
+
+  state.selectedContract =
+    null;
+
+
   syncDestinationButton();
+  syncCustomerButton();
 
 
   closeAllLoadMenus();
 
 
+  renderCustomerOptions();
   renderContractOptions();
 
 
+  clearMessage();
   updateReviewUI();
 
 }
-
 
 function renderDestinationOptions(
   searchText =
@@ -4899,6 +4930,76 @@ function renderDestinationOptions(
 
   elements.destinationMenu.innerHTML =
     "";
+
+
+  const crop =
+    normalize(
+      elements.crop.value
+    );
+
+
+  const source =
+    selectedSourceFromValue(
+      elements.grainSourceValue.value
+    );
+
+
+  const ready =
+    !!crop &&
+    !!source;
+
+
+  elements.destinationButton.disabled =
+    !ready;
+
+
+  if (
+    !ready
+  ) {
+
+    elements.locationSelect.value =
+      "";
+
+    elements.buyerSelect.value =
+      "";
+
+    state.selectedLocation =
+      null;
+
+    state.selectedBuyer =
+      null;
+
+
+    elements.destinationButtonText.textContent =
+      crop
+        ? "Select grain source first"
+        : "Select crop first";
+
+
+    const empty =
+      document.createElement(
+        "div"
+      );
+
+
+    empty.className =
+      "load-picker-empty";
+
+
+    empty.textContent =
+      crop
+        ? "Select a grain source first."
+        : "Select a crop first.";
+
+
+    elements.destinationMenu.appendChild(
+      empty
+    );
+
+
+    return;
+
+  }
 
 
   const searchWrap =
@@ -4926,7 +5027,7 @@ function renderDestinationOptions(
 
 
   searchInput.placeholder =
-    "Search elevator, location, city…";
+    "Search matching elevator or location…";
 
 
   searchInput.autocomplete =
@@ -4947,8 +5048,30 @@ function renderDestinationOptions(
   );
 
 
+  /*
+    A destination is eligible only when an OPEN contract exists for
+    the selected crop at that exact delivery location.
+  */
+  const cropContracts =
+    contractsForSelectedCrop();
+
+
+  const eligibleLocations =
+    state.locations
+      .filter(
+        location =>
+          cropContracts.some(
+            contract =>
+              contractMatchesLocation(
+                contract,
+                location
+              )
+          )
+      );
+
+
   const filtered =
-    state.locations.filter(
+    eligibleLocations.filter(
       location => {
 
         if (
@@ -4982,6 +5105,30 @@ function renderDestinationOptions(
 
       }
     );
+
+
+  if (
+    elements.locationSelect.value &&
+    !eligibleLocations.some(
+      location =>
+        location.id ===
+        elements.locationSelect.value
+    )
+  ) {
+
+    elements.locationSelect.value =
+      "";
+
+    elements.buyerSelect.value =
+      "";
+
+    state.selectedLocation =
+      null;
+
+    state.selectedBuyer =
+      null;
+
+  }
 
 
   let lastBuyer =
@@ -5093,7 +5240,7 @@ function renderDestinationOptions(
 
 
     empty.textContent =
-      "No matching delivery locations found.";
+      `No destination has an open ${clean(elements.crop.value)} contract.`;
 
 
     elements.destinationMenu.appendChild(
@@ -5138,8 +5285,16 @@ function renderDestinationOptions(
 
 }
 
-
 function openDestinationMenu() {
+
+  if (
+    elements.destinationButton.disabled
+  ) {
+
+    return;
+
+  }
+
 
   closeAllLoadMenus(
     elements.destinationMenu
@@ -5172,7 +5327,6 @@ function openDestinationMenu() {
 
 }
 
-
 function syncCustomerButton() {
 
   const selected =
@@ -5186,7 +5340,11 @@ function syncCustomerButton() {
 
   elements.customerButtonText.textContent =
     selected?.name ||
-    "Select customer";
+    (
+      elements.locationSelect.value
+        ? "Select customer"
+        : "Select destination first"
+    );
 
 
   elements.customerMenu
@@ -5226,6 +5384,13 @@ function chooseCustomer(
     "";
 
 
+  elements.contractSelect.value =
+    "";
+
+  state.selectedContract =
+    null;
+
+
   syncCustomerButton();
 
 
@@ -5235,10 +5400,10 @@ function chooseCustomer(
   renderContractOptions();
 
 
+  clearMessage();
   updateReviewUI();
 
 }
-
 
 function renderCustomerOptions(
   searchText =
@@ -5253,6 +5418,58 @@ function renderCustomerOptions(
 
   elements.customerMenu.innerHTML =
     "";
+
+
+  const location =
+    state.locations.find(
+      item =>
+        item.id ===
+        elements.locationSelect.value
+    ) ||
+    null;
+
+
+  elements.customerButton.disabled =
+    !location;
+
+
+  if (
+    !location
+  ) {
+
+    elements.customerSelect.value =
+      "";
+
+    state.selectedCustomer =
+      null;
+
+
+    elements.customerButtonText.textContent =
+      "Select destination first";
+
+
+    const empty =
+      document.createElement(
+        "div"
+      );
+
+
+    empty.className =
+      "load-picker-empty";
+
+
+    empty.textContent =
+      "Select a destination first.";
+
+
+    elements.customerMenu.appendChild(
+      empty
+    );
+
+
+    return;
+
+  }
 
 
   const searchWrap =
@@ -5280,7 +5497,7 @@ function renderCustomerOptions(
 
 
   searchInput.placeholder =
-    "Search customer…";
+    "Search matching customer…";
 
 
   searchInput.autocomplete =
@@ -5301,8 +5518,52 @@ function renderCustomerOptions(
   );
 
 
-  const filtered =
+  /*
+    Sold Under is limited to customers that actually have an OPEN
+    contract for the selected crop + exact destination.
+  */
+  const eligibleCustomerIds =
+    new Set(
+      contractsForDestination()
+        .map(
+          contract =>
+            contractCustomerId(
+              contract
+            )
+        )
+        .filter(
+          Boolean
+        )
+    );
+
+
+  const eligibleCustomers =
     state.customers.filter(
+      customer =>
+        eligibleCustomerIds.has(
+          customer.id
+        )
+    );
+
+
+  if (
+    elements.customerSelect.value &&
+    !eligibleCustomerIds.has(
+      elements.customerSelect.value
+    )
+  ) {
+
+    elements.customerSelect.value =
+      "";
+
+    state.selectedCustomer =
+      null;
+
+  }
+
+
+  const filtered =
+    eligibleCustomers.filter(
       customer =>
         !search ||
         normalize(
@@ -5374,7 +5635,7 @@ function renderCustomerOptions(
 
 
     empty.textContent =
-      "No matching customers found.";
+      "No Sold Under customer has an open contract for this crop and destination.";
 
 
     elements.customerMenu.appendChild(
@@ -5419,8 +5680,16 @@ function renderCustomerOptions(
 
 }
 
-
 function openCustomerMenu() {
+
+  if (
+    elements.customerButton.disabled
+  ) {
+
+    return;
+
+  }
+
 
   closeAllLoadMenus(
     elements.customerMenu
@@ -5453,7 +5722,6 @@ function openCustomerMenu() {
 
 }
 
-
 function allSourceItems() {
 
   return [
@@ -5476,17 +5744,21 @@ function currentSourceItems() {
     !crop
   ) {
 
-    return allSourceItems();
+    return [];
 
   }
 
 
+  /*
+    Inventory selection is strict: a source must explicitly match
+    the selected crop. Unknown/blank crop inventory is not shown.
+  */
   return allSourceItems()
     .filter(
       item =>
-        !clean(
+        clean(
           item.crop
-        ) ||
+        ) &&
         normalize(
           item.crop
         ) ===
@@ -5494,7 +5766,6 @@ function currentSourceItems() {
     );
 
 }
-
 
 function selectedSourceFromValue(
   value
@@ -5521,7 +5792,11 @@ function syncGrainSourceButton() {
 
   elements.grainSourceButtonText.textContent =
     state.selectedSource?.label ||
-    "Select bin or grain bag";
+    (
+      elements.crop.value
+        ? "Select bin or grain bag"
+        : "Select crop first"
+    );
 
 
   elements.grainSourceMenu
@@ -5555,18 +5830,22 @@ function chooseGrainSource(
 
   if (
     selected &&
-    elements.crop.value &&
-    selected.crop &&
-    normalize(
-      selected.crop
-    ) !==
-    normalize(
-      elements.crop.value
+    (
+      !elements.crop.value ||
+      !selected.crop ||
+      normalize(
+        selected.crop
+      ) !==
+      normalize(
+        elements.crop.value
+      )
     )
   ) {
 
     showMessage(
-      `That grain source contains ${selected.crop}, not ${elements.crop.value}.`,
+      selected?.crop
+        ? `That grain source contains ${selected.crop}, not ${elements.crop.value}.`
+        : "That grain source does not have a crop assigned.",
       "error"
     );
 
@@ -5585,10 +5864,47 @@ function chooseGrainSource(
     selected;
 
 
+  /*
+    Grain source is step 2, so changing it clears everything below it.
+  */
+  elements.locationSelect.value =
+    "";
+
+  elements.buyerSelect.value =
+    "";
+
+  state.selectedLocation =
+    null;
+
+  state.selectedBuyer =
+    null;
+
+
+  elements.customerSelect.value =
+    "";
+
+  state.selectedCustomer =
+    null;
+
+
+  elements.contractSelect.value =
+    "";
+
+  state.selectedContract =
+    null;
+
+
   syncGrainSourceButton();
+  syncDestinationButton();
+  syncCustomerButton();
 
 
   closeAllLoadMenus();
+
+
+  renderDestinationOptions();
+  renderCustomerOptions();
+  renderContractOptions();
 
 
   clearMessage();
@@ -5597,7 +5913,6 @@ function chooseGrainSource(
   updateReviewUI();
 
 }
-
 
 function renderGrainSourceOptions(
   searchText =
@@ -5610,12 +5925,88 @@ function renderGrainSourceOptions(
     );
 
 
-  const items =
-    currentSourceItems();
+  const crop =
+    normalize(
+      elements.crop.value
+    );
+
+
+  const cropReady =
+    !!crop;
+
+
+  elements.grainSourceButton.disabled =
+    !cropReady;
 
 
   elements.grainSourceMenu.innerHTML =
     "";
+
+
+  if (
+    !cropReady
+  ) {
+
+    elements.grainSourceValue.value =
+      "";
+
+    state.selectedSource =
+      null;
+
+
+    elements.grainSourceButtonText.textContent =
+      "Select crop first";
+
+
+    const empty =
+      document.createElement(
+        "div"
+      );
+
+
+    empty.className =
+      "load-picker-empty";
+
+
+    empty.textContent =
+      "Select a crop first.";
+
+
+    elements.grainSourceMenu.appendChild(
+      empty
+    );
+
+
+    return;
+
+  }
+
+
+  const items =
+    currentSourceItems();
+
+
+  if (
+    elements.grainSourceValue.value &&
+    !items.some(
+      item =>
+        item.value ===
+        elements.grainSourceValue.value
+    )
+  ) {
+
+    /*
+      A saved historical source added by ensureSavedSourceAvailable()
+      remains in currentSourceItems when its crop matches.
+      Anything else is stale and should be cleared.
+    */
+    elements.grainSourceValue.value =
+      "";
+
+    state.selectedSource =
+      null;
+
+  }
 
 
   const searchWrap =
@@ -5643,7 +6034,7 @@ function renderGrainSourceOptions(
 
 
   searchInput.placeholder =
-    "Search bin site, bin, field, crop…";
+    "Search matching bin site, bin, or field…";
 
 
   searchInput.autocomplete =
@@ -5802,9 +6193,7 @@ function renderGrainSourceOptions(
 
 
     empty.textContent =
-      elements.crop.value
-        ? "No available grain source matches this crop."
-        : "No available grain sources were found.";
+      `No grain source with available ${clean(elements.crop.value)} inventory was found.`;
 
 
     elements.grainSourceMenu.appendChild(
@@ -5849,8 +6238,22 @@ function renderGrainSourceOptions(
 
 }
 
-
 function openGrainSourceMenu() {
+
+  if (
+    !elements.crop.value
+  ) {
+
+    showMessage(
+      "Select the crop first.",
+      "error"
+    );
+
+
+    return;
+
+  }
+
 
   closeAllLoadMenus(
     elements.grainSourceMenu
@@ -5882,7 +6285,6 @@ function openGrainSourceMenu() {
   );
 
 }
-
 
 /*
   These two names existed in the older ticket-detail file.
@@ -5993,11 +6395,147 @@ function renderLocationOptions() {
     }
 
 
-    function matchingContracts() {
+    function contractCustomerId(
+      contract
+    ) {
+
+      return clean(
+        contract?.customerId ||
+        contract?.grainCustomerId
+      );
+
+    }
+
+
+    function contractCrop(
+      contract
+    ) {
+
+      return normalize(
+        contract?.crop ||
+        contract?.commodity
+      );
+
+    }
+
+
+    function contractBuyerId(
+      contract
+    ) {
+
+      return clean(
+        contract?.buyerId ||
+        contract?.grainBuyerId
+      );
+
+    }
+
+
+    function contractLocationId(
+      contract
+    ) {
+
+      return clean(
+        contract?.deliveryLocationId ||
+        contract?.locationId ||
+        contract?.destinationId
+      );
+
+    }
+
+
+    function contractMatchesLocation(
+      contract,
+      location
+    ) {
 
       if (
-        !state.selectedCustomer ||
-        !elements.crop.value
+        !contract ||
+        !location
+      ) {
+
+        return false;
+
+      }
+
+
+      const locationId =
+        contractLocationId(
+          contract
+        );
+
+
+      if (
+        locationId
+      ) {
+
+        return (
+          locationId ===
+          clean(
+            location.id
+          )
+        );
+
+      }
+
+
+      /*
+        Legacy fallback for older contracts that may not yet contain
+        deliveryLocationId. Require buyer + exact saved location name.
+      */
+      const buyerId =
+        contractBuyerId(
+          contract
+        );
+
+
+      const buyerMatches =
+        !buyerId ||
+        buyerId ===
+          clean(
+            location.buyerId
+          );
+
+
+      const contractLocationName =
+        normalize(
+          contract?.deliveryLocationName ||
+          contract?.locationName ||
+          contract?.destinationName
+        );
+
+
+      return (
+        buyerMatches &&
+        !!contractLocationName &&
+        contractLocationName ===
+          normalize(
+            location.locationName
+          )
+      );
+
+    }
+
+
+    function openContracts() {
+
+      return state.contracts.filter(
+        contractIsOpen
+      );
+
+    }
+
+
+    function contractsForSelectedCrop() {
+
+      const crop =
+        normalize(
+          elements.crop.value
+        );
+
+
+      if (
+        !crop
       ) {
 
         return [];
@@ -6005,59 +6543,121 @@ function renderLocationOptions() {
       }
 
 
-      return state.contracts
+      return openContracts()
         .filter(
           contract =>
-            contractIsOpen(
+            contractCrop(
               contract
-            )
-        )
+            ) ===
+            crop
+        );
+
+    }
+
+
+    function contractsForDestination() {
+
+      const location =
+        state.locations.find(
+          item =>
+            item.id ===
+            elements.locationSelect.value
+        ) ||
+        null;
+
+
+      if (
+        !location
+      ) {
+
+        return [];
+
+      }
+
+
+      return contractsForSelectedCrop()
         .filter(
-          contract => {
+          contract =>
+            contractMatchesLocation(
+              contract,
+              location
+            )
+        );
 
-            const customerId =
-              clean(
-                contract.customerId ||
-                contract.grainCustomerId
-              );
-
-
-            const customerMatches =
-              customerId ===
-              state.selectedCustomer.id;
+    }
 
 
-            const cropMatches =
-              normalize(
-                contract.crop ||
-                contract.commodity
-              ) ===
-              normalize(
-                elements.crop.value
-              );
+    function contractsForCustomer() {
+
+      const customerId =
+        clean(
+          elements.customerSelect.value
+        );
 
 
-            const contractBuyerId =
-              clean(
-                contract.buyerId
-              );
+      if (
+        !customerId
+      ) {
+
+        return [];
+
+      }
 
 
-            const buyerMatches =
-              !contractBuyerId ||
-              !state.selectedBuyer?.id ||
-              contractBuyerId ===
-                state.selectedBuyer.id;
+      return contractsForDestination()
+        .filter(
+          contract =>
+            contractCustomerId(
+              contract
+            ) ===
+            customerId
+        );
+
+    }
 
 
-            return (
-              customerMatches &&
-              cropMatches &&
-              buyerMatches
-            );
+    function matchingContracts() {
 
-          }
-        )
+      const crop =
+        normalize(
+          elements.crop.value
+        );
+
+
+      const source =
+        selectedSourceFromValue(
+          elements.grainSourceValue.value
+        );
+
+
+      const location =
+        state.locations.find(
+          item =>
+            item.id ===
+            elements.locationSelect.value
+        ) ||
+        null;
+
+
+      const customerId =
+        clean(
+          elements.customerSelect.value
+        );
+
+
+      if (
+        !crop ||
+        !source ||
+        !location ||
+        !customerId
+      ) {
+
+        return [];
+
+      }
+
+
+      return contractsForCustomer()
         .sort(
           (
             a,
@@ -6084,7 +6684,6 @@ function renderLocationOptions() {
         );
 
     }
-
 
     function contractLabel(
       contract
@@ -6170,8 +6769,17 @@ function renderLocationOptions() {
         "";
 
 
+      const blank =
+        document.createElement(
+          "option"
+        );
+
+
+      blank.value =
+        "";
+
+
       if (
-        !state.selectedCustomer ||
         !elements.crop.value
       ) {
 
@@ -6179,22 +6787,12 @@ function renderLocationOptions() {
           true;
 
 
-        const option =
-          document.createElement(
-            "option"
-          );
-
-
-        option.value =
-          "";
-
-
-        option.textContent =
-          "Select customer and crop first";
+        blank.textContent =
+          "Select crop first";
 
 
         elements.contractSelect.appendChild(
-          option
+          blank
         );
 
 
@@ -6203,7 +6801,109 @@ function renderLocationOptions() {
 
 
         elements.contractStatus.textContent =
-          "Select customer and crop.";
+          "Select the crop first.";
+
+
+        state.selectedContract =
+          null;
+
+
+        return;
+
+      }
+
+
+      if (
+        !state.selectedSource
+      ) {
+
+        elements.contractSelect.disabled =
+          true;
+
+
+        blank.textContent =
+          "Select grain source first";
+
+
+        elements.contractSelect.appendChild(
+          blank
+        );
+
+
+        elements.contractStatus.className =
+          "contract-box warning";
+
+
+        elements.contractStatus.textContent =
+          "Select a matching bin or grain bag.";
+
+
+        state.selectedContract =
+          null;
+
+
+        return;
+
+      }
+
+
+      if (
+        !state.selectedLocation
+      ) {
+
+        elements.contractSelect.disabled =
+          true;
+
+
+        blank.textContent =
+          "Select destination first";
+
+
+        elements.contractSelect.appendChild(
+          blank
+        );
+
+
+        elements.contractStatus.className =
+          "contract-box warning";
+
+
+        elements.contractStatus.textContent =
+          "Select a destination with an open matching contract.";
+
+
+        state.selectedContract =
+          null;
+
+
+        return;
+
+      }
+
+
+      if (
+        !state.selectedCustomer
+      ) {
+
+        elements.contractSelect.disabled =
+          true;
+
+
+        blank.textContent =
+          "Select Sold Under first";
+
+
+        elements.contractSelect.appendChild(
+          blank
+        );
+
+
+        elements.contractStatus.className =
+          "contract-box warning";
+
+
+        elements.contractStatus.textContent =
+          "Select who this grain was sold under.";
 
 
         state.selectedContract =
@@ -6223,22 +6923,12 @@ function renderLocationOptions() {
           true;
 
 
-        const option =
-          document.createElement(
-            "option"
-          );
-
-
-        option.value =
-          "";
-
-
-        option.textContent =
+        blank.textContent =
           "No open matching contracts";
 
 
         elements.contractSelect.appendChild(
-          option
+          blank
         );
 
 
@@ -6247,7 +6937,7 @@ function renderLocationOptions() {
 
 
         elements.contractStatus.textContent =
-          "No open contract matches this customer, crop, and destination.";
+          "No open contract matches this crop, grain source, exact destination, and Sold Under customer.";
 
 
         state.selectedContract =
@@ -6261,16 +6951,6 @@ function renderLocationOptions() {
 
       elements.contractSelect.disabled =
         false;
-
-
-      const blank =
-        document.createElement(
-          "option"
-        );
-
-
-      blank.value =
-        "";
 
 
       blank.textContent =
@@ -6335,14 +7015,12 @@ function renderLocationOptions() {
 
 
       elements.contractStatus.textContent =
-        `${matches.length} open matching contract${matches.length === 1 ? "" : "s"}.`;
+        `${matches.length} possible open contract${matches.length === 1 ? "" : "s"}.`;
 
 
       updateReviewUI();
 
     }
-
-
 
     // ==========================================================
     // AUTOMATIC MATCHING FOR EXISTING TICKET
@@ -8730,43 +9408,56 @@ function renderLocationOptions() {
           "change",
           () => {
 
-            renderContractOptions();
+            /*
+              Crop is step 1. Changing it intentionally clears every
+              dependent selection so stale combinations cannot survive.
+            */
+            elements.grainSourceValue.value =
+              "";
+
+            state.selectedSource =
+              null;
 
 
-            const selected =
-              selectedSourceFromValue(
-                elements.grainSourceValue.value
-              );
+            elements.locationSelect.value =
+              "";
+
+            elements.buyerSelect.value =
+              "";
+
+            state.selectedLocation =
+              null;
+
+            state.selectedBuyer =
+              null;
 
 
-            if (
-              selected &&
-              elements.crop.value &&
-              selected.crop &&
-              normalize(
-                selected.crop
-              ) !==
-              normalize(
-                elements.crop.value
-              )
-            ) {
+            elements.customerSelect.value =
+              "";
 
-              elements.grainSourceValue.value =
-                "";
+            state.selectedCustomer =
+              null;
 
 
-              state.selectedSource =
-                null;
+            elements.contractSelect.value =
+              "";
+
+            state.selectedContract =
+              null;
 
 
-              syncGrainSourceButton();
-
-            }
+            syncGrainSourceButton();
+            syncDestinationButton();
+            syncCustomerButton();
 
 
             renderGrainSourceOptions();
+            renderDestinationOptions();
+            renderCustomerOptions();
+            renderContractOptions();
 
 
+            clearMessage();
             updateReviewUI();
 
           }
@@ -8862,10 +9553,15 @@ renderLoadoutInformation();
 requestAnimationFrame(
   () => {
 
+    syncGrainSourceButton();
     syncDestinationButton();
     syncCustomerButton();
-    syncGrainSourceButton();
+
+    renderGrainSourceOptions();
+    renderDestinationOptions();
+    renderCustomerOptions();
     renderContractOptions();
+
     updateReviewUI();
 
   }
