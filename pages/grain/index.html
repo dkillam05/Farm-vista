@@ -38,7 +38,7 @@
       border:1px solid var(--border);
       border-radius:14px;
       box-shadow:var(--shadow);
-      overflow:visible;
+      overflow:hidden;
     }
 
     .inventory-head{
@@ -489,8 +489,12 @@
             <div class="mini-kpi-value" id="bag-field-count">—</div>
           </div>
           <div class="mini-kpi">
-            <div class="mini-kpi-label">Bags / Rows With Grain</div>
-            <div class="mini-kpi-value" id="bag-count">—</div>
+            <div class="mini-kpi-label">Full Bags</div>
+            <div class="mini-kpi-value" id="bag-full-count">—</div>
+          </div>
+          <div class="mini-kpi">
+            <div class="mini-kpi-label">Partial Bags</div>
+            <div class="mini-kpi-value" id="bag-partial-count">—</div>
           </div>
           <div class="mini-kpi">
             <div class="mini-kpi-label">Estimated Bushels</div>
@@ -515,6 +519,8 @@
             <tr>
               <th>Field / Bag</th>
               <th>Crop</th>
+              <th class="num-cell">Full Bags</th>
+              <th class="num-cell">Partial Bags</th>
               <th class="num-cell">Estimated On Hand</th>
               <th class="num-cell">Loads Hauled</th>
               <th class="num-cell">Avg Moisture</th>
@@ -523,7 +529,7 @@
             </tr>
           </thead>
           <tbody id="bag-tbody">
-            <tr><td colspan="7" class="empty-row">Loading grain bags…</td></tr>
+            <tr><td colspan="9" class="empty-row">Loading grain bags…</td></tr>
           </tbody>
         </table>
       </div>
@@ -698,6 +704,24 @@
     if(c === "corn") return "Corn";
     if(c === "soybeans") return "Soybeans";
     return clean(v) || "—";
+  }
+
+  function setCropSelectValue(selectEl, value){
+    if(!selectEl) return;
+
+    const key = cropKey(value);
+
+    if(key === "corn"){
+      selectEl.value = "Corn";
+      return;
+    }
+
+    if(key === "soybeans"){
+      selectEl.value = "Soybeans";
+      return;
+    }
+
+    selectEl.value = "";
   }
 
   function fmtBu(v){
@@ -1073,12 +1097,20 @@
         raw:ev,
         fieldId,
         fieldName,
-        crop:cropLabel(ev.cropType || ev.crop),
+        crop:cropLabel(
+          ev.cropType ||
+          ev.crop ||
+          ev.cropName ||
+          ev.grainType ||
+          ""
+        ),
         brand:clean(sku.brand),
         diameterFt:num(sku.diameterFt,num(sku.diameter,0)),
         lengthFt:num(sku.sizeFeet,num(sku.lengthFt,0)),
         bushels:bagBushels(ev),
         currentFeet:bagCurrentFeet(ev),
+        fullBags:Math.max(0,num(ev?.counts?.full,0)),
+        partialBags:Math.max(0,num(ev?.counts?.partial,0)),
         grades:gradeSummary(bagTicketsForSource(ev.id))
       };
 
@@ -1093,6 +1125,8 @@
       });
 
       field.totalBu = field.bags.reduce((sum,b) => sum + b.bushels,0);
+      field.totalFullBags = field.bags.reduce((sum,b) => sum + b.fullBags,0);
+      field.totalPartialBags = field.bags.reduce((sum,b) => sum + b.partialBags,0);
 
       const crops = [...new Set(field.bags.map(b => b.crop).filter(v => v && v !== "—"))];
       field.crop = crops.length === 1 ? crops[0] : crops.join(" / ") || "—";
@@ -1233,23 +1267,28 @@
     const filteredFields = state.bagFields.filter(bagPassesFilters);
 
     let bagRows = 0;
+    let totalFullBags = 0;
+    let totalPartialBags = 0;
     let totalBu = 0;
 
     filteredFields.forEach(field => {
       field.bags.forEach(b => {
         if(crop === "all" || cropKey(b.crop) === crop){
           bagRows += 1;
+          totalFullBags += Math.max(0,num(b.fullBags,0));
+          totalPartialBags += Math.max(0,num(b.partialBags,0));
           totalBu += b.bushels;
         }
       });
     });
 
     $("bag-field-count").textContent = filteredFields.length.toLocaleString("en-US");
-    $("bag-count").textContent = bagRows.toLocaleString("en-US");
+    $("bag-full-count").textContent = totalFullBags.toLocaleString("en-US");
+    $("bag-partial-count").textContent = totalPartialBags.toLocaleString("en-US");
     $("bag-total-bu").textContent = fmtBu(totalBu);
 
     if(!filteredFields.length){
-      tbody.innerHTML = `<tr><td colspan="7" class="empty-row">No grain bag fields with grain match this filter.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="9" class="empty-row">No grain bag fields with grain match this filter.</td></tr>`;
       return;
     }
 
@@ -1277,6 +1316,8 @@
         <tr class="site-row" data-clickable="1" data-bag-field="${esc(field.id)}">
           <td><span class="chev">${isOpen ? "▼" : "▶"}</span>${esc(field.name)}</td>
           <td><span class="crop-pill">${esc(fieldCrop)}</span></td>
+          <td class="num-cell">${bags.reduce((s,b) => s + b.fullBags,0).toLocaleString("en-US")}</td>
+          <td class="num-cell">${bags.reduce((s,b) => s + b.partialBags,0).toLocaleString("en-US")}</td>
           <td class="num-cell">${fmtBu(fieldBu)}</td>
           ${gradeCells(grades)}
         </tr>
@@ -1288,6 +1329,8 @@
             <tr class="child-row" data-clickable="1" data-bag-edit="${esc(b.id)}">
               <td class="child-name">${esc(bagDescriptor(b))}</td>
               <td><span class="crop-pill">${esc(b.crop)}</span></td>
+              <td class="num-cell">${b.fullBags.toLocaleString("en-US")}</td>
+              <td class="num-cell">${b.partialBags.toLocaleString("en-US")}</td>
               <td class="num-cell">${fmtBu(b.bushels)}</td>
               ${gradeCells(b.grades)}
             </tr>
@@ -1354,7 +1397,7 @@
     $("bin-edit-section").hidden = false;
     $("bag-edit-section").hidden = true;
 
-    $("edit-bin-crop").value = b.crop === "Corn" || b.crop === "Soybeans" ? b.crop : "";
+    setCropSelectValue($("edit-bin-crop"),b.crop);
     $("edit-bin-onhand").value = String(b.onHand);
 
     openModal();
@@ -1390,7 +1433,15 @@
     $("bin-edit-section").hidden = true;
     $("bag-edit-section").hidden = false;
 
-    $("edit-bag-crop").value = bag.crop === "Corn" || bag.crop === "Soybeans" ? bag.crop : "";
+    setCropSelectValue(
+      $("edit-bag-crop"),
+      bag.raw?.cropType ||
+      bag.raw?.crop ||
+      bag.raw?.cropName ||
+      bag.raw?.grainType ||
+      bag.crop
+    );
+
     $("edit-bag-full").value = String(Math.max(0,num(counts.full,0)));
     $("edit-bag-partial-feet").value = String(partialFeet);
 
@@ -1489,7 +1540,7 @@
 
   async function loadAll(){
     $("bin-tbody").innerHTML = `<tr><td colspan="7" class="empty-row">Loading grain bins…</td></tr>`;
-    $("bag-tbody").innerHTML = `<tr><td colspan="7" class="empty-row">Loading grain bags…</td></tr>`;
+    $("bag-tbody").innerHTML = `<tr><td colspan="9" class="empty-row">Loading grain bags…</td></tr>`;
 
     try{
       const [
@@ -1549,7 +1600,7 @@
     }catch(err){
       console.error("[grain inventory] load failed",err);
       $("bin-tbody").innerHTML = `<tr><td colspan="7" class="empty-row">Grain bin inventory could not be loaded.</td></tr>`;
-      $("bag-tbody").innerHTML = `<tr><td colspan="7" class="empty-row">Grain bag inventory could not be loaded.</td></tr>`;
+      $("bag-tbody").innerHTML = `<tr><td colspan="9" class="empty-row">Grain bag inventory could not be loaded.</td></tr>`;
     }
   }
 
