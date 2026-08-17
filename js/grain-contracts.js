@@ -12,9 +12,12 @@
 import {
   ready,
   getFirestore,
+  getAuth,
   collection,
   getDocs,
   doc,
+  getDoc,
+  setDoc,
   updateDoc,
   serverTimestamp
 } from "/Farm-vista/js/firebase-init.js";
@@ -22,12 +25,14 @@ import {
 await ready;
 
 const db = getFirestore();
+const auth = getAuth();
 
 const CONTRACT_COLLECTION = "grain_contracts";
 const BUYER_COLLECTION = "grain_buyers";
 const CUSTOMER_COLLECTION = "grain_customers";
 const LOCATION_COLLECTION = "grain_delivery_locations";
 const TICKET_COLLECTION = "grain_tickets";
+const VOID_REVERSAL_COLLECTION = "grain_ticket_void_reversals";
 
 const $ = id => document.getElementById(id);
 
@@ -68,7 +73,9 @@ const state = {
   busy: false,
 
   editPriceCents: 0,
-  editPriceHasValue: false
+  editPriceHasValue: false,
+
+  showVoided: false
 };
 
 
@@ -477,6 +484,1491 @@ function populateSimpleFilter(
 
 
 /* ============================================================
+   VOID / AUDIT HELPERS
+============================================================ */
+
+function currentVoidUser() {
+  const user =
+    auth?.currentUser ||
+    null;
+
+  return {
+    uid:
+      clean(
+        user?.uid
+      ) ||
+      null,
+
+    name:
+      clean(
+        user?.displayName
+      ) ||
+      clean(
+        user?.email
+      ) ||
+      "FarmVista User",
+
+    email:
+      clean(
+        user?.email
+      ) ||
+      null
+  };
+}
+
+
+async function requireRunTransaction() {
+  const module =
+    await import(
+      "/Farm-vista/js/firebase-init.js"
+    );
+
+  if (
+    typeof module.runTransaction !==
+    "function"
+  ) {
+    throw new Error(
+      "FarmVista cannot safely void this ticket because Firestore transaction support is unavailable."
+    );
+  }
+
+  return module.runTransaction;
+}
+
+
+function voidBagLengthFeet(
+  bagData
+) {
+  const length =
+    Number(
+      bagData?.bagSku?.sizeFeet ??
+      bagData?.bagSku?.lengthFt
+    );
+
+  return (
+    Number.isFinite(
+      length
+    ) &&
+    length > 0
+  )
+    ? length
+    : 0;
+}
+
+
+function voidBagCurrentFeet(
+  bagData,
+  lengthFt
+) {
+  const counts =
+    bagData?.counts ||
+    {};
+
+  const full =
+    Math.max(
+      0,
+      Math.floor(
+        numberValue(
+          counts.full
+        )
+      )
+    );
+
+  const partial =
+    Math.max(
+      0,
+      Math.floor(
+        numberValue(
+          counts.partial
+        )
+      )
+    );
+
+  const partialFeetRaw =
+    Array.isArray(
+      bagData?.partialFeet
+    )
+      ? bagData.partialFeet
+      : Array.isArray(
+          counts.partialFeet
+        )
+        ? counts.partialFeet
+        : [];
+
+  let partialFeetTotal =
+    partialFeetRaw.reduce(
+      (
+        sum,
+        value
+      ) =>
+        sum +
+        Math.max(
+          0,
+          numberValue(
+            value
+          )
+        ),
+      0
+    );
+
+  if (
+    partial > 0 &&
+    partialFeetTotal <= 0 &&
+    lengthFt > 0
+  ) {
+    partialFeetTotal =
+      partial *
+      0.5 *
+      lengthFt;
+  }
+
+  return (
+    full *
+    lengthFt
+  ) +
+  partialFeetTotal;
+}
+
+
+function voidBagCountsFromFeet(
+  totalFeet,
+  lengthFt
+) {
+  const safeFeet =
+    Math.max(
+      0,
+      numberValue(
+        totalFeet
+      )
+    );
+
+  if (
+    !(lengthFt > 0)
+  ) {
+    throw new Error(
+      "FarmVista cannot safely restore this grain bag because the original bag length is missing."
+    );
+  }
+
+  const full =
+    Math.floor(
+      safeFeet /
+      lengthFt
+    );
+
+  let remainder =
+    safeFeet -
+    (
+      full *
+      lengthFt
+    );
+
+  if (
+    remainder < 0.01
+  ) {
+    remainder =
+      0;
+  }
+
+  return {
+    full,
+
+    partial:
+      remainder > 0
+        ? 1
+        : 0,
+
+    partialFeet:
+      remainder > 0
+        ? [
+            Number(
+              remainder.toFixed(
+                2
+              )
+            )
+          ]
+        : []
+  };
+}
+
+
+function getBagSourceIdFromPickup(
+  pickup
+) {
+  const applied =
+    Array.isArray(
+      pickup?.appliedTo
+    )
+      ? pickup.appliedTo
+      : [];
+
+  const sourceId =
+    clean(
+      applied[0]
+        ?.refPutDownId
+    );
+
+  return sourceId;
+}
+
+
+function setupVoidControls() {
+  state.showVoided =
+    Boolean(
+      $("show-voided-checkbox")
+        ?.checked
+    );
+
+  $("show-voided-checkbox")
+    ?.addEventListener(
+      "change",
+      function () {
+        state.showVoided =
+          Boolean(
+            this.checked
+          );
+
+        renderAll();
+      }
+    );
+
+
+  $("void-contract-btn")
+    ?.addEventListener(
+      "click",
+      voidActiveContract
+    );
+
+
+  $("void-ticket-btn")
+    ?.addEventListener(
+      "click",
+      voidActiveTicket
+    );
+}
+
+
+function updateContractVoidButton() {
+  const button =
+    $("void-contract-btn");
+
+  if (
+    !button
+  ) {
+    return;
+  }
+
+  const contract =
+    state.activeContract;
+
+  if (
+    !contract
+  ) {
+    button.disabled =
+      true;
+
+    return;
+  }
+
+  if (
+    contract.voided
+  ) {
+    button.disabled =
+      true;
+
+    button.textContent =
+      "Contract Voided";
+
+    return;
+  }
+
+  const assignedCount =
+    getAssignedTickets(
+      contract.id
+    ).length;
+
+  button.disabled =
+    state.busy ||
+    assignedCount > 0;
+
+  button.textContent =
+    assignedCount > 0
+      ? `Void Contract (${assignedCount} active ticket${assignedCount === 1 ? "" : "s"} assigned)`
+      : "Void Contract";
+}
+
+
+function updateTicketVoidButton() {
+  const button =
+    $("void-ticket-btn");
+
+  if (
+    !button
+  ) {
+    return;
+  }
+
+  const ticket =
+    state.activeTicket;
+
+  if (
+    !ticket
+  ) {
+    button.disabled =
+      true;
+
+    return;
+  }
+
+  button.disabled =
+    state.busy ||
+    Boolean(
+      ticket.voided
+    );
+
+  button.textContent =
+    ticket.voided
+      ? "Ticket Voided"
+      : "Void Ticket";
+}
+
+
+async function voidActiveContract() {
+  const contract =
+    state.activeContract;
+
+  if (
+    !contract ||
+    state.busy
+  ) {
+    return;
+  }
+
+  if (
+    contract.voided
+  ) {
+    alert(
+      "This grain contract is already voided."
+    );
+
+    return;
+  }
+
+  const assigned =
+    getAssignedTickets(
+      contract.id
+    );
+
+  if (
+    assigned.length
+  ) {
+    alert(
+      `Contract ${
+        contract.contractNumber ||
+        contract.id
+      } cannot be voided while ${
+        assigned.length
+      } active grain ticket${
+        assigned.length === 1
+          ? " is"
+          : "s are"
+      } assigned to it.\n\nMove or void those tickets first.`
+    );
+
+    return;
+  }
+
+  const reason =
+    clean(
+      window.prompt(
+        `Why are you voiding Contract ${
+          contract.contractNumber ||
+          contract.id
+        }?`
+      )
+    );
+
+  if (
+    !reason
+  ) {
+    return;
+  }
+
+  const confirmed =
+    window.confirm(
+      `Void Contract ${
+        contract.contractNumber ||
+        contract.id
+      }?\n\nThis does not delete the contract. It will be hidden by default and cannot receive grain tickets.`
+    );
+
+  if (
+    !confirmed
+  ) {
+    return;
+  }
+
+  state.busy =
+    true;
+
+  updateContractVoidButton();
+
+  try {
+    const runTransaction =
+      await requireRunTransaction();
+
+    const who =
+      currentVoidUser();
+
+    const contractRef =
+      doc(
+        db,
+        CONTRACT_COLLECTION,
+        contract.id
+      );
+
+    await runTransaction(
+      db,
+      async transaction => {
+        const snapshot =
+          await transaction.get(
+            contractRef
+          );
+
+        if (
+          !snapshot.exists()
+        ) {
+          throw new Error(
+            "That grain contract no longer exists."
+          );
+        }
+
+        const latest =
+          snapshot.data() ||
+          {};
+
+        if (
+          latest.voided
+        ) {
+          return;
+        }
+
+        const activeAssigned =
+          state.tickets.filter(
+            ticket =>
+              !ticket.voided &&
+              clean(
+                ticket.contractId
+              ) ===
+              clean(
+                contract.id
+              )
+          );
+
+        if (
+          activeAssigned.length
+        ) {
+          throw new Error(
+            "This contract still has active grain tickets assigned. Move or void them first."
+          );
+        }
+
+        transaction.update(
+          contractRef,
+          {
+            voided:
+              true,
+
+            voidedAt:
+              serverTimestamp(),
+
+            voidedByUid:
+              who.uid,
+
+            voidedByName:
+              who.name,
+
+            voidedByEmail:
+              who.email,
+
+            voidReason:
+              reason,
+
+            voidedContractBushels:
+              numberValue(
+                latest.contractBushels
+              ),
+
+            voidedDeliveredBushels:
+              numberValue(
+                latest.deliveredBushels
+              ),
+
+            voidedOpenBushels:
+              numberValue(
+                latest.openBushels
+              ),
+
+            updatedAt:
+              serverTimestamp()
+          }
+        );
+      }
+    );
+
+    contract.voided =
+      true;
+
+    contract.voidReason =
+      reason;
+
+    closeEditModal();
+
+    populateContractFilters();
+
+    renderAll();
+  }
+  catch (
+    error
+  ) {
+    console.error(
+      "[Grain Contracts] Contract void failed:",
+      error
+    );
+
+    alert(
+      error?.message ||
+      "Unable to void this grain contract."
+    );
+  }
+  finally {
+    state.busy =
+      false;
+
+    updateContractVoidButton();
+  }
+}
+
+
+async function voidActiveTicket() {
+  const ticket =
+    state.activeTicket;
+
+  if (
+    !ticket ||
+    state.busy
+  ) {
+    return;
+  }
+
+  if (
+    ticket.voided
+  ) {
+    alert(
+      "This grain ticket is already voided."
+    );
+
+    return;
+  }
+
+  const reason =
+    clean(
+      window.prompt(
+        `Why are you voiding Grain Ticket ${
+          ticket.ticketNumber ||
+          ticket.id
+        }?`
+      )
+    );
+
+  if (
+    !reason
+  ) {
+    return;
+  }
+
+  const contractText =
+    ticket.contractNumber
+      ? `\n\nIt is currently assigned to Contract ${ticket.contractNumber}. Those bushels will be removed from that contract.`
+      : "";
+
+  const confirmed =
+    window.confirm(
+      `Void Grain Ticket ${
+        ticket.ticketNumber ||
+        ticket.id
+      }?${contractText}\n\nFarmVista will reverse the exact proven storage posting. If the original storage transaction cannot be proven, the void will stop instead of guessing.`
+    );
+
+  if (
+    !confirmed
+  ) {
+    return;
+  }
+
+  state.busy =
+    true;
+
+  updateTicketVoidButton();
+
+  const oldContractId =
+    clean(
+      ticket.contractId
+    );
+
+  const oldContractNumber =
+    clean(
+      ticket.contractNumber
+    );
+
+  try {
+    const result =
+      await voidTicketWithStorageReversal(
+        ticket,
+        reason
+      );
+
+    ticket.voided =
+      true;
+
+    ticket.voidReason =
+      reason;
+
+    ticket.originalContractId =
+      result.originalContractId ||
+      oldContractId ||
+      clean(
+        ticket.originalContractId
+      );
+
+    ticket.originalContractNumber =
+      result.originalContractNumber ||
+      oldContractNumber ||
+      clean(
+        ticket.originalContractNumber
+      );
+
+    ticket.contractId =
+      "";
+
+    ticket.contractNumber =
+      "";
+
+    ticket.storageReversal =
+      result.storageReversal;
+
+    state.selectedTicketIds
+      .delete(
+        ticket.id
+      );
+
+    if (
+      oldContractId
+    ) {
+      await syncContractTotalsForIds([
+        oldContractId
+      ]);
+    }
+
+    closeTicketDetail();
+
+    populateContractFilters();
+
+    renderAll();
+
+    alert(
+      result.storageReversal?.type ===
+        "none"
+        ? "Grain ticket voided. No prior FarmVista storage posting was found to reverse."
+        : `Grain ticket voided and ${
+            formatBushels(
+              result.storageReversal
+                ?.bushels
+            )
+          } bushels were restored to the proven storage source.`
+    );
+  }
+  catch (
+    error
+  ) {
+    console.error(
+      "[Grain Contracts] Ticket void failed:",
+      error
+    );
+
+    alert(
+      error?.message ||
+      "FarmVista could not safely void this grain ticket."
+    );
+
+    await refreshData();
+  }
+  finally {
+    state.busy =
+      false;
+
+    updateTicketVoidButton();
+  }
+}
+
+
+async function voidTicketWithStorageReversal(
+  localTicket,
+  reason
+) {
+  const runTransaction =
+    await requireRunTransaction();
+
+  const who =
+    currentVoidUser();
+
+  const ticketRef =
+    doc(
+      db,
+      TICKET_COLLECTION,
+      localTicket.id
+    );
+
+  const reversalRef =
+    doc(
+      db,
+      VOID_REVERSAL_COLLECTION,
+      `ticket_${localTicket.id}_void_reversal`
+    );
+
+  const binMovementRef =
+    doc(
+      db,
+      "binMovements",
+      `ticket_${localTicket.id}`
+    );
+
+  const bagPickupRef =
+    doc(
+      db,
+      "grain_bag_events",
+      `ticket_${localTicket.id}`
+    );
+
+
+  return await runTransaction(
+    db,
+    async transaction => {
+      const [
+        ticketSnapshot,
+        reversalSnapshot,
+        binMovementSnapshot,
+        bagPickupSnapshot
+      ] =
+        await Promise.all([
+          transaction.get(
+            ticketRef
+          ),
+
+          transaction.get(
+            reversalRef
+          ),
+
+          transaction.get(
+            binMovementRef
+          ),
+
+          transaction.get(
+            bagPickupRef
+          )
+        ]);
+
+
+      if (
+        !ticketSnapshot.exists()
+      ) {
+        throw new Error(
+          "The grain ticket no longer exists."
+        );
+      }
+
+
+      const ticket =
+        ticketSnapshot.data() ||
+        {};
+
+
+      const originalContractId =
+        clean(
+          ticket.originalContractId ||
+          ticket.contractId
+        );
+
+      const originalContractNumber =
+        clean(
+          ticket.originalContractNumber ||
+          ticket.contractNumber
+        );
+
+
+      if (
+        ticket.voided
+      ) {
+        return {
+          alreadyVoided:
+            true,
+
+          originalContractId,
+
+          originalContractNumber,
+
+          storageReversal:
+            ticket.storageReversal ||
+            reversalSnapshot.data()
+        };
+      }
+
+
+      if (
+        reversalSnapshot.exists()
+      ) {
+        throw new Error(
+          "A storage reversal already exists for this ticket, but the ticket is not marked voided. FarmVista stopped to prevent a double storage credit."
+        );
+      }
+
+
+      const hasBinPosting =
+        binMovementSnapshot.exists() &&
+        normalized(
+          binMovementSnapshot
+            .data()
+            ?.direction
+        ) ===
+          "out" &&
+        numberValue(
+          binMovementSnapshot
+            .data()
+            ?.bushels
+        ) >
+          0;
+
+
+      const hasBagPosting =
+        bagPickupSnapshot.exists() &&
+        normalized(
+          bagPickupSnapshot
+            .data()
+            ?.type
+        ) ===
+          "pickup" &&
+        Boolean(
+          bagPickupSnapshot
+            .data()
+            ?.autoPostedFromTicket
+        ) &&
+        numberValue(
+          bagPickupSnapshot
+            .data()
+            ?.bushelsPicked
+        ) >
+          0;
+
+
+      if (
+        hasBinPosting &&
+        hasBagPosting
+      ) {
+        throw new Error(
+          "FarmVista found both a bin posting and a grain-bag posting for this ticket. The void was stopped so storage cannot be credited to the wrong place."
+        );
+      }
+
+
+      let storageType =
+        "none";
+
+      let storageBushels =
+        0;
+
+      let storageFeet =
+        0;
+
+      let sourceId =
+        "";
+
+      let sourceLabel =
+        "";
+
+      let sourceRef =
+        null;
+
+      let sourceSnapshot =
+        null;
+
+      let sourcePatch =
+        null;
+
+      let postingRef =
+        null;
+
+      let postingPatch =
+        null;
+
+
+      if (
+        hasBinPosting
+      ) {
+        const movement =
+          binMovementSnapshot.data() ||
+          {};
+
+        const siteId =
+          clean(
+            movement.siteId
+          );
+
+        const binIndex =
+          Number(
+            movement.binIndex
+          );
+
+        const restoreBushels =
+          numberValue(
+            movement.bushels
+          );
+
+
+        if (
+          !siteId ||
+          !Number.isInteger(
+            binIndex
+          ) ||
+          binIndex < 0 ||
+          !(restoreBushels > 0)
+        ) {
+          throw new Error(
+            "The original bin movement is incomplete. FarmVista will not guess which bin or how many bushels to restore."
+          );
+        }
+
+
+        sourceRef =
+          doc(
+            db,
+            "binSites",
+            siteId
+          );
+
+        sourceSnapshot =
+          await transaction.get(
+            sourceRef
+          );
+
+
+        if (
+          !sourceSnapshot.exists()
+        ) {
+          throw new Error(
+            "The exact bin site used by the original ticket posting no longer exists."
+          );
+        }
+
+
+        const siteData =
+          sourceSnapshot.data() ||
+          {};
+
+        const bins =
+          Array.isArray(
+            siteData.bins
+          )
+            ? [
+                ...siteData.bins
+              ]
+            : [];
+
+
+        if (
+          !bins[
+            binIndex
+          ]
+        ) {
+          throw new Error(
+            "The exact bin used by the original ticket posting can no longer be found."
+          );
+        }
+
+
+        const bin = {
+          ...bins[
+            binIndex
+          ]
+        };
+
+        const onHandBefore =
+          numberValue(
+            bin.onHand
+          );
+
+        const onHandAfter =
+          Number(
+            (
+              onHandBefore +
+              restoreBushels
+            ).toFixed(
+              2
+            )
+          );
+
+
+        bins[
+          binIndex
+        ] = {
+          ...bin,
+
+          onHand:
+            onHandAfter,
+
+          lastUpdatedBy:
+            who.name,
+
+          lastUpdatedUid:
+            who.uid,
+
+          lastUpdatedMs:
+            Date.now()
+        };
+
+
+        storageType =
+          "bin";
+
+        storageBushels =
+          restoreBushels;
+
+        sourceId =
+          siteId;
+
+        sourceLabel =
+          clean(
+            movement.siteName
+          ) ||
+          clean(
+            siteData.name
+          ) ||
+          `Bin Site ${siteId}`;
+
+        sourcePatch = {
+          bins
+        };
+
+        postingRef =
+          binMovementRef;
+
+        postingPatch = {
+          voidReversed:
+            true,
+
+          voidReversedAt:
+            serverTimestamp(),
+
+          voidReversalId:
+            reversalRef.id,
+
+          voidReversedByUid:
+            who.uid,
+
+          voidReversedByName:
+            who.name,
+
+          voidReversedByEmail:
+            who.email
+        };
+      }
+      else if (
+        hasBagPosting
+      ) {
+        const pickup =
+          bagPickupSnapshot.data() ||
+          {};
+
+        const putDownId =
+          getBagSourceIdFromPickup(
+            pickup
+          );
+
+        const restoreBushels =
+          numberValue(
+            pickup.bushelsPicked
+          );
+
+        const restoreFeet =
+          numberValue(
+            pickup.feetPicked
+          );
+
+
+        if (
+          !putDownId ||
+          !(restoreBushels > 0) ||
+          !(restoreFeet > 0)
+        ) {
+          throw new Error(
+            "The original grain-bag pickup record does not prove the source bag, bushels, and feet removed. FarmVista will not guess."
+          );
+        }
+
+
+        sourceRef =
+          doc(
+            db,
+            "grain_bag_events",
+            putDownId
+          );
+
+        sourceSnapshot =
+          await transaction.get(
+            sourceRef
+          );
+
+
+        if (
+          !sourceSnapshot.exists()
+        ) {
+          throw new Error(
+            "The exact grain-bag source used by the original ticket posting no longer exists."
+          );
+        }
+
+
+        const bagData =
+          sourceSnapshot.data() ||
+          {};
+
+
+        if (
+          normalized(
+            bagData.type
+          ) !==
+          "putdown"
+        ) {
+          throw new Error(
+            "The original grain-bag source is no longer a putDown record. FarmVista stopped before changing inventory."
+          );
+        }
+
+
+        const lengthFt =
+          voidBagLengthFeet(
+            bagData
+          );
+
+
+        if (
+          !(lengthFt > 0)
+        ) {
+          throw new Error(
+            "The original grain bag does not contain a proven bag length. FarmVista will not estimate the reversal."
+          );
+        }
+
+
+        const currentFeet =
+          voidBagCurrentFeet(
+            bagData,
+            lengthFt
+          );
+
+        const restoredFeet =
+          Number(
+            (
+              currentFeet +
+              restoreFeet
+            ).toFixed(
+              2
+            )
+          );
+
+        const countsAfter =
+          voidBagCountsFromFeet(
+            restoredFeet,
+            lengthFt
+          );
+
+
+        storageType =
+          "grain_bag";
+
+        storageBushels =
+          restoreBushels;
+
+        storageFeet =
+          restoreFeet;
+
+        sourceId =
+          putDownId;
+
+        sourceLabel =
+          clean(
+            bagData?.field?.name
+          ) ||
+          `Grain Bag ${putDownId}`;
+
+        sourcePatch = {
+          "counts.full":
+            countsAfter.full,
+
+          "counts.partial":
+            countsAfter.partial,
+
+          "counts.partialFeet":
+            countsAfter.partialFeet,
+
+          partialFeet:
+            countsAfter.partialFeet,
+
+          status:
+            null,
+
+          pickedUpAt:
+            null,
+
+          pickedUpBy:
+            null,
+
+          updatedAt:
+            serverTimestamp()
+        };
+
+        postingRef =
+          bagPickupRef;
+
+        postingPatch = {
+          voidReversed:
+            true,
+
+          voidReversedAt:
+            serverTimestamp(),
+
+          voidReversalId:
+            reversalRef.id,
+
+          voidReversedByUid:
+            who.uid,
+
+          voidReversedByName:
+            who.name,
+
+          voidReversedByEmail:
+            who.email,
+
+          updatedAt:
+            serverTimestamp()
+        };
+      }
+      else if (
+        ticket.inventoryPosted ===
+        true
+      ) {
+        throw new Error(
+          "This ticket says inventory was posted, but FarmVista cannot prove the original bin or grain-bag transaction. The ticket was NOT voided and storage was NOT changed."
+        );
+      }
+
+
+      if (
+        sourceRef &&
+        sourcePatch
+      ) {
+        transaction.set(
+          sourceRef,
+          sourcePatch,
+          {
+            merge:
+              true
+          }
+        );
+      }
+
+
+      if (
+        postingRef &&
+        postingPatch
+      ) {
+        transaction.set(
+          postingRef,
+          postingPatch,
+          {
+            merge:
+              true
+          }
+        );
+      }
+
+
+      const storageReversal = {
+        type:
+          storageType,
+
+        bushels:
+          storageBushels,
+
+        feet:
+          storageFeet || null,
+
+        sourceId:
+          sourceId ||
+          null,
+
+        sourceLabel:
+          sourceLabel ||
+          null,
+
+        originalPostingId:
+          storageType ===
+            "bin"
+            ? binMovementRef.id
+            : storageType ===
+                "grain_bag"
+              ? bagPickupRef.id
+              : null,
+
+        reversalId:
+          reversalRef.id
+      };
+
+
+      transaction.set(
+        reversalRef,
+        {
+          status:
+            "complete",
+
+          reversalType:
+            storageType,
+
+          ticketId:
+            localTicket.id,
+
+          ticketNumber:
+            clean(
+              ticket.ticketNumber
+            ) ||
+            null,
+
+          originalContractId:
+            originalContractId ||
+            null,
+
+          originalContractNumber:
+            originalContractNumber ||
+            null,
+
+          storageBushelsRestored:
+            storageBushels,
+
+          storageFeetRestored:
+            storageFeet ||
+            null,
+
+          sourceId:
+            sourceId ||
+            null,
+
+          sourceLabel:
+            sourceLabel ||
+            null,
+
+          originalPostingId:
+            storageReversal
+              .originalPostingId,
+
+          voidReason:
+            reason,
+
+          reversedByUid:
+            who.uid,
+
+          reversedByName:
+            who.name,
+
+          reversedByEmail:
+            who.email,
+
+          createdAt:
+            serverTimestamp(),
+
+          completedAt:
+            serverTimestamp()
+        }
+      );
+
+
+      transaction.update(
+        ticketRef,
+        {
+          voided:
+            true,
+
+          voidedAt:
+            serverTimestamp(),
+
+          voidedByUid:
+            who.uid,
+
+          voidedByName:
+            who.name,
+
+          voidedByEmail:
+            who.email,
+
+          voidReason:
+            reason,
+
+          originalContractId:
+            originalContractId ||
+            null,
+
+          originalContractNumber:
+            originalContractNumber ||
+            null,
+
+          contractId:
+            null,
+
+          contractNumber:
+            null,
+
+          contractAssignedAt:
+            null,
+
+          storageReversal,
+
+          storageReversalId:
+            reversalRef.id,
+
+          inventoryReversedByVoid:
+            storageType !==
+            "none",
+
+          storageReversedAt:
+            serverTimestamp(),
+
+          updatedAt:
+            serverTimestamp()
+        }
+      );
+
+
+      return {
+        originalContractId,
+
+        originalContractNumber,
+
+        storageReversal
+      };
+    }
+  );
+}
+
+
+/* ============================================================
    STARTUP
 ============================================================ */
 
@@ -514,6 +2006,8 @@ onReady(
     setupEditPrice();
 
     setupEditDates();
+
+    setupVoidControls();
 
     try {
       await loadAllData();
@@ -951,6 +2445,7 @@ function getAssignedTickets(
   return state.tickets
     .filter(
       ticket =>
+        !ticket.voided &&
         clean(
           ticket.contractId
         ) ===
@@ -1094,6 +2589,12 @@ async function syncContractTotalsForIds(
 function getContractStatus(
   contract
 ) {
+  if (
+    contract?.voided
+  ) {
+    return "voided";
+  }
+
   const contracted =
     numberValue(
       contract.contractBushels
@@ -1142,6 +2643,9 @@ function getStatusLabel(
   contract
 ) {
   return {
+    voided:
+      "Voided",
+
     over:
       "Overhauled",
 
@@ -1278,6 +2782,13 @@ function applyContractFilters() {
     state.contracts.filter(
       contract => {
         if (
+          contract.voided &&
+          !state.showVoided
+        ) {
+          return false;
+        }
+
+        if (
           search
         ) {
           const haystack =
@@ -1374,7 +2885,12 @@ function renderContracts() {
 
 function renderContractSummary() {
   const totals =
-    state.filteredContracts.reduce(
+    state.filteredContracts
+      .filter(
+        contract =>
+          !contract.voided
+      )
+      .reduce(
       (
         acc,
         contract
@@ -1421,6 +2937,10 @@ function renderContractSummary() {
     $("summary-contracts")
       .textContent =
         state.filteredContracts
+          .filter(
+            contract =>
+              !contract.voided
+          )
           .length
           .toLocaleString(
             "en-US"
@@ -1521,7 +3041,19 @@ function renderContractTable() {
         );
 
       row.className =
-        "contract-row";
+        contract.voided
+          ? "contract-row voided-record"
+          : "contract-row";
+
+      if (
+        contract.voided
+      ) {
+        row.style.opacity =
+          "0.68";
+
+        row.style.background =
+          "rgba(185, 45, 55, 0.08)";
+      }
 
       row.tabIndex = 0;
 
@@ -1644,17 +3176,15 @@ function getCustomersForBuyer(
   }
 
 
-  /*
-    Match existing contracts by buyer ID OR buyer name.
-
-    This matters because some older FarmVista contract
-    records may have the correct buyerName even if their
-    buyerId is blank or from older data.
-  */
-
   const matchingContracts =
     state.contracts.filter(
       contract => {
+
+        if (
+          contract.voided
+        ) {
+          return false;
+        }
 
         const idMatches =
           clean(
@@ -1688,13 +3218,6 @@ function getCustomersForBuyer(
       }
     );
 
-
-  /*
-    Build both an ID list and a name list.
-
-    That lets current customer records match older
-    contract records even when one side has only a name.
-  */
 
   const customerIds =
     new Set(
@@ -1939,13 +3462,6 @@ function setupReconciliationControls() {
     );
 
 
-  /*
-    LEFT-SIDE DROP TARGET
-
-    Assigned tickets can be dragged
-    back into Unassigned Grain Tickets.
-  */
-
   const unassigned =
     $("unassigned-ticket-list");
 
@@ -1974,6 +3490,7 @@ function setupReconciliationControls() {
 
       if (
         !ticket ||
+        ticket.voided ||
         !clean(
           ticket.contractId
         )
@@ -2121,9 +3638,12 @@ function getVisibleUnassignedTickets() {
     .filter(
       ticket => {
 
-        /*
-          Only unassigned tickets belong on the left.
-        */
+        if (
+          ticket.voided &&
+          !state.showVoided
+        ) {
+          return false;
+        }
 
         if (
           clean(
@@ -2242,6 +3762,12 @@ function getAvailableContracts() {
     .filter(
       contract => {
 
+        if (
+          contract.voided
+        ) {
+          return false;
+        }
+
         const buyerMatches =
           (
             clean(
@@ -2310,6 +3836,10 @@ function selectAllVisibleTickets() {
     .clear();
 
   getVisibleUnassignedTickets()
+    .filter(
+      ticket =>
+        !ticket.voided
+    )
     .forEach(
       ticket =>
         state.selectedTicketIds
@@ -2506,7 +4036,8 @@ function renderReconciliation() {
         !tickets.some(
           ticket =>
             ticket.id ===
-            ticketId
+            ticketId &&
+            !ticket.voided
         )
       ) {
         state.selectedTicketIds
@@ -2617,10 +4148,26 @@ function renderTicketCards(
         );
 
       card.className =
-        "ticket-card";
+        ticket.voided
+          ? "ticket-card voided-record"
+          : "ticket-card";
+
+      if (
+        ticket.voided
+      ) {
+        card.style.opacity =
+          "0.68";
+
+        card.style.background =
+          "rgba(185, 45, 55, 0.08)";
+
+        card.style.borderColor =
+          "rgba(185, 45, 55, 0.30)";
+      }
 
       card.draggable =
-        !state.busy;
+        !state.busy &&
+        !ticket.voided;
 
 
       card.innerHTML = `
@@ -2634,6 +4181,11 @@ function renderTicketCards(
               ? "checked"
               : ""
           }
+          ${
+            ticket.voided
+              ? "disabled"
+              : ""
+          }
           aria-label="Select ticket ${escapeHtml(ticket.ticketNumber || ticket.id)}"
         />
 
@@ -2643,6 +4195,11 @@ function renderTicketCards(
 
             <div class="ticket-number">
               Ticket ${escapeHtml(ticket.ticketNumber || "—")}
+              ${
+                ticket.voided
+                  ? '<span style="margin-left:6px;color:#a1262f;font-weight:900;">VOIDED</span>'
+                  : ""
+              }
             </div>
 
             <div class="ticket-bushels">
@@ -2703,6 +4260,15 @@ function renderTicketCards(
           "change",
           function () {
             if (
+              ticket.voided
+            ) {
+              this.checked =
+                false;
+
+              return;
+            }
+
+            if (
               this.checked
             ) {
               state.selectedTicketIds
@@ -2726,7 +4292,8 @@ function renderTicketCards(
         "dragstart",
         event => {
           if (
-            state.busy
+            state.busy ||
+            ticket.voided
           ) {
             event.preventDefault();
 
@@ -2747,6 +4314,23 @@ function renderTicketCards(
             "text/plain",
             ticket.id
           );
+        }
+      );
+
+
+      card.addEventListener(
+        "click",
+        event => {
+          if (
+            ticket.voided &&
+            !event.target.closest(
+              ".ticket-select"
+            )
+          ) {
+            openTicketDetail(
+              ticket.id
+            );
+          }
         }
       );
 
@@ -2920,6 +4504,7 @@ function assignedTicketMarkup(
   `;
 }
 
+
 /* ============================================================
    CONTRACT WEIGHTED GRADE AVERAGES
 ============================================================ */
@@ -3091,6 +4676,8 @@ function renderContractDropCards(
       const selectedMatchingTickets =
         visibleTickets.filter(
           ticket =>
+            !ticket.voided &&
+
             state.selectedTicketIds
               .has(
                 ticket.id
@@ -3108,6 +4695,8 @@ function renderContractDropCards(
       const allMatchingCropTickets =
         visibleTickets.filter(
           ticket =>
+            !ticket.voided &&
+
             normalized(
               ticket.crop
             ) ===
@@ -3117,9 +4706,9 @@ function renderContractDropCards(
         );
 
       const averages =
-  calculateContractGradeAverages(
-    contract
-  );
+        calculateContractGradeAverages(
+          contract
+        );
 
 
       const card =
@@ -3348,12 +4937,6 @@ function renderContractDropCards(
       `;
 
 
-      /*
-        ASSIGNED TICKET:
-        click = details
-        drag = move/unassign
-      */
-
       card
         .querySelectorAll(
           "[data-assigned-ticket-id]"
@@ -3387,6 +4970,22 @@ function renderContractDropCards(
                 const ticketId =
                   button.dataset
                     .assignedTicketId;
+
+                const ticket =
+                  state.tickets.find(
+                    item =>
+                      item.id ===
+                      ticketId
+                  );
+
+                if (
+                  !ticket ||
+                  ticket.voided
+                ) {
+                  event.preventDefault();
+
+                  return;
+                }
 
                 state.draggingTicketId =
                   ticketId;
@@ -3438,10 +5037,6 @@ function renderContractDropCards(
         );
 
 
-      /*
-        ASSIGN SELECTED
-      */
-
       card
         .querySelector(
           ".assign-selected-btn"
@@ -3461,10 +5056,6 @@ function renderContractDropCards(
           }
         );
 
-
-      /*
-        ASSIGN ALL OF THIS CROP
-      */
 
       card
         .querySelector(
@@ -3486,21 +5077,12 @@ function renderContractDropCards(
         );
 
 
-      /*
-        CONTRACT DROP VALIDATION
-
-        A drop zone only activates when:
-        - Buyer matches
-        - Customer matches
-        - Crop matches
-        - Ticket is not already on this contract
-      */
-
       card.addEventListener(
         "dragover",
         event => {
           if (
-            state.busy
+            state.busy ||
+            contract.voided
           ) {
             return;
           }
@@ -3513,7 +5095,8 @@ function renderContractDropCards(
             );
 
           if (
-            !ticket
+            !ticket ||
+            ticket.voided
           ) {
             return;
           }
@@ -3529,35 +5112,14 @@ function renderContractDropCards(
             return;
           }
 
-          if (
-            clean(
-              ticket.buyerId
-            ) !==
-            clean(
-              contract.buyerId
-            )
-          ) {
-            return;
-          }
+          const validation =
+            validateTicketAgainstContract(
+              ticket,
+              contract
+            );
 
           if (
-            clean(
-              ticket.customerId
-            ) !==
-            clean(
-              contract.customerId
-            )
-          ) {
-            return;
-          }
-
-          if (
-            normalized(
-              ticket.crop
-            ) !==
-            normalized(
-              contract.crop
-            )
+            validation
           ) {
             return;
           }
@@ -3647,6 +5209,24 @@ function validateTicketAgainstContract(
   ) {
     return (
       "That grain ticket or contract could not be found."
+    );
+  }
+
+
+  if (
+    ticket.voided
+  ) {
+    return (
+      "Voided grain tickets cannot be assigned or moved."
+    );
+  }
+
+
+  if (
+    contract.voided
+  ) {
+    return (
+      "Voided grain contracts cannot receive tickets."
     );
   }
 
@@ -3761,11 +5341,6 @@ async function moveTicketToContract(
     );
 
 
-  /*
-    Dropped back on same contract.
-    Nothing to do.
-  */
-
   if (
     oldContractId ===
     clean(
@@ -3799,10 +5374,6 @@ async function moveTicketToContract(
     ) -
     afterDelivered;
 
-
-  /*
-    Warn before creating overhaul.
-  */
 
   if (
     afterOpen < 0
@@ -3839,10 +5410,6 @@ async function moveTicketToContract(
 
 
   try {
-    /*
-      Save new contract on ticket.
-    */
-
     await updateDoc(
       doc(
         db,
@@ -3866,10 +5433,6 @@ async function moveTicketToContract(
     );
 
 
-    /*
-      Update local ticket before recalculating totals.
-    */
-
     ticket.contractId =
       contract.id;
 
@@ -3883,11 +5446,6 @@ async function moveTicketToContract(
         ticket.id
       );
 
-
-    /*
-      Recalculate BOTH:
-      old contract + new contract.
-    */
 
     await syncContractTotalsForIds([
       oldContractId,
@@ -3957,6 +5515,17 @@ async function unassignTicketFromContract(
   }
 
 
+  if (
+    ticket.voided
+  ) {
+    alert(
+      "Voided grain tickets cannot be unassigned or moved."
+    );
+
+    return;
+  }
+
+
   const oldContractId =
     clean(
       ticket.contractId
@@ -3969,11 +5538,6 @@ async function unassignTicketFromContract(
     return;
   }
 
-
-  /*
-    Make sure we are only unassigning
-    within the selected Buyer / Customer.
-  */
 
   if (
     clean(
@@ -4005,10 +5569,6 @@ async function unassignTicketFromContract(
 
 
   try {
-    /*
-      Clear the ticket's contract.
-    */
-
     await updateDoc(
       doc(
         db,
@@ -4034,10 +5594,6 @@ async function unassignTicketFromContract(
     );
 
 
-    /*
-      Update local ticket.
-    */
-
     ticket.contractId =
       "";
 
@@ -4050,10 +5606,6 @@ async function unassignTicketFromContract(
         ticket.id
       );
 
-
-    /*
-      Recalculate old contract.
-    */
 
     await syncContractTotalsForIds([
       oldContractId
@@ -4133,10 +5685,16 @@ async function assignTicketsToContract(
   }
 
 
-  /*
-    Bulk assign is only for currently
-    unassigned tickets.
-  */
+  if (
+    contract.voided
+  ) {
+    alert(
+      "Voided grain contracts cannot receive tickets."
+    );
+
+    return;
+  }
+
 
   const tickets =
     ticketIds
@@ -4151,6 +5709,7 @@ async function assignTicketsToContract(
       .filter(Boolean)
       .filter(
         ticket =>
+          !ticket.voided &&
           !clean(
             ticket.contractId
           )
@@ -4163,11 +5722,6 @@ async function assignTicketsToContract(
     return;
   }
 
-
-  /*
-    Every ticket must match:
-    Buyer + Customer + Crop.
-  */
 
   const invalid =
     tickets.find(
@@ -4464,9 +6018,11 @@ function openTicketDetail(
 
   $("ticket-detail-sub")
     .textContent =
-      ticket.contractNumber
-        ? `Assigned to Contract ${ticket.contractNumber}`
-        : "Grain ticket details";
+      ticket.voided
+        ? `VOIDED${ticket.voidReason ? ` — ${ticket.voidReason}` : ""}`
+        : ticket.contractNumber
+          ? `Assigned to Contract ${ticket.contractNumber}`
+          : "Grain ticket details";
 
 
   $("detail-ticket-number")
@@ -4531,7 +6087,8 @@ function openTicketDetail(
   $("detail-ticket-contract")
     .textContent =
       clean(
-        ticket.contractNumber
+        ticket.contractNumber ||
+        ticket.originalContractNumber
       ) ||
       "—";
 
@@ -4611,6 +6168,9 @@ function openTicketDetail(
         ticket.fm,
         "%"
       );
+
+
+  updateTicketVoidButton();
 
 
   $("ticket-detail-modal")
@@ -4710,6 +6270,7 @@ function renderSettlementShell() {
     state.contracts
       .filter(
         contract =>
+          !contract.voided &&
           [
             "complete",
             "over"
@@ -4887,12 +6448,6 @@ function rebuildEditStaticSelect(
     return null;
   }
 
-  /*
-    Keep the original FarmVista <select>.
-    Only rebuild its options.
-    This prevents the duplicate-dropdown issue.
-  */
-
   select.innerHTML = "";
 
   options.forEach(
@@ -4974,17 +6529,24 @@ function openEditModal(
 
   $("edit-modal-sub")
     .textContent =
-      `Contract ${
-        clean(
-          contract.contractNumber
-        ) ||
-        contract.id
-      }`;
+      contract.voided
+        ? `Contract ${
+            clean(
+              contract.contractNumber
+            ) ||
+            contract.id
+          } — VOIDED${
+            contract.voidReason
+              ? ` — ${contract.voidReason}`
+              : ""
+          }`
+        : `Contract ${
+            clean(
+              contract.contractNumber
+            ) ||
+            contract.id
+          }`;
 
-
-  /*
-    BUYER
-  */
 
   setSelectValue(
     $("edit-buyer"),
@@ -5019,10 +6581,6 @@ function openEditModal(
   }
 
 
-  /*
-    CUSTOMER
-  */
-
   setSelectValue(
     $("edit-customer"),
     contract.customerId
@@ -5056,10 +6614,6 @@ function openEditModal(
   }
 
 
-  /*
-    CROP
-  */
-
   rebuildEditStaticSelect(
     "edit-crop",
 
@@ -5081,10 +6635,6 @@ function openEditModal(
     contract.crop
   );
 
-
-  /*
-    CONTRACT TYPE
-  */
 
   rebuildEditStaticSelect(
     "edit-contract-type",
@@ -5182,6 +6732,23 @@ function openEditModal(
   updateEditDateLimits();
 
   updateEditOpenBushels();
+
+  updateContractVoidButton();
+
+
+  if (
+    $("save-edit-btn")
+  ) {
+    $("save-edit-btn").disabled =
+      Boolean(
+        contract.voided
+      );
+
+    $("save-edit-btn").textContent =
+      contract.voided
+        ? "Contract Voided"
+        : "Save Changes";
+  }
 
 
   $("edit-modal")
@@ -5340,10 +6907,6 @@ function populateLocationPicker(
     }
   );
 
-
-  /*
-    Exact ID first.
-  */
 
   if (
     setSelectValue(
@@ -5994,6 +7557,17 @@ async function saveContractChanges(
     !state.activeContract ||
     state.busy
   ) {
+    return;
+  }
+
+
+  if (
+    state.activeContract.voided
+  ) {
+    alert(
+      "Voided grain contracts cannot be edited."
+    );
+
     return;
   }
 
