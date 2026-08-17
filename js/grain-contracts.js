@@ -3563,25 +3563,25 @@ function openTicketDetail(
       "—";
 
 
-  $("detail-ticket-gross")
-    .textContent =
-      formatWholeNumber(
-        ticket.gross
-      );
+$("detail-ticket-gross")
+  .textContent =
+    formatWholeNumber(
+      ticket.grossWeight
+    );
 
 
-  $("detail-ticket-tare")
-    .textContent =
-      formatWholeNumber(
-        ticket.tare
-      );
+$("detail-ticket-tare")
+  .textContent =
+    formatWholeNumber(
+      ticket.tareWeight
+    );
 
 
-  $("detail-ticket-net-weight")
-    .textContent =
-      formatWholeNumber(
-        ticket.net
-      );
+$("detail-ticket-net-weight")
+  .textContent =
+    formatWholeNumber(
+      ticket.netWeight
+    );
 
 
   $("detail-ticket-gross-bu")
