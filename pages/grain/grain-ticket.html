@@ -406,7 +406,8 @@ section[data-hide-for-now]{ display:none !important; }
   font-weight:650;
 }
 
-.loadout-add-btn{
+.loadout-add-btn,
+.ticket-add-btn{
   appearance:none;
   border:0;
   border-radius:10px;
@@ -418,7 +419,8 @@ section[data-hide-for-now]{ display:none !important; }
   white-space:nowrap;
 }
 
-.loadout-add-btn:hover{
+.loadout-add-btn:hover,
+.ticket-add-btn:hover{
   filter:brightness(.96);
 }
 
@@ -1340,7 +1342,8 @@ section[data-hide-for-now]{ display:none !important; }
 }
 
 /* Add Load stays dashboard-green with white type */
-.loadout-add-btn{
+.loadout-add-btn,
+.ticket-add-btn{
   background:#3B7E46 !important;
   color:#fff !important;
   -webkit-text-fill-color:#fff !important;
@@ -1519,10 +1522,19 @@ section[data-hide-for-now]{ display:none !important; }
 
   <header class="grain-section-head grain-ticket-head">
     <div class="grain-section-icon" aria-hidden="true">🎟️</div>
+
     <div>
       <strong>Grain Tickets</strong>
       <div class="grain-section-sub">Recent scanned and entered tickets</div>
     </div>
+
+    <button
+      id="add-scale-ticket-btn"
+      type="button"
+      class="ticket-add-btn"
+    >
+      + Add Scale Ticket
+    </button>
   </header>
 
 
@@ -2300,6 +2312,12 @@ section[data-hide-for-now]{ display:none !important; }
     document.getElementById(
       "ticket-today-bushels"
     );
+const addScaleTicketBtn =
+    document.getElementById(
+      "add-scale-ticket-btn"
+    );
+
+
 const filterButtons =
     Array.from(
       document.querySelectorAll(
@@ -2314,6 +2332,17 @@ const filterButtons =
 
   let activeFilter =
     "all";
+
+
+  addScaleTicketBtn?.addEventListener(
+    "click",
+    () => {
+
+      window.location.href =
+        "/Farm-vista/pages/grain/grain-ticket-add.html";
+
+    }
+  );
 
 
   function todayISO() {
@@ -2544,14 +2573,17 @@ const filterButtons =
        2) scanValid !== false
        3) netBushels > 0
        4) a real load-out is linked
-       5) that load-out has a real contractId
-       6) that load-out has a grain source
+       5) a real contract is available on the verified ticket,
+          with the linked load-out used only as fallback
+       6) a valid grain source is available on the verified ticket,
+          with the linked load-out used only as fallback
        7) this ticket has not already been posted
 
      Posting does two separate accounting jobs:
-       • Contract: full ticket net bushels are delivered.
-       • Inventory: removes as much as the estimated source has
-         available, but never drives estimated inventory negative.
+       • Contract: full verified-ticket net bushels are delivered.
+       • Inventory: uses the FINAL VERIFIED TICKET grain source first,
+         so review corrections to bin/bag source control accounting.
+         The linked load-out is only the fallback source.
 
      A deterministic document in grain_ticket_postings prevents
      ordinary refresh/reload duplication. If firebase-init exports
@@ -2794,62 +2826,173 @@ const filterButtons =
     load
   ) {
 
+    /*
+      FINAL VERIFIED TICKET WINS.
+
+      The Grain Ticket Detail page can correct the assigned contract.
+      Once verified, that ticket value is the accounting source of truth.
+      The linked load-out is only a fallback when the ticket does not yet
+      carry its own contract ID.
+    */
     return postingClean(
-      load?.contractId ||
       ticket?.contractId ||
-      ticket?.grainContractId
+      ticket?.grainContractId ||
+      load?.contractId
     );
+
+  }
+
+
+  function postingResolvedSource(
+    ticket,
+    load
+  ) {
+
+    /*
+      FINAL VERIFIED TICKET WINS.
+
+      Grain source can be corrected during ticket review. Automatic
+      accounting must honor those final ticket fields. The linked load-out
+      is used only as a fallback for tickets that were already good and
+      linked before source fields were copied onto the ticket document.
+    */
+    const type =
+      postingNorm(
+        ticket?.grainSourceType ||
+        load?.grainSourceType
+      );
+
+
+    const ticketHasBinIndex =
+      ticket?.grainSourceBinIndex !== undefined &&
+      ticket?.grainSourceBinIndex !== null &&
+      ticket?.grainSourceBinIndex !== "";
+
+
+    const ticketHasBinNumber =
+      ticket?.grainSourceBinNumber !== undefined &&
+      ticket?.grainSourceBinNumber !== null &&
+      ticket?.grainSourceBinNumber !== "";
+
+
+    return {
+      type,
+
+      value:
+        postingClean(
+          ticket?.grainSourceValue ||
+          load?.grainSourceValue
+        ) ||
+        null,
+
+      id:
+        postingClean(
+          ticket?.grainSourceId ||
+          load?.grainSourceId
+        ) ||
+        null,
+
+      name:
+        postingClean(
+          ticket?.grainSourceName ||
+          load?.grainSourceName
+        ) ||
+        null,
+
+      siteId:
+        postingClean(
+          ticket?.grainSourceSiteId ||
+          load?.grainSourceSiteId
+        ) ||
+        null,
+
+      siteName:
+        postingClean(
+          ticket?.grainSourceSiteName ||
+          load?.grainSourceSiteName
+        ) ||
+        null,
+
+      binIndex:
+        ticketHasBinIndex
+          ? Number(ticket.grainSourceBinIndex)
+          : Number(load?.grainSourceBinIndex),
+
+      binNumber:
+        ticketHasBinNumber
+          ? ticket.grainSourceBinNumber
+          : load?.grainSourceBinNumber ??
+            null,
+
+      fieldId:
+        postingClean(
+          ticket?.grainSourceFieldId ||
+          load?.grainSourceFieldId
+        ) ||
+        null,
+
+      fieldName:
+        postingClean(
+          ticket?.grainSourceFieldName ||
+          load?.grainSourceFieldName
+        ) ||
+        null,
+
+      cropYear:
+        ticket?.grainSourceCropYear ??
+        load?.grainSourceCropYear ??
+        null
+    };
 
   }
 
 
   function postingSourceType(
+    ticket,
     load
   ) {
 
-    return postingNorm(
-      load?.grainSourceType
-    );
+    return postingResolvedSource(
+      ticket,
+      load
+    ).type;
 
   }
 
 
   function postingHasValidSource(
+    ticket,
     load
   ) {
 
-    const type =
-      postingSourceType(
+    const source =
+      postingResolvedSource(
+        ticket,
         load
       );
 
 
     if (
-      type ===
+      source.type ===
       "bin"
     ) {
 
       return !!(
-        postingClean(
-          load.grainSourceSiteId
-        ) &&
-        Number.isFinite(
-          Number(
-            load.grainSourceBinIndex
-          )
-        )
+        postingClean(source.siteId) &&
+        Number.isFinite(Number(source.binIndex)) &&
+        Number(source.binIndex) >= 0
       );
 
     }
 
 
     if (
-      type ===
+      source.type ===
       "grain_bag"
     ) {
 
       return !!postingClean(
-        load.grainSourceId
+        source.id
       );
 
     }
@@ -3284,12 +3427,13 @@ const filterButtons =
 
   async function postingResolveBagPlan(
     load,
-    ticket
+    ticket,
+    source
   ) {
 
     const sourceId =
       postingClean(
-        load.grainSourceId
+        source?.id
       );
 
 
@@ -3672,18 +3816,19 @@ const filterButtons =
 
   async function postingApplyBinFallback(
     load,
-    ticket
+    ticket,
+    source
   ) {
 
     const siteId =
       postingClean(
-        load.grainSourceSiteId
+        source?.siteId
       );
 
 
     const binIndex =
       Number(
-        load.grainSourceBinIndex
+        source?.binIndex
       );
 
 
@@ -3833,7 +3978,7 @@ const filterButtons =
         siteId,
         siteName:
           postingClean(
-            load.grainSourceSiteName
+            source?.siteName
           ) ||
           postingClean(
             data.name
@@ -3843,7 +3988,7 @@ const filterButtons =
         binIndex,
 
         binNum:
-          load.grainSourceBinNumber ??
+          source?.binNumber ??
           bin.num ??
           (
             binIndex +
@@ -3933,7 +4078,8 @@ const filterButtons =
   async function postingApplyBagFallback(
     load,
     ticket,
-    bagPlan
+    bagPlan,
+    source
   ) {
 
     const ticketBushels =
@@ -4023,21 +4169,21 @@ const filterButtons =
           id:
             postingClean(
               bagPlan.data?.field?.id ||
-              load.grainSourceFieldId
+              source?.fieldId
             ) ||
             null,
 
           name:
             postingClean(
               bagPlan.data?.field?.name ||
-              load.grainSourceFieldName
+              source?.fieldName
             ) ||
             null
         },
 
         cropYear:
           bagPlan.data?.cropYear ??
-          load.grainSourceCropYear ??
+          source?.cropYear ??
           null,
 
         crop:
@@ -4087,7 +4233,7 @@ const filterButtons =
           {
             refPutDownId:
               postingClean(
-                load.grainSourceId
+                source?.id
               ),
 
             takeFull:
@@ -4223,6 +4369,7 @@ const filterButtons =
 
     if (
       !postingHasValidSource(
+        ticket,
         load
       )
     ) {
@@ -4330,10 +4477,15 @@ const filterButtons =
     }
 
 
-    const sourceType =
-      postingSourceType(
+    const source =
+      postingResolvedSource(
+        ticket,
         load
       );
+
+
+    const sourceType =
+      source.type;
 
 
     const contractRef =
@@ -4364,7 +4516,8 @@ const filterButtons =
       bagPlan =
         await postingResolveBagPlan(
           load,
-          ticket
+          ticket,
+          source
         );
 
     }
@@ -4469,13 +4622,13 @@ const filterButtons =
 
             const siteId =
               postingClean(
-                load.grainSourceSiteId
+                source.siteId
               );
 
 
             const binIndex =
               Number(
-                load.grainSourceBinIndex
+                source.binIndex
               );
 
 
@@ -4604,7 +4757,7 @@ const filterButtons =
 
                 siteName:
                   postingClean(
-                    load.grainSourceSiteName
+                    source.siteName
                   ) ||
                   postingClean(
                     siteData.name
@@ -4614,7 +4767,7 @@ const filterButtons =
                 binIndex,
 
                 binNum:
-                  load.grainSourceBinNumber ??
+                  source.binNumber ??
                   bin.num ??
                   (
                     binIndex +
@@ -4854,21 +5007,21 @@ const filterButtons =
                   id:
                     postingClean(
                       currentBag?.field?.id ||
-                      load.grainSourceFieldId
+                      source.fieldId
                     ) ||
                     null,
 
                   name:
                     postingClean(
                       currentBag?.field?.name ||
-                      load.grainSourceFieldName
+                      source.fieldName
                     ) ||
                     null
                 },
 
                 cropYear:
                   currentBag?.cropYear ??
-                  load.grainSourceCropYear ??
+                  source.cropYear ??
                   null,
 
                 crop:
@@ -4924,7 +5077,7 @@ const filterButtons =
                   {
                     refPutDownId:
                       postingClean(
-                        load.grainSourceId
+                        source.id
                       ),
 
                     takeFull:
@@ -5087,7 +5240,7 @@ const filterButtons =
 
               sourceName:
                 postingClean(
-                  load.grainSourceName
+                  source.name
                 ) ||
                 null,
 
@@ -5283,7 +5436,8 @@ const filterButtons =
         inventoryResult =
           await postingApplyBinFallback(
             load,
-            ticket
+            ticket,
+            source
           );
 
       }
@@ -5296,7 +5450,8 @@ const filterButtons =
           await postingApplyBagFallback(
             load,
             ticket,
-            bagPlan
+            bagPlan,
+            source
           );
 
       }
@@ -5346,7 +5501,7 @@ const filterButtons =
 
           sourceName:
             postingClean(
-              load.grainSourceName
+              source.name
             ) ||
             null,
 
@@ -5614,6 +5769,7 @@ const filterButtons =
         if (
           !contractId ||
           !postingHasValidSource(
+            ticket,
             load
           )
         ) {
