@@ -1,3138 +1,5191 @@
 // /Farm-vista/js/grain-ticket-add.js
-// Rev: 2026-08-17-grain-ticket-add-v2
-//
 // FarmVista — Manual Grain Ticket Entry
 //
-// MATCHING ORDER:
-// 1. Crop
-// 2. Grain Source
-// 3. Destination / Elevator
-// 4. Sold Under / Customer
-// 5. Contract
-// 6. Ticket Information
-// 7. Bushels
-// 8. Weights
-// 9. Grade Factors
-// 10. Driver
+// Matches the CURRENT grain-ticket-add.html IDs.
 //
-// RULES:
-// - Grain Source must contain the selected crop.
-// - Destination must have an open contract for selected crop.
-// - Sold Under must have an open contract for destination + crop.
-// - Contract must match crop + destination + customer.
-// - Driver is assigned manually on this page.
-// - Gross - Tare must equal Net.
-// - Gross bushels calculated from Net Weight.
-// - Net Bushels must equal Gross Bushels - Shrink.
-// - Duplicate Buyer + Ticket Number is blocked.
+// FLOW:
+// Crop
+// → Grain Source
+// → Destination / Elevator
+// → Sold Under / Customer
+// → Contract
+// → Ticket Information
+// → Bushels
+// → Weights
+// → Grade Factors
+// → Driver
 
 import {
   ready,
+  getAuth,
   getFirestore,
   collection,
   getDocs,
   addDoc,
-  query,
-  orderBy,
-  where,
-  serverTimestamp,
-  getAuth
+  serverTimestamp
 } from "/Farm-vista/js/firebase-init.js";
+
 
 await ready;
 
-const db = getFirestore();
-const auth = getAuth();
 
-const $ = id => document.getElementById(id);
+const db =
+  getFirestore();
 
-/* ============================================================
-   COLLECTIONS
-============================================================ */
 
-const BUYER_COLLECTION = "grain_buyers";
-const CUSTOMER_COLLECTION = "grain_customers";
-const LOCATION_COLLECTION = "grain_delivery_locations";
-const CONTRACT_COLLECTION = "grain_contracts";
-const TICKET_COLLECTION = "grain_tickets";
-const EMPLOYEE_COLLECTION = "employees";
-const SUBCONTRACTOR_COLLECTION = "subcontractors";
-const GRAIN_INVENTORY_COLLECTION = "grain_inventory";
+const auth =
+  getAuth();
+
+
+const $ =
+  id =>
+    document.getElementById(
+      id
+    );
+
 
 /* ============================================================
    STATE
 ============================================================ */
 
 const state = {
-  user: null,
 
-  buyers: [],
-  customers: [],
-  deliveryLocations: [],
-  contracts: [],
-  grainInventory: [],
+  user:
+    null,
 
-  employeeDrivers: [],
-  subcontractorDrivers: [],
-  drivers: [],
+  buyers:
+    [],
 
-  selectedSource: null,
-  selectedBuyer: null,
-  selectedCustomer: null,
-  selectedDeliveryLocation: null,
-  selectedContract: null,
-  selectedDriver: null,
+  customers:
+    [],
 
-  saving: false
+  locations:
+    [],
+
+  contracts:
+    [],
+
+  binSources:
+    [],
+
+  bagSources:
+    [],
+
+  employeeDrivers:
+    [],
+
+  subcontractors:
+    [],
+
+  selectedSource:
+    null,
+
+  selectedBuyer:
+    null,
+
+  selectedLocation:
+    null,
+
+  selectedCustomer:
+    null,
+
+  selectedContract:
+    null,
+
+  selectedDriver:
+    null,
+
+  saving:
+    false
+
 };
 
-/* ============================================================
-   LIMITS
-============================================================ */
-
-const LIMITS = {
-  grossWeight: {
-    min: 30000,
-    max: 110000
-  },
-
-  tareWeight: {
-    min: 20000,
-    max: 40000
-  },
-
-  netWeight: {
-    min: 1000,
-    max: 80000
-  },
-
-  testWeight: {
-    min: 30,
-    max: 70
-  },
-
-  moisture: {
-    min: 5,
-    max: 40
-  },
-
-  damage: {
-    min: 0,
-    max: 30
-  },
-
-  foreignMaterial: {
-    min: 0,
-    max: 30
-  }
-};
 
 /* ============================================================
    ELEMENTS
 ============================================================ */
 
-const elements = {
-  form: $("grain-ticket-form"),
-  message: $("message"),
+const el = {
 
-  crop: $("crop"),
+  form:
+    $("ticketForm"),
 
-  sourceLookup: $("source-lookup"),
-  sourceSearch: $("source-search"),
-  sourceId: $("source-id"),
-  sourceName: $("source-name"),
-  sourceType: $("source-type"),
-  sourceMenu: $("source-menu"),
+  backBtn:
+    $("backBtn"),
 
-  buyerLookup: $("buyer-lookup"),
-  buyerSearch: $("buyer-search"),
-  buyerId: $("buyer-id"),
-  buyerName: $("buyer-name"),
-  buyerMenu: $("buyer-menu"),
+  cancelBtn:
+    $("cancelBtn"),
 
-  locationLookup: $("delivery-location-lookup"),
-  locationSearch: $("delivery-location-search"),
-  locationId: $("delivery-location-id"),
-  locationMenu: $("delivery-location-menu"),
+  saveBtn:
+    $("saveBtn"),
 
-  customerLookup: $("customer-lookup"),
-  customerSearch: $("customer-search"),
-  customerId: $("customer-id"),
-  customerName: $("customer-name"),
-  customerMenu: $("customer-menu"),
+  message:
+    $("message"),
 
-  contractLookup: $("contract-lookup"),
-  contractSearch: $("contract-search"),
-  contractId: $("contract-id"),
-  contractNumber: $("contract-number"),
-  contractMenu: $("contract-menu"),
-  contractStatus: $("contract-status"),
 
-  ticketNumber: $("ticket-number"),
-  ticketDate: $("ticket-date"),
+  crop:
+    $("ticketCrop"),
 
-  grossBushels: $("gross-bushels"),
-  shrinkBushels: $("shrink-bushels"),
-  netBushels: $("net-bushels"),
-  bushelCheck: $("bushel-check"),
 
-  grossWeight: $("gross-weight"),
-  tareWeight: $("tare-weight"),
-  netWeight: $("net-weight"),
-  weightCheck: $("weight-check"),
+  sourcePicker:
+    $("grainSourcePicker"),
 
-  testWeight: $("test-weight"),
-  moisture: $("moisture"),
-  damage: $("damage"),
-  foreignMaterial: $("foreign-material"),
+  sourceButton:
+    $("grainSourceButton"),
 
-  driverLookup: $("driver-lookup"),
-  driverSearch: $("driver-search"),
-  driverId: $("driver-id"),
-  driverName: $("driver-name"),
-  driverEmail: $("driver-email"),
-  driverMenu: $("driver-menu"),
+  sourceButtonText:
+    $("grainSourceButtonText"),
 
-  cancelBtn: $("cancel-btn"),
-  saveBtn: $("save-btn")
+  sourceMenu:
+    $("grainSourceMenu"),
+
+  sourceValue:
+    $("grainSourceValue"),
+
+
+  destinationPicker:
+    $("destinationPicker"),
+
+  destinationButton:
+    $("destinationButton"),
+
+  destinationButtonText:
+    $("destinationButtonText"),
+
+  destinationMenu:
+    $("destinationMenu"),
+
+  locationSelect:
+    $("locationSelect"),
+
+  buyerSelect:
+    $("buyerSelect"),
+
+
+  customerPicker:
+    $("customerPicker"),
+
+  customerButton:
+    $("customerButton"),
+
+  customerButtonText:
+    $("customerButtonText"),
+
+  customerMenu:
+    $("customerMenu"),
+
+  customerSelect:
+    $("customerSelect"),
+
+
+  contractSelect:
+    $("contractSelect"),
+
+  contractStatus:
+    $("contractStatus"),
+
+
+  ticketNumber:
+    $("ticketNumber"),
+
+  ticketDate:
+    $("ticketDate"),
+
+
+  grossBushels:
+    $("grossBushels"),
+
+  shrinkBushels:
+    $("shrinkBushels"),
+
+  netBushels:
+    $("netBushels"),
+
+  bushelCheck:
+    $("bushelCheck"),
+
+
+  grossWeight:
+    $("grossWeight"),
+
+  tareWeight:
+    $("tareWeight"),
+
+  netWeight:
+    $("netWeight"),
+
+  weightCheck:
+    $("weightCheck"),
+
+
+  testWeight:
+    $("testWeight"),
+
+  moisture:
+    $("moisture"),
+
+  damage:
+    $("damage"),
+
+  foreignMaterial:
+    $("foreignMaterial"),
+
+
+  driverPicker:
+    $("driverPicker"),
+
+  driverButton:
+    $("driverButton"),
+
+  driverButtonText:
+    $("driverButtonText"),
+
+  driverMenu:
+    $("driverMenu"),
+
+  driverValue:
+    $("driverValue")
+
 };
 
+
 /* ============================================================
-   GENERAL HELPERS
+   BASIC HELPERS
 ============================================================ */
 
-function clean(value) {
-  return String(value ?? "").trim();
+function clean(
+  value
+) {
+
+  return String(
+    value ?? ""
+  )
+    .trim();
+
 }
 
-function normalized(value) {
-  return clean(value).toLowerCase();
+
+function normalize(
+  value
+) {
+
+  return clean(
+    value
+  )
+    .toLowerCase()
+    .replace(
+      /[^a-z0-9]+/g,
+      " "
+    )
+    .replace(
+      /\s+/g,
+      " "
+    )
+    .trim();
+
 }
 
-function cleanNumber(value) {
-  const text = clean(value)
-    .replace(/,/g, "")
-    .replace(/[^\d.-]/g, "");
 
-  if (!text) return null;
+function numberOrNull(
+  value
+) {
 
-  const number = Number(text);
+  if (
+    value === "" ||
+    value === null ||
+    value === undefined
+  ) {
 
-  return Number.isFinite(number)
+    return null;
+
+  }
+
+
+  const number =
+    Number(
+      String(
+        value
+      )
+        .replace(
+          /,/g,
+          ""
+        )
+    );
+
+
+  return Number.isFinite(
+    number
+  )
     ? number
     : null;
+
 }
 
-function formatTwoDecimals(value) {
-  const number = cleanNumber(value);
 
-  if (number === null) return "";
+function localISO(
+  date =
+    new Date()
+) {
 
-  return number.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  });
-}
+  return [
+    date.getFullYear(),
 
-function showMessage(text, type = "") {
-  if (!elements.message) return;
+    String(
+      date.getMonth() +
+      1
+    )
+      .padStart(
+        2,
+        "0"
+      ),
 
-  elements.message.textContent = text;
-  elements.message.className = `message show ${type}`;
-
-  elements.message.scrollIntoView({
-    behavior: "smooth",
-    block: "nearest"
-  });
-}
-
-function clearMessage() {
-  if (!elements.message) return;
-
-  elements.message.textContent = "";
-  elements.message.className = "message";
-}
-
-function formatAddress(location) {
-  const cityState = [
-    location.city,
-    location.state
+    String(
+      date.getDate()
+    )
+      .padStart(
+        2,
+        "0"
+      )
   ]
-    .filter(Boolean)
-    .join(", ");
+    .join(
+      "-"
+    );
 
-  const cityStateZip = [
-    cityState,
-    location.zip
-  ]
-    .filter(Boolean)
-    .join(" ");
+}
+
+
+function formatLocation(
+  location
+) {
+
+  if (
+    !location
+  ) {
+
+    return "";
+
+  }
+
+
+  const cityState =
+    [
+      location.city,
+      location.state
+    ]
+      .filter(
+        Boolean
+      )
+      .join(
+        ", "
+      );
+
+
+  const cityStateZip =
+    [
+      cityState,
+      location.zip
+    ]
+      .filter(
+        Boolean
+      )
+      .join(
+        " "
+      );
+
 
   return [
     location.street,
     cityStateZip
   ]
-    .filter(Boolean)
-    .join(" • ");
+    .filter(
+      Boolean
+    )
+    .join(
+      " • "
+    );
+
 }
 
-function contractIsOpen(contract) {
-  const status = normalized(contract.status);
+
+function displayDriverName(
+  data
+) {
+
+  return clean(
+    data?.fullName ||
+    data?.name ||
+    [
+      data?.firstName,
+      data?.lastName
+    ]
+      .filter(
+        Boolean
+      )
+      .join(
+        " "
+      )
+  );
+
+}
+
+
+function showMessage(
+  text,
+  type =
+    "error"
+) {
 
   if (
-    status === "closed" ||
-    status === "complete" ||
-    status === "completed" ||
-    status === "cancelled" ||
-    status === "canceled" ||
-    status === "archived"
+    !el.message
   ) {
-    return false;
+
+    return;
+
   }
 
-  const remaining =
-    cleanNumber(
-      contract.remainingBushels ??
-      contract.bushelsRemaining ??
-      contract.remaining
-    );
 
-  if (remaining !== null && remaining <= 0) {
-    return false;
-  }
+  el.message.textContent =
+    text;
 
-  return true;
-}
 
-function contractMatchesCrop(contract) {
-  return (
-    normalized(contract.crop) ===
-    normalized(elements.crop?.value)
-  );
-}
+  el.message.className =
+    `message show ${type}`;
 
-function contractMatchesBuyer(contract, buyer) {
-  if (!buyer) return false;
 
-  if (clean(contract.buyerId)) {
-    return clean(contract.buyerId) === buyer.id;
-  }
+  el.message.scrollIntoView({
+    behavior:
+      "smooth",
 
-  return (
-    normalized(contract.buyerName) ===
-    normalized(buyer.name)
-  );
-}
-
-function contractMatchesCustomer(contract, customer) {
-  if (!customer) return false;
-
-  if (clean(contract.customerId)) {
-    return clean(contract.customerId) === customer.id;
-  }
-
-  return (
-    normalized(contract.customerName) ===
-    normalized(customer.name)
-  );
-}
-
-function contractMatchesLocation(contract, location) {
-  if (!location) return false;
-
-  const contractLocationId = clean(
-    contract.deliveryLocationId ||
-    contract.locationId
-  );
-
-  if (contractLocationId) {
-    return contractLocationId === location.id;
-  }
-
-  const contractLocationName = clean(
-    contract.deliveryLocationName ||
-    contract.deliveryLocation ||
-    contract.locationName
-  );
-
-  if (contractLocationName) {
-    return (
-      normalized(contractLocationName) ===
-      normalized(location.locationName)
-    );
-  }
-
-  /*
-    Older contracts may not have a deliveryLocationId.
-    Buyer match is still required elsewhere.
-  */
-  return true;
-}
-
-function remainingBushels(contract) {
-  return cleanNumber(
-    contract.remainingBushels ??
-    contract.bushelsRemaining ??
-    contract.remaining
-  );
-}
-
-/* ============================================================
-   USER
-============================================================ */
-
-async function initializeUser() {
-  let attempts = 0;
-  const maxAttempts = 40;
-
-  return new Promise(resolve => {
-    const checkUser = () => {
-      attempts += 1;
-
-      const user =
-        auth?.currentUser ||
-        null;
-
-      if (user) {
-        state.user = user;
-        resolve(user);
-        return;
-      }
-
-      if (attempts >= maxAttempts) {
-        state.user = null;
-
-        showMessage(
-          "Your FarmVista user account could not be loaded. Refresh the page or sign in again.",
-          "error"
-        );
-
-        resolve(null);
-        return;
-      }
-
-      setTimeout(checkUser, 250);
-    };
-
-    checkUser();
+    block:
+      "nearest"
   });
+
 }
 
+
+function clearMessage() {
+
+  if (
+    !el.message
+  ) {
+
+    return;
+
+  }
+
+
+  el.message.textContent =
+    "";
+
+
+  el.message.className =
+    "message";
+
+}
+
+
+function setCheck(
+  element,
+  ok,
+  text
+) {
+
+  if (
+    !element
+  ) {
+
+    return;
+
+  }
+
+
+  element.className =
+    `check ${ok ? "good" : "warning"}`;
+
+
+  element.textContent =
+    text;
+
+}
+
+
 /* ============================================================
-   FIRESTORE DATA
+   PICKER HELPERS
 ============================================================ */
 
-async function loadData() {
-  const [
-    buyerSnapshot,
-    customerSnapshot,
-    locationSnapshot,
-    contractSnapshot,
-    inventorySnapshot,
-    employeeSnapshot,
-    subcontractorSnapshot
-  ] = await Promise.all([
-    getDocs(
-      query(
-        collection(db, BUYER_COLLECTION),
-        orderBy("name")
-      )
-    ),
+function addSearch(
+  menu,
+  placeholder,
+  value,
+  onInput
+) {
 
-    getDocs(
-      query(
-        collection(db, CUSTOMER_COLLECTION),
-        orderBy("name")
-      )
-    ),
+  const wrap =
+    document.createElement(
+      "div"
+    );
 
-    getDocs(
-      collection(db, LOCATION_COLLECTION)
-    ),
 
-    getDocs(
-      collection(db, CONTRACT_COLLECTION)
-    ),
+  wrap.className =
+    "picker-search-wrap";
 
-    getDocs(
-      collection(db, GRAIN_INVENTORY_COLLECTION)
-    ),
 
-    getDocs(
-      collection(db, EMPLOYEE_COLLECTION)
-    ),
+  const input =
+    document.createElement(
+      "input"
+    );
 
-    getDocs(
-      collection(db, SUBCONTRACTOR_COLLECTION)
-    )
-  ]);
 
-  state.buyers = buyerSnapshot.docs
-    .map(docSnapshot => {
-      const data = docSnapshot.data() || {};
+  input.type =
+    "search";
 
-      return {
-        id: docSnapshot.id,
-        name: clean(data.name)
-      };
-    })
-    .filter(item => item.name);
 
-  state.customers = customerSnapshot.docs
-    .map(docSnapshot => {
-      const data = docSnapshot.data() || {};
+  input.className =
+    "picker-search";
 
-      return {
-        id: docSnapshot.id,
-        name: clean(data.name)
-      };
-    })
-    .filter(item => item.name);
 
-  state.deliveryLocations = locationSnapshot.docs
-    .map(docSnapshot => {
-      const data = docSnapshot.data() || {};
+  input.placeholder =
+    placeholder;
 
-      return {
-        id: docSnapshot.id,
-        buyerId: clean(data.buyerId),
-        buyerName: clean(data.buyerName),
-        locationName: clean(
-          data.locationName ||
-          data.name
-        ),
-        street: clean(data.street),
-        city: clean(data.city),
-        state: clean(data.state),
-        zip: clean(data.zip)
-      };
-    })
-    .filter(item => item.locationName);
 
-  state.contracts = contractSnapshot.docs
-    .map(docSnapshot => ({
-      id: docSnapshot.id,
-      ...docSnapshot.data()
-    }));
+  input.autocomplete =
+    "off";
 
-  state.grainInventory = inventorySnapshot.docs
-    .map(docSnapshot => ({
-      id: docSnapshot.id,
-      ...docSnapshot.data()
-    }));
 
-  /* ========================================================
-     EMPLOYEE DRIVERS
-  ======================================================== */
+  input.value =
+    value;
 
-  state.employeeDrivers = employeeSnapshot.docs
-    .map(docSnapshot => {
-      const data = docSnapshot.data() || {};
 
-      const name = clean(
-        data.fullName ||
-        [
-          data.firstName,
-          data.lastName
-        ]
-          .filter(Boolean)
-          .join(" ")
+  input.addEventListener(
+    "input",
+    () => {
+
+      onInput(
+        input.value
       );
 
-      const roles = Array.isArray(data.roles)
-        ? data.roles.map(normalized)
-        : [normalized(data.role)];
-
-      return {
-        id: docSnapshot.id,
-
-        uid:
-          clean(
-            data.uid ||
-            data.userUid ||
-            data.authUid
-          ) || null,
-
-        name,
-
-        email: clean(data.email),
-
-        type: "employee",
-
-        companyName: "",
-
-        active:
-          data.active !== false &&
-          data.archived !== true,
-
-        isSemiDriver:
-          roles.some(role =>
-            role === "semi driver" ||
-            role === "semi_driver" ||
-            role === "semidriver"
-          )
-      };
-    })
-    .filter(driver =>
-      driver.name &&
-      driver.active &&
-      driver.isSemiDriver
-    );
-
-  /* ========================================================
-     SUBCONTRACTOR DRIVERS
-  ======================================================== */
-
-  state.subcontractorDrivers = [];
-
-  subcontractorSnapshot.docs.forEach(docSnapshot => {
-    const data = docSnapshot.data() || {};
-
-    const service = normalized(
-      data.service ||
-      data.category ||
-      data.type
-    );
-
-    const isTrucking =
-      service === "trucking" ||
-      service.includes("truck");
-
-    if (!isTrucking) return;
-
-    if (
-      data.active === false ||
-      data.archived === true
-    ) {
-      return;
     }
+  );
 
-    const companyName = clean(
-      data.name ||
-      data.companyName
+
+  wrap.appendChild(
+    input
+  );
+
+
+  menu.appendChild(
+    wrap
+  );
+
+
+  return input;
+
+}
+
+
+function addGroup(
+  menu,
+  text
+) {
+
+  const div =
+    document.createElement(
+      "div"
     );
 
-    const drivers =
-      Array.isArray(data.drivers)
-        ? data.drivers
-        : [];
 
-    drivers.forEach((driver, index) => {
-      if (!driver) return;
+  div.className =
+    "picker-group";
 
-      if (
-        driver.active === false ||
-        driver.archived === true
-      ) {
-        return;
-      }
 
-      const name = clean(
-        driver.fullName ||
-        driver.name ||
-        [
-          driver.firstName,
-          driver.lastName
-        ]
-          .filter(Boolean)
-          .join(" ")
+  div.textContent =
+    text;
+
+
+  menu.appendChild(
+    div
+  );
+
+}
+
+
+function addEmpty(
+  menu,
+  text
+) {
+
+  const div =
+    document.createElement(
+      "div"
+    );
+
+
+  div.className =
+    "picker-empty";
+
+
+  div.textContent =
+    text;
+
+
+  menu.appendChild(
+    div
+  );
+
+}
+
+
+function addChoice(
+  menu,
+  {
+    title,
+    sub = "",
+    selected = false,
+    onClick
+  }
+) {
+
+  const button =
+    document.createElement(
+      "button"
+    );
+
+
+  button.type =
+    "button";
+
+
+  button.className =
+    `picker-choice${selected ? " selected" : ""}`;
+
+
+  const titleSpan =
+    document.createElement(
+      "span"
+    );
+
+
+  titleSpan.className =
+    "picker-choice-title";
+
+
+  titleSpan.textContent =
+    title;
+
+
+  button.appendChild(
+    titleSpan
+  );
+
+
+  if (
+    sub
+  ) {
+
+    const subSpan =
+      document.createElement(
+        "span"
       );
 
-      if (!name) return;
 
-      state.subcontractorDrivers.push({
-        id:
-          clean(driver.id) ||
-          `${docSnapshot.id}-${index}`,
+    subSpan.className =
+      "picker-choice-sub";
 
-        uid: null,
 
-        name,
+    subSpan.textContent =
+      sub;
 
-        email: clean(driver.email),
 
-        phone: clean(
-          driver.phone ||
-          driver.cell ||
-          driver.cellPhone
-        ),
+    button.appendChild(
+      subSpan
+    );
 
-        type: "subcontractor",
+  }
 
-        subcontractorId: docSnapshot.id,
 
-        companyName
-      });
-    });
-  });
-
-  state.employeeDrivers.sort((a, b) =>
-    a.name.localeCompare(
-      b.name,
-      undefined,
-      {
-        numeric: true,
-        sensitivity: "base"
-      }
-    )
+  button.addEventListener(
+    "click",
+    onClick
   );
 
-  state.subcontractorDrivers.sort((a, b) =>
-    a.name.localeCompare(
-      b.name,
-      undefined,
-      {
-        numeric: true,
-        sensitivity: "base"
-      }
-    )
+
+  menu.appendChild(
+    button
   );
 
-  state.drivers = [
-    ...state.employeeDrivers,
-    ...state.subcontractorDrivers
+
+  return button;
+
+}
+
+
+function closeMenus(
+  except =
+    null
+) {
+
+  const pairs = [
+
+    [
+      el.sourceButton,
+      el.sourceMenu
+    ],
+
+    [
+      el.destinationButton,
+      el.destinationMenu
+    ],
+
+    [
+      el.customerButton,
+      el.customerMenu
+    ],
+
+    [
+      el.driverButton,
+      el.driverMenu
+    ]
+
   ];
 
-  renderSourceOptions("");
-  renderBuyerOptions("");
-  renderCustomerOptions("");
-  renderDeliveryLocationOptions("");
-  renderContractOptions("");
-  renderDriverOptions("");
+
+  pairs.forEach(
+    (
+      [
+        button,
+        menu
+      ]
+    ) => {
+
+      if (
+        !menu
+      ) {
+
+        return;
+
+      }
+
+
+      if (
+        menu !==
+        except
+      ) {
+
+        menu.classList.remove(
+          "open"
+        );
+
+
+        button?.setAttribute(
+          "aria-expanded",
+          "false"
+        );
+
+      }
+
+    }
+  );
+
 }
+
+
+function openMenu(
+  button,
+  menu,
+  render
+) {
+
+  if (
+    !button ||
+    !menu ||
+    button.disabled
+  ) {
+
+    return;
+
+  }
+
+
+  if (
+    menu.classList.contains(
+      "open"
+    )
+  ) {
+
+    closeMenus();
+
+    return;
+
+  }
+
+
+  closeMenus(
+    menu
+  );
+
+
+  render(
+    ""
+  );
+
+
+  menu.classList.add(
+    "open"
+  );
+
+
+  button.setAttribute(
+    "aria-expanded",
+    "true"
+  );
+
+
+  setTimeout(
+    () => {
+
+      menu
+        .querySelector(
+          ".picker-search"
+        )
+        ?.focus();
+
+    },
+    0
+  );
+
+}
+
+
+function refocus(
+  menu,
+  value
+) {
+
+  const replacement =
+    menu.querySelector(
+      ".picker-search"
+    );
+
+
+  replacement?.focus();
+
+
+  replacement?.setSelectionRange(
+    value.length,
+    value.length
+  );
+
+}
+
+
+/* ============================================================
+   CONTRACT RULES
+============================================================ */
+
+function contractIsOpen(
+  contract
+) {
+
+  if (
+    contract?.isActive ===
+      false ||
+    contract?.active ===
+      false
+  ) {
+
+    return false;
+
+  }
+
+
+  const status =
+    normalize(
+      contract?.status ||
+      contract?.contractStatus
+    );
+
+
+  if (
+    status.includes(
+      "closed"
+    ) ||
+    status.includes(
+      "complete"
+    ) ||
+    status.includes(
+      "cancel"
+    ) ||
+    status.includes(
+      "void"
+    )
+  ) {
+
+    return false;
+
+  }
+
+
+  const remaining =
+    [
+      contract?.remainingBushels,
+      contract?.bushelsRemaining,
+      contract?.remainingBu,
+      contract?.openBushels
+    ]
+      .find(
+        value =>
+          value !==
+            undefined &&
+          value !==
+            null &&
+          value !==
+            ""
+      );
+
+
+  if (
+    remaining !==
+      undefined &&
+    Number.isFinite(
+      Number(
+        remaining
+      )
+    ) &&
+    Number(
+      remaining
+    ) <=
+      0
+  ) {
+
+    return false;
+
+  }
+
+
+  return true;
+
+}
+
+
+function contractCustomerId(
+  contract
+) {
+
+  return clean(
+    contract?.customerId ||
+    contract?.grainCustomerId
+  );
+
+}
+
+
+function contractCrop(
+  contract
+) {
+
+  return normalize(
+    contract?.crop ||
+    contract?.commodity
+  );
+
+}
+
+
+function contractBuyerId(
+  contract
+) {
+
+  return clean(
+    contract?.buyerId ||
+    contract?.grainBuyerId
+  );
+
+}
+
+
+function contractLocationId(
+  contract
+) {
+
+  return clean(
+    contract?.deliveryLocationId ||
+    contract?.locationId ||
+    contract?.destinationId
+  );
+
+}
+
+
+function contractMatchesLocation(
+  contract,
+  location
+) {
+
+  if (
+    !contract ||
+    !location
+  ) {
+
+    return false;
+
+  }
+
+
+  const id =
+    contractLocationId(
+      contract
+    );
+
+
+  if (
+    id
+  ) {
+
+    return (
+      id ===
+      clean(
+        location.id
+      )
+    );
+
+  }
+
+
+  const buyerId =
+    contractBuyerId(
+      contract
+    );
+
+
+  const buyerMatches =
+    !buyerId ||
+    buyerId ===
+      clean(
+        location.buyerId
+      );
+
+
+  const locationName =
+    normalize(
+      contract?.deliveryLocationName ||
+      contract?.locationName ||
+      contract?.destinationName
+    );
+
+
+  return (
+    buyerMatches &&
+    !!locationName &&
+    locationName ===
+      normalize(
+        location.locationName
+      )
+  );
+
+}
+
+
+function openContracts() {
+
+  return state.contracts.filter(
+    contractIsOpen
+  );
+
+}
+
+
+function contractsForSelectedCrop() {
+
+  const crop =
+    normalize(
+      el.crop.value
+    );
+
+
+  if (
+    !crop
+  ) {
+
+    return [];
+
+  }
+
+
+  return openContracts()
+    .filter(
+      contract =>
+        contractCrop(
+          contract
+        ) ===
+        crop
+    );
+
+}
+
+
+function contractsForDestination() {
+
+  const location =
+    state.locations.find(
+      item =>
+        item.id ===
+        el.locationSelect.value
+    ) ||
+    null;
+
+
+  if (
+    !location
+  ) {
+
+    return [];
+
+  }
+
+
+  return contractsForSelectedCrop()
+    .filter(
+      contract =>
+        contractMatchesLocation(
+          contract,
+          location
+        )
+    );
+
+}
+
+
+function contractsForCustomer() {
+
+  const customerId =
+    clean(
+      el.customerSelect.value
+    );
+
+
+  if (
+    !customerId
+  ) {
+
+    return [];
+
+  }
+
+
+  return contractsForDestination()
+    .filter(
+      contract =>
+        contractCustomerId(
+          contract
+        ) ===
+        customerId
+    );
+
+}
+
+
+function matchingContracts() {
+
+  if (
+    !el.crop.value ||
+    !state.selectedSource ||
+    !state.selectedLocation ||
+    !state.selectedCustomer
+  ) {
+
+    return [];
+
+  }
+
+
+  return contractsForCustomer()
+    .sort(
+      (
+        a,
+        b
+      ) =>
+        clean(
+          a.contractNumber ||
+          a.number
+        )
+          .localeCompare(
+            clean(
+              b.contractNumber ||
+              b.number
+            ),
+            undefined,
+            {
+              numeric:
+                true,
+
+              sensitivity:
+                "base"
+            }
+          )
+    );
+
+}
+
+
+function contractLabel(
+  contract
+) {
+
+  const number =
+    clean(
+      contract?.contractNumber ||
+      contract?.number ||
+      contract?.contractNo ||
+      contract?.referenceNumber
+    ) ||
+    "Contract";
+
+
+  const remainingRaw =
+    contract?.remainingBushels ??
+    contract?.bushelsRemaining ??
+    contract?.remainingBu ??
+    contract?.openBushels ??
+    null;
+
+
+  const remaining =
+    remainingRaw !==
+      null &&
+    remainingRaw !==
+      "" &&
+    Number.isFinite(
+      Number(
+        remainingRaw
+      )
+    )
+      ? ` • ${Number(
+          remainingRaw
+        ).toLocaleString(
+          "en-US",
+          {
+            maximumFractionDigits:
+              2
+          }
+        )} bu left`
+      : "";
+
+
+  return `${number}${remaining}`;
+
+}
+
 
 /* ============================================================
    GRAIN SOURCE
 ============================================================ */
 
-function inventoryCrop(item) {
-  return clean(
-    item.crop ||
-    item.cropName ||
-    item.grainType
-  );
+function allSources() {
+
+  return [
+    ...state.binSources,
+    ...state.bagSources
+  ];
+
 }
 
-function inventoryBushels(item) {
-  return cleanNumber(
-    item.bushels ??
-    item.currentBushels ??
-    item.quantityBushels ??
-    item.inventoryBushels ??
-    item.estimatedBushels
-  );
+
+function sourceFromValue(
+  value
+) {
+
+  return allSources()
+    .find(
+      item =>
+        item.value ===
+        value
+    ) ||
+    null;
+
 }
 
-function sourceDisplayName(item) {
-  const site = clean(
-    item.siteName ||
-    item.farmName ||
-    item.locationName
-  );
 
-  const source = clean(
-    item.binName ||
-    item.bagName ||
-    item.sourceName ||
-    item.name
-  );
+function currentSources() {
 
-  if (site && source) {
-    return `${site} • ${source}`;
-  }
+  const crop =
+    normalize(
+      el.crop.value
+    );
 
-  return source || site || "Grain Source";
-}
-
-function sourceType(item) {
-  const explicit = normalized(
-    item.sourceType ||
-    item.type ||
-    item.storageType
-  );
-
-  if (explicit.includes("bag")) {
-    return "bag";
-  }
-
-  if (explicit.includes("bin")) {
-    return "bin";
-  }
 
   if (
-    item.bagId ||
-    item.bagName
+    !crop
   ) {
-    return "bag";
+
+    return [];
+
   }
 
-  return "bin";
+
+  return allSources()
+    .filter(
+      item =>
+        clean(
+          item.crop
+        ) &&
+        normalize(
+          item.crop
+        ) ===
+        crop
+    );
+
 }
 
-function availableSources() {
-  const crop = normalized(
-    elements.crop?.value
-  );
 
-  if (!crop) return [];
+function syncSource() {
 
-  return state.grainInventory
-    .filter(item =>
-      normalized(inventoryCrop(item)) === crop
+  state.selectedSource =
+    sourceFromValue(
+      el.sourceValue.value
+    );
+
+
+  el.sourceButtonText.textContent =
+    state.selectedSource?.label ||
+    (
+      el.crop.value
+        ? "Select bin or grain bag"
+        : "Select crop first"
+    );
+
+}
+
+
+function renderSource(
+  searchText =
+    ""
+) {
+
+  const search =
+    normalize(
+      searchText
+    );
+
+
+  el.sourceMenu.innerHTML =
+    "";
+
+
+  const ready =
+    !!normalize(
+      el.crop.value
+    );
+
+
+  el.sourceButton.disabled =
+    !ready;
+
+
+  if (
+    !ready
+  ) {
+
+    el.sourceValue.value =
+      "";
+
+
+    state.selectedSource =
+      null;
+
+
+    el.sourceButtonText.textContent =
+      "Select crop first";
+
+
+    addEmpty(
+      el.sourceMenu,
+      "Select a crop first."
+    );
+
+
+    return;
+
+  }
+
+
+  const items =
+    currentSources();
+
+
+  if (
+    el.sourceValue.value &&
+    !items.some(
+      item =>
+        item.value ===
+        el.sourceValue.value
     )
-    .filter(item => {
-      const bushels = inventoryBushels(item);
-
-      /*
-        If inventory quantity exists, it must be > 0.
-        Older records without quantity are still allowed.
-      */
-      return (
-        bushels === null ||
-        bushels > 0
-      );
-    });
-}
-
-function setupSourcePicker() {
-  if (!elements.sourceSearch) return;
-
-  elements.sourceSearch.addEventListener(
-    "focus",
-    () => {
-      if (!elements.crop.value) return;
-
-      elements.sourceLookup.classList.add("open");
-
-      renderSourceOptions(
-        elements.sourceSearch.value
-      );
-    }
-  );
-
-  elements.sourceSearch.addEventListener(
-    "input",
-    () => {
-      if (
-        state.selectedSource &&
-        elements.sourceSearch.value !==
-          sourceDisplayName(state.selectedSource)
-      ) {
-        clearSourceSelection(false);
-      }
-
-      elements.sourceLookup.classList.add("open");
-
-      renderSourceOptions(
-        elements.sourceSearch.value
-      );
-    }
-  );
-}
-
-function renderSourceOptions(searchText) {
-  if (!elements.sourceMenu) return;
-
-  elements.sourceMenu.innerHTML = "";
-
-  if (!elements.crop?.value) {
-    const empty = document.createElement("div");
-
-    empty.className = "lookup-empty";
-    empty.textContent = "Select Crop first.";
-
-    elements.sourceMenu.appendChild(empty);
-    return;
-  }
-
-  const search = normalized(searchText);
-
-  const filtered = availableSources()
-    .filter(item => {
-      const combined = [
-        sourceDisplayName(item),
-        inventoryCrop(item),
-        sourceType(item)
-      ].join(" ");
-
-      return (
-        !search ||
-        normalized(combined).includes(search)
-      );
-    });
-
-  if (!filtered.length) {
-    const empty = document.createElement("div");
-
-    empty.className = "lookup-empty";
-    empty.textContent =
-      "No grain sources with this crop were found.";
-
-    elements.sourceMenu.appendChild(empty);
-    return;
-  }
-
-  filtered.forEach(item => {
-    const button = document.createElement("button");
-
-    button.type = "button";
-    button.className = "lookup-option";
-
-    const title = document.createElement("span");
-
-    title.className = "lookup-option-title";
-    title.textContent = sourceDisplayName(item);
-
-    const sub = document.createElement("span");
-
-    sub.className = "lookup-option-sub";
-
-    const bushels = inventoryBushels(item);
-
-    sub.textContent = [
-      sourceType(item) === "bag"
-        ? "Grain Bag"
-        : "Grain Bin",
-
-      bushels !== null
-        ? `${bushels.toLocaleString("en-US", {
-            maximumFractionDigits: 2
-          })} bu`
-        : ""
-    ]
-      .filter(Boolean)
-      .join(" • ");
-
-    button.appendChild(title);
-    button.appendChild(sub);
-
-    button.addEventListener(
-      "click",
-      () => selectSource(item)
-    );
-
-    elements.sourceMenu.appendChild(button);
-  });
-}
-
-function selectSource(item) {
-  state.selectedSource = item;
-
-  elements.sourceSearch.value =
-    sourceDisplayName(item);
-
-  if (elements.sourceId) {
-    elements.sourceId.value = item.id;
-  }
-
-  if (elements.sourceName) {
-    elements.sourceName.value =
-      sourceDisplayName(item);
-  }
-
-  if (elements.sourceType) {
-    elements.sourceType.value =
-      sourceType(item);
-  }
-
-  elements.sourceSearch.setCustomValidity("");
-
-  elements.sourceLookup.classList.remove("open");
-}
-
-function clearSourceSelection(clearText = true) {
-  state.selectedSource = null;
-
-  if (elements.sourceId) {
-    elements.sourceId.value = "";
-  }
-
-  if (elements.sourceName) {
-    elements.sourceName.value = "";
-  }
-
-  if (elements.sourceType) {
-    elements.sourceType.value = "";
-  }
-
-  if (clearText && elements.sourceSearch) {
-    elements.sourceSearch.value = "";
-  }
-}
-
-/* ============================================================
-   DESTINATION / BUYER
-============================================================ */
-
-function availableBuyers() {
-  const crop = elements.crop?.value;
-
-  if (!crop) return [];
-
-  const allowedBuyerIds = new Set();
-
-  state.contracts.forEach(contract => {
-    if (
-      !contractIsOpen(contract) ||
-      !contractMatchesCrop(contract)
-    ) {
-      return;
-    }
-
-    const buyerId = clean(contract.buyerId);
-
-    if (buyerId) {
-      allowedBuyerIds.add(buyerId);
-    }
-  });
-
-  return state.buyers.filter(buyer =>
-    allowedBuyerIds.has(buyer.id)
-  );
-}
-
-function setupBuyerPicker() {
-  elements.buyerSearch.addEventListener(
-    "focus",
-    () => {
-      if (!elements.crop.value) return;
-
-      elements.buyerLookup.classList.add("open");
-
-      renderBuyerOptions(
-        elements.buyerSearch.value
-      );
-    }
-  );
-
-  elements.buyerSearch.addEventListener(
-    "input",
-    () => {
-      if (
-        state.selectedBuyer &&
-        elements.buyerSearch.value !==
-          state.selectedBuyer.name
-      ) {
-        clearBuyerSelection(false);
-      }
-
-      elements.buyerLookup.classList.add("open");
-
-      renderBuyerOptions(
-        elements.buyerSearch.value
-      );
-    }
-  );
-}
-
-function renderBuyerOptions(searchText) {
-  elements.buyerMenu.innerHTML = "";
-
-  if (!elements.crop.value) {
-    const empty = document.createElement("div");
-
-    empty.className = "lookup-empty";
-    empty.textContent = "Select Crop first.";
-
-    elements.buyerMenu.appendChild(empty);
-    return;
-  }
-
-  const search = normalized(searchText);
-
-  const filtered = availableBuyers()
-    .filter(buyer =>
-      !search ||
-      normalized(buyer.name).includes(search)
-    );
-
-  if (!filtered.length) {
-    const empty = document.createElement("div");
-
-    empty.className = "lookup-empty";
-    empty.textContent =
-      "No destinations have an open contract for this crop.";
-
-    elements.buyerMenu.appendChild(empty);
-    return;
-  }
-
-  filtered.forEach(buyer => {
-    const button = document.createElement("button");
-
-    button.type = "button";
-    button.className = "lookup-option";
-    button.textContent = buyer.name;
-
-    button.addEventListener(
-      "click",
-      () => selectBuyer(buyer)
-    );
-
-    elements.buyerMenu.appendChild(button);
-  });
-}
-
-function selectBuyer(buyer) {
-  state.selectedBuyer = buyer;
-
-  elements.buyerSearch.value = buyer.name;
-  elements.buyerId.value = buyer.id;
-  elements.buyerName.value = buyer.name;
-
-  elements.buyerSearch.setCustomValidity("");
-  elements.buyerLookup.classList.remove("open");
-
-  clearDeliveryLocationSelection();
-  clearCustomerSelection();
-  clearContractSelection();
-
-  elements.locationSearch.disabled = false;
-  elements.locationSearch.placeholder =
-    "Search Delivery Location";
-
-  renderDeliveryLocationOptions("");
-}
-
-function clearBuyerSelection(clearText = true) {
-  state.selectedBuyer = null;
-
-  elements.buyerId.value = "";
-  elements.buyerName.value = "";
-
-  if (clearText) {
-    elements.buyerSearch.value = "";
-  }
-
-  clearDeliveryLocationSelection();
-  clearCustomerSelection();
-  clearContractSelection();
-
-  elements.locationSearch.value = "";
-  elements.locationSearch.disabled = true;
-  elements.locationSearch.placeholder =
-    "Select Destination first";
-
-  elements.customerSearch.value = "";
-  elements.customerSearch.disabled = true;
-
-  if (elements.contractSearch) {
-    elements.contractSearch.value = "";
-    elements.contractSearch.disabled = true;
-  }
-}
-
-/* ============================================================
-   DELIVERY LOCATION
-============================================================ */
-
-function availableDeliveryLocations() {
-  if (
-    !state.selectedBuyer ||
-    !elements.crop.value
   ) {
-    return [];
+
+    el.sourceValue.value =
+      "";
+
+
+    state.selectedSource =
+      null;
+
   }
 
-  return state.deliveryLocations.filter(location => {
-    if (
-      location.buyerId &&
-      location.buyerId !== state.selectedBuyer.id
-    ) {
-      return false;
-    }
 
-    return state.contracts.some(contract =>
-      contractIsOpen(contract) &&
-      contractMatchesCrop(contract) &&
-      contractMatchesBuyer(
-        contract,
-        state.selectedBuyer
-      ) &&
-      contractMatchesLocation(
-        contract,
-        location
-      )
-    );
-  });
-}
+  addSearch(
+    el.sourceMenu,
+    "Search matching bin site, bin, or field…",
+    searchText,
+    value => {
 
-function setupDeliveryLocationPicker() {
-  elements.locationSearch.addEventListener(
-    "focus",
-    () => {
-      if (!state.selectedBuyer) return;
-
-      elements.locationLookup.classList.add("open");
-
-      renderDeliveryLocationOptions(
-        elements.locationSearch.value
+      renderSource(
+        value
       );
+
+
+      refocus(
+        el.sourceMenu,
+        value
+      );
+
     }
   );
 
-  elements.locationSearch.addEventListener(
-    "input",
-    () => {
-      if (!state.selectedBuyer) return;
 
-      if (
-        state.selectedDeliveryLocation &&
-        elements.locationSearch.value !==
-          state.selectedDeliveryLocation.locationName
-      ) {
-        clearDeliveryLocationSelection(false);
-      }
-
-      elements.locationLookup.classList.add("open");
-
-      renderDeliveryLocationOptions(
-        elements.locationSearch.value
-      );
-    }
-  );
-}
-
-function renderDeliveryLocationOptions(searchText) {
-  elements.locationMenu.innerHTML = "";
-
-  if (!state.selectedBuyer) {
-    const empty = document.createElement("div");
-
-    empty.className = "lookup-empty";
-    empty.textContent = "Select Destination first.";
-
-    elements.locationMenu.appendChild(empty);
-    return;
-  }
-
-  const search = normalized(searchText);
-
-  const filtered = availableDeliveryLocations()
-    .filter(location => {
-      const combined = [
-        location.locationName,
-        location.street,
-        location.city,
-        location.state,
-        location.zip
-      ].join(" ");
-
-      return (
+  const filtered =
+    items.filter(
+      item =>
         !search ||
-        normalized(combined).includes(search)
-      );
-    });
-
-  if (!filtered.length) {
-    const empty = document.createElement("div");
-
-    empty.className = "lookup-empty";
-    empty.textContent =
-      "No delivery locations with an open matching contract.";
-
-    elements.locationMenu.appendChild(empty);
-    return;
-  }
-
-  filtered.forEach(location => {
-    const button = document.createElement("button");
-
-    button.type = "button";
-    button.className = "lookup-option";
-
-    const title = document.createElement("span");
-
-    title.className = "lookup-option-title";
-    title.textContent = location.locationName;
-
-    const sub = document.createElement("span");
-
-    sub.className = "lookup-option-sub";
-    sub.textContent = formatAddress(location);
-
-    button.appendChild(title);
-
-    if (sub.textContent) {
-      button.appendChild(sub);
-    }
-
-    button.addEventListener(
-      "click",
-      () => selectDeliveryLocation(location)
+        normalize(
+          `${item.label} ${item.searchText || ""}`
+        )
+          .includes(
+            search
+          )
     );
 
-    elements.locationMenu.appendChild(button);
-  });
-}
 
-function selectDeliveryLocation(location) {
-  state.selectedDeliveryLocation = location;
+  const bins =
+    filtered.filter(
+      item =>
+        item.type ===
+        "bin"
+    );
 
-  elements.locationSearch.value =
-    location.locationName;
 
-  elements.locationId.value =
-    location.id;
+  const bags =
+    filtered.filter(
+      item =>
+        item.type ===
+        "grain_bag"
+    );
 
-  elements.locationSearch.setCustomValidity("");
-  elements.locationLookup.classList.remove("open");
 
-  clearCustomerSelection();
-  clearContractSelection();
+  if (
+    bins.length
+  ) {
 
-  elements.customerSearch.disabled = false;
-  elements.customerSearch.placeholder =
-    "Search Customer / Vendor";
+    addGroup(
+      el.sourceMenu,
+      "Bin Sites"
+    );
 
-  renderCustomerOptions("");
-}
 
-function clearDeliveryLocationSelection(
-  clearText = true
-) {
-  state.selectedDeliveryLocation = null;
+    bins.forEach(
+      item => {
 
-  elements.locationId.value = "";
+        addChoice(
+          el.sourceMenu,
+          {
+            title:
+              item.label,
 
-  if (clearText) {
-    elements.locationSearch.value = "";
+            selected:
+              item.value ===
+              el.sourceValue.value,
+
+            onClick:
+              () => {
+
+                chooseSource(
+                  item.value
+                );
+
+              }
+          }
+        );
+
+      }
+    );
+
   }
 
-  clearCustomerSelection();
-  clearContractSelection();
 
-  elements.customerSearch.value = "";
-  elements.customerSearch.disabled = true;
-  elements.customerSearch.placeholder =
-    "Select Delivery Location first";
+  if (
+    bags.length
+  ) {
+
+    addGroup(
+      el.sourceMenu,
+      "Grain Bags"
+    );
+
+
+    bags.forEach(
+      item => {
+
+        addChoice(
+          el.sourceMenu,
+          {
+            title:
+              item.label,
+
+            selected:
+              item.value ===
+              el.sourceValue.value,
+
+            onClick:
+              () => {
+
+                chooseSource(
+                  item.value
+                );
+
+              }
+          }
+        );
+
+      }
+    );
+
+  }
+
+
+  if (
+    !bins.length &&
+    !bags.length
+  ) {
+
+    addEmpty(
+      el.sourceMenu,
+      `No grain source with available ${clean(
+        el.crop.value
+      )} inventory was found.`
+    );
+
+  }
+
+
+  syncSource();
+
 }
+
+
+function chooseSource(
+  value
+) {
+
+  const selected =
+    sourceFromValue(
+      value
+    );
+
+
+  if (
+    !selected ||
+    normalize(
+      selected.crop
+    ) !==
+    normalize(
+      el.crop.value
+    )
+  ) {
+
+    showMessage(
+      "That grain source does not match the selected crop."
+    );
+
+
+    return;
+
+  }
+
+
+  el.sourceValue.value =
+    selected.value;
+
+
+  state.selectedSource =
+    selected;
+
+
+  clearBelowSource();
+
+
+  syncSource();
+
+
+  renderDestination();
+
+
+  renderCustomer();
+
+
+  renderContract();
+
+
+  closeMenus();
+
+
+  clearMessage();
+
+}
+
 
 /* ============================================================
-   SOLD UNDER / CUSTOMER
+   DESTINATION
 ============================================================ */
 
-function availableCustomers() {
-  if (
-    !state.selectedBuyer ||
-    !state.selectedDeliveryLocation ||
-    !elements.crop.value
-  ) {
-    return [];
-  }
+function clearBelowSource() {
 
-  const customerIds = new Set();
+  el.locationSelect.value =
+    "";
 
-  state.contracts.forEach(contract => {
-    if (
-      !contractIsOpen(contract) ||
-      !contractMatchesCrop(contract) ||
-      !contractMatchesBuyer(
-        contract,
-        state.selectedBuyer
-      ) ||
-      !contractMatchesLocation(
-        contract,
-        state.selectedDeliveryLocation
-      )
-    ) {
-      return;
-    }
 
-    const customerId =
-      clean(contract.customerId);
+  el.buyerSelect.value =
+    "";
 
-    if (customerId) {
-      customerIds.add(customerId);
-    }
-  });
 
-  return state.customers.filter(customer =>
-    customerIds.has(customer.id)
-  );
+  state.selectedLocation =
+    null;
+
+
+  state.selectedBuyer =
+    null;
+
+
+  el.customerSelect.value =
+    "";
+
+
+  state.selectedCustomer =
+    null;
+
+
+  el.contractSelect.value =
+    "";
+
+
+  state.selectedContract =
+    null;
+
+
+  syncDestination();
+
+
+  syncCustomer();
+
 }
 
-function setupCustomerPicker() {
-  elements.customerSearch.addEventListener(
-    "focus",
-    () => {
-      if (!state.selectedDeliveryLocation) return;
 
-      elements.customerLookup.classList.add("open");
+function syncDestination() {
 
-      renderCustomerOptions(
-        elements.customerSearch.value
+  state.selectedLocation =
+    state.locations.find(
+      location =>
+        location.id ===
+        el.locationSelect.value
+    ) ||
+    null;
+
+
+  state.selectedBuyer =
+    state.selectedLocation
+      ? (
+          state.buyers.find(
+            buyer =>
+              buyer.id ===
+              state.selectedLocation.buyerId
+          ) ||
+          {
+            id:
+              state.selectedLocation.buyerId,
+
+            name:
+              state.selectedLocation.buyerName
+          }
+        )
+      : null;
+
+
+  el.buyerSelect.value =
+    state.selectedBuyer?.id ||
+    "";
+
+
+  el.destinationButtonText.textContent =
+    state.selectedLocation
+      ? `${
+          state.selectedLocation.buyerName
+            ? `${state.selectedLocation.buyerName} — `
+            : ""
+        }${state.selectedLocation.locationName}`
+      : (
+          state.selectedSource
+            ? "Select destination"
+            : (
+                el.crop.value
+                  ? "Select grain source first"
+                  : "Select crop first"
+              )
+        );
+
+}
+
+
+function renderDestination(
+  searchText =
+    ""
+) {
+
+  const search =
+    normalize(
+      searchText
+    );
+
+
+  el.destinationMenu.innerHTML =
+    "";
+
+
+  const ready =
+    !!normalize(
+      el.crop.value
+    ) &&
+    !!state.selectedSource;
+
+
+  el.destinationButton.disabled =
+    !ready;
+
+
+  if (
+    !ready
+  ) {
+
+    el.locationSelect.value =
+      "";
+
+
+    el.buyerSelect.value =
+      "";
+
+
+    state.selectedLocation =
+      null;
+
+
+    state.selectedBuyer =
+      null;
+
+
+    syncDestination();
+
+
+    addEmpty(
+      el.destinationMenu,
+      el.crop.value
+        ? "Select a grain source first."
+        : "Select a crop first."
+    );
+
+
+    return;
+
+  }
+
+
+  addSearch(
+    el.destinationMenu,
+    "Search matching elevator or location…",
+    searchText,
+    value => {
+
+      renderDestination(
+        value
       );
+
+
+      refocus(
+        el.destinationMenu,
+        value
+      );
+
     }
   );
 
-  elements.customerSearch.addEventListener(
-    "input",
-    () => {
+
+  const cropContracts =
+    contractsForSelectedCrop();
+
+
+  const eligible =
+    state.locations
+      .filter(
+        location =>
+          cropContracts.some(
+            contract =>
+              contractMatchesLocation(
+                contract,
+                location
+              )
+          )
+      );
+
+
+  if (
+    el.locationSelect.value &&
+    !eligible.some(
+      location =>
+        location.id ===
+        el.locationSelect.value
+    )
+  ) {
+
+    el.locationSelect.value =
+      "";
+
+
+    el.buyerSelect.value =
+      "";
+
+
+    state.selectedLocation =
+      null;
+
+
+    state.selectedBuyer =
+      null;
+
+  }
+
+
+  const filtered =
+    eligible
+      .filter(
+        location => {
+
+          if (
+            !search
+          ) {
+
+            return true;
+
+          }
+
+
+          return normalize(
+            [
+              location.buyerName,
+              location.locationName,
+              location.street,
+              location.city,
+              location.state,
+              location.zip
+            ]
+              .filter(
+                Boolean
+              )
+              .join(
+                " "
+              )
+          )
+            .includes(
+              search
+            );
+
+        }
+      );
+
+
+  let lastBuyer =
+    "";
+
+
+  filtered.forEach(
+    location => {
+
+      const buyerName =
+        clean(
+          location.buyerName
+        ) ||
+        "Elevator";
+
+
       if (
-        state.selectedCustomer &&
-        elements.customerSearch.value !==
-          state.selectedCustomer.name
+        buyerName !==
+        lastBuyer
       ) {
-        clearCustomerSelection(false);
+
+        addGroup(
+          el.destinationMenu,
+          buyerName
+        );
+
+
+        lastBuyer =
+          buyerName;
+
       }
 
-      elements.customerLookup.classList.add("open");
 
-      renderCustomerOptions(
-        elements.customerSearch.value
+      addChoice(
+        el.destinationMenu,
+        {
+          title:
+            location.locationName,
+
+          sub:
+            formatLocation(
+              location
+            ),
+
+          selected:
+            location.id ===
+            el.locationSelect.value,
+
+          onClick:
+            () => {
+
+              chooseDestination(
+                location.id
+              );
+
+            }
+        }
       );
+
     }
   );
-}
 
-function renderCustomerOptions(searchText) {
-  elements.customerMenu.innerHTML = "";
 
-  if (!state.selectedDeliveryLocation) {
-    const empty = document.createElement("div");
+  if (
+    !filtered.length
+  ) {
 
-    empty.className = "lookup-empty";
-    empty.textContent =
-      "Select Delivery Location first.";
-
-    elements.customerMenu.appendChild(empty);
-    return;
-  }
-
-  const search = normalized(searchText);
-
-  const filtered = availableCustomers()
-    .filter(customer =>
-      !search ||
-      normalized(customer.name).includes(search)
+    addEmpty(
+      el.destinationMenu,
+      `No destination has an open ${clean(
+        el.crop.value
+      )} contract.`
     );
 
-  if (!filtered.length) {
-    const empty = document.createElement("div");
-
-    empty.className = "lookup-empty";
-    empty.textContent =
-      "No customers have an open contract for this destination and crop.";
-
-    elements.customerMenu.appendChild(empty);
-    return;
   }
 
-  filtered.forEach(customer => {
-    const button = document.createElement("button");
 
-    button.type = "button";
-    button.className = "lookup-option";
-    button.textContent = customer.name;
+  syncDestination();
 
-    button.addEventListener(
-      "click",
-      () => selectCustomer(customer)
-    );
-
-    elements.customerMenu.appendChild(button);
-  });
 }
 
-function selectCustomer(customer) {
-  state.selectedCustomer = customer;
 
-  elements.customerSearch.value = customer.name;
-  elements.customerId.value = customer.id;
-  elements.customerName.value = customer.name;
-
-  elements.customerSearch.setCustomValidity("");
-  elements.customerLookup.classList.remove("open");
-
-  clearContractSelection();
-
-  if (elements.contractSearch) {
-    elements.contractSearch.disabled = false;
-    elements.contractSearch.placeholder =
-      "Search Contract";
-  }
-
-  renderContractOptions("");
-}
-
-function clearCustomerSelection(
-  clearText = true
+function chooseDestination(
+  locationId
 ) {
-  state.selectedCustomer = null;
 
-  elements.customerId.value = "";
-  elements.customerName.value = "";
+  const selected =
+    state.locations.find(
+      location =>
+        location.id ===
+        locationId
+    ) ||
+    null;
 
-  if (clearText) {
-    elements.customerSearch.value = "";
+
+  el.locationSelect.value =
+    selected?.id ||
+    "";
+
+
+  el.buyerSelect.value =
+    selected?.buyerId ||
+    "";
+
+
+  state.selectedLocation =
+    selected;
+
+
+  state.selectedBuyer =
+    selected
+      ? (
+          state.buyers.find(
+            buyer =>
+              buyer.id ===
+              selected.buyerId
+          ) ||
+          {
+            id:
+              selected.buyerId,
+
+            name:
+              selected.buyerName
+          }
+        )
+      : null;
+
+
+  el.customerSelect.value =
+    "";
+
+
+  state.selectedCustomer =
+    null;
+
+
+  el.contractSelect.value =
+    "";
+
+
+  state.selectedContract =
+    null;
+
+
+  syncDestination();
+
+
+  syncCustomer();
+
+
+  renderCustomer();
+
+
+  renderContract();
+
+
+  closeMenus();
+
+
+  clearMessage();
+
+}
+
+
+/* ============================================================
+   CUSTOMER
+============================================================ */
+
+function syncCustomer() {
+
+  state.selectedCustomer =
+    state.customers.find(
+      customer =>
+        customer.id ===
+        el.customerSelect.value
+    ) ||
+    null;
+
+
+  el.customerButtonText.textContent =
+    state.selectedCustomer?.name ||
+    (
+      state.selectedLocation
+        ? "Select customer"
+        : "Select destination first"
+    );
+
+}
+
+
+function renderCustomer(
+  searchText =
+    ""
+) {
+
+  const search =
+    normalize(
+      searchText
+    );
+
+
+  el.customerMenu.innerHTML =
+    "";
+
+
+  const ready =
+    !!state.selectedLocation;
+
+
+  el.customerButton.disabled =
+    !ready;
+
+
+  if (
+    !ready
+  ) {
+
+    el.customerSelect.value =
+      "";
+
+
+    state.selectedCustomer =
+      null;
+
+
+    syncCustomer();
+
+
+    addEmpty(
+      el.customerMenu,
+      "Select a destination first."
+    );
+
+
+    return;
+
   }
 
-  clearContractSelection();
 
-  if (elements.contractSearch) {
-    elements.contractSearch.value = "";
-    elements.contractSearch.disabled = true;
-    elements.contractSearch.placeholder =
+  addSearch(
+    el.customerMenu,
+    "Search matching customer…",
+    searchText,
+    value => {
+
+      renderCustomer(
+        value
+      );
+
+
+      refocus(
+        el.customerMenu,
+        value
+      );
+
+    }
+  );
+
+
+  const eligibleIds =
+    new Set(
+      contractsForDestination()
+        .map(
+          contractCustomerId
+        )
+        .filter(
+          Boolean
+        )
+    );
+
+
+  const customers =
+    state.customers
+      .filter(
+        customer =>
+          eligibleIds.has(
+            customer.id
+          )
+      )
+      .filter(
+        customer =>
+          !search ||
+          normalize(
+            customer.name
+          )
+            .includes(
+              search
+            )
+      );
+
+
+  customers.forEach(
+    customer => {
+
+      addChoice(
+        el.customerMenu,
+        {
+          title:
+            customer.name,
+
+          selected:
+            customer.id ===
+            el.customerSelect.value,
+
+          onClick:
+            () => {
+
+              chooseCustomer(
+                customer.id
+              );
+
+            }
+        }
+      );
+
+    }
+  );
+
+
+  if (
+    !customers.length
+  ) {
+
+    addEmpty(
+      el.customerMenu,
+      "No Sold Under customer has an open contract for this crop and destination."
+    );
+
+  }
+
+
+  syncCustomer();
+
+}
+
+
+function chooseCustomer(
+  id
+) {
+
+  el.customerSelect.value =
+    id;
+
+
+  state.selectedCustomer =
+    state.customers.find(
+      customer =>
+        customer.id ===
+        id
+    ) ||
+    null;
+
+
+  el.contractSelect.value =
+    "";
+
+
+  state.selectedContract =
+    null;
+
+
+  syncCustomer();
+
+
+  renderContract();
+
+
+  closeMenus();
+
+
+  clearMessage();
+
+}
+
+
+/* ============================================================
+   CONTRACT SELECT
+============================================================ */
+
+function renderContract() {
+
+  const matches =
+    matchingContracts();
+
+
+  el.contractSelect.innerHTML =
+    "";
+
+
+  const option =
+    document.createElement(
+      "option"
+    );
+
+
+  option.value =
+    "";
+
+
+  if (
+    !el.crop.value
+  ) {
+
+    el.contractSelect.disabled =
+      true;
+
+
+    option.textContent =
+      "Select crop first";
+
+
+    setCheck(
+      el.contractStatus,
+      false,
+      "Select the crop first."
+    );
+
+  }
+  else if (
+    !state.selectedSource
+  ) {
+
+    el.contractSelect.disabled =
+      true;
+
+
+    option.textContent =
+      "Select grain source first";
+
+
+    setCheck(
+      el.contractStatus,
+      false,
+      "Select a matching bin or grain bag."
+    );
+
+  }
+  else if (
+    !state.selectedLocation
+  ) {
+
+    el.contractSelect.disabled =
+      true;
+
+
+    option.textContent =
+      "Select destination first";
+
+
+    setCheck(
+      el.contractStatus,
+      false,
+      "Select a destination with an open matching contract."
+    );
+
+  }
+  else if (
+    !state.selectedCustomer
+  ) {
+
+    el.contractSelect.disabled =
+      true;
+
+
+    option.textContent =
       "Select Sold Under first";
-  }
-}
 
-/* ============================================================
-   CONTRACT
-============================================================ */
 
-function matchingContracts() {
-  if (
-    !state.selectedBuyer ||
-    !state.selectedDeliveryLocation ||
-    !state.selectedCustomer ||
-    !elements.crop.value
-  ) {
-    return [];
-  }
-
-  return state.contracts.filter(contract =>
-    contractIsOpen(contract) &&
-    contractMatchesCrop(contract) &&
-    contractMatchesBuyer(
-      contract,
-      state.selectedBuyer
-    ) &&
-    contractMatchesLocation(
-      contract,
-      state.selectedDeliveryLocation
-    ) &&
-    contractMatchesCustomer(
-      contract,
-      state.selectedCustomer
-    )
-  );
-}
-
-function contractLabel(contract) {
-  const number = clean(
-    contract.contractNumber ||
-    contract.number
-  );
-
-  const remaining =
-    remainingBushels(contract);
-
-  if (remaining !== null) {
-    return `${number || "Contract"} • ${remaining.toLocaleString(
-      "en-US",
-      {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
-      }
-    )} bu left`;
-  }
-
-  return number || "Contract";
-}
-
-function setupContractPicker() {
-  if (!elements.contractSearch) return;
-
-  elements.contractSearch.addEventListener(
-    "focus",
-    () => {
-      if (!state.selectedCustomer) return;
-
-      elements.contractLookup.classList.add("open");
-
-      renderContractOptions(
-        elements.contractSearch.value
-      );
-    }
-  );
-
-  elements.contractSearch.addEventListener(
-    "input",
-    () => {
-      if (
-        state.selectedContract &&
-        elements.contractSearch.value !==
-          contractLabel(state.selectedContract)
-      ) {
-        clearContractSelection(false);
-      }
-
-      elements.contractLookup.classList.add("open");
-
-      renderContractOptions(
-        elements.contractSearch.value
-      );
-    }
-  );
-}
-
-function renderContractOptions(searchText) {
-  if (!elements.contractMenu) return;
-
-  elements.contractMenu.innerHTML = "";
-
-  if (!state.selectedCustomer) {
-    const empty = document.createElement("div");
-
-    empty.className = "lookup-empty";
-    empty.textContent = "Select Sold Under first.";
-
-    elements.contractMenu.appendChild(empty);
-    return;
-  }
-
-  const search = normalized(searchText);
-
-  const filtered = matchingContracts()
-    .filter(contract => {
-      const combined = [
-        contractLabel(contract),
-        contract.contractNumber,
-        contract.number
-      ].join(" ");
-
-      return (
-        !search ||
-        normalized(combined).includes(search)
-      );
-    });
-
-  if (!filtered.length) {
-    const empty = document.createElement("div");
-
-    empty.className = "lookup-empty";
-    empty.textContent =
-      "No open matching contracts were found.";
-
-    elements.contractMenu.appendChild(empty);
-
-    updateContractStatus();
-    return;
-  }
-
-  filtered.forEach(contract => {
-    const button = document.createElement("button");
-
-    button.type = "button";
-    button.className = "lookup-option";
-
-    const title = document.createElement("span");
-
-    title.className = "lookup-option-title";
-    title.textContent = contractLabel(contract);
-
-    button.appendChild(title);
-
-    button.addEventListener(
-      "click",
-      () => selectContract(contract)
+    setCheck(
+      el.contractStatus,
+      false,
+      "Select who this grain was sold under."
     );
 
-    elements.contractMenu.appendChild(button);
-  });
-
-  updateContractStatus();
-}
-
-function selectContract(contract) {
-  state.selectedContract = contract;
-
-  if (elements.contractSearch) {
-    elements.contractSearch.value =
-      contractLabel(contract);
-
-    elements.contractSearch.setCustomValidity("");
   }
-
-  if (elements.contractId) {
-    elements.contractId.value = contract.id;
-  }
-
-  if (elements.contractNumber) {
-    elements.contractNumber.value =
-      clean(
-        contract.contractNumber ||
-        contract.number
-      );
-  }
-
-  if (elements.contractLookup) {
-    elements.contractLookup.classList.remove("open");
-  }
-
-  updateContractStatus();
-}
-
-function clearContractSelection(
-  clearText = true
-) {
-  state.selectedContract = null;
-
-  if (elements.contractId) {
-    elements.contractId.value = "";
-  }
-
-  if (elements.contractNumber) {
-    elements.contractNumber.value = "";
-  }
-
-  if (
-    clearText &&
-    elements.contractSearch
+  else if (
+    !matches.length
   ) {
-    elements.contractSearch.value = "";
+
+    el.contractSelect.disabled =
+      true;
+
+
+    option.textContent =
+      "No open matching contracts";
+
+
+    setCheck(
+      el.contractStatus,
+      false,
+      "No open contract matches this crop, exact destination, and Sold Under customer."
+    );
+
+  }
+  else {
+
+    el.contractSelect.disabled =
+      false;
+
+
+    option.textContent =
+      matches.length ===
+        1
+          ? "Select contract"
+          : `Select one of ${matches.length} contracts`;
+
+
+    setCheck(
+      el.contractStatus,
+      true,
+      `${matches.length} possible open contract${matches.length === 1 ? "" : "s"}.`
+    );
+
   }
 
-  updateContractStatus();
+
+  el.contractSelect.appendChild(
+    option
+  );
+
+
+  matches.forEach(
+    contract => {
+
+      const contractOption =
+        document.createElement(
+          "option"
+        );
+
+
+      contractOption.value =
+        contract.id;
+
+
+      contractOption.textContent =
+        contractLabel(
+          contract
+        );
+
+
+      el.contractSelect.appendChild(
+        contractOption
+      );
+
+    }
+  );
+
+
+  state.selectedContract =
+    state.contracts.find(
+      contract =>
+        contract.id ===
+        el.contractSelect.value
+    ) ||
+    null;
+
 }
 
-function updateContractStatus() {
-  if (!elements.contractStatus) return;
-
-  elements.contractStatus.className =
-    "contract-status";
-
-  elements.contractStatus.textContent = "";
-
-  if (!state.selectedCustomer) {
-    return;
-  }
-
-  const matches = matchingContracts();
-
-  if (!matches.length) {
-    elements.contractStatus.className =
-      "contract-status warning";
-
-    elements.contractStatus.textContent =
-      "No open contract matches the selected Crop, Destination, Delivery Location, and Sold Under.";
-
-    return;
-  }
-
-  if (!state.selectedContract) {
-    elements.contractStatus.className =
-      "contract-status good";
-
-    elements.contractStatus.textContent =
-      matches.length === 1
-        ? "✓ 1 matching contract available."
-        : `✓ ${matches.length} matching contracts available.`;
-
-    return;
-  }
-
-  elements.contractStatus.className =
-    "contract-status good";
-
-  elements.contractStatus.textContent =
-    `✓ Assigned to ${contractLabel(
-      state.selectedContract
-    )}.`;
-}
 
 /* ============================================================
    DRIVER
 ============================================================ */
 
-function setupDriverPicker() {
-  elements.driverSearch.addEventListener(
-    "focus",
-    () => {
-      elements.driverLookup.classList.add("open");
+function allDriverRows() {
 
-      elements.driverSearch.setAttribute(
-        "aria-expanded",
-        "true"
-      );
+  const rows =
+    [];
 
-      renderDriverOptions(
-        elements.driverSearch.value
-      );
+
+  state.employeeDrivers.forEach(
+    driver => {
+
+      rows.push({
+        ...driver,
+
+        group:
+          "FarmVista Drivers"
+      });
+
     }
   );
 
-  elements.driverSearch.addEventListener(
-    "input",
-    () => {
+
+  state.subcontractors.forEach(
+    subcontractor => {
+
+      subcontractor.drivers.forEach(
+        driver => {
+
+          rows.push({
+
+            type:
+              "subcontractor",
+
+            value:
+              `sub:${subcontractor.id}:${driver.id}`,
+
+            id:
+              driver.id,
+
+            uid:
+              null,
+
+            name:
+              driver.name,
+
+            email:
+              "",
+
+            phone:
+              driver.phone ||
+              "",
+
+            subcontractorId:
+              subcontractor.id,
+
+            subcontractorName:
+              subcontractor.company,
+
+            group:
+              `Subcontractor — ${subcontractor.company}`
+
+          });
+
+        }
+      );
+
+    }
+  );
+
+
+  return rows;
+
+}
+
+
+function driverFromValue(
+  value
+) {
+
+  return allDriverRows()
+    .find(
+      driver =>
+        driver.value ===
+        value
+    ) ||
+    null;
+
+}
+
+
+function syncDriver() {
+
+  state.selectedDriver =
+    driverFromValue(
+      el.driverValue.value
+    );
+
+
+  el.driverButtonText.textContent =
+    state.selectedDriver?.name ||
+    "Select driver";
+
+}
+
+
+function renderDriver(
+  searchText =
+    ""
+) {
+
+  const search =
+    normalize(
+      searchText
+    );
+
+
+  el.driverMenu.innerHTML =
+    "";
+
+
+  addSearch(
+    el.driverMenu,
+    "Search driver…",
+    searchText,
+    value => {
+
+      renderDriver(
+        value
+      );
+
+
+      refocus(
+        el.driverMenu,
+        value
+      );
+
+    }
+  );
+
+
+  const rows =
+    allDriverRows()
+      .filter(
+        driver =>
+          !search ||
+          normalize(
+            `${driver.name} ${driver.email || ""} ${driver.subcontractorName || ""}`
+          )
+            .includes(
+              search
+            )
+      );
+
+
+  let lastGroup =
+    "";
+
+
+  rows.forEach(
+    driver => {
+
       if (
-        state.selectedDriver &&
-        elements.driverSearch.value !==
-          state.selectedDriver.name
+        driver.group !==
+        lastGroup
       ) {
-        clearDriverSelection();
+
+        addGroup(
+          el.driverMenu,
+          driver.group
+        );
+
+
+        lastGroup =
+          driver.group;
+
       }
 
-      elements.driverLookup.classList.add("open");
 
-      renderDriverOptions(
-        elements.driverSearch.value
+      addChoice(
+        el.driverMenu,
+        {
+          title:
+            driver.name,
+
+          sub:
+            driver.type ===
+              "employee"
+                ? (
+                    driver.email ||
+                    ""
+                  )
+                : driver.subcontractorName,
+
+          selected:
+            driver.value ===
+            el.driverValue.value,
+
+          onClick:
+            () => {
+
+              el.driverValue.value =
+                driver.value;
+
+
+              state.selectedDriver =
+                driver;
+
+
+              syncDriver();
+
+
+              closeMenus();
+
+
+              clearMessage();
+
+            }
+        }
       );
+
     }
   );
-}
 
-function renderDriverOptions(searchText) {
-  const search = normalized(searchText);
-
-  const employeeDrivers =
-    state.employeeDrivers.filter(driver => {
-      const combined = [
-        driver.name,
-        driver.email
-      ].join(" ");
-
-      return (
-        !search ||
-        normalized(combined).includes(search)
-      );
-    });
-
-  const subcontractorDrivers =
-    state.subcontractorDrivers.filter(driver => {
-      const combined = [
-        driver.name,
-        driver.companyName,
-        driver.email,
-        driver.phone
-      ].join(" ");
-
-      return (
-        !search ||
-        normalized(combined).includes(search)
-      );
-    });
-
-  elements.driverMenu.innerHTML = "";
 
   if (
-    !employeeDrivers.length &&
-    !subcontractorDrivers.length
+    !rows.length
   ) {
-    const empty = document.createElement("div");
 
-    empty.className = "lookup-empty";
-    empty.textContent = "No matching drivers.";
-
-    elements.driverMenu.appendChild(empty);
-    return;
-  }
-
-  if (employeeDrivers.length) {
-    const header = document.createElement("div");
-
-    header.className = "lookup-group-title";
-    header.textContent = "FarmVista Drivers";
-
-    elements.driverMenu.appendChild(header);
-
-    employeeDrivers.forEach(driver =>
-      appendDriverOption(driver)
+    addEmpty(
+      el.driverMenu,
+      "No matching active Semi Driver or trucking subcontractor driver."
     );
+
   }
 
-  if (subcontractorDrivers.length) {
-    const header = document.createElement("div");
 
-    header.className = "lookup-group-title";
-    header.textContent = "Subcontractors";
+  syncDriver();
 
-    elements.driverMenu.appendChild(header);
-
-    subcontractorDrivers.forEach(driver =>
-      appendDriverOption(driver)
-    );
-  }
 }
 
-function appendDriverOption(driver) {
-  const button = document.createElement("button");
-
-  button.type = "button";
-  button.className = "lookup-option";
-
-  const title = document.createElement("span");
-
-  title.className = "lookup-option-title";
-  title.textContent = driver.name;
-
-  button.appendChild(title);
-
-  if (
-    driver.type === "subcontractor" &&
-    driver.companyName
-  ) {
-    const sub = document.createElement("span");
-
-    sub.className = "lookup-option-sub";
-    sub.textContent = driver.companyName;
-
-    button.appendChild(sub);
-  }
-
-  button.addEventListener(
-    "click",
-    () => selectDriver(driver)
-  );
-
-  elements.driverMenu.appendChild(button);
-}
-
-function selectDriver(driver) {
-  state.selectedDriver = driver;
-
-  elements.driverSearch.value = driver.name;
-  elements.driverId.value = driver.id;
-  elements.driverName.value = driver.name;
-  elements.driverEmail.value =
-    driver.email || "";
-
-  elements.driverSearch.setCustomValidity("");
-
-  elements.driverLookup.classList.remove("open");
-
-  elements.driverSearch.setAttribute(
-    "aria-expanded",
-    "false"
-  );
-}
-
-function clearDriverSelection() {
-  state.selectedDriver = null;
-
-  elements.driverId.value = "";
-  elements.driverName.value = "";
-  elements.driverEmail.value = "";
-}
 
 /* ============================================================
-   WEIGHT INPUTS
-============================================================ */
-
-function setupWeightInputs() {
-  const weightFields = [
-    {
-      input: elements.grossWeight,
-      max: LIMITS.grossWeight.max
-    },
-    {
-      input: elements.tareWeight,
-      max: LIMITS.tareWeight.max
-    },
-    {
-      input: elements.netWeight,
-      max: LIMITS.netWeight.max
-    }
-  ];
-
-  weightFields.forEach(field => {
-    const input = field.input;
-
-    input.addEventListener(
-      "beforeinput",
-      event => {
-        if (
-          event.inputType === "insertText" &&
-          event.data &&
-          !/^\d+$/.test(event.data)
-        ) {
-          event.preventDefault();
-        }
-      }
-    );
-
-    input.addEventListener(
-      "input",
-      () => {
-        let digits = String(
-          input.value || ""
-        ).replace(/\D/g, "");
-
-        if (!digits) {
-          input.value = "";
-          input.setCustomValidity("");
-
-          validateWeights();
-          updateBushelCalculation();
-
-          return;
-        }
-
-        let numericValue = Number(digits);
-
-        if (numericValue > field.max) {
-          numericValue = field.max;
-        }
-
-        input.value =
-          numericValue.toLocaleString("en-US");
-
-        input.setCustomValidity("");
-
-        validateWeights();
-        updateBushelCalculation();
-      }
-    );
-  });
-}
-
-/* ============================================================
-   WEIGHT VALIDATION
+   VALIDATION
 ============================================================ */
 
 function validateWeights() {
-  const gross = cleanNumber(
-    elements.grossWeight.value
-  );
 
-  const tare = cleanNumber(
-    elements.tareWeight.value
-  );
-
-  const net = cleanNumber(
-    elements.netWeight.value
-  );
-
-  [
-    elements.grossWeight,
-    elements.tareWeight,
-    elements.netWeight
-  ].forEach(input =>
-    input.setCustomValidity("")
-  );
-
-  elements.weightCheck.className =
-    "weight-check";
-
-  elements.weightCheck.textContent = "";
-
-  if (
-    gross !== null &&
-    (
-      gross < LIMITS.grossWeight.min ||
-      gross > LIMITS.grossWeight.max
-    )
-  ) {
-    elements.grossWeight.setCustomValidity(
-      "Gross Weight must be between 30,000 and 110,000 lb."
+  const gross =
+    numberOrNull(
+      el.grossWeight.value
     );
-  }
 
-  if (
-    tare !== null &&
-    (
-      tare < LIMITS.tareWeight.min ||
-      tare > LIMITS.tareWeight.max
-    )
-  ) {
-    elements.tareWeight.setCustomValidity(
-      "Empty / Tare Weight must be between 20,000 and 40,000 lb."
-    );
-  }
 
-  if (
-    net !== null &&
-    (
-      net < LIMITS.netWeight.min ||
-      net > LIMITS.netWeight.max
-    )
-  ) {
-    elements.netWeight.setCustomValidity(
-      "Net Weight must be between 1,000 and 80,000 lb."
+  const tare =
+    numberOrNull(
+      el.tareWeight.value
     );
-  }
+
+
+  const net =
+    numberOrNull(
+      el.netWeight.value
+    );
+
 
   if (
     gross === null ||
     tare === null ||
     net === null
   ) {
-    return false;
-  }
 
-  const expectedNet = gross - tare;
-
-  if (expectedNet !== net) {
-    elements.netWeight.setCustomValidity(
-      `Gross minus Empty / Tare equals ${expectedNet.toLocaleString(
-        "en-US"
-      )} lb.`
+    setCheck(
+      el.weightCheck,
+      false,
+      "Weight check incomplete."
     );
 
-    elements.weightCheck.className =
-      "weight-check bad";
-
-    elements.weightCheck.textContent =
-      `Weight check failed. ${gross.toLocaleString(
-        "en-US"
-      )} - ${tare.toLocaleString(
-        "en-US"
-      )} = ${expectedNet.toLocaleString(
-        "en-US"
-      )} lb, not ${net.toLocaleString(
-        "en-US"
-      )} lb.`;
 
     return false;
+
   }
 
-  elements.weightCheck.className =
-    "weight-check good";
-
-  elements.weightCheck.textContent =
-    "✓ Weight check passed. Gross minus Empty / Tare equals Net Weight.";
-
-  return true;
-}
-
-/* ============================================================
-   GRADE FACTORS
-============================================================ */
-
-function validateOptionalRange(
-  input,
-  limits,
-  label
-) {
-  input.setCustomValidity("");
-
-  const value = cleanNumber(input.value);
-
-  if (value === null) return true;
-
-  if (value < limits.min) {
-    input.setCustomValidity(
-      `${label} cannot be less than ${limits.min.toFixed(
-        2
-      )}.`
-    );
-
-    return false;
-  }
-
-  if (value > limits.max) {
-    input.setCustomValidity(
-      `${label} cannot be more than ${limits.max.toFixed(
-        2
-      )}.`
-    );
-
-    return false;
-  }
-
-  return true;
-}
-
-function setupGradeFactorInputs() {
-  const gradeFields = [
-    {
-      input: elements.testWeight,
-      max: 70
-    },
-    {
-      input: elements.moisture,
-      max: 40
-    },
-    {
-      input: elements.damage,
-      max: 30
-    },
-    {
-      input: elements.foreignMaterial,
-      max: 30
-    }
-  ];
-
-  gradeFields.forEach(field => {
-    const input = field.input;
-
-    input.addEventListener(
-      "beforeinput",
-      event => {
-        if (
-          event.inputType === "insertText" &&
-          event.data &&
-          !/^[0-9.]$/.test(event.data)
-        ) {
-          event.preventDefault();
-        }
-      }
-    );
-
-    input.addEventListener(
-      "input",
-      () => {
-        let value = String(
-          input.value || ""
-        ).replace(/[^\d.]/g, "");
-
-        const firstDot = value.indexOf(".");
-
-        if (firstDot !== -1) {
-          value =
-            value.slice(0, firstDot + 1) +
-            value
-              .slice(firstDot + 1)
-              .replace(/\./g, "");
-        }
-
-        let parts = value.split(".");
-
-        parts[0] =
-          (parts[0] || "").slice(0, 2);
-
-        if (parts.length > 1) {
-          parts[1] =
-            (parts[1] || "").slice(0, 2);
-
-          value =
-            parts[0] + "." + parts[1];
-        } else {
-          value = parts[0];
-        }
-
-        const numericValue = Number(value);
-
-        if (
-          value &&
-          Number.isFinite(numericValue) &&
-          numericValue > field.max
-        ) {
-          value = String(field.max);
-        }
-
-        input.value = value;
-        input.setCustomValidity("");
-      }
-    );
-
-    input.addEventListener(
-      "blur",
-      () => {
-        const value = cleanNumber(input.value);
-
-        if (value === null) {
-          input.value = "";
-          return;
-        }
-
-        input.value =
-          Number(value).toFixed(2);
-
-        validateGradeFactors();
-      }
-    );
-  });
-}
-
-function validateGradeFactors() {
-  const twValid = validateOptionalRange(
-    elements.testWeight,
-    LIMITS.testWeight,
-    "Test Weight"
-  );
-
-  const moistureValid = validateOptionalRange(
-    elements.moisture,
-    LIMITS.moisture,
-    "Moisture"
-  );
-
-  const damageValid = validateOptionalRange(
-    elements.damage,
-    LIMITS.damage,
-    "Damage"
-  );
-
-  const fmValid = validateOptionalRange(
-    elements.foreignMaterial,
-    LIMITS.foreignMaterial,
-    "FM / BCFM"
-  );
-
-  return (
-    twValid &&
-    moistureValid &&
-    damageValid &&
-    fmValid
-  );
-}
-
-/* ============================================================
-   BUSHELS
-============================================================ */
-
-function getCropBushelWeight() {
-  const crop = normalized(
-    elements.crop.value
-  );
-
-  if (crop === "corn") return 56;
 
   if (
-    crop === "soybeans" ||
-    crop === "wheat"
+    gross <
+      30000 ||
+    gross >
+      110000
   ) {
-    return 60;
+
+    setCheck(
+      el.weightCheck,
+      false,
+      "Gross Weight must be between 30,000 and 110,000 lb."
+    );
+
+
+    return false;
+
   }
 
-  return null;
-}
 
-function updateBushelCalculation() {
-  const netWeight = cleanNumber(
-    elements.netWeight.value
+  if (
+    tare <
+      20000 ||
+    tare >
+      40000
+  ) {
+
+    setCheck(
+      el.weightCheck,
+      false,
+      "Tare Weight must be between 20,000 and 40,000 lb."
+    );
+
+
+    return false;
+
+  }
+
+
+  if (
+    net <
+      1000 ||
+    net >
+      80000
+  ) {
+
+    setCheck(
+      el.weightCheck,
+      false,
+      "Net Weight must be between 1,000 and 80,000 lb."
+    );
+
+
+    return false;
+
+  }
+
+
+  if (
+    gross -
+      tare !==
+    net
+  ) {
+
+    setCheck(
+      el.weightCheck,
+      false,
+      `${gross.toLocaleString()} Gross - ${tare.toLocaleString()} Tare does not equal ${net.toLocaleString()} Net.`
+    );
+
+
+    return false;
+
+  }
+
+
+  setCheck(
+    el.weightCheck,
+    true,
+    `✓ ${gross.toLocaleString()} Gross - ${tare.toLocaleString()} Tare = ${net.toLocaleString()} Net.`
   );
 
-  const poundsPerBushel =
-    getCropBushelWeight();
 
-  elements.bushelCheck.className =
-    "weight-check";
+  return true;
 
-  elements.bushelCheck.textContent = "";
+}
+
+
+function bushelDivisor() {
+
+  const crop =
+    normalize(
+      el.crop.value
+    );
+
+
+  if (
+    crop ===
+    "corn"
+  ) {
+
+    return 56;
+
+  }
+
+
+  if (
+    crop ===
+      "soybeans" ||
+    crop ===
+      "wheat"
+  ) {
+
+    return 60;
+
+  }
+
+
+  return null;
+
+}
+
+
+function calculateBushels() {
+
+  const netWeight =
+    numberOrNull(
+      el.netWeight.value
+    );
+
+
+  const divisor =
+    bushelDivisor();
+
 
   if (
     netWeight === null ||
-    !poundsPerBushel
+    !divisor
   ) {
-    elements.grossBushels.value = "";
-    return false;
+
+    el.grossBushels.value =
+      "";
+
+
+    return;
+
   }
 
-  const grossBushels =
-    netWeight / poundsPerBushel;
 
-  elements.grossBushels.value =
-    grossBushels.toFixed(2);
+  const gross =
+    Number(
+      (
+        netWeight /
+        divisor
+      )
+        .toFixed(
+          2
+        )
+    );
 
-  return validateBushels();
+
+  el.grossBushels.value =
+    gross.toFixed(
+      2
+    );
+
+
+  const shrink =
+    numberOrNull(
+      el.shrinkBushels.value
+    ) ??
+    0;
+
+
+  el.netBushels.value =
+    Math.max(
+      0,
+      Number(
+        (
+          gross -
+          shrink
+        )
+          .toFixed(
+            2
+          )
+      )
+    )
+      .toFixed(
+        2
+      );
+
 }
 
-function setupBushelInputs() {
-  elements.shrinkBushels.addEventListener(
-    "focus",
-    () => {
-      const value = cleanNumber(
-        elements.shrinkBushels.value
-      );
-
-      if (value === 0) {
-        elements.shrinkBushels.value = "";
-      }
-    }
-  );
-
-  elements.shrinkBushels.addEventListener(
-    "input",
-    () => {
-      elements.shrinkBushels.setCustomValidity("");
-      validateBushels();
-    }
-  );
-
-  elements.shrinkBushels.addEventListener(
-    "blur",
-    () => {
-      const value = cleanNumber(
-        elements.shrinkBushels.value
-      );
-
-      elements.shrinkBushels.value =
-        value === null
-          ? "0.00"
-          : formatTwoDecimals(value);
-
-      validateBushels();
-    }
-  );
-
-  elements.netBushels.addEventListener(
-    "input",
-    () => {
-      elements.netBushels.setCustomValidity("");
-      validateBushels();
-    }
-  );
-
-  elements.netBushels.addEventListener(
-    "blur",
-    () => {
-      const value = cleanNumber(
-        elements.netBushels.value
-      );
-
-      if (value !== null) {
-        elements.netBushels.value =
-          formatTwoDecimals(value);
-      }
-
-      validateBushels();
-    }
-  );
-}
 
 function validateBushels() {
-  elements.netBushels.setCustomValidity("");
-  elements.shrinkBushels.setCustomValidity("");
 
-  const grossBushels = cleanNumber(
-    elements.grossBushels.value
-  );
-
-  const shrinkBushels =
-    cleanNumber(
-      elements.shrinkBushels.value
-    ) ?? 0;
-
-  const netBushels = cleanNumber(
-    elements.netBushels.value
-  );
-
-  elements.bushelCheck.className =
-    "weight-check";
-
-  elements.bushelCheck.textContent = "";
-
-  if (shrinkBushels < 0) {
-    elements.shrinkBushels.setCustomValidity(
-      "Shrink Bushels cannot be negative."
+  const gross =
+    numberOrNull(
+      el.grossBushels.value
     );
 
-    return false;
-  }
 
-  if (grossBushels === null) {
-    return false;
-  }
+  const shrink =
+    numberOrNull(
+      el.shrinkBushels.value
+    ) ??
+    0;
 
-  if (shrinkBushels >= grossBushels) {
-    elements.shrinkBushels.setCustomValidity(
-      "Shrink Bushels must be less than Gross Bushels."
+
+  const net =
+    numberOrNull(
+      el.netBushels.value
     );
 
-    return false;
-  }
 
   if (
-    netBushels === null ||
-    netBushels <= 0
+    gross === null ||
+    net === null
   ) {
-    elements.netBushels.setCustomValidity(
-      "Enter the Net Bushels shown on the grain ticket."
+
+    setCheck(
+      el.bushelCheck,
+      false,
+      "Bushel check incomplete."
     );
 
+
     return false;
+
   }
 
-  const expectedNet =
-    grossBushels - shrinkBushels;
 
-  const difference = Math.abs(
-    expectedNet - netBushels
+  const expected =
+    Number(
+      (
+        gross -
+        shrink
+      )
+        .toFixed(
+          2
+        )
+    );
+
+
+  if (
+    Math.abs(
+      expected -
+      net
+    ) >
+    0.02
+  ) {
+
+    setCheck(
+      el.bushelCheck,
+      false,
+      `${gross.toFixed(2)} Gross - ${shrink.toFixed(2)} Shrink = ${expected.toFixed(2)} Net, but ticket shows ${net.toFixed(2)}.`
+    );
+
+
+    return false;
+
+  }
+
+
+  setCheck(
+    el.bushelCheck,
+    true,
+    `✓ ${gross.toFixed(2)} Gross - ${shrink.toFixed(2)} Shrink = ${net.toFixed(2)} Net Bushels.`
   );
 
-  if (difference > 0.02) {
-    elements.netBushels.setCustomValidity(
-      `Expected Net Bushels are ${expectedNet.toFixed(
-        2
-      )}.`
-    );
-
-    elements.bushelCheck.className =
-      "weight-check bad";
-
-    elements.bushelCheck.textContent =
-      `Bushel check failed. ${grossBushels.toFixed(
-        2
-      )} Gross - ${shrinkBushels.toFixed(
-        2
-      )} Shrink = ${expectedNet.toFixed(
-        2
-      )} Net Bushels, but the ticket shows ${netBushels.toFixed(
-        2
-      )}.`;
-
-    return false;
-  }
-
-  elements.bushelCheck.className =
-    "weight-check good";
-
-  elements.bushelCheck.textContent =
-    `✓ Bushel check passed. ${grossBushels.toFixed(
-      2
-    )} Gross - ${shrinkBushels.toFixed(
-      2
-    )} Shrink = ${netBushels.toFixed(
-      2
-    )} Net Bushels.`;
 
   return true;
+
 }
+
+
+function validateGrade(
+  input,
+  min,
+  max,
+  label
+) {
+
+  const value =
+    numberOrNull(
+      input.value
+    );
+
+
+  if (
+    value === null
+  ) {
+
+    return true;
+
+  }
+
+
+  if (
+    value <
+      min ||
+    value >
+      max
+  ) {
+
+    showMessage(
+      `${label} must be between ${min} and ${max}.`
+    );
+
+
+    input.focus();
+
+
+    return false;
+
+  }
+
+
+  return true;
+
+}
+
 
 /* ============================================================
-   SELECTION VALIDATION
+   LOAD FIRESTORE REFERENCE DATA
 ============================================================ */
 
-function validateSelections() {
-  const inputs = [
-    elements.sourceSearch,
-    elements.buyerSearch,
-    elements.locationSearch,
-    elements.customerSearch,
-    elements.contractSearch,
-    elements.driverSearch
-  ].filter(Boolean);
+async function loadReferenceData() {
 
-  inputs.forEach(input =>
-    input.setCustomValidity("")
+  const [
+    buyerSnap,
+    customerSnap,
+    locationSnap,
+    contractSnap,
+    binSnap,
+    bagSnap,
+    employeeSnap,
+    subSnap
+  ] =
+    await Promise.all([
+
+      getDocs(
+        collection(
+          db,
+          "grain_buyers"
+        )
+      ),
+
+      getDocs(
+        collection(
+          db,
+          "grain_customers"
+        )
+      ),
+
+      getDocs(
+        collection(
+          db,
+          "grain_delivery_locations"
+        )
+      ),
+
+      getDocs(
+        collection(
+          db,
+          "grain_contracts"
+        )
+      ),
+
+      getDocs(
+        collection(
+          db,
+          "binSites"
+        )
+      ),
+
+      getDocs(
+        collection(
+          db,
+          "grain_bag_events"
+        )
+      ),
+
+      getDocs(
+        collection(
+          db,
+          "employees"
+        )
+      ),
+
+      getDocs(
+        collection(
+          db,
+          "subcontractors"
+        )
+      )
+
+    ]);
+
+
+  /* ========================================================
+     BUYERS
+  ======================================================== */
+
+  state.buyers =
+    buyerSnap.docs
+      .map(
+        snapshot => ({
+
+          id:
+            snapshot.id,
+
+          name:
+            clean(
+              snapshot.data()?.name
+            )
+
+        })
+      )
+      .filter(
+        buyer =>
+          buyer.name
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          a.name.localeCompare(
+            b.name
+          )
+      );
+
+
+  const buyerMap =
+    new Map(
+      state.buyers.map(
+        buyer => [
+          buyer.id,
+          buyer
+        ]
+      )
+    );
+
+
+  /* ========================================================
+     CUSTOMERS
+  ======================================================== */
+
+  state.customers =
+    customerSnap.docs
+      .map(
+        snapshot => ({
+
+          id:
+            snapshot.id,
+
+          name:
+            clean(
+              snapshot.data()?.name
+            )
+
+        })
+      )
+      .filter(
+        customer =>
+          customer.name
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          a.name.localeCompare(
+            b.name
+          )
+      );
+
+
+  /* ========================================================
+     DELIVERY LOCATIONS
+  ======================================================== */
+
+  state.locations =
+    locationSnap.docs
+      .map(
+        snapshot => {
+
+          const data =
+            snapshot.data() ||
+            {};
+
+
+          return {
+
+            id:
+              snapshot.id,
+
+            buyerId:
+              clean(
+                data.buyerId
+              ),
+
+            buyerName:
+              clean(
+                data.buyerName
+              ) ||
+              clean(
+                buyerMap.get(
+                  clean(
+                    data.buyerId
+                  )
+                )?.name
+              ),
+
+            locationName:
+              clean(
+                data.locationName
+              ),
+
+            street:
+              clean(
+                data.street
+              ),
+
+            city:
+              clean(
+                data.city
+              ),
+
+            state:
+              clean(
+                data.state
+              ),
+
+            zip:
+              clean(
+                data.zip
+              )
+
+          };
+
+        }
+      )
+      .filter(
+        location =>
+          location.locationName
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          `${a.buyerName} ${a.locationName}`
+            .localeCompare(
+              `${b.buyerName} ${b.locationName}`,
+              undefined,
+              {
+                numeric:
+                  true,
+
+                sensitivity:
+                  "base"
+              }
+            )
+      );
+
+
+  state.contracts =
+    contractSnap.docs
+      .map(
+        snapshot => ({
+
+          id:
+            snapshot.id,
+
+          ...snapshot.data()
+
+        })
+      );
+
+
+  /* ========================================================
+     BIN SOURCES
+  ======================================================== */
+
+  state.binSources =
+    [];
+
+
+  binSnap.docs.forEach(
+    snapshot => {
+
+      const data =
+        snapshot.data() ||
+        {};
+
+
+      const siteName =
+        clean(
+          data.name
+        ) ||
+        `Bin Site ${snapshot.id.slice(
+          0,
+          6
+        )}`;
+
+
+      const fieldId =
+        clean(
+          data.fieldId ||
+          data.farmFieldId ||
+          data.field?.id
+        );
+
+
+      const fieldName =
+        clean(
+          data.fieldName ||
+          data.farmFieldName ||
+          data.field?.name
+        );
+
+
+      const bins =
+        Array.isArray(
+          data.bins
+        )
+          ? data.bins
+          : [];
+
+
+      bins.forEach(
+        (
+          bin,
+          index
+        ) => {
+
+          const onHand =
+            Number(
+              bin?.onHand ||
+              0
+            );
+
+
+          if (
+            !Number.isFinite(
+              onHand
+            ) ||
+            onHand <=
+              0
+          ) {
+
+            return;
+
+          }
+
+
+          const binNumber =
+            bin?.num ??
+            (
+              index +
+              1
+            );
+
+
+          const crop =
+            clean(
+              bin?.lastCropType ||
+              bin?.crop ||
+              bin?.cropType
+            );
+
+
+          const cropYear =
+            clean(
+              bin?.cropYear ||
+              bin?.lastCropYear ||
+              data.cropYear
+            );
+
+
+          state.binSources.push({
+
+            type:
+              "bin",
+
+            value:
+              `bin:${snapshot.id}:${binNumber}`,
+
+            id:
+              `${snapshot.id}:${binNumber}`,
+
+            siteId:
+              snapshot.id,
+
+            siteName,
+
+            binNumber,
+
+            binIndex:
+              index,
+
+            fieldId,
+
+            fieldName,
+
+            crop,
+
+            cropYear,
+
+            onHand,
+
+            label:
+              `${siteName} — Bin ${binNumber}` +
+              `${crop ? ` — ${crop}` : ""}` +
+              ` — ${Math.round(
+                onHand
+              ).toLocaleString(
+                "en-US"
+              )} bu`,
+
+            searchText:
+              `${siteName} bin ${binNumber} ${fieldName} ${crop} ${cropYear}`
+
+          });
+
+        }
+      );
+
+    }
   );
 
-  if (
-    elements.sourceSearch &&
-    !state.selectedSource?.id
-  ) {
-    elements.sourceSearch.setCustomValidity(
-      "Select a Grain Source from the list."
-    );
-  }
 
-  if (!state.selectedBuyer?.id) {
-    elements.buyerSearch.setCustomValidity(
-      "Select a Destination / Elevator from the list."
-    );
-  }
+  state.binSources.sort(
+    (
+      a,
+      b
+    ) =>
+      a.label.localeCompare(
+        b.label,
+        undefined,
+        {
+          numeric:
+            true,
 
-  if (!state.selectedDeliveryLocation?.id) {
-    elements.locationSearch.setCustomValidity(
-      "Select a Delivery Location from the list."
-    );
-  }
-
-  if (!state.selectedCustomer?.id) {
-    elements.customerSearch.setCustomValidity(
-      "Select Sold Under / Customer from the list."
-    );
-  }
-
-  if (
-    elements.contractSearch &&
-    !state.selectedContract?.id
-  ) {
-    elements.contractSearch.setCustomValidity(
-      "Select a Contract from the list."
-    );
-  }
-
-  if (!state.selectedDriver?.id) {
-    elements.driverSearch.setCustomValidity(
-      "Select the Driver from the list."
-    );
-  }
-
-  return Boolean(
-    (!elements.sourceSearch ||
-      state.selectedSource?.id) &&
-    state.selectedBuyer?.id &&
-    state.selectedDeliveryLocation?.id &&
-    state.selectedCustomer?.id &&
-    (!elements.contractSearch ||
-      state.selectedContract?.id) &&
-    state.selectedDriver?.id
+          sensitivity:
+            "base"
+        }
+      )
   );
+
+
+  /* ========================================================
+     GRAIN BAG SOURCES
+  ======================================================== */
+
+  state.bagSources =
+    bagSnap.docs
+      .map(
+        snapshot => ({
+
+          id:
+            snapshot.id,
+
+          ...snapshot.data()
+
+        })
+      )
+      .filter(
+        event => {
+
+          const type =
+            normalize(
+              event.type
+            );
+
+
+          return (
+            type ===
+              "putdown" ||
+            type ===
+              "put down"
+          );
+
+        }
+      )
+      .filter(
+        event => {
+
+          const status =
+            normalize(
+              event.status
+            );
+
+
+          return (
+            status !==
+              "pickedup" &&
+            status !==
+              "picked up"
+          );
+
+        }
+      )
+      .map(
+        event => {
+
+          const counts =
+            event.counts ||
+            {};
+
+
+          const full =
+            Math.max(
+              0,
+              Number(
+                counts.full ||
+                0
+              )
+            );
+
+
+          const partial =
+            Math.max(
+              0,
+              Number(
+                counts.partial ||
+                0
+              )
+            );
+
+
+          const partialFeet =
+            Array.isArray(
+              event.partialFeet
+            )
+              ? event.partialFeet.reduce(
+                  (
+                    sum,
+                    value
+                  ) =>
+                    sum +
+                    Math.max(
+                      0,
+                      Number(
+                        value
+                      ) ||
+                      0
+                    ),
+                  0
+                )
+              : 0;
+
+
+          if (
+            full <=
+              0 &&
+            partial <=
+              0 &&
+            partialFeet <=
+              0
+          ) {
+
+            return null;
+
+          }
+
+
+          const fieldId =
+            clean(
+              event.field?.id
+            );
+
+
+          const fieldName =
+            clean(
+              event.field?.name
+            ) ||
+            "Unknown Field";
+
+
+          const crop =
+            clean(
+              event.cropType ||
+              event.crop
+            );
+
+
+          const cropYear =
+            clean(
+              event.cropYear
+            );
+
+
+          const brand =
+            clean(
+              event.bagSku?.brand
+            );
+
+
+          const location =
+            clean(
+              event.bagSku?.location
+            );
+
+
+          const sizeFeet =
+            clean(
+              event.bagSku?.sizeFeet ||
+              event.bagSku?.lengthFt
+            );
+
+
+          const details =
+            [
+              crop,
+
+              cropYear
+                ? `CY ${cropYear}`
+                : "",
+
+              brand,
+
+              sizeFeet
+                ? `${sizeFeet}'`
+                : "",
+
+              location,
+
+              full >
+                0
+                  ? `${full} full`
+                  : "",
+
+              partial >
+                0
+                  ? `${partial} partial`
+                  : "",
+
+              partialFeet >
+                0
+                  ? `${Number(
+                      partialFeet.toFixed(
+                        1
+                      )
+                    )} ft partial`
+                  : ""
+            ]
+              .filter(
+                Boolean
+              );
+
+
+          return {
+
+            type:
+              "grain_bag",
+
+            value:
+              `bag:${event.id}`,
+
+            id:
+              event.id,
+
+            siteId:
+              null,
+
+            siteName:
+              null,
+
+            binNumber:
+              null,
+
+            binIndex:
+              null,
+
+            fieldId,
+
+            fieldName,
+
+            crop,
+
+            cropYear,
+
+            label:
+              `${fieldName}${details.length ? ` — ${details.join(" • ")}` : ""}`,
+
+            searchText:
+              `${fieldName} ${crop} ${cropYear} ${brand} ${location}`
+
+          };
+
+        }
+      )
+      .filter(
+        Boolean
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          a.label.localeCompare(
+            b.label,
+            undefined,
+            {
+              numeric:
+                true,
+
+              sensitivity:
+                "base"
+            }
+          )
+      );
+
+
+  /* ========================================================
+     EMPLOYEE DRIVERS
+  ======================================================== */
+
+  state.employeeDrivers =
+    employeeSnap.docs
+      .map(
+        snapshot => {
+
+          const data =
+            snapshot.data() ||
+            {};
+
+
+          const roles =
+            Array.isArray(
+              data.roles
+            )
+              ? data.roles
+              : (
+                  clean(
+                    data.role
+                  )
+                    ? [
+                        data.role
+                      ]
+                    : []
+                );
+
+
+          return {
+
+            type:
+              "employee",
+
+            value:
+              `emp:${snapshot.id}`,
+
+            id:
+              snapshot.id,
+
+            uid:
+              clean(
+                data.uid ||
+                data.userUid ||
+                data.authUid
+              ) ||
+              null,
+
+            name:
+              displayDriverName(
+                data
+              ),
+
+            email:
+              clean(
+                data.email
+              ),
+
+            phone:
+              clean(
+                data.phone
+              ),
+
+            roles,
+
+            active:
+              data.active !==
+                false &&
+              normalize(
+                data.status ||
+                "Active"
+              ) ===
+                "active"
+
+          };
+
+        }
+      )
+      .filter(
+        driver =>
+          driver.name &&
+          driver.active &&
+          driver.roles.some(
+            role =>
+              normalize(
+                role
+              ) ===
+              "semi driver"
+          )
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          a.name.localeCompare(
+            b.name,
+            undefined,
+            {
+              numeric:
+                true,
+
+              sensitivity:
+                "base"
+            }
+          )
+      );
+
+
+  /* ========================================================
+     TRUCKING SUBCONTRACTORS
+  ======================================================== */
+
+  state.subcontractors =
+    subSnap.docs
+      .map(
+        snapshot => {
+
+          const data =
+            snapshot.data() ||
+            {};
+
+
+          return {
+
+            id:
+              snapshot.id,
+
+            company:
+              clean(
+                data.company ||
+                data.name
+              ),
+
+            service:
+              clean(
+                data.service
+              ),
+
+            active:
+              data.active !==
+                false &&
+              normalize(
+                data.status ||
+                "Active"
+              ) ===
+                "active",
+
+            drivers:
+              (
+                Array.isArray(
+                  data.drivers
+                )
+                  ? data.drivers
+                  : []
+              )
+                .map(
+                  (
+                    driver,
+                    index
+                  ) => ({
+
+                    id:
+                      clean(
+                        driver?.id
+                      ) ||
+                      `legacy-${index}`,
+
+                    name:
+                      clean(
+                        driver?.name ||
+                        [
+                          driver?.firstName,
+                          driver?.lastName
+                        ]
+                          .filter(
+                            Boolean
+                          )
+                          .join(
+                            " "
+                          )
+                      ),
+
+                    phone:
+                      clean(
+                        driver?.phone ||
+                        driver?.cell ||
+                        driver?.cellPhone
+                      ),
+
+                    active:
+                      driver?.active !==
+                        false
+
+                  })
+                )
+                .filter(
+                  driver =>
+                    driver.name &&
+                    driver.active
+                )
+
+          };
+
+        }
+      )
+      .filter(
+        subcontractor =>
+          subcontractor.company &&
+          subcontractor.active &&
+          normalize(
+            subcontractor.service
+          ) ===
+            "trucking"
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          a.company.localeCompare(
+            b.company,
+            undefined,
+            {
+              numeric:
+                true,
+
+              sensitivity:
+                "base"
+            }
+          )
+      );
+
 }
+
 
 /* ============================================================
    DUPLICATE CHECK
 ============================================================ */
 
-async function duplicateTicketExists() {
-  const ticketNumber = clean(
-    elements.ticketNumber.value
-  );
+async function duplicateExists() {
+
+  const buyerId =
+    clean(
+      el.buyerSelect.value
+    );
+
+
+  const ticketNumber =
+    clean(
+      el.ticketNumber.value
+    );
+
 
   if (
-    !ticketNumber ||
-    !state.selectedBuyer?.id
+    !buyerId ||
+    !ticketNumber
   ) {
+
     return false;
+
   }
 
-  const snapshot = await getDocs(
-    query(
-      collection(db, TICKET_COLLECTION),
-      where(
-        "buyerId",
-        "==",
-        state.selectedBuyer.id
-      ),
-      where(
-        "ticketNumber",
-        "==",
-        ticketNumber
+
+  const snapshot =
+    await getDocs(
+      collection(
+        db,
+        "grain_tickets"
       )
-    )
+    );
+
+
+  return snapshot.docs.some(
+    ticketSnapshot => {
+
+      const data =
+        ticketSnapshot.data() ||
+        {};
+
+
+      return (
+        clean(
+          data.buyerId
+        ) ===
+          buyerId &&
+        clean(
+          data.ticketNumber
+        )
+          .toLowerCase() ===
+          ticketNumber.toLowerCase()
+      );
+
+    }
   );
 
-  return !snapshot.empty;
 }
+
+
+/* ============================================================
+   CURRENT SELECTIONS
+============================================================ */
+
+function updateSelected() {
+
+  state.selectedSource =
+    sourceFromValue(
+      el.sourceValue.value
+    );
+
+
+  state.selectedLocation =
+    state.locations.find(
+      location =>
+        location.id ===
+        el.locationSelect.value
+    ) ||
+    null;
+
+
+  state.selectedBuyer =
+    state.selectedLocation
+      ? (
+          state.buyers.find(
+            buyer =>
+              buyer.id ===
+              state.selectedLocation.buyerId
+          ) ||
+          {
+            id:
+              state.selectedLocation.buyerId,
+
+            name:
+              state.selectedLocation.buyerName
+          }
+        )
+      : null;
+
+
+  state.selectedCustomer =
+    state.customers.find(
+      customer =>
+        customer.id ===
+        el.customerSelect.value
+    ) ||
+    null;
+
+
+  state.selectedContract =
+    state.contracts.find(
+      contract =>
+        contract.id ===
+        el.contractSelect.value
+    ) ||
+    null;
+
+
+  state.selectedDriver =
+    driverFromValue(
+      el.driverValue.value
+    );
+
+}
+
+
+function validateRequiredLoadDetails() {
+
+  updateSelected();
+
+
+  const fields = [
+
+    [
+      !!el.crop.value,
+      "Select the crop."
+    ],
+
+    [
+      !!state.selectedSource,
+      "Select the grain source."
+    ],
+
+    [
+      !!state.selectedLocation,
+      "Select the destination / elevator."
+    ],
+
+    [
+      !!state.selectedCustomer,
+      "Select Sold Under / Customer."
+    ],
+
+    [
+      !!state.selectedContract,
+      "Select the contract."
+    ],
+
+    [
+      !!state.selectedDriver,
+      "Select the driver."
+    ]
+
+  ];
+
+
+  const failed =
+    fields.find(
+      (
+        [
+          ok
+        ]
+      ) =>
+        !ok
+    );
+
+
+  if (
+    failed
+  ) {
+
+    showMessage(
+      failed[1]
+    );
+
+
+    return false;
+
+  }
+
+
+  if (
+    normalize(
+      state.selectedSource.crop
+    ) !==
+    normalize(
+      el.crop.value
+    )
+  ) {
+
+    showMessage(
+      "The grain source crop no longer matches the ticket crop."
+    );
+
+
+    return false;
+
+  }
+
+
+  if (
+    !matchingContracts()
+      .some(
+        contract =>
+          contract.id ===
+          state.selectedContract.id
+      )
+  ) {
+
+    showMessage(
+      "The selected contract no longer matches the crop, destination, and customer."
+    );
+
+
+    return false;
+
+  }
+
+
+  return true;
+
+}
+
 
 /* ============================================================
    SAVE
 ============================================================ */
 
-async function saveTicket(event) {
+async function saveTicket(
+  event
+) {
+
   event.preventDefault();
 
-  if (state.saving) return;
+
+  if (
+    state.saving
+  ) {
+
+    return;
+
+  }
+
 
   clearMessage();
 
-  if (!state.user) {
+
+  if (
+    !el.form.reportValidity()
+  ) {
+
+    return;
+
+  }
+
+
+  if (
+    !validateRequiredLoadDetails()
+  ) {
+
+    return;
+
+  }
+
+
+  if (
+    !validateWeights()
+  ) {
+
     showMessage(
-      "Your FarmVista user account is not loaded.",
-      "error"
+      "Fix the weight check before saving."
     );
 
+
     return;
+
   }
 
-  validateSelections();
-  validateWeights();
-  validateGradeFactors();
-  updateBushelCalculation();
-  validateBushels();
 
-  if (!elements.form.reportValidity()) {
-    return;
-  }
+  if (
+    !validateBushels()
+  ) {
 
-  if (await duplicateTicketExists()) {
     showMessage(
-      "It appears this ticket is already in the system for this elevator.",
-      "error"
+      "Fix the bushel check before saving."
     );
 
-    elements.ticketNumber.setCustomValidity(
-      "This ticket number already exists for this elevator."
-    );
-
-    elements.ticketNumber.reportValidity();
 
     return;
+
   }
 
-  state.saving = true;
 
-  elements.saveBtn.disabled = true;
-  elements.saveBtn.textContent = "Saving…";
+  if (
+    !validateGrade(
+      el.testWeight,
+      30,
+      70,
+      "Test Weight"
+    ) ||
+    !validateGrade(
+      el.moisture,
+      5,
+      40,
+      "Moisture"
+    ) ||
+    !validateGrade(
+      el.damage,
+      0,
+      30,
+      "Damage"
+    ) ||
+    !validateGrade(
+      el.foreignMaterial,
+      0,
+      30,
+      "FM / BCFM"
+    )
+  ) {
+
+    return;
+
+  }
+
+
+  state.saving =
+    true;
+
+
+  el.saveBtn.disabled =
+    true;
+
+
+  el.saveBtn.textContent =
+    "Saving…";
+
 
   try {
+
+    if (
+      await duplicateExists()
+    ) {
+
+      throw new Error(
+        "It appears this Buyer / Elevator already has a ticket with this Ticket Number."
+      );
+
+    }
+
+
     const location =
-      state.selectedDeliveryLocation;
+      state.selectedLocation;
+
+
+    const buyer =
+      state.selectedBuyer;
+
+
+    const customer =
+      state.selectedCustomer;
+
 
     const contract =
       state.selectedContract;
 
+
     const source =
       state.selectedSource;
+
 
     const driver =
       state.selectedDriver;
 
+
+    const contractNumber =
+      clean(
+        contract.contractNumber ||
+        contract.number ||
+        contract.contractNo ||
+        contract.referenceNumber
+      ) ||
+      null;
+
+
     const payload = {
-      /* =====================================
-         LOAD-OUT / MATCHING
-      ====================================== */
-
-      crop:
-        elements.crop.value,
-
-      grainSourceId:
-        source?.id || null,
-
-      grainSourceName:
-        source
-          ? sourceDisplayName(source)
-          : null,
-
-      grainSourceType:
-        source
-          ? sourceType(source)
-          : null,
-
-      grainSourceSiteId:
-        clean(
-          source?.siteId ||
-          source?.farmId
-        ) || null,
-
-      grainSourceSiteName:
-        clean(
-          source?.siteName ||
-          source?.farmName ||
-          source?.locationName
-        ) || null,
-
-      /* =====================================
-         DESTINATION
-      ====================================== */
 
       buyerId:
-        state.selectedBuyer.id,
+        buyer?.id ||
+        null,
 
       buyerName:
-        state.selectedBuyer.name,
+        buyer?.name ||
+        location?.buyerName ||
+        null,
+
 
       deliveryLocationId:
-        location.id,
+        location?.id ||
+        null,
 
       deliveryLocationName:
-        location.locationName,
+        location?.locationName ||
+        null,
 
       deliveryStreet:
-        location.street || null,
+        location?.street ||
+        null,
 
       deliveryCity:
-        location.city || null,
+        location?.city ||
+        null,
 
       deliveryState:
-        location.state || null,
+        location?.state ||
+        null,
 
       deliveryZip:
-        location.zip || null,
+        location?.zip ||
+        null,
 
-      /* =====================================
-         SOLD UNDER
-      ====================================== */
 
       customerId:
-        state.selectedCustomer.id,
+        customer?.id ||
+        null,
 
       customerName:
-        state.selectedCustomer.name,
+        customer?.name ||
+        null,
 
-      /* =====================================
-         CONTRACT
-      ====================================== */
-
-      contractId:
-        contract.id,
-
-      contractNumber:
-        clean(
-          contract.contractNumber ||
-          contract.number
-        ) || null,
-
-      contractLabel:
-        contractLabel(contract),
-
-      autoPostingEligible:
-        true,
-
-      /* =====================================
-         TICKET
-      ====================================== */
 
       ticketNumber:
-        clean(elements.ticketNumber.value),
+        clean(
+          el.ticketNumber.value
+        ),
 
       ticketDate:
-        elements.ticketDate.value,
-
-      /* =====================================
-         BUSHELS
-      ====================================== */
-
-      grossBushels:
-        cleanNumber(
-          elements.grossBushels.value
+        clean(
+          el.ticketDate.value
         ),
 
-      shrinkBushels:
-        cleanNumber(
-          elements.shrinkBushels.value
-        ) ?? 0,
-
-      netBushels:
-        cleanNumber(
-          elements.netBushels.value
+      crop:
+        clean(
+          el.crop.value
         ),
 
-      /* =====================================
-         WEIGHTS
-      ====================================== */
 
       grossWeight:
-        cleanNumber(
-          elements.grossWeight.value
+        numberOrNull(
+          el.grossWeight.value
         ),
 
       tareWeight:
-        cleanNumber(
-          elements.tareWeight.value
+        numberOrNull(
+          el.tareWeight.value
         ),
 
       netWeight:
-        cleanNumber(
-          elements.netWeight.value
+        numberOrNull(
+          el.netWeight.value
         ),
 
-      /* =====================================
-         GRADE FACTORS
-      ====================================== */
 
       testWeight:
-        cleanNumber(
-          elements.testWeight.value
+        numberOrNull(
+          el.testWeight.value
         ),
 
       moisture:
-        cleanNumber(
-          elements.moisture.value
+        numberOrNull(
+          el.moisture.value
         ),
 
       damage:
-        cleanNumber(
-          elements.damage.value
+        numberOrNull(
+          el.damage.value
         ),
 
       foreignMaterial:
-        cleanNumber(
-          elements.foreignMaterial.value
+        numberOrNull(
+          el.foreignMaterial.value
         ),
 
-      /* =====================================
-         DRIVER
-      ====================================== */
 
-      driverEmployeeId:
-        driver.type === "employee"
-          ? driver.id
-          : null,
+      grossBushels:
+        numberOrNull(
+          el.grossBushels.value
+        ),
 
-      driverSubcontractorId:
-        driver.type === "subcontractor"
-          ? driver.subcontractorId
-          : null,
+      shrinkBushels:
+        numberOrNull(
+          el.shrinkBushels.value
+        ) ??
+        0,
 
-      driverSubcontractorDriverId:
-        driver.type === "subcontractor"
-          ? driver.id
-          : null,
+      netBushels:
+        numberOrNull(
+          el.netBushels.value
+        ),
 
-      driverType:
-        driver.type,
 
-      driverUid:
-        driver.uid || null,
+      grainSourceType:
+        source?.type ||
+        null,
 
-      driverName:
-        driver.name,
+      grainSourceValue:
+        source?.value ||
+        null,
 
-      driverEmail:
-        driver.email || null,
+      grainSourceId:
+        source?.id ||
+        null,
 
-      driverPhone:
-        driver.phone || null,
+      grainSourceName:
+        source?.label ||
+        null,
 
-      driverCompanyName:
-        driver.companyName || null,
+      grainSourceSiteId:
+        source?.siteId ||
+        null,
 
-      /* =====================================
-         ENTERED BY
-      ====================================== */
+      grainSourceSiteName:
+        source?.siteName ||
+        null,
 
-      enteredByUid:
-        state.user.uid,
+      grainSourceBinNumber:
+        source?.binNumber ??
+        null,
 
-      enteredByName:
-        state.user.displayName ||
-        state.user.email ||
-        "FarmVista User",
+      grainSourceBinIndex:
+        source?.binIndex ??
+        null,
 
-      enteredByEmail:
-        state.user.email || null,
+      grainSourceFieldId:
+        source?.fieldId ||
+        null,
 
-      /* =====================================
-         SOURCE / STATUS
-      ====================================== */
+      grainSourceFieldName:
+        source?.fieldName ||
+        null,
 
-      entryMethod:
-        "manual",
+      grainSourceCropYear:
+        source?.cropYear ||
+        null,
 
-      validationStatus:
-        "verified",
+
+      contractId:
+        contract?.id ||
+        null,
+
+      contractNumber,
+
+      contractLabel:
+        contractLabel(
+          contract
+        ),
 
       customerContractMatched:
         true,
 
       matchingContractIds:
-        [contract.id],
+        [
+          contract.id
+        ],
 
-      loadoutComplete:
-        true,
 
-      needsReview:
-        false,
+      driverType:
+        driver.type,
 
-      /* =====================================
-         TIMESTAMPS
-      ====================================== */
+      driverId:
+        driver.id ||
+        null,
+
+      driverUid:
+        driver.uid ||
+        null,
+
+      driverName:
+        driver.name ||
+        null,
+
+      driverEmail:
+        driver.email ||
+        null,
+
+      driverPhone:
+        driver.phone ||
+        null,
+
+
+      subcontractorId:
+        driver.subcontractorId ||
+        null,
+
+      subcontractorName:
+        driver.subcontractorName ||
+        null,
+
+
+      entryMethod:
+        "manual_entry",
+
+      source:
+        "manual",
+
+      validationStatus:
+        "verified",
+
+      reconciliationStatus:
+        "reconciled",
+
+      reviewReasons:
+        [],
+
+
+      createdByUid:
+        state.user?.uid ||
+        null,
+
+      createdByName:
+        state.user?.displayName ||
+        state.user?.email ||
+        "FarmVista User",
+
+      createdByEmail:
+        state.user?.email ||
+        null,
+
+
+      reviewedByUid:
+        state.user?.uid ||
+        null,
+
+      reviewedByName:
+        state.user?.displayName ||
+        state.user?.email ||
+        "FarmVista User",
+
+      reviewedByEmail:
+        state.user?.email ||
+        null,
+
 
       createdAt:
         serverTimestamp(),
 
       updatedAt:
+        serverTimestamp(),
+
+      reviewedAt:
         serverTimestamp()
+
     };
 
-    console.log(
-      "[Grain Ticket] Saving:",
-      payload
-    );
 
-    const savedTicket = await addDoc(
+    await addDoc(
       collection(
         db,
-        TICKET_COLLECTION
+        "grain_tickets"
       ),
       payload
     );
 
-    console.log(
-      "[Grain Ticket] Saved:",
-      savedTicket.id
-    );
 
     showMessage(
-      "Grain ticket saved successfully.",
+      "Ticket saved and verified.",
       "success"
     );
 
-    setTimeout(
-      () => {
-        window.location.href =
-          "/Farm-vista/pages/grain/grain-ticket.html";
-      },
-      800
-    );
-  } catch (error) {
+
+    window.location.href =
+      "/Farm-vista/pages/grain/grain-ticket.html";
+
+  }
+  catch (
+    error
+  ) {
+
     console.error(
-      "[Grain Ticket] Save failed:",
+      "[Grain Ticket Add] Save failed:",
       error
     );
 
+
     showMessage(
-      "The grain ticket could not be saved. Your entries are still on the screen.",
-      "error"
+      error?.message ||
+      "The grain ticket could not be saved."
     );
-  } finally {
-    state.saving = false;
 
-    elements.saveBtn.disabled = false;
-    elements.saveBtn.textContent =
+  }
+  finally {
+
+    state.saving =
+      false;
+
+
+    el.saveBtn.disabled =
+      false;
+
+
+    el.saveBtn.textContent =
       "Save Ticket";
-  }
-}
 
-/* ============================================================
-   CROP CHANGE
-============================================================ */
-
-function handleCropChange() {
-  clearSourceSelection();
-
-  clearBuyerSelection();
-
-  if (elements.sourceSearch) {
-    elements.sourceSearch.disabled =
-      !elements.crop.value;
-
-    elements.sourceSearch.placeholder =
-      elements.crop.value
-        ? "Search Grain Source"
-        : "Select Crop first";
   }
 
-  elements.buyerSearch.disabled =
-    !elements.crop.value;
-
-  elements.buyerSearch.placeholder =
-    elements.crop.value
-      ? "Search Destination / Elevator"
-      : "Select Crop first";
-
-  renderSourceOptions("");
-  renderBuyerOptions("");
-
-  updateBushelCalculation();
 }
 
+
 /* ============================================================
-   CLOSE LOOKUPS
+   RESET AFTER CROP CHANGE
 ============================================================ */
 
-function closeLookups(event) {
-  [
-    elements.sourceLookup,
-    elements.buyerLookup,
-    elements.locationLookup,
-    elements.customerLookup,
-    elements.contractLookup,
-    elements.driverLookup
-  ]
-    .filter(Boolean)
-    .forEach(lookup => {
-      if (!lookup.contains(event.target)) {
-        lookup.classList.remove("open");
-      }
-    });
+function clearAfterCrop() {
+
+  el.sourceValue.value =
+    "";
+
+
+  state.selectedSource =
+    null;
+
+
+  el.locationSelect.value =
+    "";
+
+
+  el.buyerSelect.value =
+    "";
+
+
+  state.selectedLocation =
+    null;
+
+
+  state.selectedBuyer =
+    null;
+
+
+  el.customerSelect.value =
+    "";
+
+
+  state.selectedCustomer =
+    null;
+
+
+  el.contractSelect.value =
+    "";
+
+
+  state.selectedContract =
+    null;
+
+
+  syncSource();
+
+
+  syncDestination();
+
+
+  syncCustomer();
+
+
+  renderSource();
+
+
+  renderDestination();
+
+
+  renderCustomer();
+
+
+  renderContract();
+
 }
 
+
 /* ============================================================
-   SETUP
+   EVENTS
 ============================================================ */
 
 function setupEvents() {
-  setupSourcePicker();
-  setupBuyerPicker();
-  setupDeliveryLocationPicker();
-  setupCustomerPicker();
-  setupContractPicker();
-  setupDriverPicker();
 
-  setupWeightInputs();
-  setupBushelInputs();
-  setupGradeFactorInputs();
+  /*
+    IMPORTANT:
+    Back and Cancel are wired FIRST.
 
-  elements.crop.addEventListener(
-    "change",
-    handleCropChange
-  );
+    Even if Firebase loading fails later,
+    these buttons still work.
+  */
 
-  [
-    elements.testWeight,
-    elements.moisture,
-    elements.damage,
-    elements.foreignMaterial
-  ].forEach(input => {
-    input.addEventListener(
-      "blur",
-      validateGradeFactors
-    );
-  });
-
-  elements.netWeight.addEventListener(
-    "input",
-    updateBushelCalculation
-  );
-
-  elements.netWeight.addEventListener(
-    "blur",
-    updateBushelCalculation
-  );
-
-  elements.ticketNumber.addEventListener(
-    "input",
+  const goBack =
     () => {
-      elements.ticketNumber.setCustomValidity("");
-    }
-  );
 
-  elements.cancelBtn.addEventListener(
-    "click",
-    () => {
       window.location.href =
         "/Farm-vista/pages/grain/grain-ticket.html";
+
+    };
+
+
+  el.backBtn?.addEventListener(
+    "click",
+    goBack
+  );
+
+
+  el.cancelBtn?.addEventListener(
+    "click",
+    goBack
+  );
+
+
+  el.sourceButton?.addEventListener(
+    "click",
+    event => {
+
+      event.stopPropagation();
+
+
+      openMenu(
+        el.sourceButton,
+        el.sourceMenu,
+        renderSource
+      );
+
     }
   );
 
-  elements.form.addEventListener(
+
+  el.destinationButton?.addEventListener(
+    "click",
+    event => {
+
+      event.stopPropagation();
+
+
+      openMenu(
+        el.destinationButton,
+        el.destinationMenu,
+        renderDestination
+      );
+
+    }
+  );
+
+
+  el.customerButton?.addEventListener(
+    "click",
+    event => {
+
+      event.stopPropagation();
+
+
+      openMenu(
+        el.customerButton,
+        el.customerMenu,
+        renderCustomer
+      );
+
+    }
+  );
+
+
+  el.driverButton?.addEventListener(
+    "click",
+    event => {
+
+      event.stopPropagation();
+
+
+      openMenu(
+        el.driverButton,
+        el.driverMenu,
+        renderDriver
+      );
+
+    }
+  );
+
+
+  document.addEventListener(
+    "click",
+    event => {
+
+      const insidePicker =
+        [
+          el.sourcePicker,
+          el.destinationPicker,
+          el.customerPicker,
+          el.driverPicker
+        ]
+          .some(
+            picker =>
+              picker?.contains(
+                event.target
+              )
+          );
+
+
+      if (
+        !insidePicker
+      ) {
+
+        closeMenus();
+
+      }
+
+    }
+  );
+
+
+  document.addEventListener(
+    "keydown",
+    event => {
+
+      if (
+        event.key ===
+        "Escape"
+      ) {
+
+        closeMenus();
+
+      }
+
+    }
+  );
+
+
+  el.crop?.addEventListener(
+    "change",
+    () => {
+
+      clearAfterCrop();
+
+
+      calculateBushels();
+
+
+      validateBushels();
+
+
+      clearMessage();
+
+    }
+  );
+
+
+  el.contractSelect?.addEventListener(
+    "change",
+    () => {
+
+      state.selectedContract =
+        state.contracts.find(
+          contract =>
+            contract.id ===
+            el.contractSelect.value
+        ) ||
+        null;
+
+
+      clearMessage();
+
+    }
+  );
+
+
+  [
+    el.grossWeight,
+    el.tareWeight,
+    el.netWeight
+  ]
+    .filter(
+      Boolean
+    )
+    .forEach(
+      input => {
+
+        input.addEventListener(
+          "input",
+          () => {
+
+            validateWeights();
+
+
+            calculateBushels();
+
+
+            validateBushels();
+
+          }
+        );
+
+      }
+    );
+
+
+  el.shrinkBushels?.addEventListener(
+    "input",
+    () => {
+
+      calculateBushels();
+
+
+      validateBushels();
+
+    }
+  );
+
+
+  el.netBushels?.addEventListener(
+    "input",
+    validateBushels
+  );
+
+
+  el.form?.addEventListener(
     "submit",
     saveTicket
   );
 
-  document.addEventListener(
-    "click",
-    closeLookups
-  );
 }
+
 
 /* ============================================================
-   INITIAL FIELD STATE
+   WAIT FOR AUTH
 ============================================================ */
 
-function initializeFieldState() {
-  if (elements.sourceSearch) {
-    elements.sourceSearch.disabled = true;
-    elements.sourceSearch.placeholder =
-      "Select Crop first";
+async function waitForSignedInUser() {
+
+  /*
+    Firebase auth can take a moment to restore the signed-in user.
+
+    Do NOT immediately treat auth.currentUser === null as logged out.
+  */
+
+  for (
+    let attempt =
+      0;
+    attempt <
+      40;
+    attempt +=
+      1
+  ) {
+
+    const user =
+      auth.currentUser;
+
+
+    if (
+      user
+    ) {
+
+      return user;
+
+    }
+
+
+    await new Promise(
+      resolve =>
+        setTimeout(
+          resolve,
+          250
+        )
+    );
+
   }
 
-  elements.buyerSearch.disabled = true;
-  elements.buyerSearch.placeholder =
-    "Select Crop first";
 
-  elements.locationSearch.disabled = true;
-  elements.locationSearch.placeholder =
-    "Select Destination first";
+  return null;
 
-  elements.customerSearch.disabled = true;
-  elements.customerSearch.placeholder =
-    "Select Delivery Location first";
-
-  if (elements.contractSearch) {
-    elements.contractSearch.disabled = true;
-    elements.contractSearch.placeholder =
-      "Select Sold Under first";
-  }
 }
+
 
 /* ============================================================
    START
 ============================================================ */
 
-async function startPage() {
-  initializeFieldState();
+async function start() {
+
+  /*
+    Wire controls immediately.
+    This fixes Back / Cancel even if Firestore fails.
+  */
 
   setupEvents();
 
-  await initializeUser();
 
-  if (!state.user) {
-    return;
-  }
+  state.user =
+    await waitForSignedInUser();
 
-  try {
-    await loadData();
 
-    handleCropChange();
-  } catch (error) {
-    console.error(
-      "[Grain Ticket] Initial load failed:",
-      error
+  if (
+    !state.user
+  ) {
+
+    throw new Error(
+      "You must be signed in to add a grain ticket."
     );
 
-    showMessage(
-      "FarmVista could not load the grain ticket data.",
-      "error"
-    );
   }
+
+
+  el.ticketDate.value =
+    localISO();
+
+
+  await loadReferenceData();
+
+
+  syncSource();
+
+
+  syncDestination();
+
+
+  syncCustomer();
+
+
+  syncDriver();
+
+
+  renderSource();
+
+
+  renderDestination();
+
+
+  renderCustomer();
+
+
+  renderContract();
+
+
+  renderDriver();
+
+
+  validateWeights();
+
+
+  validateBushels();
+
 }
 
-startPage().catch(error => {
-  console.error(
-    "[Grain Ticket] Startup failed:",
-    error
-  );
 
-  showMessage(
-    "The Grain Ticket page could not finish loading.",
-    "error"
+/* ============================================================
+   START PAGE
+============================================================ */
+
+start()
+  .catch(
+    error => {
+
+      console.error(
+        "[Grain Ticket Add] Startup failed:",
+        error
+      );
+
+
+      showMessage(
+        error?.message ||
+        "The Add Grain Ticket page could not load."
+      );
+
+
+      if (
+        el.saveBtn
+      ) {
+
+        el.saveBtn.disabled =
+          true;
+
+      }
+
+    }
   );
-});
