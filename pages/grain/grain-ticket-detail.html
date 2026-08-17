@@ -16,6 +16,7 @@
   >
 
   <script src="/Farm-vista/js/theme-boot.js"></script>
+  <script src="/Farm-vista/js/grain-capacity.js"></script>
 
   <link
     rel="manifest"
@@ -362,6 +363,165 @@
     }
 
 
+
+    /* ==========================================================
+       LOAD DETAILS PICKERS
+    ========================================================== */
+
+    .load-details-grid{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:12px;
+    }
+
+    .load-details-grid .full{
+      grid-column:1 / -1;
+    }
+
+    .load-picker{
+      position:relative;
+      width:100%;
+    }
+
+    .load-picker-button{
+      width:100%;
+      min-height:46px;
+      display:flex;
+      align-items:center;
+      border:1px solid var(--border);
+      border-radius:11px;
+      background-color:var(--surface);
+      color:var(--text);
+      padding:9px 38px 9px 11px;
+      font:inherit;
+      text-align:left;
+      cursor:pointer;
+      background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="14" height="8" viewBox="0 0 14 8"><path d="M1 1l6 6 6-6" fill="none" stroke="%2367706B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+      background-repeat:no-repeat;
+      background-position:right 11px center;
+      background-size:14px 8px;
+    }
+
+    .load-picker-button:focus{
+      outline:none;
+      border-color:#3B7E46;
+      box-shadow:0 0 0 3px rgba(59,126,70,.13);
+    }
+
+    .load-picker-menu{
+      position:absolute;
+      left:0;
+      right:0;
+      top:calc(100% + 5px);
+      z-index:10030;
+      display:none;
+      max-height:390px;
+      overflow:auto;
+      border:1px solid var(--border);
+      border-radius:11px;
+      background:var(--surface);
+      box-shadow:0 14px 34px rgba(0,0,0,.20);
+      padding:0 0 5px;
+
+      scrollbar-width:none;
+      -ms-overflow-style:none;
+    }
+
+    .load-picker-menu::-webkit-scrollbar{
+      display:none;
+    }
+
+    .load-picker-menu.open{
+      display:block;
+    }
+
+    .load-picker-search-wrap{
+      position:sticky;
+      top:0;
+      z-index:2;
+      padding:8px;
+      background:var(--surface);
+      border-bottom:1px solid var(--border);
+    }
+
+    .load-picker-search{
+      width:100%;
+      box-sizing:border-box;
+      border:1px solid var(--border);
+      border-radius:9px;
+      background:var(--surface);
+      color:var(--text);
+      padding:9px 10px;
+      font:inherit;
+    }
+
+    .load-picker-group{
+      padding:9px 12px 7px;
+      color:var(--text);
+      background:var(--surface-2,rgba(0,0,0,.035));
+      border-top:1px solid var(--border);
+      border-bottom:1px solid var(--border);
+      font-size:11px;
+      font-weight:950;
+      letter-spacing:.04em;
+      text-transform:uppercase;
+      cursor:default;
+      user-select:none;
+      pointer-events:none;
+    }
+
+    .load-picker-choice{
+      width:100%;
+      appearance:none;
+      border:0;
+      border-bottom:1px solid var(--border);
+      background:var(--surface);
+      color:var(--text);
+      padding:10px 13px;
+      font:inherit;
+      font-weight:650;
+      text-align:left;
+      cursor:pointer;
+    }
+
+    .load-picker-choice:hover,
+    .load-picker-choice:focus,
+    .load-picker-choice.selected{
+      background:var(--surface-2,rgba(59,126,70,.08));
+      outline:none;
+    }
+
+    .load-picker-empty{
+      padding:12px;
+      color:var(--muted,#68716c);
+      font-size:12px;
+      font-weight:700;
+    }
+
+    .load-detail-help{
+      margin-top:5px;
+      color:var(--muted,#68716c);
+      font-size:11px;
+      line-height:1.35;
+    }
+
+    .load-context{
+      margin-bottom:13px;
+      padding:10px 12px;
+      border:1px solid var(--border);
+      border-radius:10px;
+      background:var(--surface-2,rgba(127,127,127,.05));
+      color:var(--muted,#68716c);
+      font-size:12px;
+      font-weight:750;
+    }
+
+    .load-context.linked{
+      border-color:rgba(59,126,70,.35);
+      background:rgba(59,126,70,.07);
+      color:#2F6C3C;
+    }
+
     /* ==========================================================
        TICKET IMAGE VIEWER
     ========================================================== */
@@ -566,8 +726,13 @@
 
       .form-grid.two,
       .form-grid.three,
-      .form-grid.four{
+      .form-grid.four,
+      .load-details-grid{
         grid-template-columns:1fr;
+      }
+
+      .load-details-grid .full{
+        grid-column:auto;
       }
 
 
@@ -687,101 +852,166 @@
             <section class="card">
 
               <h2>
-                FarmVista Matching
+                Load Details
               </h2>
 
               <p class="card-sub">
-                Correct these selections once and FarmVista can remember the OCR wording for future tickets.
+                Verify where this grain was delivered, who it was sold under, and exactly which bin or grain bag it came from.
               </p>
 
+              <div
+                id="linkedLoadoutContext"
+                class="load-context"
+              >
+                Checking for a linked FarmVista load…
+              </div>
 
-              <div class="form-grid two">
+              <div class="load-details-grid">
 
-
-                <div class="field">
-
-                  <label for="customerSelect">
-                    Customer / Vendor
+                <div class="field full">
+                  <label for="destinationButton">
+                    Destination / Elevator
                   </label>
-
-                  <select
-                    id="customerSelect"
-                    class="control"
-                    required
-                  >
-
-                    <option value="">
-                      Select customer
-                    </option>
-
-                  </select>
-
 
                   <div
-                    id="ocrCustomerHint"
-                    class="ocr-hint"
-                  ></div>
-
-                </div>
-
-
-                <div class="field">
-
-                  <label for="buyerSelect">
-                    Buyer / Elevator
-                  </label>
-
-                  <select
-                    id="buyerSelect"
-                    class="control"
-                    required
+                    id="destinationPicker"
+                    class="load-picker"
                   >
+                    <button
+                      id="destinationButton"
+                      type="button"
+                      class="load-picker-button"
+                      aria-haspopup="listbox"
+                      aria-expanded="false"
+                    >
+                      <span id="destinationButtonText">
+                        Select destination
+                      </span>
+                    </button>
 
-                    <option value="">
-                      Select buyer / elevator
-                    </option>
+                    <div
+                      id="destinationMenu"
+                      class="load-picker-menu"
+                      role="listbox"
+                      aria-label="Destination or elevator"
+                    ></div>
 
-                  </select>
+                    <input
+                      id="locationSelect"
+                      type="hidden"
+                      value=""
+                    >
 
-
-                  <div
-                    id="ocrBuyerHint"
-                    class="ocr-hint"
-                  ></div>
-
-                </div>
-
-
-                <div class="field">
-
-                  <label for="locationSelect">
-                    Delivery Location
-                  </label>
-
-                  <select
-                    id="locationSelect"
-                    class="control"
-                    required
-                    disabled
-                  >
-
-                    <option value="">
-                      Select buyer first
-                    </option>
-
-                  </select>
-
+                    <input
+                      id="buyerSelect"
+                      type="hidden"
+                      value=""
+                    >
+                  </div>
 
                   <div
                     id="ocrLocationHint"
                     class="ocr-hint"
                   ></div>
-
                 </div>
 
 
                 <div class="field">
+                  <label for="customerButton">
+                    Sold Under / Customer
+                  </label>
 
+                  <div
+                    id="customerPicker"
+                    class="load-picker"
+                  >
+                    <button
+                      id="customerButton"
+                      type="button"
+                      class="load-picker-button"
+                      aria-haspopup="listbox"
+                      aria-expanded="false"
+                    >
+                      <span id="customerButtonText">
+                        Select customer
+                      </span>
+                    </button>
+
+                    <div
+                      id="customerMenu"
+                      class="load-picker-menu"
+                      role="listbox"
+                      aria-label="Sold under customer"
+                    ></div>
+
+                    <input
+                      id="customerSelect"
+                      type="hidden"
+                      value=""
+                    >
+                  </div>
+
+                  <div
+                    id="ocrCustomerHint"
+                    class="ocr-hint"
+                  ></div>
+                </div>
+
+
+                <div class="field">
+                  <label for="ticketCrop">
+                    Crop
+                  </label>
+
+                  <select
+                    id="ticketCrop"
+                    class="control"
+                  ></select>
+                </div>
+
+
+                <div class="field full">
+                  <label for="grainSourceButton">
+                    Grain Source
+                  </label>
+
+                  <div
+                    id="grainSourcePicker"
+                    class="load-picker"
+                  >
+                    <button
+                      id="grainSourceButton"
+                      type="button"
+                      class="load-picker-button"
+                      aria-haspopup="listbox"
+                      aria-expanded="false"
+                    >
+                      <span id="grainSourceButtonText">
+                        Select bin or grain bag
+                      </span>
+                    </button>
+
+                    <div
+                      id="grainSourceMenu"
+                      class="load-picker-menu"
+                      role="listbox"
+                      aria-label="Grain source"
+                    ></div>
+
+                    <input
+                      id="grainSourceValue"
+                      type="hidden"
+                      value=""
+                    >
+                  </div>
+
+                  <div class="load-detail-help">
+                    Search available bin sites and grain bags. The list filters to the selected crop.
+                  </div>
+                </div>
+
+
+                <div class="field full">
                   <label for="contractSelect">
                     Contract
                   </label>
@@ -789,14 +1019,12 @@
                   <select
                     id="contractSelect"
                     class="control"
+                    disabled
                   >
-
                     <option value="">
-                      No contract selected
+                      Select customer and crop first
                     </option>
-
                   </select>
-
 
                   <div
                     id="contractStatus"
@@ -804,13 +1032,17 @@
                   >
                     Select customer and crop.
                   </div>
-
                 </div>
 
               </div>
 
-            </section>
+              <div
+                id="ocrBuyerHint"
+                class="ocr-hint"
+                style="display:none;"
+              ></div>
 
+            </section>
 
 
             <section class="card">
@@ -820,7 +1052,7 @@
               </h2>
 
 
-              <div class="form-grid three">
+              <div class="form-grid two">
 
                 <div class="field">
 
@@ -852,23 +1084,7 @@
                   >
 
                 </div>
-
-
-                <div class="field">
-
-                  <label for="crop">
-                    Crop
-                  </label>
-
-<select
-  id="ticketCrop"
-  class="control"
-  required
-></select>
-
-                </div>
-
-              </div>
+</div>
 
             </section>
 
@@ -1114,312 +1330,6 @@
                 class="contract-box"
               >
                 —
-              </div>
-
-            </section>
-
-
-
-            <!-- ====================================================
-                 GRAIN SOURCE LOCATION
-            ===================================================== -->
-
-            <section
-              id="grainSourceSection"
-              class="card"
-            >
-
-              <h2>
-                Grain Source Location
-              </h2>
-
-              <p class="card-sub">
-                Shows exactly where this load of grain came from.
-              </p>
-
-
-              <div class="form-grid three">
-
-                <div class="field">
-
-                  <label>
-                    Site
-                  </label>
-
-                  <div
-                    id="grainSourceSite"
-                    class="readonly-line"
-                  >
-                    —
-                  </div>
-
-                </div>
-
-
-                <div class="field">
-
-                  <label>
-                    Bin / Bag
-                  </label>
-
-                  <div
-                    id="loadoutGrainSource"
-                    class="readonly-line"
-                  >
-                    —
-                  </div>
-
-                </div>
-
-
-                <div class="field">
-
-                  <label>
-                    Source Type
-                  </label>
-
-                  <div
-                    id="loadoutSourceType"
-                    class="readonly-line"
-                  >
-                    —
-                  </div>
-
-                </div>
-
-
-                <div class="field">
-
-                  <label>
-                    Farm Field
-                  </label>
-
-                  <div
-                    id="grainSourceField"
-                    class="readonly-line"
-                  >
-                    —
-                  </div>
-
-                </div>
-
-
-                <div class="field">
-
-                  <label>
-                    Crop Year
-                  </label>
-
-                  <div
-                    id="grainSourceCropYear"
-                    class="readonly-line"
-                  >
-                    —
-                  </div>
-
-                </div>
-
-              </div>
-
-            </section>
-
-
-
-            <!-- ====================================================
-                 LOADOUT INFORMATION
-            ===================================================== -->
-
-            <section
-              id="loadoutSection"
-              class="card"
-            >
-
-              <h2>
-                Loadout Information
-              </h2>
-
-              <p class="card-sub">
-                Dispatch and delivery information connected to this grain ticket.
-              </p>
-
-
-              <div class="form-grid three">
-
-                <div class="field">
-
-                  <label>
-                    Load #
-                  </label>
-
-                  <div
-                    id="loadoutNumber"
-                    class="readonly-line"
-                  >
-                    —
-                  </div>
-
-                </div>
-
-
-                <div class="field">
-
-                  <label>
-                    Load Status
-                  </label>
-
-                  <div
-                    id="loadoutStatus"
-                    class="readonly-line"
-                  >
-                    —
-                  </div>
-
-                </div>
-
-
-                <div class="field">
-
-                  <label>
-                    Load Date
-                  </label>
-
-                  <div
-                    id="loadoutDate"
-                    class="readonly-line"
-                  >
-                    —
-                  </div>
-
-                </div>
-
-
-                <div class="field">
-
-                  <label>
-                    Assigned Driver
-                  </label>
-
-                  <div
-                    id="loadoutDriver"
-                    class="readonly-line"
-                  >
-                    —
-                  </div>
-
-                </div>
-
-
-                <div class="field">
-
-                  <label>
-                    Destination
-                  </label>
-
-                  <div
-                    id="loadoutDestination"
-                    class="readonly-line"
-                  >
-                    —
-                  </div>
-
-                </div>
-
-
-                <div class="field">
-
-                  <label>
-                    Sold Under / Customer
-                  </label>
-
-                  <div
-                    id="loadoutCustomer"
-                    class="readonly-line"
-                  >
-                    —
-                  </div>
-
-                </div>
-
-
-                <div class="field">
-
-                  <label>
-                    Crop
-                  </label>
-
-                  <div
-                    id="loadoutCrop"
-                    class="readonly-line"
-                  >
-                    —
-                  </div>
-
-                </div>
-
-
-                <div class="field">
-
-                  <label>
-                    Contract
-                  </label>
-
-                  <div
-                    id="loadoutContract"
-                    class="readonly-line"
-                  >
-                    —
-                  </div>
-
-                </div>
-
-
-                <div class="field">
-
-                  <label>
-                    Loaded At
-                  </label>
-
-                  <div
-                    id="loadoutLoadedAt"
-                    class="readonly-line"
-                  >
-                    —
-                  </div>
-
-                </div>
-
-
-                <div class="field">
-
-                  <label>
-                    Estimated Arrival
-                  </label>
-
-                  <div
-                    id="loadoutEta"
-                    class="readonly-line"
-                  >
-                    —
-                  </div>
-
-                </div>
-
-
-                <div class="field">
-
-                  <label>
-                    Text Message Status
-                  </label>
-
-                  <div
-                    id="loadoutSmsStatus"
-                    class="readonly-line"
-                  >
-                    —
-                  </div>
-
-                </div>
-
               </div>
 
             </section>
@@ -1676,6 +1586,15 @@
       contracts:
         [],
 
+      binSources:
+        [],
+
+      bagSources:
+        [],
+
+      selectedSource:
+        null,
+
       selectedBuyer:
         null,
 
@@ -1731,6 +1650,48 @@ pinchStartZoom:
 
       reviewList:
         $("reviewList"),
+
+      linkedLoadoutContext:
+        $("linkedLoadoutContext"),
+
+      destinationPicker:
+        $("destinationPicker"),
+
+      destinationButton:
+        $("destinationButton"),
+
+      destinationButtonText:
+        $("destinationButtonText"),
+
+      destinationMenu:
+        $("destinationMenu"),
+
+      customerPicker:
+        $("customerPicker"),
+
+      customerButton:
+        $("customerButton"),
+
+      customerButtonText:
+        $("customerButtonText"),
+
+      customerMenu:
+        $("customerMenu"),
+
+      grainSourcePicker:
+        $("grainSourcePicker"),
+
+      grainSourceButton:
+        $("grainSourceButton"),
+
+      grainSourceButtonText:
+        $("grainSourceButtonText"),
+
+      grainSourceMenu:
+        $("grainSourceMenu"),
+
+      grainSourceValue:
+        $("grainSourceValue"),
 
       customerSelect:
         $("customerSelect"),
@@ -1806,60 +1767,6 @@ crop:
 
       entryMethod:
         $("entryMethod"),
-
-      grainSourceSection:
-        $("grainSourceSection"),
-
-      grainSourceSite:
-        $("grainSourceSite"),
-
-      grainSourceField:
-        $("grainSourceField"),
-
-      grainSourceCropYear:
-        $("grainSourceCropYear"),
-
-      loadoutSection:
-        $("loadoutSection"),
-
-      loadoutStatus:
-        $("loadoutStatus"),
-
-      loadoutNumber:
-        $("loadoutNumber"),
-
-      loadoutGrainSource:
-        $("loadoutGrainSource"),
-
-      loadoutSourceType:
-        $("loadoutSourceType"),
-
-      loadoutDriver:
-        $("loadoutDriver"),
-
-      loadoutDate:
-        $("loadoutDate"),
-
-      loadoutDestination:
-        $("loadoutDestination"),
-
-      loadoutCustomer:
-        $("loadoutCustomer"),
-
-      loadoutCrop:
-        $("loadoutCrop"),
-
-      loadoutContract:
-        $("loadoutContract"),
-
-      loadoutLoadedAt:
-        $("loadoutLoadedAt"),
-
-      loadoutEta:
-        $("loadoutEta"),
-
-      loadoutSmsStatus:
-        $("loadoutSmsStatus"),
 
       ocrRawText:
         $("ocrRawText"),
@@ -2674,7 +2581,31 @@ function handleTicketTouchEnd(
           "Buyer / Elevator was not matched.",
 
         contract_not_matched:
-          "Contract was not matched."
+          "Contract was not matched.",
+
+        contract_not_assigned:
+          "Contract still needs to be assigned.",
+
+        grain_source_not_assigned:
+          "Grain source still needs to be assigned.",
+
+        crop_not_matched:
+          "Crop still needs to be selected.",
+
+        ticket_weights_invalid:
+          "Ticket weights need review.",
+
+        ticket_bushels_invalid:
+          "Ticket bushels need review.",
+
+        ticket_number_missing:
+          "Ticket number is missing.",
+
+        ticket_date_missing:
+          "Ticket date is missing.",
+
+        grain_source_crop_mismatch:
+          "Selected grain source does not match the ticket crop."
 
       };
 
@@ -4002,86 +3933,24 @@ function handleTicketTouchEnd(
 
 
       if (
+        !elements.linkedLoadoutContext
+      ) {
+
+        return;
+
+      }
+
+
+      if (
         !load
       ) {
 
-        elements.loadoutStatus.textContent =
-          "No loadout linked";
+        elements.linkedLoadoutContext.className =
+          "load-context";
 
 
-        elements.loadoutNumber.textContent =
-          clean(
-            state.ticket?.loadNumber
-          ) ||
-          "—";
-
-
-        elements.grainSourceSite.textContent =
-          "—";
-
-
-        elements.grainSourceField.textContent =
-          "—";
-
-
-        elements.grainSourceCropYear.textContent =
-          "—";
-
-
-        elements.loadoutGrainSource.textContent =
-          "—";
-
-
-        elements.loadoutSourceType.textContent =
-          "—";
-
-
-        elements.loadoutDriver.textContent =
-          clean(
-            state.ticket?.driverName
-          ) ||
-          "—";
-
-
-        elements.loadoutDate.textContent =
-          "—";
-
-
-        elements.loadoutDestination.textContent =
-          "—";
-
-
-        elements.loadoutCustomer.textContent =
-          "—";
-
-
-        elements.loadoutCrop.textContent =
-          clean(
-            state.ticket?.crop
-          ) ||
-          "—";
-
-
-        elements.loadoutContract.textContent =
-          clean(
-            state.ticket?.contractNumber
-          )
-            ? `#${clean(
-                state.ticket.contractNumber
-              )}`
-            : "—";
-
-
-        elements.loadoutLoadedAt.textContent =
-          "—";
-
-
-        elements.loadoutEta.textContent =
-          "—";
-
-
-        elements.loadoutSmsStatus.textContent =
-          "—";
+        elements.linkedLoadoutContext.textContent =
+          "No FarmVista load was linked to this ticket. Fill in the load details below before the ticket can be verified.";
 
 
         return;
@@ -4089,212 +3958,37 @@ function handleTicketTouchEnd(
       }
 
 
-      elements.loadoutNumber.textContent =
+      elements.linkedLoadoutContext.className =
+        "load-context linked";
+
+
+      const pieces = [
+
         clean(
           load.loadNumber
-        ) ||
+        )
+          ? `Load ${clean(
+              load.loadNumber
+            )}`
+          : "Linked FarmVista load",
+
         clean(
-          state.ticket?.loadNumber
-        ) ||
-        "—";
+          load.driverName
+        ),
 
-
-      elements.loadoutStatus.textContent =
-        titleCaseStatus(
-          load.status
-        );
-
-
-      elements.loadoutDate.textContent =
         clean(
           load.loadDate ||
           load.deliveryDate
-        ) ||
-        "—";
+        )
 
-
-      /*
-        ==========================================================
-        PHYSICAL GRAIN SOURCE
-        ==========================================================
-
-        grain_loadouts stores the physical grain source separately
-        from the delivery destination. Keep that information grouped
-        together here so the ticket clearly shows where the grain
-        actually came from.
-      */
-
-
-      elements.grainSourceSite.textContent =
-        clean(
-          load.grainSourceSiteName
-        ) ||
-        "—";
-
-
-      const sourceType =
-        normalize(
-          load.grainSourceType
+      ]
+        .filter(
+          Boolean
         );
 
 
-      if (
-        sourceType ===
-          "bin"
-      ) {
-
-        const binNumber =
-          clean(
-            load.grainSourceBinNumber
-          );
-
-
-        elements.loadoutGrainSource.textContent =
-          binNumber
-            ? `Bin ${binNumber}`
-            : clean(
-                load.grainSourceName
-              ) ||
-              "—";
-
-      }
-      else if (
-        sourceType ===
-          "grain bag" ||
-        sourceType ===
-          "grain_bag" ||
-        sourceType ===
-          "bag"
-      ) {
-
-        elements.loadoutGrainSource.textContent =
-          clean(
-            load.grainSourceName
-          ) ||
-          "Grain Bag";
-
-      }
-      else {
-
-        elements.loadoutGrainSource.textContent =
-          clean(
-            load.grainSourceName
-          ) ||
-          "—";
-
-      }
-
-
-      elements.loadoutSourceType.textContent =
-        sourceType ===
-          "grain bag" ||
-        sourceType ===
-          "grain_bag" ||
-        sourceType ===
-          "bag"
-            ? "Grain Bag"
-            : sourceType ===
-                "bin"
-              ? "Grain Bin"
-              : titleCaseStatus(
-                  load.grainSourceType
-                );
-
-
-      elements.grainSourceField.textContent =
-        clean(
-          load.grainSourceFieldName
-        ) ||
-        "—";
-
-
-      elements.grainSourceCropYear.textContent =
-        clean(
-          load.grainSourceCropYear
-        ) ||
-        "—";
-
-
-      elements.loadoutDriver.textContent =
-        clean(
-          load.driverName
-        ) ||
-        "—";
-
-
-      const destinationAddress =
-        clean(
-          load.destinationAddress
-        ) ||
-        [
-          load.deliveryStreet,
-          load.deliveryCity,
-          load.deliveryState,
-          load.deliveryZip
-        ]
-          .filter(Boolean)
-          .join(", ");
-
-
-      elements.loadoutDestination.textContent =
-        [
-          clean(
-            load.destinationName ||
-            load.deliveryLocationName
-          ),
-
-          destinationAddress
-        ]
-          .filter(Boolean)
-          .join(" • ") ||
-        "—";
-
-
-      elements.loadoutCustomer.textContent =
-        clean(
-          load.customerName
-        ) ||
-        "—";
-
-
-      elements.loadoutCrop.textContent =
-        clean(
-          load.crop
-        ) ||
-        "—";
-
-
-      elements.loadoutContract.textContent =
-        clean(
-          load.contractLabel
-        ) ||
-        (
-          clean(
-            load.contractNumber
-          )
-            ? `#${clean(
-                load.contractNumber
-              )}`
-            : "—"
-        );
-
-
-      elements.loadoutLoadedAt.textContent =
-        formatFirestoreDateTime(
-          load.loadedAt
-        );
-
-
-      elements.loadoutEta.textContent =
-        formatFirestoreDateTime(
-          load.estimatedArrivalAt
-        );
-
-
-      elements.loadoutSmsStatus.textContent =
-        titleCaseStatus(
-          load.smsStatus
-        );
+      elements.linkedLoadoutContext.textContent =
+        `✓ ${pieces.join(" • ")}. Load details below were filled from the linked load and can be corrected here.`;
 
     }
 
@@ -4310,7 +4004,9 @@ function handleTicketTouchEnd(
         buyerSnapshot,
         customerSnapshot,
         locationSnapshot,
-        contractSnapshot
+        contractSnapshot,
+        binSiteSnapshot,
+        bagEventSnapshot
       ] =
         await Promise.all([
 
@@ -4340,6 +4036,20 @@ function handleTicketTouchEnd(
               db,
               "grain_contracts"
             )
+          ),
+
+          getDocs(
+            collection(
+              db,
+              "binSites"
+            )
+          ),
+
+          getDocs(
+            collection(
+              db,
+              "grain_bag_events"
+            )
           )
 
         ]);
@@ -4348,26 +4058,15 @@ function handleTicketTouchEnd(
       state.buyers =
         buyerSnapshot.docs
           .map(
-            snapshot => {
+            snapshot => ({
+              id:
+                snapshot.id,
 
-              const data =
-                snapshot.data() ||
-                {};
-
-
-              return {
-
-                id:
-                  snapshot.id,
-
-                name:
-                  clean(
-                    data.name
-                  )
-
-              };
-
-            }
+              name:
+                clean(
+                  snapshot.data()?.name
+                )
+            })
           )
           .filter(
             buyer =>
@@ -4384,29 +4083,29 @@ function handleTicketTouchEnd(
           );
 
 
+      const buyerById =
+        new Map(
+          state.buyers.map(
+            buyer => [
+              buyer.id,
+              buyer
+            ]
+          )
+        );
+
+
       state.customers =
         customerSnapshot.docs
           .map(
-            snapshot => {
+            snapshot => ({
+              id:
+                snapshot.id,
 
-              const data =
-                snapshot.data() ||
-                {};
-
-
-              return {
-
-                id:
-                  snapshot.id,
-
-                name:
-                  clean(
-                    data.name
-                  )
-
-              };
-
-            }
+              name:
+                clean(
+                  snapshot.data()?.name
+                )
+            })
           )
           .filter(
             customer =>
@@ -4433,8 +4132,15 @@ function handleTicketTouchEnd(
                 {};
 
 
-              return {
+              const buyer =
+                buyerById.get(
+                  clean(
+                    data.buyerId
+                  )
+                );
 
+
+              return {
                 id:
                   snapshot.id,
 
@@ -4446,6 +4152,9 @@ function handleTicketTouchEnd(
                 buyerName:
                   clean(
                     data.buyerName
+                  ) ||
+                  clean(
+                    buyer?.name
                   ),
 
                 locationName:
@@ -4472,15 +4181,31 @@ function handleTicketTouchEnd(
                   clean(
                     data.zip
                   )
-
               };
 
             }
           )
           .filter(
             location =>
-              location.buyerId &&
               location.locationName
+          )
+          .sort(
+            (
+              a,
+              b
+            ) =>
+              `${a.buyerName} ${a.locationName}`
+                .localeCompare(
+                  `${b.buyerName} ${b.locationName}`,
+                  undefined,
+                  {
+                    numeric:
+                      true,
+
+                    sensitivity:
+                      "base"
+                  }
+                )
           );
 
 
@@ -4488,13 +4213,427 @@ function handleTicketTouchEnd(
         contractSnapshot.docs
           .map(
             snapshot => ({
-
               id:
                 snapshot.id,
 
               ...snapshot.data()
-
             })
+          );
+
+
+      state.binSources =
+        [];
+
+
+      binSiteSnapshot.docs
+        .forEach(
+          snapshot => {
+
+            const data =
+              snapshot.data() ||
+              {};
+
+
+            const siteName =
+              clean(
+                data.name
+              ) ||
+              `Bin Site ${snapshot.id.slice(
+                0,
+                6
+              )}`;
+
+
+            const fieldId =
+              clean(
+                data.fieldId ||
+                data.farmFieldId ||
+                data.field?.id
+              );
+
+
+            const fieldName =
+              clean(
+                data.fieldName ||
+                data.farmFieldName ||
+                data.field?.name
+              );
+
+
+            const bins =
+              Array.isArray(
+                data.bins
+              )
+                ? data.bins
+                : [];
+
+
+            bins.forEach(
+              (
+                bin,
+                index
+              ) => {
+
+                const onHand =
+                  Number(
+                    bin?.onHand ||
+                    0
+                  );
+
+
+                if (
+                  !Number.isFinite(
+                    onHand
+                  ) ||
+                  onHand <=
+                    0
+                ) {
+
+                  return;
+
+                }
+
+
+                const binNumber =
+                  bin?.num ??
+                  (
+                    index +
+                    1
+                  );
+
+
+                const crop =
+                  clean(
+                    bin?.lastCropType ||
+                    bin?.crop ||
+                    bin?.cropType
+                  );
+
+
+                const cropYear =
+                  clean(
+                    bin?.cropYear ||
+                    bin?.lastCropYear ||
+                    data.cropYear
+                  );
+
+
+                const label =
+                  `${siteName} — Bin ${binNumber}` +
+                  `${crop ? ` — ${crop}` : ""}` +
+                  ` — ${Math.round(
+                    onHand
+                  ).toLocaleString(
+                    "en-US"
+                  )} bu`;
+
+
+                state.binSources.push({
+                  type:
+                    "bin",
+
+                  value:
+                    `bin:${snapshot.id}:${binNumber}`,
+
+                  id:
+                    `${snapshot.id}:${binNumber}`,
+
+                  siteId:
+                    snapshot.id,
+
+                  siteName,
+
+                  binNumber,
+
+                  binIndex:
+                    index,
+
+                  fieldId,
+
+                  fieldName,
+
+                  crop,
+
+                  cropYear,
+
+                  onHand,
+
+                  label,
+
+                  searchText:
+                    `${siteName} bin ${binNumber} ${fieldName} ${crop} ${cropYear}`
+                });
+
+              }
+            );
+
+          }
+        );
+
+
+      state.binSources.sort(
+        (
+          a,
+          b
+        ) =>
+          a.label.localeCompare(
+            b.label,
+            undefined,
+            {
+              numeric:
+                true,
+
+              sensitivity:
+                "base"
+            }
+          )
+      );
+
+
+      state.bagSources =
+        bagEventSnapshot.docs
+          .map(
+            snapshot => ({
+              id:
+                snapshot.id,
+
+              ...snapshot.data()
+            })
+          )
+          .filter(
+            event =>
+              normalize(
+                event.type
+              ) ===
+                "putdown" ||
+              normalize(
+                event.type
+              ) ===
+                "put down"
+          )
+          .filter(
+            event =>
+              normalize(
+                event.status
+              ) !==
+                "pickedup" &&
+              normalize(
+                event.status
+              ) !==
+                "picked up"
+          )
+          .map(
+            event => {
+
+              const counts =
+                event.counts ||
+                {};
+
+
+              const full =
+                Math.max(
+                  0,
+                  Number(
+                    counts.full ||
+                    0
+                  )
+                );
+
+
+              const partial =
+                Math.max(
+                  0,
+                  Number(
+                    counts.partial ||
+                    0
+                  )
+                );
+
+
+              const partialFeet =
+                Array.isArray(
+                  event.partialFeet
+                )
+                  ? event.partialFeet.reduce(
+                      (
+                        sum,
+                        value
+                      ) =>
+                        sum +
+                        Math.max(
+                          0,
+                          Number(
+                            value
+                          ) ||
+                          0
+                        ),
+                      0
+                    )
+                  : 0;
+
+
+              if (
+                full <=
+                  0 &&
+                partial <=
+                  0 &&
+                partialFeet <=
+                  0
+              ) {
+
+                return null;
+
+              }
+
+
+              const fieldId =
+                clean(
+                  event.field?.id
+                );
+
+
+              const fieldName =
+                clean(
+                  event.field?.name
+                ) ||
+                "Unknown Field";
+
+
+              const crop =
+                clean(
+                  event.cropType ||
+                  event.crop
+                );
+
+
+              const cropYear =
+                clean(
+                  event.cropYear
+                );
+
+
+              const brand =
+                clean(
+                  event.bagSku?.brand
+                );
+
+
+              const sizeFeet =
+                clean(
+                  event.bagSku?.sizeFeet ||
+                  event.bagSku?.lengthFt
+                );
+
+
+              const location =
+                clean(
+                  event.bagSku?.location
+                );
+
+
+              const inventoryText = [
+                full >
+                  0
+                    ? `${full} full`
+                    : "",
+
+                partial >
+                  0
+                    ? `${partial} partial`
+                    : "",
+
+                partialFeet >
+                  0
+                    ? `${Number(
+                        partialFeet.toFixed(
+                          1
+                        )
+                      )} ft partial`
+                    : ""
+              ]
+                .filter(
+                  Boolean
+                )
+                .join(
+                  " • "
+                );
+
+
+              const details = [
+                crop,
+                cropYear
+                  ? `CY ${cropYear}`
+                  : "",
+                brand,
+                sizeFeet
+                  ? `${sizeFeet}'`
+                  : "",
+                location,
+                inventoryText
+              ]
+                .filter(
+                  Boolean
+                );
+
+
+              return {
+                type:
+                  "grain_bag",
+
+                value:
+                  `bag:${event.id}`,
+
+                id:
+                  event.id,
+
+                siteId:
+                  null,
+
+                siteName:
+                  null,
+
+                binNumber:
+                  null,
+
+                binIndex:
+                  null,
+
+                fieldId,
+
+                fieldName,
+
+                crop,
+
+                cropYear,
+
+                label:
+                  `${fieldName}${details.length ? ` — ${details.join(" • ")}` : ""}`,
+
+                searchText:
+                  `${fieldName} ${crop} ${cropYear} ${brand} ${location}`
+              };
+
+            }
+          )
+          .filter(
+            Boolean
+          )
+          .sort(
+            (
+              a,
+              b
+            ) =>
+              a.label.localeCompare(
+                b.label,
+                undefined,
+                {
+                  numeric:
+                    true,
+
+                  sensitivity:
+                    "base"
+                }
+              )
           );
 
     }
@@ -4502,13 +4641,14 @@ function handleTicketTouchEnd(
 
 
 // ==========================================================
-// DROPDOWNS
+// LOAD DETAILS CONTROLS
 // ==========================================================
 
 function renderCropOptions() {
 
   const saved =
     clean(
+      state.loadout?.crop ||
       state.ticket?.crop
     )
       .toLowerCase();
@@ -4550,65 +4690,21 @@ function renderCropOptions() {
   }
 
 
-  const crops =
-    [
-      "Corn",
-      "Soybeans",
-      "Wheat"
-    ];
-
-
   elements.crop.innerHTML =
-    "";
-
-
-  const blank =
-    document.createElement(
-      "option"
-    );
-
-
-  blank.value =
-    "";
-
-
-  blank.textContent =
-    "Select crop";
-
-
-  elements.crop.appendChild(
-    blank
-  );
-
-
-  crops.forEach(
-    crop => {
-
-      const option =
-        document.createElement(
-          "option"
-        );
-
-
-      option.value =
-        crop;
-
-
-      option.textContent =
-        crop;
-
-
-      option.selected =
-        crop ===
-        selected;
-
-
-      elements.crop.appendChild(
-        option
-      );
-
-    }
-  );
+    `
+      <option value="">
+        Select crop
+      </option>
+      <option value="Corn">
+        Corn
+      </option>
+      <option value="Soybeans">
+        Soybeans
+      </option>
+      <option value="Wheat">
+        Wheat
+      </option>
+    `;
 
 
   elements.crop.value =
@@ -4617,196 +4713,1288 @@ function renderCropOptions() {
 }
 
 
-function renderBuyerOptions() {
+function closeAllLoadMenus(
+  except =
+    null
+) {
 
-      elements.buyerSelect.innerHTML =
-        `
-          <option value="">
-            Select buyer / elevator
-          </option>
-        `;
+  [
+    elements.destinationMenu,
+    elements.customerMenu,
+    elements.grainSourceMenu
+  ]
+    .forEach(
+      menu => {
 
+        if (
+          menu &&
+          menu !==
+            except
+        ) {
 
-      state.buyers.forEach(
-        buyer => {
-
-          const option =
-            document.createElement(
-              "option"
-            );
-
-
-          option.value =
-            buyer.id;
-
-
-          option.textContent =
-            buyer.name;
-
-
-          elements.buyerSelect
-            .appendChild(
-              option
-            );
+          menu.classList.remove(
+            "open"
+          );
 
         }
-      );
 
-    }
-
-
-    function renderCustomerOptions() {
-
-      elements.customerSelect.innerHTML =
-        `
-          <option value="">
-            Select customer
-          </option>
-        `;
+      }
+    );
 
 
-      state.customers.forEach(
-        customer => {
+  [
+    elements.destinationButton,
+    elements.customerButton,
+    elements.grainSourceButton
+  ]
+    .forEach(
+      button => {
 
-          const option =
-            document.createElement(
-              "option"
-            );
+        if (
+          !button
+        ) {
 
-
-          option.value =
-            customer.id;
-
-
-          option.textContent =
-            customer.name;
-
-
-          elements.customerSelect
-            .appendChild(
-              option
-            );
+          return;
 
         }
-      );
-
-    }
 
 
-    function renderLocationOptions() {
+        const menu =
+          button ===
+            elements.destinationButton
+              ? elements.destinationMenu
+              : button ===
+                  elements.customerButton
+                    ? elements.customerMenu
+                    : elements.grainSourceMenu;
 
-      elements.locationSelect.innerHTML =
-        "";
+
+        if (
+          menu !==
+            except
+        ) {
+
+          button.setAttribute(
+            "aria-expanded",
+            "false"
+          );
+
+        }
+
+      }
+    );
+
+}
+
+
+function syncDestinationButton() {
+
+  const selected =
+    state.locations.find(
+      location =>
+        location.id ===
+        elements.locationSelect.value
+    ) ||
+    null;
+
+
+  elements.destinationButtonText.textContent =
+    selected
+      ? `${
+          selected.buyerName
+            ? `${selected.buyerName} — `
+            : ""
+        }${selected.locationName}`
+      : "Select destination";
+
+
+  elements.destinationMenu
+    ?.querySelectorAll(
+      ".load-picker-choice"
+    )
+    .forEach(
+      button => {
+
+        button.classList.toggle(
+          "selected",
+          button.dataset.locationId ===
+            elements.locationSelect.value
+        );
+
+      }
+    );
+
+}
+
+
+function chooseDestination(
+  locationId
+) {
+
+  const selected =
+    state.locations.find(
+      location =>
+        location.id ===
+        locationId
+    ) ||
+    null;
+
+
+  elements.locationSelect.value =
+    selected?.id ||
+    "";
+
+
+  elements.buyerSelect.value =
+    selected?.buyerId ||
+    "";
+
+
+  state.selectedLocation =
+    selected;
+
+
+  state.selectedBuyer =
+    selected
+      ? state.buyers.find(
+          buyer =>
+            buyer.id ===
+            selected.buyerId
+        ) ||
+        (
+          selected.buyerId
+            ? {
+                id:
+                  selected.buyerId,
+
+                name:
+                  selected.buyerName
+              }
+            : null
+        )
+      : null;
+
+
+  syncDestinationButton();
+
+
+  closeAllLoadMenus();
+
+
+  renderContractOptions();
+
+
+  updateReviewUI();
+
+}
+
+
+function renderDestinationOptions(
+  searchText =
+    ""
+) {
+
+  const search =
+    normalize(
+      searchText
+    );
+
+
+  elements.destinationMenu.innerHTML =
+    "";
+
+
+  const searchWrap =
+    document.createElement(
+      "div"
+    );
+
+
+  searchWrap.className =
+    "load-picker-search-wrap";
+
+
+  const searchInput =
+    document.createElement(
+      "input"
+    );
+
+
+  searchInput.type =
+    "search";
+
+
+  searchInput.className =
+    "load-picker-search";
+
+
+  searchInput.placeholder =
+    "Search elevator, location, city…";
+
+
+  searchInput.autocomplete =
+    "off";
+
+
+  searchInput.value =
+    searchText;
+
+
+  searchWrap.appendChild(
+    searchInput
+  );
+
+
+  elements.destinationMenu.appendChild(
+    searchWrap
+  );
+
+
+  const filtered =
+    state.locations.filter(
+      location => {
+
+        if (
+          !search
+        ) {
+
+          return true;
+
+        }
+
+
+        return normalize(
+          [
+            location.buyerName,
+            location.locationName,
+            location.street,
+            location.city,
+            location.state,
+            location.zip
+          ]
+            .filter(
+              Boolean
+            )
+            .join(
+              " "
+            )
+        )
+          .includes(
+            search
+          );
+
+      }
+    );
+
+
+  let lastBuyer =
+    "";
+
+
+  filtered.forEach(
+    location => {
+
+      const buyerName =
+        clean(
+          location.buyerName
+        ) ||
+        "Elevator";
 
 
       if (
-        !state.selectedBuyer
+        buyerName !==
+        lastBuyer
       ) {
 
-        elements.locationSelect.disabled =
-          true;
+        const group =
+          document.createElement(
+            "div"
+          );
 
 
-        elements.locationSelect.innerHTML =
-          `
-            <option value="">
-              Select buyer first
-            </option>
-          `;
+        group.className =
+          "load-picker-group";
 
 
-        state.selectedLocation =
-          null;
+        group.textContent =
+          buyerName;
 
+
+        elements.destinationMenu.appendChild(
+          group
+        );
+
+
+        lastBuyer =
+          buyerName;
+
+      }
+
+
+      const button =
+        document.createElement(
+          "button"
+        );
+
+
+      button.type =
+        "button";
+
+
+      button.className =
+        "load-picker-choice";
+
+
+      button.dataset.locationId =
+        location.id;
+
+
+      const address =
+        formatLocation(
+          location
+        );
+
+
+      button.textContent =
+        address
+          ? `${location.locationName} — ${address}`
+          : location.locationName;
+
+
+      button.addEventListener(
+        "click",
+        () => {
+
+          chooseDestination(
+            location.id
+          );
+
+        }
+      );
+
+
+      elements.destinationMenu.appendChild(
+        button
+      );
+
+    }
+  );
+
+
+  if (
+    !filtered.length
+  ) {
+
+    const empty =
+      document.createElement(
+        "div"
+      );
+
+
+    empty.className =
+      "load-picker-empty";
+
+
+    empty.textContent =
+      "No matching delivery locations found.";
+
+
+    elements.destinationMenu.appendChild(
+      empty
+    );
+
+  }
+
+
+  searchInput.addEventListener(
+    "input",
+    () => {
+
+      const value =
+        searchInput.value;
+
+
+      renderDestinationOptions(
+        value
+      );
+
+
+      const replacement =
+        elements.destinationMenu.querySelector(
+          ".load-picker-search"
+        );
+
+
+      replacement?.focus();
+
+
+      replacement?.setSelectionRange(
+        value.length,
+        value.length
+      );
+
+    }
+  );
+
+
+  syncDestinationButton();
+
+}
+
+
+function openDestinationMenu() {
+
+  closeAllLoadMenus(
+    elements.destinationMenu
+  );
+
+
+  renderDestinationOptions();
+
+
+  elements.destinationMenu.classList.add(
+    "open"
+  );
+
+
+  elements.destinationButton.setAttribute(
+    "aria-expanded",
+    "true"
+  );
+
+
+  setTimeout(
+    () =>
+      elements.destinationMenu
+        .querySelector(
+          ".load-picker-search"
+        )
+        ?.focus(),
+    0
+  );
+
+}
+
+
+function syncCustomerButton() {
+
+  const selected =
+    state.customers.find(
+      customer =>
+        customer.id ===
+        elements.customerSelect.value
+    ) ||
+    null;
+
+
+  elements.customerButtonText.textContent =
+    selected?.name ||
+    "Select customer";
+
+
+  elements.customerMenu
+    ?.querySelectorAll(
+      ".load-picker-choice"
+    )
+    .forEach(
+      button => {
+
+        button.classList.toggle(
+          "selected",
+          button.dataset.customerId ===
+            elements.customerSelect.value
+        );
+
+      }
+    );
+
+}
+
+
+function chooseCustomer(
+  customerId
+) {
+
+  state.selectedCustomer =
+    state.customers.find(
+      customer =>
+        customer.id ===
+        customerId
+    ) ||
+    null;
+
+
+  elements.customerSelect.value =
+    state.selectedCustomer?.id ||
+    "";
+
+
+  syncCustomerButton();
+
+
+  closeAllLoadMenus();
+
+
+  renderContractOptions();
+
+
+  updateReviewUI();
+
+}
+
+
+function renderCustomerOptions(
+  searchText =
+    ""
+) {
+
+  const search =
+    normalize(
+      searchText
+    );
+
+
+  elements.customerMenu.innerHTML =
+    "";
+
+
+  const searchWrap =
+    document.createElement(
+      "div"
+    );
+
+
+  searchWrap.className =
+    "load-picker-search-wrap";
+
+
+  const searchInput =
+    document.createElement(
+      "input"
+    );
+
+
+  searchInput.type =
+    "search";
+
+
+  searchInput.className =
+    "load-picker-search";
+
+
+  searchInput.placeholder =
+    "Search customer…";
+
+
+  searchInput.autocomplete =
+    "off";
+
+
+  searchInput.value =
+    searchText;
+
+
+  searchWrap.appendChild(
+    searchInput
+  );
+
+
+  elements.customerMenu.appendChild(
+    searchWrap
+  );
+
+
+  const filtered =
+    state.customers.filter(
+      customer =>
+        !search ||
+        normalize(
+          customer.name
+        )
+          .includes(
+            search
+          )
+    );
+
+
+  filtered.forEach(
+    customer => {
+
+      const button =
+        document.createElement(
+          "button"
+        );
+
+
+      button.type =
+        "button";
+
+
+      button.className =
+        "load-picker-choice";
+
+
+      button.dataset.customerId =
+        customer.id;
+
+
+      button.textContent =
+        customer.name;
+
+
+      button.addEventListener(
+        "click",
+        () => {
+
+          chooseCustomer(
+            customer.id
+          );
+
+        }
+      );
+
+
+      elements.customerMenu.appendChild(
+        button
+      );
+
+    }
+  );
+
+
+  if (
+    !filtered.length
+  ) {
+
+    const empty =
+      document.createElement(
+        "div"
+      );
+
+
+    empty.className =
+      "load-picker-empty";
+
+
+    empty.textContent =
+      "No matching customers found.";
+
+
+    elements.customerMenu.appendChild(
+      empty
+    );
+
+  }
+
+
+  searchInput.addEventListener(
+    "input",
+    () => {
+
+      const value =
+        searchInput.value;
+
+
+      renderCustomerOptions(
+        value
+      );
+
+
+      const replacement =
+        elements.customerMenu.querySelector(
+          ".load-picker-search"
+        );
+
+
+      replacement?.focus();
+
+
+      replacement?.setSelectionRange(
+        value.length,
+        value.length
+      );
+
+    }
+  );
+
+
+  syncCustomerButton();
+
+}
+
+
+function openCustomerMenu() {
+
+  closeAllLoadMenus(
+    elements.customerMenu
+  );
+
+
+  renderCustomerOptions();
+
+
+  elements.customerMenu.classList.add(
+    "open"
+  );
+
+
+  elements.customerButton.setAttribute(
+    "aria-expanded",
+    "true"
+  );
+
+
+  setTimeout(
+    () =>
+      elements.customerMenu
+        .querySelector(
+          ".load-picker-search"
+        )
+        ?.focus(),
+    0
+  );
+
+}
+
+
+function allSourceItems() {
+
+  return [
+    ...state.binSources,
+    ...state.bagSources
+  ];
+
+}
+
+
+function currentSourceItems() {
+
+  const crop =
+    normalize(
+      elements.crop.value
+    );
+
+
+  if (
+    !crop
+  ) {
+
+    return allSourceItems();
+
+  }
+
+
+  return allSourceItems()
+    .filter(
+      item =>
+        !clean(
+          item.crop
+        ) ||
+        normalize(
+          item.crop
+        ) ===
+        crop
+    );
+
+}
+
+
+function selectedSourceFromValue(
+  value
+) {
+
+  return allSourceItems()
+    .find(
+      item =>
+        item.value ===
+        value
+    ) ||
+    null;
+
+}
+
+
+function syncGrainSourceButton() {
+
+  state.selectedSource =
+    selectedSourceFromValue(
+      elements.grainSourceValue.value
+    );
+
+
+  elements.grainSourceButtonText.textContent =
+    state.selectedSource?.label ||
+    "Select bin or grain bag";
+
+
+  elements.grainSourceMenu
+    ?.querySelectorAll(
+      ".load-picker-choice"
+    )
+    .forEach(
+      button => {
+
+        button.classList.toggle(
+          "selected",
+          button.dataset.sourceValue ===
+            elements.grainSourceValue.value
+        );
+
+      }
+    );
+
+}
+
+
+function chooseGrainSource(
+  sourceValue
+) {
+
+  const selected =
+    selectedSourceFromValue(
+      sourceValue
+    );
+
+
+  if (
+    selected &&
+    elements.crop.value &&
+    selected.crop &&
+    normalize(
+      selected.crop
+    ) !==
+    normalize(
+      elements.crop.value
+    )
+  ) {
+
+    showMessage(
+      `That grain source contains ${selected.crop}, not ${elements.crop.value}.`,
+      "error"
+    );
+
+
+    return;
+
+  }
+
+
+  elements.grainSourceValue.value =
+    selected?.value ||
+    "";
+
+
+  state.selectedSource =
+    selected;
+
+
+  syncGrainSourceButton();
+
+
+  closeAllLoadMenus();
+
+
+  clearMessage();
+
+
+  updateReviewUI();
+
+}
+
+
+function renderGrainSourceOptions(
+  searchText =
+    ""
+) {
+
+  const search =
+    normalize(
+      searchText
+    );
+
+
+  const items =
+    currentSourceItems();
+
+
+  elements.grainSourceMenu.innerHTML =
+    "";
+
+
+  const searchWrap =
+    document.createElement(
+      "div"
+    );
+
+
+  searchWrap.className =
+    "load-picker-search-wrap";
+
+
+  const searchInput =
+    document.createElement(
+      "input"
+    );
+
+
+  searchInput.type =
+    "search";
+
+
+  searchInput.className =
+    "load-picker-search";
+
+
+  searchInput.placeholder =
+    "Search bin site, bin, field, crop…";
+
+
+  searchInput.autocomplete =
+    "off";
+
+
+  searchInput.value =
+    searchText;
+
+
+  searchWrap.appendChild(
+    searchInput
+  );
+
+
+  elements.grainSourceMenu.appendChild(
+    searchWrap
+  );
+
+
+  const renderGroup =
+    (
+      title,
+      groupItems
+    ) => {
+
+      const filtered =
+        groupItems.filter(
+          item =>
+            !search ||
+            normalize(
+              `${item.label} ${item.searchText || ""}`
+            )
+              .includes(
+                search
+              )
+        );
+
+
+      if (
+        !filtered.length
+      ) {
 
         return;
 
       }
 
 
-      elements.locationSelect.disabled =
-        false;
-
-
-      const blank =
+      const group =
         document.createElement(
-          "option"
+          "div"
         );
 
 
-      blank.value =
-        "";
+      group.className =
+        "load-picker-group";
 
 
-      blank.textContent =
-        "Select delivery location";
+      group.textContent =
+        title;
 
 
-      elements.locationSelect
-        .appendChild(
-          blank
-        );
+      elements.grainSourceMenu.appendChild(
+        group
+      );
 
 
-      const locations =
-        state.locations
-          .filter(
-            location =>
-              location.buyerId ===
-              state.selectedBuyer.id
-          )
-          .sort(
-            (
-              a,
-              b
-            ) =>
-              a.locationName
-                .localeCompare(
-                  b.locationName
-                )
+      filtered.forEach(
+        item => {
+
+          const button =
+            document.createElement(
+              "button"
+            );
+
+
+          button.type =
+            "button";
+
+
+          button.className =
+            "load-picker-choice";
+
+
+          button.dataset.sourceValue =
+            item.value;
+
+
+          button.textContent =
+            item.label;
+
+
+          button.addEventListener(
+            "click",
+            () => {
+
+              chooseGrainSource(
+                item.value
+              );
+
+            }
           );
 
 
-      locations.forEach(
-        location => {
-
-          const option =
-            document.createElement(
-              "option"
-            );
-
-
-          option.value =
-            location.id;
-
-
-          const address =
-            formatLocation(
-              location
-            );
-
-
-          option.textContent =
-            address
-              ? `${location.locationName} — ${address}`
-              : location.locationName;
-
-
-          elements.locationSelect
-            .appendChild(
-              option
-            );
+          elements.grainSourceMenu.appendChild(
+            button
+          );
 
         }
       );
 
-    }
+    };
 
+
+  const bins =
+    items.filter(
+      item =>
+        item.type ===
+        "bin"
+    );
+
+
+  const bags =
+    items.filter(
+      item =>
+        item.type ===
+        "grain_bag"
+    );
+
+
+  renderGroup(
+    "Bin Sites",
+    bins
+  );
+
+
+  renderGroup(
+    "Grain Bags",
+    bags
+  );
+
+
+  if (
+    !bins.length &&
+    !bags.length
+  ) {
+
+    const empty =
+      document.createElement(
+        "div"
+      );
+
+
+    empty.className =
+      "load-picker-empty";
+
+
+    empty.textContent =
+      elements.crop.value
+        ? "No available grain source matches this crop."
+        : "No available grain sources were found.";
+
+
+    elements.grainSourceMenu.appendChild(
+      empty
+    );
+
+  }
+
+
+  searchInput.addEventListener(
+    "input",
+    () => {
+
+      const value =
+        searchInput.value;
+
+
+      renderGrainSourceOptions(
+        value
+      );
+
+
+      const replacement =
+        elements.grainSourceMenu.querySelector(
+          ".load-picker-search"
+        );
+
+
+      replacement?.focus();
+
+
+      replacement?.setSelectionRange(
+        value.length,
+        value.length
+      );
+
+    }
+  );
+
+
+  syncGrainSourceButton();
+
+}
+
+
+function openGrainSourceMenu() {
+
+  closeAllLoadMenus(
+    elements.grainSourceMenu
+  );
+
+
+  renderGrainSourceOptions();
+
+
+  elements.grainSourceMenu.classList.add(
+    "open"
+  );
+
+
+  elements.grainSourceButton.setAttribute(
+    "aria-expanded",
+    "true"
+  );
+
+
+  setTimeout(
+    () =>
+      elements.grainSourceMenu
+        .querySelector(
+          ".load-picker-search"
+        )
+        ?.focus(),
+    0
+  );
+
+}
+
+
+/*
+  These two names existed in the older ticket-detail file.
+  Keep them as light wrappers so the rest of the page can still
+  call them without creating duplicate native dropdowns.
+*/
+
+function renderBuyerOptions() {
+
+  syncDestinationButton();
+
+}
+
+
+function renderLocationOptions() {
+
+  syncDestinationButton();
+
+}
 
 
     // ==========================================================
     // CONTRACT MATCHING
     // ==========================================================
+
+    function contractIsOpen(
+      contract
+    ) {
+
+      if (
+        contract?.isActive ===
+          false ||
+        contract?.active ===
+          false
+      ) {
+
+        return false;
+
+      }
+
+
+      const status =
+        normalize(
+          contract?.status ||
+          contract?.contractStatus
+        );
+
+
+      if (
+        status.includes(
+          "closed"
+        ) ||
+        status.includes(
+          "complete"
+        ) ||
+        status.includes(
+          "cancel"
+        ) ||
+        status.includes(
+          "void"
+        )
+      ) {
+
+        return false;
+
+      }
+
+
+      const remaining =
+        [
+          contract?.remainingBushels,
+          contract?.bushelsRemaining,
+          contract?.remainingBu,
+          contract?.openBushels
+        ]
+          .find(
+            value =>
+              value !==
+                undefined &&
+              value !==
+                null &&
+              value !==
+                ""
+          );
+
+
+      if (
+        remaining !==
+          undefined &&
+        Number.isFinite(
+          Number(
+            remaining
+          )
+        ) &&
+        Number(
+          remaining
+        ) <=
+          0
+      ) {
+
+        return false;
+
+      }
+
+
+      return true;
+
+    }
+
 
     function matchingContracts() {
 
@@ -4822,31 +6010,136 @@ function renderBuyerOptions() {
 
       return state.contracts
         .filter(
+          contract =>
+            contractIsOpen(
+              contract
+            )
+        )
+        .filter(
           contract => {
 
-            const customerMatches =
+            const customerId =
               clean(
-                contract.customerId
-              ) ===
+                contract.customerId ||
+                contract.grainCustomerId
+              );
+
+
+            const customerMatches =
+              customerId ===
               state.selectedCustomer.id;
 
 
             const cropMatches =
               normalize(
-                contract.crop
+                contract.crop ||
+                contract.commodity
               ) ===
               normalize(
                 elements.crop.value
               );
 
 
+            const contractBuyerId =
+              clean(
+                contract.buyerId
+              );
+
+
+            const buyerMatches =
+              !contractBuyerId ||
+              !state.selectedBuyer?.id ||
+              contractBuyerId ===
+                state.selectedBuyer.id;
+
+
             return (
               customerMatches &&
-              cropMatches
+              cropMatches &&
+              buyerMatches
             );
 
           }
+        )
+        .sort(
+          (
+            a,
+            b
+          ) =>
+            clean(
+              a.contractNumber ||
+              a.number
+            )
+              .localeCompare(
+                clean(
+                  b.contractNumber ||
+                  b.number
+                ),
+                undefined,
+                {
+                  numeric:
+                    true,
+
+                  sensitivity:
+                    "base"
+                }
+              )
         );
+
+    }
+
+
+    function contractLabel(
+      contract
+    ) {
+
+      const number =
+        clean(
+          contract.contractNumber ||
+          contract.number ||
+          contract.contractNo ||
+          contract.referenceNumber
+        ) ||
+        "Contract";
+
+
+      const remainingRaw =
+        contract.remainingBushels ??
+        contract.bushelsRemaining ??
+        contract.remainingBu ??
+        contract.openBushels ??
+        null;
+
+
+      const remaining =
+        remainingRaw !==
+          null &&
+        remainingRaw !==
+          "" &&
+        Number.isFinite(
+          Number(
+            remainingRaw
+          )
+        )
+          ? ` • ${Number(
+              remainingRaw
+            ).toLocaleString(
+              "en-US",
+              {
+                maximumFractionDigits:
+                  2
+              }
+            )} bu left`
+          : "";
+
+
+      const buyer =
+        clean(
+          contract.buyerName
+        );
+
+
+      return `${number}${buyer ? ` • ${buyer}` : ""}${remaining}`;
 
     }
 
@@ -4857,12 +6150,142 @@ function renderBuyerOptions() {
         matchingContracts();
 
 
+      const currentlySelected =
+        clean(
+          elements.contractSelect.value
+        );
+
+
+      const savedId =
+        clean(
+          state.loadout?.contractId ||
+          state.ticket?.contractId ||
+          state.ticket?.grainContractId
+        );
+
+
+      const wantedId =
+        currentlySelected ||
+        savedId;
+
+
       elements.contractSelect.innerHTML =
-        `
-          <option value="">
-            No contract selected
-          </option>
-        `;
+        "";
+
+
+      if (
+        !state.selectedCustomer ||
+        !elements.crop.value
+      ) {
+
+        elements.contractSelect.disabled =
+          true;
+
+
+        const option =
+          document.createElement(
+            "option"
+          );
+
+
+        option.value =
+          "";
+
+
+        option.textContent =
+          "Select customer and crop first";
+
+
+        elements.contractSelect.appendChild(
+          option
+        );
+
+
+        elements.contractStatus.className =
+          "contract-box warning";
+
+
+        elements.contractStatus.textContent =
+          "Select customer and crop.";
+
+
+        state.selectedContract =
+          null;
+
+
+        return;
+
+      }
+
+
+      if (
+        !matches.length
+      ) {
+
+        elements.contractSelect.disabled =
+          true;
+
+
+        const option =
+          document.createElement(
+            "option"
+          );
+
+
+        option.value =
+          "";
+
+
+        option.textContent =
+          "No open matching contracts";
+
+
+        elements.contractSelect.appendChild(
+          option
+        );
+
+
+        elements.contractStatus.className =
+          "contract-box warning";
+
+
+        elements.contractStatus.textContent =
+          "No open contract matches this customer, crop, and destination.";
+
+
+        state.selectedContract =
+          null;
+
+
+        return;
+
+      }
+
+
+      elements.contractSelect.disabled =
+        false;
+
+
+      const blank =
+        document.createElement(
+          "option"
+        );
+
+
+      blank.value =
+        "";
+
+
+      blank.textContent =
+        matches.length ===
+          1
+            ? "Select contract"
+            : `Select one of ${matches.length} contracts`;
+
+
+      elements.contractSelect.appendChild(
+        blank
+      );
 
 
       matches.forEach(
@@ -4878,126 +6301,47 @@ function renderBuyerOptions() {
             contract.id;
 
 
-          const pieces = [
-
-            contract.contractNumber
-              ? `#${contract.contractNumber}`
-              : "Contract",
-
-            contract.buyerName,
-
-            Number.isFinite(
-              Number(
-                contract.openBushels
-              )
-            )
-              ? `${Number(
-                  contract.openBushels
-                ).toLocaleString(
-                  "en-US",
-                  {
-                    maximumFractionDigits:
-                      2
-                  }
-                )} bu open`
-              : ""
-
-          ]
-            .filter(Boolean);
-
-
           option.textContent =
-            pieces.join(
-              " • "
+            contractLabel(
+              contract
             );
 
 
-          elements.contractSelect
-            .appendChild(
-              option
-            );
+          elements.contractSelect.appendChild(
+            option
+          );
 
         }
       );
 
 
-const previousIds =
-  Array.isArray(
-    state.ticket
-      ?.matchingContractIds
-  )
-    ? state.ticket
-        .matchingContractIds
-    : [];
-
-
-/*
-  First restore the actual saved Firestore contractId.
-
-  If there is no saved contractId, fall back to the older
-  matchingContractIds array.
-
-  Do NOT automatically assign a contract just because one matches.
-  The user must choose it.
-*/
-let selectedId =
-  (
-    state.ticket?.contractId &&
-    matches.some(
-      contract =>
-        contract.id ===
-        state.ticket.contractId
-    )
-  )
-    ? state.ticket.contractId
-    : previousIds.find(
-        id =>
-          matches.some(
-            contract =>
-              contract.id ===
-              id
-          )
-      ) ||
-      "";
-
-
-      elements.contractSelect.value =
-        selectedId;
-
-
-      state.selectedContract =
+      const validWanted =
         matches.find(
           contract =>
             contract.id ===
-            selectedId
+            wantedId
         ) ||
         null;
 
 
-      if (
-        matches.length
-      ) {
-
-        elements.contractStatus.className =
-          "contract-box good";
+      elements.contractSelect.value =
+        validWanted?.id ||
+        "";
 
 
-        elements.contractStatus.textContent =
-          matches.length === 1
-            ? "✓ Matching customer / crop contract found."
-            : `✓ ${matches.length} matching customer / crop contracts found.`;
-
-      }
-      else {
-
-        elements.contractStatus.className =
-          "contract-box warning";
+      state.selectedContract =
+        validWanted;
 
 
-        elements.contractStatus.textContent =
-          "No matching customer / crop contract found.";
+      elements.contractStatus.className =
+        "contract-box good";
 
-      }
+
+      elements.contractStatus.textContent =
+        `${matches.length} open matching contract${matches.length === 1 ? "" : "s"}.`;
+
+
+      updateReviewUI();
 
     }
 
@@ -5009,15 +6353,22 @@ let selectedId =
 
     function autoMatchCustomer() {
 
+      const savedCustomerId =
+        clean(
+          state.loadout?.customerId ||
+          state.ticket.customerId
+        );
+
+
       if (
-        state.ticket.customerId
+        savedCustomerId
       ) {
 
         const byId =
           state.customers.find(
             customer =>
               customer.id ===
-              state.ticket.customerId
+              savedCustomerId
           );
 
 
@@ -5034,6 +6385,7 @@ let selectedId =
 
       const source =
         clean(
+          state.loadout?.customerName ||
           state.ticket.ocrCustomerText ||
           state.ticket.customerName
         );
@@ -5085,15 +6437,22 @@ let selectedId =
 
     function autoMatchBuyer() {
 
+      const savedBuyerId =
+        clean(
+          state.loadout?.buyerId ||
+          state.ticket.buyerId
+        );
+
+
       if (
-        state.ticket.buyerId
+        savedBuyerId
       ) {
 
         const byId =
           state.buyers.find(
             buyer =>
               buyer.id ===
-              state.ticket.buyerId
+              savedBuyerId
           );
 
 
@@ -5110,6 +6469,7 @@ let selectedId =
 
       const source =
         clean(
+          state.loadout?.buyerName ||
           state.ticket.ocrElevatorName ||
           state.ticket.buyerName
         );
@@ -5168,15 +6528,23 @@ let selectedId =
       }
 
 
+      const savedLocationId =
+        clean(
+          state.loadout?.destinationId ||
+          state.loadout?.deliveryLocationId ||
+          state.ticket.deliveryLocationId
+        );
+
+
       if (
-        state.ticket.deliveryLocationId
+        savedLocationId
       ) {
 
         const byId =
           state.locations.find(
             location =>
               location.id ===
-                state.ticket.deliveryLocationId &&
+                savedLocationId &&
               location.buyerId ===
                 state.selectedBuyer.id
           );
@@ -5300,6 +6668,256 @@ let selectedId =
 
 
 
+
+    function sourceValueFromSavedData() {
+
+      const load =
+        state.loadout ||
+        {};
+
+
+      const ticket =
+        state.ticket ||
+        {};
+
+
+      const direct =
+        clean(
+          load.grainSourceValue ||
+          ticket.grainSourceValue
+        );
+
+
+      if (
+        direct
+      ) {
+
+        return direct;
+
+      }
+
+
+      const sourceType =
+        normalize(
+          load.grainSourceType ||
+          ticket.grainSourceType
+        );
+
+
+      if (
+        sourceType ===
+        "bin"
+      ) {
+
+        const siteId =
+          clean(
+            load.grainSourceSiteId ||
+            ticket.grainSourceSiteId
+          );
+
+
+        const binNumber =
+          clean(
+            load.grainSourceBinNumber ??
+            ticket.grainSourceBinNumber
+          );
+
+
+        if (
+          siteId &&
+          binNumber
+        ) {
+
+          return `bin:${siteId}:${binNumber}`;
+
+        }
+
+      }
+
+
+      if (
+        sourceType ===
+          "grain bag" ||
+        sourceType ===
+          "grain_bag" ||
+        sourceType ===
+          "bag"
+      ) {
+
+        const sourceId =
+          clean(
+            load.grainSourceId ||
+            ticket.grainSourceId
+          );
+
+
+        if (
+          sourceId
+        ) {
+
+          return `bag:${sourceId}`;
+
+        }
+
+      }
+
+
+      return "";
+
+    }
+
+
+    function ensureSavedSourceAvailable() {
+
+      const savedValue =
+        sourceValueFromSavedData();
+
+
+      if (
+        !savedValue
+      ) {
+
+        return;
+
+      }
+
+
+      if (
+        selectedSourceFromValue(
+          savedValue
+        )
+      ) {
+
+        return;
+
+      }
+
+
+      const load =
+        state.loadout ||
+        {};
+
+
+      const ticket =
+        state.ticket ||
+        {};
+
+
+      const sourceType =
+        normalize(
+          load.grainSourceType ||
+          ticket.grainSourceType
+        );
+
+
+      const type =
+        sourceType ===
+          "bin"
+            ? "bin"
+            : "grain_bag";
+
+
+      const fallback = {
+        type,
+
+        value:
+          savedValue,
+
+        id:
+          clean(
+            load.grainSourceId ||
+            ticket.grainSourceId
+          ) ||
+          savedValue,
+
+        siteId:
+          clean(
+            load.grainSourceSiteId ||
+            ticket.grainSourceSiteId
+          ) ||
+          null,
+
+        siteName:
+          clean(
+            load.grainSourceSiteName ||
+            ticket.grainSourceSiteName
+          ) ||
+          null,
+
+        binNumber:
+          load.grainSourceBinNumber ??
+          ticket.grainSourceBinNumber ??
+          null,
+
+        binIndex:
+          load.grainSourceBinIndex ??
+          ticket.grainSourceBinIndex ??
+          null,
+
+        fieldId:
+          clean(
+            load.grainSourceFieldId ||
+            ticket.grainSourceFieldId
+          ) ||
+          null,
+
+        fieldName:
+          clean(
+            load.grainSourceFieldName ||
+            ticket.grainSourceFieldName
+          ) ||
+          null,
+
+        crop:
+          clean(
+            load.crop ||
+            ticket.crop
+          ),
+
+        cropYear:
+          clean(
+            load.grainSourceCropYear ||
+            ticket.grainSourceCropYear
+          ),
+
+        label:
+          clean(
+            load.grainSourceName ||
+            ticket.grainSourceName
+          ) ||
+          (
+            type ===
+              "bin"
+                ? `${clean(load.grainSourceSiteName || ticket.grainSourceSiteName) || "Bin Site"} — Bin ${load.grainSourceBinNumber ?? ticket.grainSourceBinNumber ?? "—"}`
+                : `${clean(load.grainSourceFieldName || ticket.grainSourceFieldName) || "Grain Bag"} — Saved source`
+          ),
+
+        searchText:
+          "saved historical source"
+      };
+
+
+      if (
+        type ===
+        "bin"
+      ) {
+
+        state.binSources.unshift(
+          fallback
+        );
+
+      }
+      else {
+
+        state.bagSources.unshift(
+          fallback
+        );
+
+      }
+
+    }
+
+
     // ==========================================================
     // FORM POPULATION
     // ==========================================================
@@ -5318,29 +6936,13 @@ let selectedId =
             ? `Ticket #${ticket.ticketNumber}`
             : ""
         ]
-          .filter(Boolean)
-          .join(" • ") ||
+          .filter(
+            Boolean
+          )
+          .join(
+            " • "
+          ) ||
         "Grain Ticket";
-
-
-      const needsReview =
-        clean(
-          ticket.validationStatus
-        )
-          .toLowerCase() ===
-        "needs_review";
-
-
-      elements.statusPill.className =
-        needsReview
-          ? "status-pill review"
-          : "status-pill good";
-
-
-      elements.statusPill.textContent =
-        needsReview
-          ? "Needs Review"
-          : "Verified";
 
 
       elements.sourcePill.textContent =
@@ -5350,62 +6952,6 @@ let selectedId =
           "ocr_scan"
             ? "OCR Scan"
             : "Manual Entry";
-
-
-      elements.reviewList.innerHTML =
-        "";
-
-
-      const reasons =
-        Array.isArray(
-          ticket.reviewReasons
-        )
-          ? ticket.reviewReasons
-          : [];
-
-
-      if (
-        reasons.length
-      ) {
-
-        elements.reviewBox
-          .classList.add(
-            "show"
-          );
-
-
-        reasons.forEach(
-          reason => {
-
-            const item =
-              document.createElement(
-                "li"
-              );
-
-
-            item.textContent =
-              reviewLabel(
-                reason
-              );
-
-
-            elements.reviewList
-              .appendChild(
-                item
-              );
-
-          }
-        );
-
-      }
-      else {
-
-        elements.reviewBox
-          .classList.remove(
-            "show"
-          );
-
-      }
 
 
       elements.ticketNumber.value =
@@ -5420,49 +6966,50 @@ let selectedId =
         );
 
 
-const savedCrop =
-  clean(
-    ticket.crop
-  )
-    .toLowerCase();
+      const savedCrop =
+        clean(
+          state.loadout?.crop ||
+          ticket.crop
+        )
+          .toLowerCase();
 
 
-if (
-  savedCrop.includes(
-    "corn"
-  )
-) {
+      if (
+        savedCrop.includes(
+          "corn"
+        )
+      ) {
 
-  elements.crop.value =
-    "Corn";
+        elements.crop.value =
+          "Corn";
 
-}
-else if (
-  savedCrop.includes(
-    "soy"
-  )
-) {
+      }
+      else if (
+        savedCrop.includes(
+          "soy"
+        )
+      ) {
 
-  elements.crop.value =
-    "Soybeans";
+        elements.crop.value =
+          "Soybeans";
 
-}
-else if (
-  savedCrop.includes(
-    "wheat"
-  )
-) {
+      }
+      else if (
+        savedCrop.includes(
+          "wheat"
+        )
+      ) {
 
-  elements.crop.value =
-    "Wheat";
+        elements.crop.value =
+          "Wheat";
 
-}
-else {
+      }
+      else {
 
-  elements.crop.value =
-    "";
+        elements.crop.value =
+          "";
 
-}
+      }
 
 
       elements.grossWeight.value =
@@ -5517,6 +7064,7 @@ else {
 
       elements.driverName.textContent =
         clean(
+          state.loadout?.driverName ||
           ticket.driverName
         ) ||
         "—";
@@ -5557,13 +7105,18 @@ else {
       elements.ocrLocationHint.textContent =
         `OCR read: ${
           [
+            ticket.ocrElevatorName,
             ticket.ocrDeliveryStreet,
             ticket.ocrDeliveryCity,
             ticket.ocrDeliveryState,
             ticket.ocrDeliveryZip
           ]
-            .filter(Boolean)
-            .join(", ") ||
+            .filter(
+              Boolean
+            )
+            .join(
+              ", "
+            ) ||
           "—"
         }`;
 
@@ -5615,18 +7168,13 @@ else {
 
 
       elements.customerSelect.value =
-        state.selectedCustomer
-          ?.id ||
+        state.selectedCustomer?.id ||
         "";
 
 
       elements.buyerSelect.value =
-        state.selectedBuyer
-          ?.id ||
+        state.selectedBuyer?.id ||
         "";
-
-
-      renderLocationOptions();
 
 
       state.selectedLocation =
@@ -5634,72 +7182,67 @@ else {
 
 
       elements.locationSelect.value =
-        state.selectedLocation
-          ?.id ||
+        state.selectedLocation?.id ||
         "";
 
 
-renderContractOptions();
+      if (
+        state.selectedLocation?.buyerId
+      ) {
+
+        elements.buyerSelect.value =
+          state.selectedLocation.buyerId;
 
 
-/*
-  FINAL CROP SELECTION
+        state.selectedBuyer =
+          state.buyers.find(
+            buyer =>
+              buyer.id ===
+              state.selectedLocation.buyerId
+          ) ||
+          state.selectedBuyer;
 
-  Do this at the END of form population so nothing else
-  on the page can reset the crop dropdown after the ticket
-  has been loaded from Firestore.
-*/
-
-const finalCrop =
-  clean(
-    ticket.crop
-  )
-    .toLowerCase();
+      }
 
 
-if (
-  finalCrop.includes(
-    "corn"
-  )
-) {
-
-  elements.crop.value =
-    "Corn";
-
-}
-else if (
-  finalCrop.includes(
-    "soy"
-  )
-) {
-
-  elements.crop.value =
-    "Soybeans";
-
-}
-else if (
-  finalCrop.includes(
-    "wheat"
-  )
-) {
-
-  elements.crop.value =
-    "Wheat";
-
-}
-else {
-
-  elements.crop.value =
-    "";
-
-}
+      ensureSavedSourceAvailable();
 
 
-validateWeights();
+      const savedSourceValue =
+        sourceValueFromSavedData();
 
-validateBushels();
 
-}
+      elements.grainSourceValue.value =
+        savedSourceValue;
+
+
+      state.selectedSource =
+        selectedSourceFromValue(
+          savedSourceValue
+        );
+
+
+      syncCustomerButton();
+
+
+      syncDestinationButton();
+
+
+      syncGrainSourceButton();
+
+
+      renderContractOptions();
+
+
+      validateWeights();
+
+
+      validateBushels();
+
+
+      updateReviewUI();
+
+    }
 
 
 
@@ -5862,6 +7405,243 @@ validateBushels();
 
 
 
+
+    function currentReviewReasons() {
+
+      updateSelectedReferences();
+
+
+      const reasons =
+        [];
+
+
+      if (
+        !state.selectedLocation
+      ) {
+
+        reasons.push(
+          "delivery_location_not_matched"
+        );
+
+      }
+
+
+      if (
+        !state.selectedCustomer
+      ) {
+
+        reasons.push(
+          "customer_not_matched"
+        );
+
+      }
+
+
+      if (
+        !clean(
+          elements.crop.value
+        )
+      ) {
+
+        reasons.push(
+          "crop_not_matched"
+        );
+
+      }
+
+
+      if (
+        !state.selectedSource
+      ) {
+
+        reasons.push(
+          "grain_source_not_assigned"
+        );
+
+      }
+      else if (
+        clean(
+          elements.crop.value
+        ) &&
+        clean(
+          state.selectedSource.crop
+        ) &&
+        normalize(
+          elements.crop.value
+        ) !==
+        normalize(
+          state.selectedSource.crop
+        )
+      ) {
+
+        reasons.push(
+          "grain_source_crop_mismatch"
+        );
+
+      }
+
+
+      if (
+        !state.selectedContract
+      ) {
+
+        reasons.push(
+          "contract_not_assigned"
+        );
+
+      }
+
+
+      if (
+        !clean(
+          elements.ticketNumber.value
+        )
+      ) {
+
+        reasons.push(
+          "ticket_number_missing"
+        );
+
+      }
+
+
+      if (
+        !clean(
+          elements.ticketDate.value
+        )
+      ) {
+
+        reasons.push(
+          "ticket_date_missing"
+        );
+
+      }
+
+
+      if (
+        !validateWeights()
+      ) {
+
+        reasons.push(
+          "ticket_weights_invalid"
+        );
+
+      }
+
+
+      if (
+        !validateBushels()
+      ) {
+
+        reasons.push(
+          "ticket_bushels_invalid"
+        );
+
+      }
+
+
+      return Array.from(
+        new Set(
+          reasons
+        )
+      );
+
+    }
+
+
+    function updateReviewUI() {
+
+      if (
+        !state.ticket
+      ) {
+
+        return;
+
+      }
+
+
+      const reasons =
+        currentReviewReasons();
+
+
+      const verified =
+        reasons.length ===
+        0;
+
+
+      elements.statusPill.className =
+        verified
+          ? "status-pill good"
+          : "status-pill review";
+
+
+      elements.statusPill.textContent =
+        verified
+          ? "Verified"
+          : "Needs Review";
+
+
+      elements.reviewList.innerHTML =
+        "";
+
+
+      if (
+        verified
+      ) {
+
+        elements.reviewBox.classList.remove(
+          "show"
+        );
+
+
+        elements.saveBtn.textContent =
+          state.saving
+            ? "Saving…"
+            : "Save & Verify Ticket";
+
+
+        return;
+
+      }
+
+
+      elements.reviewBox.classList.add(
+        "show"
+      );
+
+
+      reasons.forEach(
+        reason => {
+
+          const item =
+            document.createElement(
+              "li"
+            );
+
+
+          item.textContent =
+            reviewLabel(
+              reason
+            );
+
+
+          elements.reviewList.appendChild(
+            item
+          );
+
+        }
+      );
+
+
+      elements.saveBtn.textContent =
+        state.saving
+          ? "Saving…"
+          : "Save Ticket";
+
+    }
+
+
+
     // ==========================================================
     // CURRENT DROPDOWN VALUES
     // ==========================================================
@@ -5877,15 +7657,6 @@ validateBushels();
         null;
 
 
-      state.selectedBuyer =
-        state.buyers.find(
-          buyer =>
-            buyer.id ===
-            elements.buyerSelect.value
-        ) ||
-        null;
-
-
       state.selectedLocation =
         state.locations.find(
           location =>
@@ -5893,6 +7664,43 @@ validateBushels();
             elements.locationSelect.value
         ) ||
         null;
+
+
+      const buyerId =
+        clean(
+          state.selectedLocation?.buyerId ||
+          elements.buyerSelect.value
+        );
+
+
+      state.selectedBuyer =
+        state.buyers.find(
+          buyer =>
+            buyer.id ===
+            buyerId
+        ) ||
+        (
+          state.selectedLocation?.buyerId
+            ? {
+                id:
+                  state.selectedLocation.buyerId,
+
+                name:
+                  state.selectedLocation.buyerName
+              }
+            : null
+        );
+
+
+      elements.buyerSelect.value =
+        state.selectedBuyer?.id ||
+        "";
+
+
+      state.selectedSource =
+        selectedSourceFromValue(
+          elements.grainSourceValue.value
+        );
 
 
       state.selectedContract =
@@ -6105,83 +7913,40 @@ validateBushels();
       updateSelectedReferences();
 
 
-      if (
-        !state.selectedCustomer
-      ) {
+      const reviewReasons =
+        currentReviewReasons();
 
-        showMessage(
-          "Select the correct Customer / Vendor.",
-          "error"
+
+      const verified =
+        reviewReasons.length ===
+        0;
+
+
+      const selectedContract =
+        state.selectedContract;
+
+
+      const selectedSource =
+        state.selectedSource;
+
+
+      const selectedLocation =
+        state.selectedLocation;
+
+
+      const selectedBuyer =
+        state.selectedBuyer ||
+        (
+          selectedLocation?.buyerId
+            ? {
+                id:
+                  selectedLocation.buyerId,
+
+                name:
+                  selectedLocation.buyerName
+              }
+            : null
         );
-
-        return;
-
-      }
-
-
-      if (
-        !state.selectedBuyer
-      ) {
-
-        showMessage(
-          "Select the correct Buyer / Elevator.",
-          "error"
-        );
-
-        return;
-
-      }
-
-
-      if (
-        !state.selectedLocation
-      ) {
-
-        showMessage(
-          "Select the correct Delivery Location.",
-          "error"
-        );
-
-        return;
-
-      }
-
-
-      if (
-        !elements.form.reportValidity()
-      ) {
-
-        return;
-
-      }
-
-
-      if (
-        !validateWeights()
-      ) {
-
-        showMessage(
-          "The ticket weights do not pass validation.",
-          "error"
-        );
-
-        return;
-
-      }
-
-
-      if (
-        !validateBushels()
-      ) {
-
-        showMessage(
-          "The ticket bushels do not pass validation.",
-          "error"
-        );
-
-        return;
-
-      }
 
 
       state.saving =
@@ -6198,74 +7963,77 @@ validateBushels();
 
       try {
 
-const selectedContract =
-  state.selectedContract;
-
-
-/*
-  A manually selected contract is authoritative.
-
-  OCR tickets are allowed to be assigned here when the user
-  selects a contract on the Grain Ticket Detail page.
-*/
-const matchingContractIds =
-  selectedContract
-    ? [
-        selectedContract.id
-      ]
-    : [];
+        const matchingContractIds =
+          selectedContract
+            ? [
+                selectedContract.id
+              ]
+            : [];
 
 
         const payload = {
 
           buyerId:
-            state.selectedBuyer.id,
+            selectedBuyer?.id ||
+            null,
 
           buyerName:
-            state.selectedBuyer.name,
+            selectedBuyer?.name ||
+            selectedLocation?.buyerName ||
+            null,
 
 
           deliveryLocationId:
-            state.selectedLocation.id,
+            selectedLocation?.id ||
+            null,
 
           deliveryLocationName:
-            state.selectedLocation
-              .locationName,
+            selectedLocation?.locationName ||
+            null,
 
           deliveryStreet:
-            state.selectedLocation.street ||
+            selectedLocation?.street ||
             null,
 
           deliveryCity:
-            state.selectedLocation.city ||
+            selectedLocation?.city ||
             null,
 
           deliveryState:
-            state.selectedLocation.state ||
+            selectedLocation?.state ||
             null,
 
           deliveryZip:
-            state.selectedLocation.zip ||
+            selectedLocation?.zip ||
             null,
 
 
           customerId:
-            state.selectedCustomer.id,
+            state.selectedCustomer?.id ||
+            null,
 
           customerName:
-            state.selectedCustomer.name,
+            state.selectedCustomer?.name ||
+            null,
 
 
           ticketNumber:
             clean(
               elements.ticketNumber.value
-            ),
+            ) ||
+            null,
 
           ticketDate:
-            elements.ticketDate.value,
+            clean(
+              elements.ticketDate.value
+            ) ||
+            null,
 
           crop:
-            elements.crop.value,
+            clean(
+              elements.crop.value
+            ) ||
+            null,
 
 
           grossWeight:
@@ -6322,34 +8090,83 @@ const matchingContractIds =
             ),
 
 
-validationStatus:
-  "verified",
+          grainSourceType:
+            selectedSource?.type ||
+            null,
 
-customerContractMatched:
-  matchingContractIds.length >
-  0,
+          grainSourceValue:
+            selectedSource?.value ||
+            null,
 
-matchingContractIds:
+          grainSourceId:
+            selectedSource?.id ||
+            null,
 
-  matchingContractIds,
+          grainSourceName:
+            selectedSource?.label ||
+            null,
 
-contractId:
-  matchingContractIds.length
-    ? matchingContractIds[0]
-    : null,
+          grainSourceSiteId:
+            selectedSource?.siteId ||
+            null,
 
-contractNumber:
-  selectedContract
-    ?.contractNumber ||
-  null,
+          grainSourceSiteName:
+            selectedSource?.siteName ||
+            null,
 
-reconciliationStatus:
-  matchingContractIds.length
-    ? "reconciled"
-    : "unreconciled",
+          grainSourceBinNumber:
+            selectedSource?.binNumber ??
+            null,
 
-reviewReasons:
-  [],
+          grainSourceBinIndex:
+            selectedSource?.binIndex ??
+            null,
+
+          grainSourceFieldId:
+            selectedSource?.fieldId ||
+            null,
+
+          grainSourceFieldName:
+            selectedSource?.fieldName ||
+            null,
+
+          grainSourceCropYear:
+            selectedSource?.cropYear ||
+            null,
+
+
+          validationStatus:
+            verified
+              ? "verified"
+              : "needs_review",
+
+          customerContractMatched:
+            matchingContractIds.length >
+            0,
+
+          matchingContractIds,
+
+          contractId:
+            selectedContract?.id ||
+            null,
+
+          contractNumber:
+            selectedContract
+              ? clean(
+                  selectedContract.contractNumber ||
+                  selectedContract.number ||
+                  selectedContract.contractNo ||
+                  selectedContract.referenceNumber
+                ) ||
+                null
+              : null,
+
+          reconciliationStatus:
+            verified
+              ? "reconciled"
+              : "unreconciled",
+
+          reviewReasons,
 
 
           reviewedAt:
@@ -6386,38 +8203,215 @@ reviewReasons:
 
 
         /*
-          Teach FarmVista the OCR relationship so future
-          tickets can be matched automatically.
+          If this ticket really does belong to an existing FarmVista
+          load-out, keep the shared load-detail fields synchronized.
+
+          IMPORTANT:
+          No grain_loadouts document is created for an after-the-fact
+          ticket that never had a FarmVista dispatch load.
+        */
+
+        if (
+          state.loadout?.id
+        ) {
+
+          const loadPatch = {
+
+            destinationId:
+              selectedLocation?.id ||
+              null,
+
+            destinationName:
+              selectedLocation?.locationName ||
+              null,
+
+            buyerId:
+              selectedBuyer?.id ||
+              null,
+
+            buyerName:
+              selectedBuyer?.name ||
+              selectedLocation?.buyerName ||
+              null,
+
+            deliveryLocationName:
+              selectedLocation?.locationName ||
+              null,
+
+            deliveryStreet:
+              selectedLocation?.street ||
+              null,
+
+            deliveryCity:
+              selectedLocation?.city ||
+              null,
+
+            deliveryState:
+              selectedLocation?.state ||
+              null,
+
+            deliveryZip:
+              selectedLocation?.zip ||
+              null,
+
+            customerId:
+              state.selectedCustomer?.id ||
+              null,
+
+            customerName:
+              state.selectedCustomer?.name ||
+              null,
+
+            crop:
+              clean(
+                elements.crop.value
+              ) ||
+              null,
+
+            grainSourceType:
+              selectedSource?.type ||
+              null,
+
+            grainSourceValue:
+              selectedSource?.value ||
+              null,
+
+            grainSourceId:
+              selectedSource?.id ||
+              null,
+
+            grainSourceName:
+              selectedSource?.label ||
+              null,
+
+            grainSourceSiteId:
+              selectedSource?.siteId ||
+              null,
+
+            grainSourceSiteName:
+              selectedSource?.siteName ||
+              null,
+
+            grainSourceBinNumber:
+              selectedSource?.binNumber ??
+              null,
+
+            grainSourceBinIndex:
+              selectedSource?.binIndex ??
+              null,
+
+            grainSourceFieldId:
+              selectedSource?.fieldId ||
+              null,
+
+            grainSourceFieldName:
+              selectedSource?.fieldName ||
+              null,
+
+            grainSourceCropYear:
+              selectedSource?.cropYear ||
+              null,
+
+            contractId:
+              selectedContract?.id ||
+              null,
+
+            contractLabel:
+              selectedContract
+                ? contractLabel(
+                    selectedContract
+                  )
+                : null,
+
+            contractNumber:
+              selectedContract
+                ? clean(
+                    selectedContract.contractNumber ||
+                    selectedContract.number ||
+                    selectedContract.contractNo ||
+                    selectedContract.referenceNumber
+                  ) ||
+                  null
+                : null,
+
+            elevatorTicketNumber:
+              clean(
+                elements.ticketNumber.value
+              ) ||
+              null,
+
+            updatedAt:
+              serverTimestamp()
+
+          };
+
+
+          await updateDoc(
+            doc(
+              db,
+              "grain_loadouts",
+              state.loadout.id
+            ),
+            loadPatch
+          );
+
+
+          Object.assign(
+            state.loadout,
+            loadPatch
+          );
+
+        }
+
+
+        /*
+          Teach FarmVista the OCR wording only for selections that
+          were actually resolved.
         */
 
         await Promise.all([
 
-          saveAlias(
-            "customer",
-            state.selectedCustomer.id,
-            state.selectedCustomer.name
-          ),
+          state.selectedCustomer
+            ? saveAlias(
+                "customer",
+                state.selectedCustomer.id,
+                state.selectedCustomer.name
+              )
+            : Promise.resolve(),
 
-          saveAlias(
-            "buyer",
-            state.selectedBuyer.id,
-            state.selectedBuyer.name
-          ),
+          selectedBuyer
+            ? saveAlias(
+                "buyer",
+                selectedBuyer.id,
+                selectedBuyer.name
+              )
+            : Promise.resolve(),
 
-          saveAlias(
-            "delivery_location",
-            state.selectedLocation.id,
-            state.selectedLocation.locationName
-          )
+          selectedLocation
+            ? saveAlias(
+                "delivery_location",
+                selectedLocation.id,
+                selectedLocation.locationName
+              )
+            : Promise.resolve()
 
         ]);
 
 
+        Object.assign(
+          state.ticket,
+          payload
+        );
+
+
+        updateReviewUI();
+
+
         showMessage(
-          matchingContractIds.length
-            ? "Ticket saved and approved. OCR matching was learned for future tickets."
-            : "Ticket saved. Customer, buyer and location were learned, but the contract still needs review.",
-          matchingContractIds.length
+          verified
+            ? "Ticket saved and verified."
+            : "Ticket saved. It will stay under Needs Review until all required load details are filled in.",
+          verified
             ? "success"
             : "warning"
         );
@@ -6430,7 +8424,7 @@ reviewReasons:
               "/Farm-vista/pages/grain/grain-ticket.html";
 
           },
-          1100
+          900
         );
 
       }
@@ -6461,8 +8455,7 @@ reviewReasons:
           false;
 
 
-        elements.saveBtn.textContent =
-          "Save & Approve Ticket";
+        updateReviewUI();
 
       }
 
@@ -6514,64 +8507,60 @@ reviewReasons:
         );
 
 
-      /*
-        Mouse wheel zoom only while the pointer is over the
-        ticket viewer.
-      */
-
-elements.ticketImageWrap
-  .addEventListener(
-    "wheel",
-    handleTicketImageWheel,
-    {
-      passive:false
-    }
-  );
+      elements.ticketImageWrap
+        .addEventListener(
+          "wheel",
+          handleTicketImageWheel,
+          {
+            passive:
+              false
+          }
+        );
 
 
-elements.ticketImageWrap
-  .addEventListener(
-    "touchstart",
-    handleTicketTouchStart,
-    {
-      passive:false
-    }
-  );
+      elements.ticketImageWrap
+        .addEventListener(
+          "touchstart",
+          handleTicketTouchStart,
+          {
+            passive:
+              false
+          }
+        );
 
 
-elements.ticketImageWrap
-  .addEventListener(
-    "touchmove",
-    handleTicketTouchMove,
-    {
-      passive:false
-    }
-  );
+      elements.ticketImageWrap
+        .addEventListener(
+          "touchmove",
+          handleTicketTouchMove,
+          {
+            passive:
+              false
+          }
+        );
 
 
-elements.ticketImageWrap
-  .addEventListener(
-    "touchend",
-    handleTicketTouchEnd,
-    {
-      passive:false
-    }
-  );
+      elements.ticketImageWrap
+        .addEventListener(
+          "touchend",
+          handleTicketTouchEnd,
+          {
+            passive:
+              false
+          }
+        );
 
 
-elements.ticketImageWrap
-  .addEventListener(
-    "touchcancel",
-    handleTicketTouchEnd,
-    {
-      passive:false
-    }
-  );
+      elements.ticketImageWrap
+        .addEventListener(
+          "touchcancel",
+          handleTicketTouchEnd,
+          {
+            passive:
+              false
+          }
+        );
 
-
-      /*
-        Refits the image if the browser/window changes size.
-      */
 
       window.addEventListener(
         "resize",
@@ -6591,65 +8580,132 @@ elements.ticketImageWrap
       );
 
 
-      elements.customerSelect
+      elements.destinationButton
         .addEventListener(
-          "change",
-          () => {
+          "click",
+          event => {
 
-            state.selectedCustomer =
-              state.customers.find(
-                customer =>
-                  customer.id ===
-                  elements.customerSelect.value
-              ) ||
-              null;
+            event.stopPropagation();
 
 
-            renderContractOptions();
+            if (
+              elements.destinationMenu.classList.contains(
+                "open"
+              )
+            ) {
+
+              closeAllLoadMenus();
+
+            }
+            else {
+
+              openDestinationMenu();
+
+            }
 
           }
         );
 
 
-      elements.buyerSelect
+      elements.customerButton
         .addEventListener(
-          "change",
-          () => {
+          "click",
+          event => {
 
-            state.selectedBuyer =
-              state.buyers.find(
-                buyer =>
-                  buyer.id ===
-                  elements.buyerSelect.value
-              ) ||
-              null;
+            event.stopPropagation();
 
 
-            state.selectedLocation =
-              null;
+            if (
+              elements.customerMenu.classList.contains(
+                "open"
+              )
+            ) {
 
+              closeAllLoadMenus();
 
-            renderLocationOptions();
+            }
+            else {
+
+              openCustomerMenu();
+
+            }
 
           }
         );
 
 
-      elements.locationSelect
+      elements.grainSourceButton
         .addEventListener(
-          "change",
-          () => {
+          "click",
+          event => {
 
-            state.selectedLocation =
-              state.locations.find(
-                location =>
-                  location.id ===
-                  elements.locationSelect.value
-              ) ||
-              null;
+            event.stopPropagation();
+
+
+            if (
+              elements.grainSourceMenu.classList.contains(
+                "open"
+              )
+            ) {
+
+              closeAllLoadMenus();
+
+            }
+            else {
+
+              openGrainSourceMenu();
+
+            }
 
           }
         );
+
+
+      document.addEventListener(
+        "click",
+        event => {
+
+          const insidePicker =
+            [
+              elements.destinationPicker,
+              elements.customerPicker,
+              elements.grainSourcePicker
+            ]
+              .some(
+                picker =>
+                  picker?.contains(
+                    event.target
+                  )
+              );
+
+
+          if (
+            !insidePicker
+          ) {
+
+            closeAllLoadMenus();
+
+          }
+
+        }
+      );
+
+
+      document.addEventListener(
+        "keydown",
+        event => {
+
+          if (
+            event.key ===
+            "Escape"
+          ) {
+
+            closeAllLoadMenus();
+
+          }
+
+        }
+      );
 
 
       elements.contractSelect
@@ -6665,6 +8721,9 @@ elements.ticketImageWrap
               ) ||
               null;
 
+
+            updateReviewUI();
+
           }
         );
 
@@ -6672,28 +8731,57 @@ elements.ticketImageWrap
       elements.crop
         .addEventListener(
           "change",
-          renderContractOptions
-        );
+          () => {
+
+            renderContractOptions();
 
 
-      [
-        elements.grossWeight,
-        elements.tareWeight,
-        elements.netWeight
-      ]
-        .forEach(
-          input => {
+            const selected =
+              selectedSourceFromValue(
+                elements.grainSourceValue.value
+              );
 
-            input.addEventListener(
-              "input",
-              validateWeights
-            );
+
+            if (
+              selected &&
+              elements.crop.value &&
+              selected.crop &&
+              normalize(
+                selected.crop
+              ) !==
+              normalize(
+                elements.crop.value
+              )
+            ) {
+
+              elements.grainSourceValue.value =
+                "";
+
+
+              state.selectedSource =
+                null;
+
+
+              syncGrainSourceButton();
+
+            }
+
+
+            renderGrainSourceOptions();
+
+
+            updateReviewUI();
 
           }
         );
 
 
       [
+        elements.ticketNumber,
+        elements.ticketDate,
+        elements.grossWeight,
+        elements.tareWeight,
+        elements.netWeight,
         elements.grossBushels,
         elements.shrinkBushels,
         elements.netBushels
@@ -6703,7 +8791,13 @@ elements.ticketImageWrap
 
             input.addEventListener(
               "input",
-              validateBushels
+              updateReviewUI
+            );
+
+
+            input.addEventListener(
+              "change",
+              updateReviewUI
             );
 
           }
@@ -6717,6 +8811,7 @@ elements.ticketImageWrap
         );
 
     }
+
 
 
 
@@ -6767,64 +8862,14 @@ populateForm();
 renderLoadoutInformation();
 
 
-/*
-  Some browsers restore form/select state after the initial
-  JavaScript population.
-
-  Re-apply the saved crop after the page has fully rendered.
-*/
-
 requestAnimationFrame(
   () => {
 
-    const savedCrop =
-      clean(
-        state.ticket?.crop
-      )
-        .toLowerCase();
-
-
-    let cropValue =
-      "";
-
-
-    if (
-      savedCrop.includes(
-        "corn"
-      )
-    ) {
-
-      cropValue =
-        "Corn";
-
-    }
-    else if (
-      savedCrop.includes(
-        "soy"
-      )
-    ) {
-
-      cropValue =
-        "Soybeans";
-
-    }
-    else if (
-      savedCrop.includes(
-        "wheat"
-      )
-    ) {
-
-      cropValue =
-        "Wheat";
-
-    }
-
-
-    elements.crop.value =
-      cropValue;
-
-
+    syncDestinationButton();
+    syncCustomerButton();
+    syncGrainSourceButton();
     renderContractOptions();
+    updateReviewUI();
 
   }
 );
