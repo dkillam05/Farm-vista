@@ -168,11 +168,51 @@
     /* Modal */
     .modal{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.42);z-index:9999;transition:opacity .15s;opacity:0;}
     .modal[open]{display:grid;opacity:1;}
-    .dialog{width:min(760px,92vw);max-height:85vh;display:flex;flex-direction:column;background:var(--surface);color:var(--text);
-      border-radius:14px;border:1px solid var(--border);box-shadow:0 16px 36px rgba(0,0,0,.28);}
-    .dialog-sm{width:min(480px,92vw);}
-    .dialog-head{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
-    .dialog-body{padding:14px;display:grid;gap:12px;overflow:auto}
+.dialog{
+  width:min(980px,96vw);
+  max-height:92vh;
+  display:flex;
+  flex-direction:column;
+  background:var(--surface);
+  color:var(--text);
+  border-radius:14px;
+  border:1px solid var(--border);
+  box-shadow:0 16px 36px rgba(0,0,0,.28);
+  overflow:visible;
+}
+
+.dialog-sm{
+  width:min(560px,94vw);
+}
+
+.dialog-head{
+  padding:12px 14px;
+  border-bottom:1px solid var(--border);
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  flex-shrink:0;
+}
+
+.dialog-body{
+  padding:14px;
+  display:grid;
+  gap:12px;
+
+  /* Vertical scrolling still works when needed */
+  overflow-y:auto;
+
+  /* Never create the bottom left/right scrollbar */
+  overflow-x:hidden;
+
+  /* Hide visible scrollbar */
+  scrollbar-width:none;
+  -ms-overflow-style:none;
+}
+
+.dialog-body::-webkit-scrollbar{
+  display:none;
+}
     .dialog-footer{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;padding:12px 14px;border-top:1px solid var(--border)}
     .left-btns{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
     .closex{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:700;color:var(--text) !important;}
@@ -486,6 +526,16 @@
         if(e.key === "Escape") closeAllCombos();
       });
 
+      /*
+  Any normal <select> being opened closes our custom Farm/Field dropdowns.
+  This keeps only ONE dropdown open anywhere on the screen.
+*/
+document.addEventListener("pointerdown", e=>{
+  if(e.target.closest("select")){
+    closeAllCombos();
+  }
+}, true);
+
       function makeCombo({
         btn,
         panel,
@@ -518,15 +568,27 @@
             : `<div class="combo-empty">(no matches)</div>`;
         }
 
-        function open(){
-          closeAllCombos(panel);
-          panel.classList.add("show");
-          render("");
-          if(searchInput){
-            searchInput.value = "";
-            setTimeout(()=>searchInput.focus(), 0);
-          }
-        }
+function open(){
+  /*
+    Close any native dropdown/select that currently has focus.
+    This prevents Site Type from staying open when Farm/Field opens.
+  */
+  const active = document.activeElement;
+  if(active && typeof active.blur === "function"){
+    active.blur();
+  }
+
+  /* Only one Farm/Field combo can be open at a time */
+  closeAllCombos(panel);
+
+  panel.classList.add("show");
+  render("");
+
+  if(searchInput){
+    searchInput.value = "";
+    setTimeout(()=>searchInput.focus(), 0);
+  }
+}
 
         function close(){
           panel.classList.remove("show");
