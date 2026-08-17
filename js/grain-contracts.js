@@ -1626,61 +1626,132 @@ function renderContractTable() {
 function getCustomersForBuyer(
   buyerId
 ) {
-  const id =
-    clean(buyerId);
+  const selectedBuyer =
+    state.buyers.find(
+      buyer =>
+        clean(
+          buyer.id
+        ) ===
+        clean(
+          buyerId
+        )
+    );
 
   if (
-    !id
+    !selectedBuyer
   ) {
     return [];
   }
 
-  const contracts =
+
+  /*
+    Match existing contracts by buyer ID OR buyer name.
+
+    This matters because some older FarmVista contract
+    records may have the correct buyerName even if their
+    buyerId is blank or from older data.
+  */
+
+  const matchingContracts =
     state.contracts.filter(
-      contract =>
-        clean(
-          contract.buyerId
-        ) ===
-        id
+      contract => {
+
+        const idMatches =
+          clean(
+            contract.buyerId
+          ) &&
+          clean(
+            contract.buyerId
+          ) ===
+          clean(
+            selectedBuyer.id
+          );
+
+
+        const nameMatches =
+          normalized(
+            contract.buyerName
+          ) &&
+          normalized(
+            contract.buyerName
+          ) ===
+          normalized(
+            selectedBuyer.name
+          );
+
+
+        return (
+          idMatches ||
+          nameMatches
+        );
+
+      }
     );
+
+
+  /*
+    Build both an ID list and a name list.
+
+    That lets current customer records match older
+    contract records even when one side has only a name.
+  */
 
   const customerIds =
     new Set(
-      contracts
+      matchingContracts
         .map(
           contract =>
             clean(
               contract.customerId
             )
         )
-        .filter(Boolean)
+        .filter(
+          Boolean
+        )
     );
+
 
   const customerNames =
     new Set(
-      contracts
+      matchingContracts
         .map(
           contract =>
             normalized(
               contract.customerName
             )
         )
-        .filter(Boolean)
+        .filter(
+          Boolean
+        )
     );
+
 
   return state.customers
     .filter(
-      customer =>
-        customerIds.has(
-          clean(
-            customer.id
-          )
-        ) ||
-        customerNames.has(
-          normalized(
-            customer.name
-          )
-        )
+      customer => {
+
+        const idMatches =
+          customerIds.has(
+            clean(
+              customer.id
+            )
+          );
+
+
+        const nameMatches =
+          customerNames.has(
+            normalized(
+              customer.name
+            )
+          );
+
+
+        return (
+          idMatches ||
+          nameMatches
+        );
+
+      }
     )
     .sort(
       (
@@ -1689,16 +1760,20 @@ function getCustomersForBuyer(
       ) =>
         clean(
           a.name
-        ).localeCompare(
-          clean(
-            b.name
-          ),
-          undefined,
-          {
-            numeric: true,
-            sensitivity: "base"
-          }
         )
+          .localeCompare(
+            clean(
+              b.name
+            ),
+            undefined,
+            {
+              numeric:
+                true,
+
+              sensitivity:
+                "base"
+            }
+          )
     );
 }
 
@@ -2002,32 +2077,119 @@ function reconciliationReady() {
 
 
 function getVisibleUnassignedTickets() {
+
   if (
     !reconciliationReady()
   ) {
     return [];
   }
 
+
+  const selectedBuyer =
+    state.buyers.find(
+      buyer =>
+        clean(
+          buyer.id
+        ) ===
+        clean(
+          state.reconcileBuyerId
+        )
+    );
+
+
+  const selectedCustomer =
+    state.customers.find(
+      customer =>
+        clean(
+          customer.id
+        ) ===
+        clean(
+          state.reconcileCustomerId
+        )
+    );
+
+
+  if (
+    !selectedBuyer ||
+    !selectedCustomer
+  ) {
+    return [];
+  }
+
+
   return state.tickets
     .filter(
-      ticket =>
-        clean(
-          ticket.buyerId
-        ) ===
-          clean(
-            state.reconcileBuyerId
-          ) &&
+      ticket => {
 
-        clean(
-          ticket.customerId
-        ) ===
-          clean(
-            state.reconcileCustomerId
-          ) &&
+        /*
+          Only unassigned tickets belong on the left.
+        */
 
-        !clean(
-          ticket.contractId
-        )
+        if (
+          clean(
+            ticket.contractId
+          )
+        ) {
+          return false;
+        }
+
+
+        const buyerMatches =
+          (
+            clean(
+              ticket.buyerId
+            ) &&
+            clean(
+              ticket.buyerId
+            ) ===
+            clean(
+              selectedBuyer.id
+            )
+          ) ||
+          (
+            normalized(
+              ticket.buyerName
+            ) &&
+            normalized(
+              ticket.buyerName
+            ) ===
+            normalized(
+              selectedBuyer.name
+            )
+          );
+
+
+        const customerMatches =
+          (
+            clean(
+              ticket.customerId
+            ) &&
+            clean(
+              ticket.customerId
+            ) ===
+            clean(
+              selectedCustomer.id
+            )
+          ) ||
+          (
+            normalized(
+              ticket.customerName
+            ) &&
+            normalized(
+              ticket.customerName
+            ) ===
+            normalized(
+              selectedCustomer.name
+            )
+          );
+
+
+        return (
+          buyerMatches &&
+          customerMatches
+        );
+
+      }
     )
     .sort(
       compareTickets
@@ -2036,28 +2198,106 @@ function getVisibleUnassignedTickets() {
 
 
 function getAvailableContracts() {
+
   if (
     !reconciliationReady()
   ) {
     return [];
   }
 
+
+  const selectedBuyer =
+    state.buyers.find(
+      buyer =>
+        clean(
+          buyer.id
+        ) ===
+        clean(
+          state.reconcileBuyerId
+        )
+    );
+
+
+  const selectedCustomer =
+    state.customers.find(
+      customer =>
+        clean(
+          customer.id
+        ) ===
+        clean(
+          state.reconcileCustomerId
+        )
+    );
+
+
+  if (
+    !selectedBuyer ||
+    !selectedCustomer
+  ) {
+    return [];
+  }
+
+
   return state.contracts
     .filter(
-      contract =>
-        clean(
-          contract.buyerId
-        ) ===
-          clean(
-            state.reconcileBuyerId
-          ) &&
+      contract => {
 
-        clean(
-          contract.customerId
-        ) ===
-          clean(
-            state.reconcileCustomerId
-          )
+        const buyerMatches =
+          (
+            clean(
+              contract.buyerId
+            ) &&
+            clean(
+              contract.buyerId
+            ) ===
+            clean(
+              selectedBuyer.id
+            )
+          ) ||
+          (
+            normalized(
+              contract.buyerName
+            ) &&
+            normalized(
+              contract.buyerName
+            ) ===
+            normalized(
+              selectedBuyer.name
+            )
+          );
+
+
+        const customerMatches =
+          (
+            clean(
+              contract.customerId
+            ) &&
+            clean(
+              contract.customerId
+            ) ===
+            clean(
+              selectedCustomer.id
+            )
+          ) ||
+          (
+            normalized(
+              contract.customerName
+            ) &&
+            normalized(
+              contract.customerName
+            ) ===
+            normalized(
+              selectedCustomer.name
+            )
+          );
+
+
+        return (
+          buyerMatches &&
+          customerMatches
+        );
+
+      }
     )
     .sort(
       compareContracts
