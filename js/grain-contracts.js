@@ -779,6 +779,111 @@ function setStaticSelectValue(
 
 }
 
+function forceSelectValue(
+  select,
+  savedValue
+) {
+
+  if (
+    !select
+  ) {
+
+    return false;
+
+  }
+
+
+  const wanted =
+    clean(
+      savedValue
+    );
+
+
+  if (
+    !wanted
+  ) {
+
+    select.selectedIndex =
+      0;
+
+    return false;
+
+  }
+
+
+  const options =
+    [
+      ...select.options
+    ];
+
+
+  let index =
+    options.findIndex(
+      option =>
+        clean(
+          option.value
+        ).toLowerCase() ===
+        wanted.toLowerCase()
+    );
+
+
+  if (
+    index ===
+    -1
+  ) {
+
+    index =
+      options.findIndex(
+        option =>
+          clean(
+            option.textContent
+          ).toLowerCase() ===
+          wanted.toLowerCase()
+      );
+
+  }
+
+
+  if (
+    index ===
+    -1
+  ) {
+
+    console.warn(
+      "[Grain Contracts] Could not restore select:",
+      select.id,
+      "saved value:",
+      savedValue
+    );
+
+
+    return false;
+
+  }
+
+
+  select.selectedIndex =
+    index;
+
+
+  options.forEach(
+    (
+      option,
+      optionIndex
+    ) => {
+
+      option.selected =
+        optionIndex ===
+        index;
+
+    }
+  );
+
+
+  return true;
+
+}
+
 
 /* ============================================================
    STATE
@@ -4696,29 +4801,6 @@ function openEditModal(
   );
 
 
-  /*
-    CROP
-
-    Firestore example:
-    crop: Corn
-  */
-  setStaticSelectValue(
-    $("edit-crop"),
-    contract.crop
-  );
-
-
-  /*
-    CONTRACT TYPE
-
-    Firestore example:
-    contractType: Cash
-  */
-  setStaticSelectValue(
-    $("edit-contract-type"),
-    contract.contractType
-  );
-
 
   $("edit-contract-number")
     .value =
@@ -4805,6 +4887,46 @@ function openEditModal(
   document.body.style
     .overflow =
       "hidden";
+
+
+  /*
+    Restore Crop and Contract Type AFTER
+    the edit modal has finished opening.
+  */
+  requestAnimationFrame(
+    () => {
+
+      forceSelectValue(
+        $("edit-crop"),
+        contract.crop
+      );
+
+
+      forceSelectValue(
+        $("edit-contract-type"),
+        contract.contractType
+      );
+
+
+      requestAnimationFrame(
+        () => {
+
+          forceSelectValue(
+            $("edit-crop"),
+            contract.crop
+          );
+
+
+          forceSelectValue(
+            $("edit-contract-type"),
+            contract.contractType
+          );
+
+        }
+      );
+
+    }
+  );
 
 }
 
