@@ -2654,42 +2654,614 @@ function handleTicketTouchEnd(
         null;
 
 
+      const ticket =
+        state.ticket ||
+        {};
+
+
       const savedLoadoutId =
         clean(
-          state.ticket?.loadoutId
+          ticket.loadoutId ||
+          ticket.loadOutId ||
+          ticket.grainLoadoutId ||
+          ticket.loadId
         );
 
 
+      const ticketNumber =
+        clean(
+          ticket.ticketNumber
+        );
+
+
+      const ticketDate =
+        clean(
+          ticket.ticketDate
+        );
+
+
+      const ticketDriverUid =
+        clean(
+          ticket.driverUid
+        );
+
+
+      const ticketDriverEmail =
+        normalize(
+          ticket.driverEmail
+        );
+
+
+      const ticketDriverName =
+        normalize(
+          ticket.driverName
+        );
+
+
+      const ticketCustomerId =
+        clean(
+          ticket.customerId
+        );
+
+
+      const ticketCustomerName =
+        normalize(
+          ticket.customerName
+        );
+
+
+      const ticketBuyerId =
+        clean(
+          ticket.buyerId
+        );
+
+
+      const ticketBuyerName =
+        normalize(
+          ticket.buyerName ||
+          ticket.ocrElevatorName
+        );
+
+
+      const ticketLocationId =
+        clean(
+          ticket.deliveryLocationId
+        );
+
+
+      const ticketLocationName =
+        normalize(
+          ticket.deliveryLocationName
+        );
+
+
+      const ticketCrop =
+        normalize(
+          ticket.crop
+        );
+
+
+      const ticketContractId =
+        clean(
+          ticket.contractId ||
+          ticket.grainContractId
+        );
+
+
+      const ticketContractNumber =
+        clean(
+          ticket.contractNumber
+        );
+
+
+      function loadMillis(
+        value
+      ) {
+
+        if (
+          value?.toMillis
+        ) {
+
+          return value.toMillis();
+
+        }
+
+
+        if (
+          value?.toDate
+        ) {
+
+          return value
+            .toDate()
+            .getTime();
+
+        }
+
+
+        if (
+          value instanceof Date
+        ) {
+
+          return value.getTime();
+
+        }
+
+
+        const parsed =
+          new Date(
+            value ||
+            0
+          );
+
+
+        return Number.isNaN(
+          parsed.getTime()
+        )
+          ? 0
+          : parsed.getTime();
+
+      }
+
+
+      function localISO(
+        date =
+          new Date()
+      ) {
+
+        return [
+          date.getFullYear(),
+          String(
+            date.getMonth() +
+            1
+          ).padStart(
+            2,
+            "0"
+          ),
+          String(
+            date.getDate()
+          ).padStart(
+            2,
+            "0"
+          )
+        ].join(
+          "-"
+        );
+
+      }
+
+
+      async function healLink(
+        load,
+        matchReason
+      ) {
+
+        if (
+          !load
+        ) {
+
+          return;
+
+        }
+
+
+        state.loadout =
+          load;
+
+
+        /*
+          Keep both sides of the relationship in sync.
+
+          Older tickets/load-outs may have been created before both
+          backlink fields were being written. Opening the ticket can
+          safely repair those missing references once a confident
+          match has been found.
+        */
+
+        const loadAlreadyLinkedToOtherTicket =
+          clean(
+            load.grainTicketId ||
+            load.ticketId
+          ) &&
+          clean(
+            load.grainTicketId ||
+            load.ticketId
+          ) !==
+          ticketId;
+
+
+        if (
+          loadAlreadyLinkedToOtherTicket
+        ) {
+
+          console.warn(
+            "[Grain Ticket Detail] Refusing to overwrite another ticket link.",
+            {
+              ticketId,
+              loadoutId:
+                load.id,
+              existingTicketId:
+                load.grainTicketId ||
+                load.ticketId
+            }
+          );
+
+          return;
+
+        }
+
+
+        const ticketPatch =
+          {};
+
+
+        if (
+          clean(
+            ticket.loadoutId
+          ) !==
+          load.id
+        ) {
+
+          ticketPatch.loadoutId =
+            load.id;
+
+        }
+
+
+        if (
+          clean(
+            ticket.loadNumber
+          ) !==
+          clean(
+            load.loadNumber
+          )
+        ) {
+
+          ticketPatch.loadNumber =
+            clean(
+              load.loadNumber
+            ) ||
+            null;
+
+        }
+
+
+        if (
+          Object.keys(
+            ticketPatch
+          ).length
+        ) {
+
+          ticketPatch.updatedAt =
+            serverTimestamp();
+
+        }
+
+
+        const loadPatch =
+          {};
+
+
+        if (
+          clean(
+            load.grainTicketId
+          ) !==
+          ticketId
+        ) {
+
+          loadPatch.grainTicketId =
+            ticketId;
+
+        }
+
+
+        if (
+          ticketNumber &&
+          clean(
+            load.elevatorTicketNumber
+          ) !==
+          ticketNumber
+        ) {
+
+          loadPatch.elevatorTicketNumber =
+            ticketNumber;
+
+        }
+
+
+        const linkedDate =
+          ticketDate ||
+          localISO();
+
+
+        if (
+          clean(
+            load.linkedDate
+          ) !==
+          linkedDate
+        ) {
+
+          loadPatch.linkedDate =
+            linkedDate;
+
+        }
+
+
+        if (
+          !load.ticketLinkedAt
+        ) {
+
+          loadPatch.ticketLinkedAt =
+            serverTimestamp();
+
+        }
+
+
+        if (
+          Object.keys(
+            loadPatch
+          ).length
+        ) {
+
+          loadPatch.updatedAt =
+            serverTimestamp();
+
+        }
+
+
+        try {
+
+          const writes =
+            [];
+
+
+          if (
+            Object.keys(
+              ticketPatch
+            ).length
+          ) {
+
+            writes.push(
+              updateDoc(
+                doc(
+                  db,
+                  "grain_tickets",
+                  ticketId
+                ),
+                ticketPatch
+              )
+            );
+
+          }
+
+
+          if (
+            Object.keys(
+              loadPatch
+            ).length
+          ) {
+
+            writes.push(
+              updateDoc(
+                doc(
+                  db,
+                  "grain_loadouts",
+                  load.id
+                ),
+                loadPatch
+              )
+            );
+
+          }
+
+
+          if (
+            writes.length
+          ) {
+
+            await Promise.all(
+              writes
+            );
+
+
+            Object.assign(
+              state.ticket,
+              ticketPatch
+            );
+
+
+            Object.assign(
+              state.loadout,
+              loadPatch
+            );
+
+          }
+
+
+          console.log(
+            "[Grain Ticket Detail] Load-out linked.",
+            {
+              ticketId,
+              loadoutId:
+                load.id,
+              loadNumber:
+                load.loadNumber,
+              matchReason
+            }
+          );
+
+        }
+        catch (
+          error
+        ) {
+
+          /*
+            Rendering should still work if the current role can read
+            but cannot repair historical backlink fields.
+          */
+
+          console.warn(
+            "[Grain Ticket Detail] Load-out backlink repair failed:",
+            error
+          );
+
+        }
+
+      }
+
+
       /*
-        Preferred path:
-        grain_tickets.loadoutId points directly to grain_loadouts.
+        1) Best possible match:
+           the ticket already stores the Firestore load-out ID.
       */
+
       if (
         savedLoadoutId
       ) {
 
-        const snapshot =
-          await getDoc(
-            doc(
-              db,
-              "grain_loadouts",
-              savedLoadoutId
-            )
+        try {
+
+          const snapshot =
+            await getDoc(
+              doc(
+                db,
+                "grain_loadouts",
+                savedLoadoutId
+              )
+            );
+
+
+          if (
+            snapshot.exists()
+          ) {
+
+            const load = {
+              id:
+                snapshot.id,
+              ...snapshot.data()
+            };
+
+
+            await healLink(
+              load,
+              "ticket_loadout_id"
+            );
+
+
+            return;
+
+          }
+
+        }
+        catch (
+          error
+        ) {
+
+          console.warn(
+            "[Grain Ticket Detail] Direct load-out lookup failed:",
+            error
+          );
+
+        }
+
+      }
+
+
+      /*
+        2) Load all load-outs once.
+
+           This supports both older records and newer records that
+           already contain grainTicketId / elevatorTicketNumber.
+      */
+
+      const snapshot =
+        await getDocs(
+          collection(
+            db,
+            "grain_loadouts"
+          )
+        );
+
+
+      const loads =
+        snapshot.docs.map(
+          item => ({
+            id:
+              item.id,
+            ...item.data()
+          })
+        );
+
+
+      /*
+        3) Exact reverse links.
+      */
+
+      const exactReverse =
+        loads.find(
+          load =>
+            clean(
+              load.grainTicketId ||
+              load.ticketId
+            ) ===
+            ticketId
+        );
+
+
+      if (
+        exactReverse
+      ) {
+
+        await healLink(
+          exactReverse,
+          "load_grain_ticket_id"
+        );
+
+
+        return;
+
+      }
+
+
+      /*
+        4) Exact elevator ticket number.
+
+           Only use this when the load is not already linked to a
+           different FarmVista grain ticket.
+      */
+
+      if (
+        ticketNumber
+      ) {
+
+        const exactTicketNumber =
+          loads.find(
+            load =>
+              clean(
+                load.elevatorTicketNumber
+              ) ===
+                ticketNumber &&
+              (
+                !clean(
+                  load.grainTicketId ||
+                  load.ticketId
+                ) ||
+                clean(
+                  load.grainTicketId ||
+                  load.ticketId
+                ) ===
+                  ticketId
+              )
           );
 
 
         if (
-          snapshot.exists()
+          exactTicketNumber
         ) {
 
-          state.loadout = {
-
-            id:
-              snapshot.id,
-
-            ...snapshot.data()
-
-          };
+          await healLink(
+            exactTicketNumber,
+            "elevator_ticket_number"
+          );
 
 
           return;
@@ -2700,84 +3272,632 @@ function handleTicketTouchEnd(
 
 
       /*
-        Fallback for older tickets:
-        find a loadout already linked back to this ticket.
+        5) Exact saved FarmVista load number.
       */
-      const snapshot =
-        await getDocs(
-          collection(
-            db,
-            "grain_loadouts"
-          )
-        );
 
-
-      const ticketNumber =
+      const savedLoadNumber =
         clean(
-          state.ticket?.ticketNumber
-        );
-
-
-      const match =
-        snapshot.docs.find(
-          item => {
-
-            const load =
-              item.data() ||
-              {};
-
-
-            const ticketIdMatches =
-              clean(
-                load.grainTicketId
-              ) ===
-              ticketId;
-
-
-            const ticketNumberMatches =
-              ticketNumber &&
-              clean(
-                load.elevatorTicketNumber
-              ) ===
-              ticketNumber;
-
-
-            const savedLoadNumberMatches =
-              clean(
-                state.ticket?.loadNumber
-              ) &&
-              clean(
-                load.loadNumber
-              ) ===
-              clean(
-                state.ticket.loadNumber
-              );
-
-
-            return (
-              ticketIdMatches ||
-              ticketNumberMatches ||
-              savedLoadNumberMatches
-            );
-
-          }
+          ticket.loadNumber
         );
 
 
       if (
-        match
+        savedLoadNumber
       ) {
 
-        state.loadout = {
+        const exactLoadNumber =
+          loads.find(
+            load =>
+              clean(
+                load.loadNumber
+              ) ===
+                savedLoadNumber &&
+              (
+                !clean(
+                  load.grainTicketId ||
+                  load.ticketId
+                ) ||
+                clean(
+                  load.grainTicketId ||
+                  load.ticketId
+                ) ===
+                  ticketId
+              )
+          );
 
-          id:
-            match.id,
 
-          ...match.data()
+        if (
+          exactLoadNumber
+        ) {
 
-        };
+          await healLink(
+            exactLoadNumber,
+            "farmvista_load_number"
+          );
+
+
+          return;
+
+        }
 
       }
+
+
+      /*
+        6) Historical/backfill matching.
+
+           Some OCR tickets were created before the scan workflow
+           wrote loadoutId back to the ticket. In those cases we can
+           reconstruct the relationship from the dispatch information
+           already stored in Firestore.
+
+           We score only UNLINKED load-outs and require a strong,
+           multi-field match. This avoids grabbing a random load just
+           because the same driver hauled the same crop.
+      */
+
+      const ticketCreatedMs =
+        loadMillis(
+          ticket.createdAt ||
+          ticket.scannedAt ||
+          ticket.updatedAt
+        );
+
+
+      const scored =
+        loads
+          .filter(
+            load => {
+
+              const linkedTicketId =
+                clean(
+                  load.grainTicketId ||
+                  load.ticketId
+                );
+
+
+              return (
+                !linkedTicketId ||
+                linkedTicketId ===
+                  ticketId
+              );
+
+            }
+          )
+          .map(
+            load => {
+
+              let score =
+                0;
+
+
+              let strongMatches =
+                0;
+
+
+              const reasons =
+                [];
+
+
+              const loadDriverUid =
+                clean(
+                  load.driverUid
+                );
+
+
+              const loadDriverEmail =
+                normalize(
+                  load.driverEmail
+                );
+
+
+              const loadDriverName =
+                normalize(
+                  load.driverName
+                );
+
+
+              if (
+                ticketDriverUid &&
+                loadDriverUid &&
+                ticketDriverUid ===
+                  loadDriverUid
+              ) {
+
+                score += 45;
+                strongMatches += 1;
+                reasons.push(
+                  "driver_uid"
+                );
+
+              }
+              else if (
+                ticketDriverEmail &&
+                loadDriverEmail &&
+                ticketDriverEmail ===
+                  loadDriverEmail
+              ) {
+
+                score += 42;
+                strongMatches += 1;
+                reasons.push(
+                  "driver_email"
+                );
+
+              }
+              else if (
+                ticketDriverName &&
+                loadDriverName &&
+                ticketDriverName ===
+                  loadDriverName
+              ) {
+
+                score += 30;
+                strongMatches += 1;
+                reasons.push(
+                  "driver_name"
+                );
+
+              }
+
+
+              const loadLocationId =
+                clean(
+                  load.destinationId ||
+                  load.deliveryLocationId
+                );
+
+
+              if (
+                ticketLocationId &&
+                loadLocationId &&
+                ticketLocationId ===
+                  loadLocationId
+              ) {
+
+                score += 45;
+                strongMatches += 1;
+                reasons.push(
+                  "delivery_location_id"
+                );
+
+              }
+              else {
+
+                const loadLocationName =
+                  normalize(
+                    load.destinationName ||
+                    load.deliveryLocationName
+                  );
+
+
+                if (
+                  ticketLocationName &&
+                  loadLocationName &&
+                  ticketLocationName ===
+                    loadLocationName
+                ) {
+
+                  score += 24;
+                  strongMatches += 1;
+                  reasons.push(
+                    "delivery_location_name"
+                  );
+
+                }
+
+              }
+
+
+              const loadCustomerId =
+                clean(
+                  load.customerId
+                );
+
+
+              if (
+                ticketCustomerId &&
+                loadCustomerId &&
+                ticketCustomerId ===
+                  loadCustomerId
+              ) {
+
+                score += 38;
+                strongMatches += 1;
+                reasons.push(
+                  "customer_id"
+                );
+
+              }
+              else {
+
+                const loadCustomerName =
+                  normalize(
+                    load.customerName
+                  );
+
+
+                if (
+                  ticketCustomerName &&
+                  loadCustomerName &&
+                  ticketCustomerName ===
+                    loadCustomerName
+                ) {
+
+                  score += 22;
+                  reasons.push(
+                    "customer_name"
+                  );
+
+                }
+
+              }
+
+
+              const loadBuyerId =
+                clean(
+                  load.buyerId
+                );
+
+
+              if (
+                ticketBuyerId &&
+                loadBuyerId &&
+                ticketBuyerId ===
+                  loadBuyerId
+              ) {
+
+                score += 28;
+                strongMatches += 1;
+                reasons.push(
+                  "buyer_id"
+                );
+
+              }
+              else {
+
+                const loadBuyerName =
+                  normalize(
+                    load.buyerName
+                  );
+
+
+                if (
+                  ticketBuyerName &&
+                  loadBuyerName &&
+                  ticketBuyerName ===
+                    loadBuyerName
+                ) {
+
+                  score += 16;
+                  reasons.push(
+                    "buyer_name"
+                  );
+
+                }
+
+              }
+
+
+              const loadCrop =
+                normalize(
+                  load.crop
+                );
+
+
+              if (
+                ticketCrop &&
+                loadCrop &&
+                ticketCrop ===
+                  loadCrop
+              ) {
+
+                score += 22;
+                reasons.push(
+                  "crop"
+                );
+
+              }
+
+
+              const loadContractId =
+                clean(
+                  load.contractId
+                );
+
+
+              if (
+                ticketContractId &&
+                loadContractId &&
+                ticketContractId ===
+                  loadContractId
+              ) {
+
+                score += 26;
+                strongMatches += 1;
+                reasons.push(
+                  "contract_id"
+                );
+
+              }
+              else if (
+                ticketContractNumber &&
+                clean(
+                  load.contractNumber
+                ) ===
+                  ticketContractNumber
+              ) {
+
+                score += 14;
+                reasons.push(
+                  "contract_number"
+                );
+
+              }
+
+
+              const loadDate =
+                clean(
+                  load.loadDate ||
+                  load.deliveryDate
+                );
+
+
+              if (
+                ticketDate &&
+                loadDate &&
+                ticketDate ===
+                  loadDate
+              ) {
+
+                score += 30;
+                strongMatches += 1;
+                reasons.push(
+                  "same_date"
+                );
+
+              }
+
+
+              const loadTimeMs =
+                loadMillis(
+                  load.loadedAt ||
+                  load.createdAt
+                );
+
+
+              let timeDeltaMs =
+                Number.POSITIVE_INFINITY;
+
+
+              if (
+                ticketCreatedMs &&
+                loadTimeMs
+              ) {
+
+                timeDeltaMs =
+                  Math.abs(
+                    ticketCreatedMs -
+                    loadTimeMs
+                  );
+
+
+                if (
+                  timeDeltaMs <=
+                  2 *
+                  60 *
+                  60 *
+                  1000
+                ) {
+
+                  score += 22;
+                  reasons.push(
+                    "within_2_hours"
+                  );
+
+                }
+                else if (
+                  timeDeltaMs <=
+                  8 *
+                  60 *
+                  60 *
+                  1000
+                ) {
+
+                  score += 14;
+                  reasons.push(
+                    "within_8_hours"
+                  );
+
+                }
+                else if (
+                  timeDeltaMs <=
+                  24 *
+                  60 *
+                  60 *
+                  1000
+                ) {
+
+                  score += 7;
+                  reasons.push(
+                    "within_24_hours"
+                  );
+
+                }
+
+              }
+
+
+              const status =
+                normalize(
+                  load.status
+                );
+
+
+              if (
+                [
+                  "in transit",
+                  "ticket missing",
+                  "preload"
+                ].includes(
+                  status
+                )
+              ) {
+
+                score += 4;
+
+              }
+
+
+              return {
+                load,
+                score,
+                strongMatches,
+                reasons,
+                loadTimeMs,
+                timeDeltaMs
+              };
+
+            }
+          )
+          .filter(
+            item =>
+              item.strongMatches >=
+                2 &&
+              item.score >=
+                85
+          )
+          .sort(
+            (
+              a,
+              b
+            ) => {
+
+              if (
+                b.score !==
+                a.score
+              ) {
+
+                return (
+                  b.score -
+                  a.score
+                );
+
+              }
+
+
+              if (
+                a.timeDeltaMs !==
+                b.timeDeltaMs
+              ) {
+
+                return (
+                  a.timeDeltaMs -
+                  b.timeDeltaMs
+                );
+
+              }
+
+
+              return (
+                b.loadTimeMs -
+                a.loadTimeMs
+              );
+
+            }
+          );
+
+
+      if (
+        !scored.length
+      ) {
+
+        console.warn(
+          "[Grain Ticket Detail] No confident load-out match found.",
+          {
+            ticketId,
+            ticketNumber,
+            ticketDate,
+            driverName:
+              ticket.driverName,
+            customerId:
+              ticketCustomerId,
+            buyerId:
+              ticketBuyerId,
+            deliveryLocationId:
+              ticketLocationId,
+            crop:
+              ticket.crop
+          }
+        );
+
+
+        return;
+
+      }
+
+
+      const best =
+        scored[0];
+
+
+      const second =
+        scored[1];
+
+
+      /*
+        If two candidates are almost equally strong, do not silently
+        choose one unless the best score itself is exceptionally high.
+      */
+
+      if (
+        second &&
+        (
+          best.score -
+          second.score
+        ) <
+          10 &&
+        best.score <
+          140
+      ) {
+
+        console.warn(
+          "[Grain Ticket Detail] Ambiguous load-out match; leaving unlinked.",
+          {
+            ticketId,
+            best: {
+              loadoutId:
+                best.load.id,
+              loadNumber:
+                best.load.loadNumber,
+              score:
+                best.score,
+              reasons:
+                best.reasons
+            },
+            second: {
+              loadoutId:
+                second.load.id,
+              loadNumber:
+                second.load.loadNumber,
+              score:
+                second.score,
+              reasons:
+                second.reasons
+            }
+          }
+        );
+
+
+        return;
+
+      }
+
+
+      await healLink(
+        best.load,
+        `backfill:${best.reasons.join(",")}`
+      );
 
     }
 
@@ -5109,15 +6229,15 @@ reviewReasons:
         );
 
 
-setTimeout(
-  () => {
+        setTimeout(
+          () => {
 
-    window.location.href =
-      "/Farm-vista/pages/grain/grain-tickets.html";
+            window.location.href =
+              "/Farm-vista/pages/grain/grain-tickets.html";
 
-  },
-  1100
-);
+          },
+          1100
+        );
 
       }
       catch (
@@ -5162,16 +6282,16 @@ setTimeout(
 
     function setupEvents() {
 
-elements.backBtn
-  .addEventListener(
-    "click",
-    () => {
+      elements.backBtn
+        .addEventListener(
+          "click",
+          () => {
 
-      window.location.href =
-        "/Farm-vista/pages/grain/grain-tickets.html";
+            window.location.href =
+              "/Farm-vista/pages/grain/grain-tickets.html";
 
-    }
-  );
+          }
+        );
 
 
       elements.rotateLeftBtn
