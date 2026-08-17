@@ -1996,27 +1996,75 @@
             </div>
           </div>
 
-          <div class="loadout-field full">
-            <label for="loadout-destination">Destination / Elevator</label>
-            <select
-              id="loadout-destination"
-              class="loadout-select"
-              required
-            >
-              <option value="">Select destination</option>
-            </select>
-          </div>
+<div class="loadout-field full">
+  <label for="loadout-destination-button">Destination / Elevator</label>
 
-          <div class="loadout-field">
-            <label for="loadout-customer">Sold Under / Customer</label>
-            <select
-              id="loadout-customer"
-              class="loadout-select"
-              required
-            >
-              <option value="">Select customer</option>
-            </select>
-          </div>
+  <div
+    id="loadout-destination-picker"
+    class="loadout-source-picker"
+  >
+
+    <button
+      id="loadout-destination-button"
+      type="button"
+      class="loadout-source-button"
+      aria-haspopup="listbox"
+      aria-expanded="false"
+    >
+      <span id="loadout-destination-button-text">
+        Select destination
+      </span>
+    </button>
+
+    <div
+      id="loadout-destination-menu"
+      class="loadout-source-menu"
+      role="listbox"
+      aria-label="Destination or elevator"
+    ></div>
+
+    <input
+      id="loadout-destination"
+      type="hidden"
+      value=""
+    >
+
+  </div>
+<div class="loadout-field">
+  <label for="loadout-customer-button">Sold Under / Customer</label>
+
+  <div
+    id="loadout-customer-picker"
+    class="loadout-source-picker"
+  >
+
+    <button
+      id="loadout-customer-button"
+      type="button"
+      class="loadout-source-button"
+      aria-haspopup="listbox"
+      aria-expanded="false"
+    >
+      <span id="loadout-customer-button-text">
+        Select customer
+      </span>
+    </button>
+
+    <div
+      id="loadout-customer-menu"
+      class="loadout-source-menu"
+      role="listbox"
+      aria-label="Sold under customer"
+    ></div>
+
+    <input
+      id="loadout-customer"
+      type="hidden"
+      value=""
+    >
+
+  </div>
+</div>
 
           <div class="loadout-field">
             <label for="loadout-crop">Crop</label>
@@ -6821,9 +6869,19 @@ if (els.tickets) {
     subdriverCell: $lo("loadout-subdriver-cell"),
     subdriverCancel: $lo("loadout-subdriver-cancel"),
     subdriverSave: $lo("loadout-subdriver-save"),
-    destination: $lo("loadout-destination"),
-    customer: $lo("loadout-customer"),
-    crop: $lo("loadout-crop"),
+destination: $lo("loadout-destination"),
+destinationPicker: $lo("loadout-destination-picker"),
+destinationButton: $lo("loadout-destination-button"),
+destinationButtonText: $lo("loadout-destination-button-text"),
+destinationMenu: $lo("loadout-destination-menu"),
+
+customer: $lo("loadout-customer"),
+customerPicker: $lo("loadout-customer-picker"),
+customerButton: $lo("loadout-customer-button"),
+customerButtonText: $lo("loadout-customer-button-text"),
+customerMenu: $lo("loadout-customer-menu"),
+
+crop: $lo("loadout-crop"),
     source: $lo("loadout-source"),
     sourcePicker: $lo("loadout-source-picker"),
     sourceButton: $lo("loadout-source-button"),
@@ -7450,6 +7508,426 @@ function loCloseDriverMenu(){
     }
   }
 
+  /* ============================================================
+   DESTINATION PICKER
+============================================================ */
+
+function loCloseDestinationMenu(){
+
+  loEls.destinationMenu
+    ?.classList.remove(
+      "open"
+    );
+
+  loEls.destinationButton
+    ?.setAttribute(
+      "aria-expanded",
+      "false"
+    );
+
+}
+
+
+function loSyncDestinationButton(){
+
+  if (
+    !loEls.destination ||
+    !loEls.destinationButtonText
+  ) {
+    return;
+  }
+
+  const selected =
+    loState.locations.find(
+      item =>
+        item.id ===
+        loClean(
+          loEls.destination.value
+        )
+    ) ||
+    null;
+
+
+  if (
+    selected
+  ) {
+
+    const buyer =
+      selected.buyerName
+        ? `${selected.buyerName} — `
+        : "";
+
+    loEls.destinationButtonText.textContent =
+      `${buyer}${selected.locationName}`;
+
+  }
+  else {
+
+    loEls.destinationButtonText.textContent =
+      "Select destination";
+
+  }
+
+
+  loEls.destinationMenu
+    ?.querySelectorAll(
+      ".loadout-source-choice"
+    )
+    .forEach(
+      button => {
+
+        button.classList.toggle(
+          "selected",
+          button.dataset.destinationValue ===
+            loEls.destination.value
+        );
+
+      }
+    );
+
+}
+
+
+function loChooseDestinationValue(
+  value
+){
+
+  loEls.destination.value =
+    value ||
+    "";
+
+
+  loSyncDestinationButton();
+
+
+  loCloseDestinationMenu();
+
+
+  /*
+    This is a hidden INPUT, so this change event only runs
+    our FarmVista destination logic. There is no global SELECT
+    enhancer involved anymore.
+  */
+  loEls.destination.dispatchEvent(
+    new Event(
+      "change",
+      {
+        bubbles:true
+      }
+    )
+  );
+
+}
+
+
+function loRenderDestinationPicker(){
+
+  if (
+    !loEls.destinationMenu
+  ) {
+    return;
+  }
+
+
+  loEls.destinationMenu.innerHTML =
+    "";
+
+
+  if (
+    !loState.locations.length
+  ) {
+
+    const empty =
+      document.createElement(
+        "div"
+      );
+
+    empty.className =
+      "loadout-source-empty";
+
+    empty.textContent =
+      "No delivery locations found.";
+
+    loEls.destinationMenu.appendChild(
+      empty
+    );
+
+    loSyncDestinationButton();
+
+    return;
+
+  }
+
+
+  loState.locations.forEach(
+    location => {
+
+      const button =
+        document.createElement(
+          "button"
+        );
+
+      button.type =
+        "button";
+
+      button.className =
+        "loadout-source-choice";
+
+      button.dataset.destinationValue =
+        location.id;
+
+
+      const buyer =
+        location.buyerName
+          ? `${location.buyerName} — `
+          : "";
+
+
+      button.textContent =
+        `${buyer}${location.locationName}`;
+
+
+      button.addEventListener(
+        "click",
+        () => {
+
+          loChooseDestinationValue(
+            location.id
+          );
+
+        }
+      );
+
+
+      loEls.destinationMenu.appendChild(
+        button
+      );
+
+    }
+  );
+
+
+  loSyncDestinationButton();
+
+}
+
+
+function loOpenDestinationMenu(){
+
+  loRenderDestinationPicker();
+
+  loEls.destinationMenu
+    ?.classList.add(
+      "open"
+    );
+
+  loEls.destinationButton
+    ?.setAttribute(
+      "aria-expanded",
+      "true"
+    );
+
+}
+
+
+
+/* ============================================================
+   CUSTOMER PICKER
+============================================================ */
+
+function loCloseCustomerMenu(){
+
+  loEls.customerMenu
+    ?.classList.remove(
+      "open"
+    );
+
+  loEls.customerButton
+    ?.setAttribute(
+      "aria-expanded",
+      "false"
+    );
+
+}
+
+
+function loSyncCustomerButton(){
+
+  if (
+    !loEls.customer ||
+    !loEls.customerButtonText
+  ) {
+    return;
+  }
+
+
+  const selected =
+    loState.customers.find(
+      item =>
+        item.id ===
+        loClean(
+          loEls.customer.value
+        )
+    ) ||
+    null;
+
+
+  loEls.customerButtonText.textContent =
+    selected?.name ||
+    "Select customer";
+
+
+  loEls.customerMenu
+    ?.querySelectorAll(
+      ".loadout-source-choice"
+    )
+    .forEach(
+      button => {
+
+        button.classList.toggle(
+          "selected",
+          button.dataset.customerValue ===
+            loEls.customer.value
+        );
+
+      }
+    );
+
+}
+
+
+function loChooseCustomerValue(
+  value
+){
+
+  loEls.customer.value =
+    value ||
+    "";
+
+
+  loSyncCustomerButton();
+
+
+  loCloseCustomerMenu();
+
+
+  /*
+    This still triggers loRenderContracts(),
+    which is exactly what we want when the user changes customer.
+  */
+  loEls.customer.dispatchEvent(
+    new Event(
+      "change",
+      {
+        bubbles:true
+      }
+    )
+  );
+
+}
+
+
+function loRenderCustomerPicker(){
+
+  if (
+    !loEls.customerMenu
+  ) {
+    return;
+  }
+
+
+  loEls.customerMenu.innerHTML =
+    "";
+
+
+  if (
+    !loState.customers.length
+  ) {
+
+    const empty =
+      document.createElement(
+        "div"
+      );
+
+    empty.className =
+      "loadout-source-empty";
+
+    empty.textContent =
+      "No grain customers found.";
+
+    loEls.customerMenu.appendChild(
+      empty
+    );
+
+    loSyncCustomerButton();
+
+    return;
+
+  }
+
+
+  loState.customers.forEach(
+    customer => {
+
+      const button =
+        document.createElement(
+          "button"
+        );
+
+      button.type =
+        "button";
+
+      button.className =
+        "loadout-source-choice";
+
+      button.dataset.customerValue =
+        customer.id;
+
+      button.textContent =
+        customer.name;
+
+
+      button.addEventListener(
+        "click",
+        () => {
+
+          loChooseCustomerValue(
+            customer.id
+          );
+
+        }
+      );
+
+
+      loEls.customerMenu.appendChild(
+        button
+      );
+
+    }
+  );
+
+
+  loSyncCustomerButton();
+
+}
+
+
+function loOpenCustomerMenu(){
+
+  loRenderCustomerPicker();
+
+  loEls.customerMenu
+    ?.classList.add(
+      "open"
+    );
+
+  loEls.customerButton
+    ?.setAttribute(
+      "aria-expanded",
+      "true"
+    );
+
+}
 
   function loCurrentSourceItems(){
     const crop = loNorm(loEls.crop?.value);
@@ -7743,15 +8221,25 @@ function loCloseDriverMenu(){
     return `${prefix}${String(loState.previewSequence).padStart(3,"0")}`;
   }
 
-  function loResetModalBase(){
-    loShowMessage("");
-    loEls.form.reset();
-    loEls.driver.value = "";
-    loEls.source.value = "";
-    loSyncDriverButton();
-    loSyncSourceButton();
-    loCloseDriverMenu();
-    loCloseSourceMenu();
+function loResetModalBase(){
+  loShowMessage("");
+
+  loEls.form.reset();
+
+  loEls.driver.value = "";
+  loEls.destination.value = "";
+  loEls.customer.value = "";
+  loEls.source.value = "";
+
+  loSyncDriverButton();
+  loSyncDestinationButton();
+  loSyncCustomerButton();
+  loSyncSourceButton();
+
+  loCloseDriverMenu();
+  loCloseDestinationMenu();
+  loCloseCustomerMenu();
+  loCloseSourceMenu();
     loResetAddDriverPanel();
     loRenderSubdriverSelect();
     loRenderContracts();
@@ -7968,6 +8456,7 @@ function loOpenEditModal(load){
 
   loEls.destination.value =
     destinationId;
+  loSyncDestinationButton();
 
 
   /* ============================================================
@@ -7981,6 +8470,7 @@ function loOpenEditModal(load){
 
   loEls.customer.value =
     customerId;
+  loSyncCustomerButton();
 
 
   /* ============================================================
@@ -8199,11 +8689,16 @@ function loOpenEditModal(load){
   setTimeout(
     () => {
 
-      loEls.destination.value =
-        destinationId;
+loEls.destination.value =
+  destinationId;
 
-      loEls.customer.value =
-        customerId;
+loSyncDestinationButton();
+
+
+loEls.customer.value =
+  customerId;
+
+loSyncCustomerButton();
 
       loEls.crop.value =
         cropMatch
@@ -9248,27 +9743,9 @@ loState.drivers = employeeSnapshot.docs
     loRenderDriverSelector();
     loRenderSubdriverSelect();
     loRenderSourceSelector("");
+loRenderCustomerPicker();
 
-    loRenderSelect(
-      loEls.customer,
-      loState.customers,
-      "Select customer",
-      item => item.name
-    );
-
-    loRenderSelect(
-      loEls.destination,
-      loState.locations,
-      "Select destination",
-      item => {
-        const buyer =
-          item.buyerName
-            ? `${item.buyerName} — `
-            : "";
-
-        return `${buyer}${item.locationName}`;
-      }
-    );
+loRenderDestinationPicker();
 
     loRenderTable();
   }
@@ -10080,6 +10557,96 @@ loEls.driver?.addEventListener(
     loResetAddDriverPanel();
 
     loRenderSubdriverSelect();
+
+  }
+);
+
+  loEls.destinationButton?.addEventListener(
+  "click",
+  event => {
+
+    event.stopPropagation();
+
+    loCloseCustomerMenu();
+    loCloseSourceMenu();
+    loCloseDriverMenu();
+
+
+    if (
+      loEls.destinationMenu?.classList.contains(
+        "open"
+      )
+    ) {
+
+      loCloseDestinationMenu();
+
+    }
+    else {
+
+      loOpenDestinationMenu();
+
+    }
+
+  }
+);
+
+
+loEls.customerButton?.addEventListener(
+  "click",
+  event => {
+
+    event.stopPropagation();
+
+    loCloseDestinationMenu();
+    loCloseSourceMenu();
+    loCloseDriverMenu();
+
+
+    if (
+      loEls.customerMenu?.classList.contains(
+        "open"
+      )
+    ) {
+
+      loCloseCustomerMenu();
+
+    }
+    else {
+
+      loOpenCustomerMenu();
+
+    }
+
+  }
+);
+
+
+document.addEventListener(
+  "click",
+  event => {
+
+    if (
+      loEls.destinationPicker &&
+      !loEls.destinationPicker.contains(
+        event.target
+      )
+    ) {
+
+      loCloseDestinationMenu();
+
+    }
+
+
+    if (
+      loEls.customerPicker &&
+      !loEls.customerPicker.contains(
+        event.target
+      )
+    ) {
+
+      loCloseCustomerMenu();
+
+    }
 
   }
 );
