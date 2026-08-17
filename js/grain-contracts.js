@@ -1,20 +1,17 @@
 // /Farm-vista/js/grain-contracts.js
-// Rev: 2026-08-16-grain-contracts-dashboard-v2
 //
-// UPDATES:
-// - Assigned tickets now display directly on each contract reconciliation card
-// - Assigned ticket rows show ticket #, bushels, date, location, driver
-// - Clicking an assigned ticket opens a ticket detail modal
-// - Ticket modal can open the existing full grain-ticket detail page
-// - Newly assigned tickets immediately appear under their contract
-// - Keeps drag/drop, multi-select, Assign Selected, Assign All
+// FULL FILE
 //
-// FIRESTORE:
-// grain_contracts
-// grain_buyers
-// grain_customers
-// grain_delivery_locations
-// grain_tickets
+// FIX:
+// - Edit Contract now restores ALL saved Firestore values.
+// - Buyer restores by buyerId, with buyerName fallback.
+// - Customer restores by customerId, with customerName fallback.
+// - Crop restores safely.
+// - Contract Type restores safely.
+// - Delivery Location restores by deliveryLocationId, with saved
+//   location/address fallback.
+// - Existing contract totals, ticket assignment, drag/drop,
+//   assigned ticket details, filters, and settlement shell retained.
 
 
 import {
@@ -567,6 +564,222 @@ function addDays(
 }
 
 
+/*
+  Safely restore a select by its saved Firestore ID/value.
+*/
+function setSelectValue(
+  select,
+  value
+) {
+
+  if (
+    !select
+  ) {
+
+    return false;
+
+  }
+
+
+  const wanted =
+    clean(
+      value
+    );
+
+
+  if (
+    !wanted
+  ) {
+
+    select.value =
+      "";
+
+    return false;
+
+  }
+
+
+  const option =
+    [
+      ...select.options
+    ]
+      .find(
+        item =>
+          clean(
+            item.value
+          ) ===
+          wanted
+      );
+
+
+  if (
+    !option
+  ) {
+
+    return false;
+
+  }
+
+
+  select.value =
+    option.value;
+
+
+  return true;
+
+}
+
+
+/*
+  Fallback helper.
+
+  If an old contract has a missing/bad ID but still has the saved
+  Firestore name, locate the matching picker option by its name.
+*/
+function setObjectSelectByIdOrName(
+  select,
+  savedId,
+  savedName,
+  items
+) {
+
+  if (
+    setSelectValue(
+      select,
+      savedId
+    )
+  ) {
+
+    return clean(
+      select.value
+    );
+
+  }
+
+
+  const wantedName =
+    normalized(
+      savedName
+    );
+
+
+  if (
+    !wantedName
+  ) {
+
+    select.value =
+      "";
+
+    return "";
+
+  }
+
+
+  const match =
+    items.find(
+      item =>
+        normalized(
+          item.name
+        ) ===
+        wantedName
+    );
+
+
+  if (
+    !match
+  ) {
+
+    select.value =
+      "";
+
+    return "";
+
+  }
+
+
+  setSelectValue(
+    select,
+    match.id
+  );
+
+
+  return match.id;
+
+}
+
+
+/*
+  Crop and Contract Type are static dropdowns.
+
+  This restores them case-insensitively so Firestore values such
+  as "Corn" and "Cash" always match the HTML option.
+*/
+function setStaticSelectValue(
+  select,
+  savedValue
+) {
+
+  if (
+    !select
+  ) {
+
+    return false;
+
+  }
+
+
+  const wanted =
+    normalized(
+      savedValue
+    );
+
+
+  if (
+    !wanted
+  ) {
+
+    select.value =
+      "";
+
+    return false;
+
+  }
+
+
+  const option =
+    [
+      ...select.options
+    ]
+      .find(
+        item =>
+          normalized(
+            item.value
+          ) ===
+          wanted
+      );
+
+
+  if (
+    !option
+  ) {
+
+    select.value =
+      "";
+
+    return false;
+
+  }
+
+
+  select.value =
+    option.value;
+
+
+  return true;
+
+}
+
+
 /* ============================================================
    STATE
 ============================================================ */
@@ -795,6 +1008,91 @@ async function loadAllData() {
               docSnapshot.id,
 
             ...data,
+
+            buyerId:
+              clean(
+                data.buyerId
+              ),
+
+            buyerName:
+              clean(
+                data.buyerName
+              ),
+
+            customerId:
+              clean(
+                data.customerId
+              ),
+
+            customerName:
+              clean(
+                data.customerName
+              ),
+
+            crop:
+              clean(
+                data.crop
+              ),
+
+            contractType:
+              clean(
+                data.contractType
+              ),
+
+            contractNumber:
+              clean(
+                data.contractNumber
+              ),
+
+            contractDate:
+              clean(
+                data.contractDate
+              ),
+
+            deliveryLocationId:
+              clean(
+                data.deliveryLocationId
+              ),
+
+            deliveryLocationName:
+              clean(
+                data.deliveryLocationName
+              ),
+
+            deliveryStreet:
+              clean(
+                data.deliveryStreet
+              ),
+
+            deliveryCity:
+              clean(
+                data.deliveryCity
+              ),
+
+            deliveryState:
+              clean(
+                data.deliveryState
+              ),
+
+            deliveryZip:
+              clean(
+                data.deliveryZip
+              ),
+
+            deliveryStart:
+              clean(
+                data.deliveryStart
+              ),
+
+            deliveryEnd:
+              clean(
+                data.deliveryEnd
+              ),
+
+            notes:
+              clean(
+                data.notes
+              ),
 
             contractBushels:
               numberValue(
@@ -1848,9 +2146,7 @@ function renderContractTable() {
       row.innerHTML = `
 
         <td>
-          <span
-            class="status-pill ${getStatusClass(contract)}"
-          >
+          <span class="status-pill ${getStatusClass(contract)}">
             ${escapeHtml(getStatusLabel(contract))}
           </span>
         </td>
@@ -1955,26 +2251,8 @@ function renderContractTable() {
 
 
 /* ============================================================
-   RECONCILIATION PICKERS
+   OBJECT SELECTS
 ============================================================ */
-
-function populateReconciliationPickers() {
-
-  populateObjectSelect(
-    $("reconcile-buyer"),
-    state.buyers,
-    "Select Buyer"
-  );
-
-
-  populateObjectSelect(
-    $("reconcile-customer"),
-    state.customers,
-    "Select Customer"
-  );
-
-}
-
 
 function populateObjectSelect(
   select,
@@ -2043,21 +2321,32 @@ function populateObjectSelect(
   );
 
 
-  if (
-    [
-      ...select.options
-    ]
-      .some(
-        option =>
-          option.value ===
-          current
-      )
-  ) {
+  setSelectValue(
+    select,
+    current
+  );
 
-    select.value =
-      current;
+}
 
-  }
+
+/* ============================================================
+   RECONCILIATION PICKERS
+============================================================ */
+
+function populateReconciliationPickers() {
+
+  populateObjectSelect(
+    $("reconcile-buyer"),
+    state.buyers,
+    "Select Buyer"
+  );
+
+
+  populateObjectSelect(
+    $("reconcile-customer"),
+    state.customers,
+    "Select Customer"
+  );
 
 }
 
@@ -2324,7 +2613,6 @@ function renderReconciliation() {
       .innerHTML = `
 
         <div class="empty-state">
-
           <div class="empty-title">
             Select Buyer and Customer
           </div>
@@ -2332,7 +2620,6 @@ function renderReconciliation() {
           <div class="empty-sub">
             Unassigned tickets will appear here after both filters are selected.
           </div>
-
         </div>
 
       `;
@@ -2342,7 +2629,6 @@ function renderReconciliation() {
       .innerHTML = `
 
         <div class="empty-state">
-
           <div class="empty-title">
             Select Buyer and Customer
           </div>
@@ -2350,7 +2636,6 @@ function renderReconciliation() {
           <div class="empty-sub">
             Matching contracts will appear here after both filters are selected.
           </div>
-
         </div>
 
       `;
@@ -2466,7 +2751,6 @@ function renderTicketCards(
     container.innerHTML = `
 
       <div class="empty-state">
-
         <div class="empty-title">
           No Unassigned Tickets
         </div>
@@ -2474,7 +2758,6 @@ function renderTicketCards(
         <div class="empty-sub">
           There are no unassigned grain tickets for this buyer and customer.
         </div>
-
       </div>
 
     `;
@@ -2518,7 +2801,6 @@ function renderTicketCards(
           aria-label="Select ticket ${escapeHtml(ticket.ticketNumber || ticket.id)}"
         />
 
-
         <div class="ticket-content">
 
           <div class="ticket-top">
@@ -2532,7 +2814,6 @@ function renderTicketCards(
             </div>
 
           </div>
-
 
           <div class="ticket-meta">
 
@@ -2774,7 +3055,6 @@ function assignedTicketMarkup(
 
               </div>
 
-
               <div class="assigned-ticket-meta">
 
                 <span>
@@ -2981,21 +3261,16 @@ function renderContractDropCards(
             </div>
 
             <div class="contract-drop-meta">
-
               ${escapeHtml(contract.crop || "—")}
               •
               ${escapeHtml(contract.contractType || "—")}
               •
               ${escapeHtml(contract.deliveryLocationName || "No location")}
-
             </div>
 
           </div>
 
-
-          <span
-            class="status-pill ${getStatusClass(contract)}"
-          >
+          <span class="status-pill ${getStatusClass(contract)}">
             ${escapeHtml(getStatusLabel(contract))}
           </span>
 
@@ -3005,7 +3280,6 @@ function renderContractDropCards(
         <div class="contract-stats">
 
           <div class="contract-stat">
-
             <div class="contract-stat-label">
               Contract
             </div>
@@ -3013,12 +3287,10 @@ function renderContractDropCards(
             <div class="contract-stat-value">
               ${formatBushels(contract.contractBushels)}
             </div>
-
           </div>
 
 
           <div class="contract-stat">
-
             <div class="contract-stat-label">
               Assigned
             </div>
@@ -3026,7 +3298,6 @@ function renderContractDropCards(
             <div class="contract-stat-value">
               ${formatBushels(contract.deliveredBushels)}
             </div>
-
           </div>
 
 
@@ -3063,7 +3334,6 @@ function renderContractDropCards(
 
 
           <div class="contract-stat">
-
             <div class="contract-stat-label">
               Loads
             </div>
@@ -3071,7 +3341,6 @@ function renderContractDropCards(
             <div class="contract-stat-value">
               ${numberValue(contract.loadCount).toLocaleString("en-US")}
             </div>
-
           </div>
 
         </div>
@@ -3563,25 +3832,25 @@ function openTicketDetail(
       "—";
 
 
-$("detail-ticket-gross")
-  .textContent =
-    formatWholeNumber(
-      ticket.grossWeight
-    );
+  $("detail-ticket-gross")
+    .textContent =
+      formatWholeNumber(
+        ticket.grossWeight
+      );
 
 
-$("detail-ticket-tare")
-  .textContent =
-    formatWholeNumber(
-      ticket.tareWeight
-    );
+  $("detail-ticket-tare")
+    .textContent =
+      formatWholeNumber(
+        ticket.tareWeight
+      );
 
 
-$("detail-ticket-net-weight")
-  .textContent =
-    formatWholeNumber(
-      ticket.netWeight
-    );
+  $("detail-ticket-net-weight")
+    .textContent =
+      formatWholeNumber(
+        ticket.netWeight
+      );
 
 
   $("detail-ticket-gross-bu")
@@ -4174,7 +4443,6 @@ function renderSettlementShell() {
     tbody.innerHTML = `
 
       <tr>
-
         <td colspan="8">
 
           <div class="empty-state">
@@ -4190,7 +4458,6 @@ function renderSettlementShell() {
           </div>
 
         </td>
-
       </tr>
 
     `;
@@ -4339,6 +4606,10 @@ function setupModal() {
 
 /* ============================================================
    OPEN / CLOSE CONTRACT EDIT MODAL
+
+   IMPORTANT:
+   Rebuild the dynamic dropdowns FIRST, then restore Firestore
+   values AFTER their options exist.
 ============================================================ */
 
 function openEditModal(
@@ -4378,6 +4649,14 @@ function openEditModal(
     contract;
 
 
+  /*
+    Always rebuild these options before selecting the saved values.
+    This prevents a previously rebuilt/cleared select from losing
+    the Firestore selection.
+  */
+  populateEditPickers();
+
+
   $("edit-modal-sub")
     .textContent =
       `Contract ${
@@ -4386,40 +4665,73 @@ function openEditModal(
       }`;
 
 
-  $("edit-buyer")
-    .value =
-      contract.buyerId ||
-      "";
+  /*
+    BUYER
+
+    Firestore example:
+    buyerId: IIiotmPg4Fdm58I8c9z9
+    buyerName: Bartlett Grain
+  */
+  const restoredBuyerId =
+    setObjectSelectByIdOrName(
+      $("edit-buyer"),
+      contract.buyerId,
+      contract.buyerName,
+      state.buyers
+    );
 
 
-  $("edit-customer")
-    .value =
-      contract.customerId ||
-      "";
+  /*
+    CUSTOMER
+
+    Firestore example:
+    customerId: WTo7z60PmvfxBg4FABju
+    customerName: Cargill
+  */
+  setObjectSelectByIdOrName(
+    $("edit-customer"),
+    contract.customerId,
+    contract.customerName,
+    state.customers
+  );
 
 
-  $("edit-crop")
-    .value =
-      contract.crop ||
-      "";
+  /*
+    CROP
+
+    Firestore example:
+    crop: Corn
+  */
+  setStaticSelectValue(
+    $("edit-crop"),
+    contract.crop
+  );
 
 
-  $("edit-contract-type")
-    .value =
-      contract.contractType ||
-      "";
+  /*
+    CONTRACT TYPE
+
+    Firestore example:
+    contractType: Cash
+  */
+  setStaticSelectValue(
+    $("edit-contract-type"),
+    contract.contractType
+  );
 
 
   $("edit-contract-number")
     .value =
-      contract.contractNumber ||
-      "";
+      clean(
+        contract.contractNumber
+      );
 
 
   $("edit-contract-date")
     .value =
-      contract.contractDate ||
-      "";
+      clean(
+        contract.contractDate
+      );
 
 
   setEditBushels(
@@ -4432,22 +4744,35 @@ function openEditModal(
   );
 
 
+  /*
+    DELIVERY LOCATION
+
+    Rebuild locations using the restored Buyer ID first.
+    Then restore the saved deliveryLocationId.
+
+    If the location document ID has changed, the picker also
+    attempts to match the saved location/address.
+  */
   populateLocationPicker(
+    restoredBuyerId ||
     contract.buyerId,
-    contract.deliveryLocationId
+    contract.deliveryLocationId,
+    contract
   );
 
 
   $("edit-delivery-start")
     .value =
-      contract.deliveryStart ||
-      "";
+      clean(
+        contract.deliveryStart
+      );
 
 
   $("edit-delivery-end")
     .value =
-      contract.deliveryEnd ||
-      "";
+      clean(
+        contract.deliveryEnd
+      );
 
 
   $("edit-delivered")
@@ -4459,8 +4784,9 @@ function openEditModal(
 
   $("edit-notes")
     .value =
-      contract.notes ||
-      "";
+      clean(
+        contract.notes
+      );
 
 
   updateEditDateLimits();
@@ -4510,11 +4836,22 @@ function closeEditModal() {
 function populateLocationPicker(
   buyerId,
   selectedLocationId =
-    ""
+    "",
+  savedContract =
+    null
 ) {
 
   const select =
     $("edit-delivery-location");
+
+
+  if (
+    !select
+  ) {
+
+    return;
+
+  }
 
 
   select.innerHTML =
@@ -4559,12 +4896,20 @@ function populateLocationPicker(
     false;
 
 
-  state.deliveryLocations
-    .filter(
-      location =>
-        location.buyerId ===
-        buyerId
-    )
+  const matchingLocations =
+    state.deliveryLocations
+      .filter(
+        location =>
+          clean(
+            location.buyerId
+          ) ===
+          clean(
+            buyerId
+          )
+      );
+
+
+  matchingLocations
     .forEach(
       location => {
 
@@ -4592,12 +4937,170 @@ function populateLocationPicker(
     );
 
 
+  /*
+    First choice: exact saved Firestore document ID.
+  */
   if (
-    selectedLocationId
+    setSelectValue(
+      select,
+      selectedLocationId
+    )
   ) {
 
-    select.value =
-      selectedLocationId;
+    return;
+
+  }
+
+
+  /*
+    Fallback for older/broken IDs:
+    match the saved location name/address.
+  */
+  if (
+    !savedContract
+  ) {
+
+    return;
+
+  }
+
+
+  const wantedName =
+    normalized(
+      savedContract
+        .deliveryLocationName
+    );
+
+
+  const wantedStreet =
+    normalized(
+      savedContract
+        .deliveryStreet
+    );
+
+
+  const wantedCity =
+    normalized(
+      savedContract
+        .deliveryCity
+    );
+
+
+  const wantedState =
+    normalized(
+      savedContract
+        .deliveryState
+    );
+
+
+  const wantedZip =
+    normalized(
+      savedContract
+        .deliveryZip
+    );
+
+
+  let location =
+    matchingLocations.find(
+      item => {
+
+        return (
+          wantedName &&
+          normalized(
+            item.locationName
+          ) ===
+          wantedName &&
+          (
+            !wantedStreet ||
+            normalized(
+              item.street
+            ) ===
+            wantedStreet
+          ) &&
+          (
+            !wantedCity ||
+            normalized(
+              item.city
+            ) ===
+            wantedCity
+          )
+        );
+
+      }
+    );
+
+
+  if (
+    !location
+  ) {
+
+    location =
+      matchingLocations.find(
+        item => {
+
+          return (
+            wantedStreet &&
+            normalized(
+              item.street
+            ) ===
+            wantedStreet &&
+
+            (
+              !wantedCity ||
+              normalized(
+                item.city
+              ) ===
+              wantedCity
+            ) &&
+
+            (
+              !wantedState ||
+              normalized(
+                item.state
+              ) ===
+              wantedState
+            ) &&
+
+            (
+              !wantedZip ||
+              normalized(
+                item.zip
+              ) ===
+              wantedZip
+            )
+          );
+
+        }
+      );
+
+  }
+
+
+  if (
+    !location &&
+    wantedName
+  ) {
+
+    location =
+      matchingLocations.find(
+        item =>
+          normalized(
+            item.locationName
+          ) ===
+          wantedName
+      );
+
+  }
+
+
+  if (
+    location
+  ) {
+
+    setSelectValue(
+      select,
+      location.id
+    );
 
   }
 
