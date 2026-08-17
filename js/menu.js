@@ -180,7 +180,7 @@ export const NAV_MENU = {
   ]
 },
 
-    /* ===== Grain ===== */
+        /* ===== Grain ===== */
     {
       type: 'group',
       id: 'grain',
@@ -191,7 +191,7 @@ export const NAV_MENU = {
       collapsible: true,
       initialOpen: false,
       children: [
-                 {
+        {
           type: 'link',
           id: 'grain-tix',
           perm: 'grain-tix',
@@ -206,7 +206,7 @@ export const NAV_MENU = {
           icon: '📄',
           label: 'Grain Contracts',
           href: '/Farm-vista/pages/grain/grain-contracts.html'
-        }
+        },
         {
           type: 'link',
           id: 'grain-bins',
@@ -222,7 +222,7 @@ export const NAV_MENU = {
           icon: '👝',
           label: 'Grain Bag Inventory',
           href: '/Farm-vista/pages/grain/grain-bags.html'
-        },
+        }
       ]
     },
 
