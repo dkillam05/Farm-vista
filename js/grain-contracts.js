@@ -4968,80 +4968,153 @@ function openEditModal(
     ============================================================
   */
 
-  const cropValue =
+  /*
+    ============================================================
+    CROP + CONTRACT TYPE
+
+    These values are already loaded from Firestore into
+    contract.crop and contract.contractType.
+
+    Set the native select value AND fire input/change events so
+    FarmVista's select UI updates its visible selected value.
+    ============================================================
+  */
+
+  const cropSelect =
+    $("edit-crop");
+
+
+  const contractTypeSelect =
+    $("edit-contract-type");
+
+
+  /*
+    CROP
+  */
+  cropSelect.value =
     clean(
       contract.crop
     );
 
 
-  const cropOption =
-    [
-      ...$("edit-crop").options
-    ]
-      .find(
-        option => {
+  /*
+    If casing/spacing ever differs, find the matching option.
+  */
+  if (
+    cropSelect.value !==
+    clean(
+      contract.crop
+    )
+  ) {
 
-          return (
+    const cropMatch =
+      [
+        ...cropSelect.options
+      ]
+        .find(
+          option =>
             normalized(
               option.value
             ) ===
             normalized(
-              cropValue
+              contract.crop
             )
-          );
-
-        }
-      );
+        );
 
 
-  $("edit-crop")
-    .value =
-      cropOption
-        ? cropOption.value
+    cropSelect.value =
+      cropMatch
+        ? cropMatch.value
         : "";
+
+  }
 
 
   /*
-    ============================================================
-    CONTRACT TYPE
-    Pull directly from Firestore contract data.
-
-    Example:
-    contractType = "Cash"
-    ============================================================
+    Tell any FarmVista/custom select handling that the value
+    changed programmatically.
   */
+  cropSelect.dispatchEvent(
+    new Event(
+      "input",
+      {
+        bubbles:
+          true
+      }
+    )
+  );
 
-  const contractTypeValue =
+
+  cropSelect.dispatchEvent(
+    new Event(
+      "change",
+      {
+        bubbles:
+          true
+      }
+    )
+  );
+
+
+  /*
+    CONTRACT TYPE
+  */
+  contractTypeSelect.value =
     clean(
       contract.contractType
     );
 
 
-  const contractTypeOption =
-    [
-      ...$("edit-contract-type").options
-    ]
-      .find(
-        option => {
+  if (
+    contractTypeSelect.value !==
+    clean(
+      contract.contractType
+    )
+  ) {
 
-          return (
+    const typeMatch =
+      [
+        ...contractTypeSelect.options
+      ]
+        .find(
+          option =>
             normalized(
               option.value
             ) ===
             normalized(
-              contractTypeValue
+              contract.contractType
             )
-          );
-
-        }
-      );
+        );
 
 
-  $("edit-contract-type")
-    .value =
-      contractTypeOption
-        ? contractTypeOption.value
+    contractTypeSelect.value =
+      typeMatch
+        ? typeMatch.value
         : "";
+
+  }
+
+
+  contractTypeSelect.dispatchEvent(
+    new Event(
+      "input",
+      {
+        bubbles:
+          true
+      }
+    )
+  );
+
+
+  contractTypeSelect.dispatchEvent(
+    new Event(
+      "change",
+      {
+        bubbles:
+          true
+      }
+    )
+  );
 
 
   /*
