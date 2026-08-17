@@ -197,7 +197,7 @@ export const NAV_MENU = {
           perm: 'grain-tix',
           icon: '🎟️',
           label: 'Grain Tickets',
-          href: '/Farm-vista/pages/grain/grain-ticket-ocr.html'
+          href: '/Farm-vista/pages/grain/grain-ticket.html'
         },
         {
           type: 'link',
