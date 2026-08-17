@@ -1,5 +1,5 @@
 // /Farm-vista/js/grain-contract-list.js
-// Rev: 2026-08-15-grain-contract-list-v1
+// Rev: 2026-08-17-grain-contract-list-v2
 //
 // PURPOSE:
 // View and edit existing grain contracts.
@@ -15,9 +15,9 @@
 //
 // openBushels = contractBushels - deliveredBushels
 //
-// If delivered bushels exceeds the updated contract bushels,
-// openBushels will be negative and the contract is shown as
-// "Over Delivered".
+// EDIT RESTORE:
+// Every time a contract is opened, every edit field is populated
+// fresh from that specific grain_contracts Firestore document.
 
 
 import {
@@ -88,8 +88,18 @@ function formatPrice(value) {
 
 function clean(value) {
 
-  return String(value || "")
+  return String(
+    value ?? ""
+  )
     .trim();
+
+}
+
+
+function normalized(value) {
+
+  return clean(value)
+    .toLowerCase();
 
 }
 
@@ -106,6 +116,233 @@ function sortByName(items) {
 
     }
   );
+
+}
+
+
+/*
+  Set a native SELECT from a saved Firestore value.
+
+  This does NOT replace the select.
+  This does NOT rebuild the select.
+  This does NOT dispatch change events.
+
+  It simply finds the matching existing option and selects it.
+*/
+function setNativeSelectValue(
+  select,
+  savedValue
+) {
+
+  if (!select) {
+    return false;
+  }
+
+
+  const wanted =
+    normalized(
+      savedValue
+    );
+
+
+  if (!wanted) {
+
+    select.selectedIndex =
+      0;
+
+    return false;
+
+  }
+
+
+  const options =
+    Array.from(
+      select.options
+    );
+
+
+  const match =
+    options.find(
+      function(option) {
+
+        return (
+          normalized(
+            option.value
+          ) ===
+          wanted
+        );
+
+      }
+    ) ||
+    options.find(
+      function(option) {
+
+        return (
+          normalized(
+            option.textContent
+          ) ===
+          wanted
+        );
+
+      }
+    );
+
+
+  if (!match) {
+
+    console.warn(
+      "[Grain Contracts] No matching option:",
+      {
+        selectId:
+          select.id,
+
+        savedValue:
+          savedValue,
+
+        availableValues:
+          options.map(
+            function(option) {
+
+              return option.value;
+
+            }
+          )
+      }
+    );
+
+
+    select.selectedIndex =
+      0;
+
+    return false;
+
+  }
+
+
+  /*
+    Clear any previous selected state first.
+  */
+  options.forEach(
+    function(option) {
+
+      option.selected =
+        false;
+
+    }
+  );
+
+
+  /*
+    Select the Firestore value.
+  */
+  match.selected =
+    true;
+
+
+  select.value =
+    match.value;
+
+
+  return true;
+
+}
+
+
+/*
+  Restore an ID-based dropdown such as Buyer or Customer.
+
+  First use Firestore ID.
+  If an older record does not have a valid ID, fall back to name.
+*/
+function setObjectSelectValue(
+  select,
+  savedId,
+  savedName,
+  items
+) {
+
+  if (!select) {
+    return "";
+  }
+
+
+  const wantedId =
+    clean(
+      savedId
+    );
+
+
+  if (wantedId) {
+
+    const idMatch =
+      Array.from(
+        select.options
+      )
+        .find(
+          function(option) {
+
+            return (
+              clean(
+                option.value
+              ) ===
+              wantedId
+            );
+
+          }
+        );
+
+
+    if (idMatch) {
+
+      select.value =
+        idMatch.value;
+
+      return idMatch.value;
+
+    }
+
+  }
+
+
+  const wantedName =
+    normalized(
+      savedName
+    );
+
+
+  if (wantedName) {
+
+    const item =
+      items.find(
+        function(candidate) {
+
+          return (
+            normalized(
+              candidate.name
+            ) ===
+            wantedName
+          );
+
+        }
+      );
+
+
+    if (item) {
+
+      select.value =
+        item.id;
+
+      return item.id;
+
+    }
+
+  }
+
+
+  select.value =
+    "";
+
+  return "";
 
 }
 
@@ -265,6 +502,97 @@ async function loadContracts() {
               documentSnapshot.id,
 
             ...data,
+
+
+            /*
+              Explicitly normalize the fields used by the editor.
+            */
+
+            buyerId:
+              clean(
+                data.buyerId
+              ),
+
+            buyerName:
+              clean(
+                data.buyerName
+              ),
+
+            customerId:
+              clean(
+                data.customerId
+              ),
+
+            customerName:
+              clean(
+                data.customerName
+              ),
+
+            crop:
+              clean(
+                data.crop
+              ),
+
+            contractType:
+              clean(
+                data.contractType
+              ),
+
+            contractNumber:
+              clean(
+                data.contractNumber
+              ),
+
+            contractDate:
+              clean(
+                data.contractDate
+              ),
+
+            deliveryLocationId:
+              clean(
+                data.deliveryLocationId
+              ),
+
+            deliveryLocationName:
+              clean(
+                data.deliveryLocationName
+              ),
+
+            deliveryStreet:
+              clean(
+                data.deliveryStreet
+              ),
+
+            deliveryCity:
+              clean(
+                data.deliveryCity
+              ),
+
+            deliveryState:
+              clean(
+                data.deliveryState
+              ),
+
+            deliveryZip:
+              clean(
+                data.deliveryZip
+              ),
+
+            deliveryStart:
+              clean(
+                data.deliveryStart
+              ),
+
+            deliveryEnd:
+              clean(
+                data.deliveryEnd
+              ),
+
+            notes:
+              clean(
+                data.notes
+              ),
+
 
             contractBushels:
               numberValue(
@@ -666,7 +994,9 @@ function populateSimpleFilter(
 
 
   const firstOption =
-    select.options[0];
+    select.options[0]
+      ? select.options[0].cloneNode(true)
+      : null;
 
 
   select.innerHTML =
@@ -1514,6 +1844,12 @@ function setupModal() {
     );
 
 
+  /*
+    This change listener is only for when the USER changes Buyer.
+
+    We do not dispatch a fake change event while restoring
+    an existing contract.
+  */
   $("edit-buyer")
     ?.addEventListener(
       "change",
@@ -1545,309 +1881,237 @@ function openEditModal(
   contractId
 ) {
 
+  /*
+    Find EXACT contract clicked.
+  */
   const contract =
     contracts.find(
       function(item) {
 
-        return item.id ===
-          contractId;
+        return (
+          clean(
+            item.id
+          ) ===
+          clean(
+            contractId
+          )
+        );
 
       }
     );
 
 
   if (!contract) {
+
+    console.error(
+      "[Grain Contracts] Contract not found:",
+      contractId
+    );
+
     return;
+
   }
 
 
+  /*
+    This is now the active contract.
+  */
   activeContract =
     contract;
 
 
+  /*
+    Reset the entire form so absolutely nothing
+    carries over from the previously opened contract.
+  */
+  $("edit-contract-form")
+    ?.reset();
+
+
+  /*
+    Buyer and Customer are dynamic lists, so rebuild them
+    fresh before restoring this contract.
+  */
+  populateEditPickers();
+
+
+  /*
+    Header.
+  */
   $("edit-modal-sub").textContent =
-    `Contract ${contract.contractNumber || contract.id}`;
+    `Contract ${
+      contract.contractNumber ||
+      contract.id
+    }`;
 
 
-/* ============================================================
-   RESTORE SAVED CONTRACT PICKERS
+  /*
+    ============================================================
+    BUYER / ELEVATOR
+    ============================================================
+  */
 
-   Handles:
-   - normal current records using IDs
-   - older/imported records that may only have saved names
-   - capitalization differences
-   - FarmVista styled SELECT synchronization
-============================================================ */
-
-function restoreSelectValue(
-  select,
-  wantedValue,
-  wantedText = ""
-) {
-
-  if (!select) {
-    return;
-  }
-
-
-  const cleanValue =
-    clean(
-      wantedValue
+  const restoredBuyerId =
+    setObjectSelectValue(
+      $("edit-buyer"),
+      contract.buyerId,
+      contract.buyerName,
+      buyers
     );
 
 
-  const cleanText =
-    clean(
-      wantedText
-    )
-      .toLowerCase();
-
-
-  let matchedOption =
-    null;
-
-
   /*
-    First choice:
-    exact option VALUE match.
+    ============================================================
+    CUSTOMER
+    ============================================================
   */
-  if (cleanValue) {
 
-    matchedOption =
-      Array.from(
-        select.options
-      )
-        .find(
-          option =>
-            clean(
-              option.value
-            ) ===
-            cleanValue
-        ) ||
-      null;
-
-  }
-
-
-  /*
-    Second choice:
-    case-insensitive VALUE match.
-
-    Important for Crop / Contract Type.
-  */
-  if (
-    !matchedOption &&
-    cleanValue
-  ) {
-
-    matchedOption =
-      Array.from(
-        select.options
-      )
-        .find(
-          option =>
-            clean(
-              option.value
-            )
-              .toLowerCase() ===
-            cleanValue.toLowerCase()
-        ) ||
-      null;
-
-  }
-
-
-  /*
-    Third choice:
-    match visible OPTION text.
-
-    This allows older contracts that have a buyer/customer name
-    but may be missing the corresponding Firestore ID to restore.
-  */
-  if (
-    !matchedOption &&
-    cleanText
-  ) {
-
-    matchedOption =
-      Array.from(
-        select.options
-      )
-        .find(
-          option =>
-            clean(
-              option.textContent
-            )
-              .toLowerCase() ===
-            cleanText
-        ) ||
-      null;
-
-  }
-
-
-  if (matchedOption) {
-
-    select.value =
-      matchedOption.value;
-
-
-    matchedOption.selected =
-      true;
-
-  }
-  else {
-
-    select.value =
-      "";
-
-  }
-
-
-  /*
-    Notify FarmVista / browser UI that the value changed.
-  */
-  select.dispatchEvent(
-    new Event(
-      "input",
-      {
-        bubbles:true
-      }
-    )
-  );
-
-
-  select.dispatchEvent(
-    new Event(
-      "change",
-      {
-        bubbles:true
-      }
-    )
+  setObjectSelectValue(
+    $("edit-customer"),
+    contract.customerId,
+    contract.customerName,
+    customers
   );
 
 
   /*
-    Re-apply after the browser/custom select UI has painted.
+    ============================================================
+    CROP
+
+    DIRECTLY FROM:
+      grain_contracts.crop
+
+    Firestore examples:
+      "Corn"
+      "Soybeans"
+
+    We use the ORIGINAL HTML select.
+    We do not replace it.
+    We do not add another select.
+    ============================================================
   */
-  requestAnimationFrame(
-    () => {
 
-      if (matchedOption) {
-
-        select.value =
-          matchedOption.value;
-
-
-        matchedOption.selected =
-          true;
-
-      }
-
-
-      select.dispatchEvent(
-        new Event(
-          "input",
-          {
-            bubbles:true
-          }
-        )
-      );
-
-
-      select.dispatchEvent(
-        new Event(
-          "change",
-          {
-            bubbles:true
-          }
-        )
-      );
-
-    }
+  setNativeSelectValue(
+    $("edit-crop"),
+    contract.crop
   );
 
-}
+
+  /*
+    ============================================================
+    CONTRACT TYPE
+
+    DIRECTLY FROM:
+      grain_contracts.contractType
+
+    Firestore examples:
+      "Cash"
+      "Basis"
+
+    Again, use the ORIGINAL HTML select.
+    ============================================================
+  */
+
+  setNativeSelectValue(
+    $("edit-contract-type"),
+    contract.contractType
+  );
 
 
-
-/*
-  Buyer / Elevator
-*/
-restoreSelectValue(
-  $("edit-buyer"),
-  contract.buyerId,
-  contract.buyerName
-);
-
-
-/*
-  Customer
-*/
-restoreSelectValue(
-  $("edit-customer"),
-  contract.customerId,
-  contract.customerName
-);
-
-
-/*
-  Crop
-*/
-restoreSelectValue(
-  $("edit-crop"),
-  contract.crop,
-  contract.crop
-);
-
-
-/*
-  Contract Type
-*/
-restoreSelectValue(
-  $("edit-contract-type"),
-  contract.contractType ||
-  contract.type,
-  contract.contractType ||
-  contract.type
-);
-
+  /*
+    ============================================================
+    CONTRACT NUMBER
+    ============================================================
+  */
 
   $("edit-contract-number").value =
-    contract.contractNumber || "";
+    clean(
+      contract.contractNumber
+    );
 
+
+  /*
+    ============================================================
+    CONTRACT DATE
+    ============================================================
+  */
 
   $("edit-contract-date").value =
-    contract.contractDate || "";
+    clean(
+      contract.contractDate
+    );
 
+
+  /*
+    ============================================================
+    CONTRACT BUSHELS
+    ============================================================
+  */
 
   setEditBushels(
     contract.contractBushels
   );
 
 
+  /*
+    ============================================================
+    PRICE
+    ============================================================
+  */
+
   setEditPrice(
     contract.pricePerBushel
   );
 
 
-const restoredBuyerId =
-  $("edit-buyer").value;
+  /*
+    ============================================================
+    DELIVERY LOCATION
+
+    Buyer MUST be restored first because locations are
+    filtered by buyerId.
+
+    Then select Firestore deliveryLocationId.
+    ============================================================
+  */
+
+  populateLocationPicker(
+    restoredBuyerId ||
+    contract.buyerId,
+    contract.deliveryLocationId,
+    contract
+  );
 
 
-populateLocationPicker(
-  restoredBuyerId,
-  contract.deliveryLocationId
-);
-
+  /*
+    ============================================================
+    DELIVERY START
+    ============================================================
+  */
 
   $("edit-delivery-start").value =
-    contract.deliveryStart || "";
+    clean(
+      contract.deliveryStart
+    );
 
+
+  /*
+    ============================================================
+    DELIVERY END
+    ============================================================
+  */
 
   $("edit-delivery-end").value =
-    contract.deliveryEnd || "";
+    clean(
+      contract.deliveryEnd
+    );
 
+
+  /*
+    ============================================================
+    DELIVERED BUSHELS
+    ============================================================
+  */
 
   $("edit-delivered").value =
     formatBushels(
@@ -1855,14 +2119,88 @@ populateLocationPicker(
     );
 
 
+  /*
+    ============================================================
+    NOTES
+    ============================================================
+  */
+
   $("edit-notes").value =
-    contract.notes || "";
+    clean(
+      contract.notes
+    );
 
 
+  /*
+    Recalculate limits and open bushels.
+  */
   updateEditDateLimits();
+
   updateEditOpenBushels();
 
 
+  /*
+    Debug proof.
+
+    ADM 123456789 should show:
+      firestoreCrop: "Soybeans"
+      actualCrop: "Soybeans"
+      firestoreContractType: "Basis"
+      actualContractType: "Basis"
+
+    Bartlett 987654321 should show:
+      firestoreCrop: "Corn"
+      actualCrop: "Corn"
+      firestoreContractType: "Cash"
+      actualContractType: "Cash"
+  */
+  console.log(
+    "[Grain Contracts] Loaded edit contract:",
+    {
+
+      id:
+        contract.id,
+
+      contractNumber:
+        contract.contractNumber,
+
+      firestoreBuyerId:
+        contract.buyerId,
+
+      actualBuyerId:
+        $("edit-buyer").value,
+
+      firestoreCustomerId:
+        contract.customerId,
+
+      actualCustomerId:
+        $("edit-customer").value,
+
+      firestoreCrop:
+        contract.crop,
+
+      actualCrop:
+        $("edit-crop").value,
+
+      firestoreContractType:
+        contract.contractType,
+
+      actualContractType:
+        $("edit-contract-type").value,
+
+      firestoreDeliveryLocationId:
+        contract.deliveryLocationId,
+
+      actualDeliveryLocationId:
+        $("edit-delivery-location").value
+
+    }
+  );
+
+
+  /*
+    Open ONLY after everything has been populated.
+  */
   $("edit-modal")
     .classList
     .add(
@@ -1907,11 +2245,17 @@ function closeEditModal() {
 
 function populateLocationPicker(
   buyerId,
-  selectedLocationId = ""
+  selectedLocationId = "",
+  savedContract = null
 ) {
 
   const select =
     $("edit-delivery-location");
+
+
+  if (!select) {
+    return;
+  }
 
 
   select.innerHTML =
@@ -1959,8 +2303,12 @@ function populateLocationPicker(
         function(location) {
 
           return (
-            location.buyerId ===
-            buyerId
+            clean(
+              location.buyerId
+            ) ===
+            clean(
+              buyerId
+            )
           );
 
         }
@@ -1994,10 +2342,127 @@ function populateLocationPicker(
   );
 
 
+  /*
+    First choice:
+    exact Firestore deliveryLocationId.
+  */
   if (selectedLocationId) {
 
+    const exact =
+      Array.from(
+        select.options
+      )
+        .find(
+          function(option) {
+
+            return (
+              clean(
+                option.value
+              ) ===
+              clean(
+                selectedLocationId
+              )
+            );
+
+          }
+        );
+
+
+    if (exact) {
+
+      select.value =
+        exact.value;
+
+      return;
+
+    }
+
+  }
+
+
+  /*
+    Fallback for older/imported records:
+    match the saved location snapshot.
+  */
+  if (!savedContract) {
+    return;
+  }
+
+
+  const wantedName =
+    normalized(
+      savedContract.deliveryLocationName
+    );
+
+
+  const wantedStreet =
+    normalized(
+      savedContract.deliveryStreet
+    );
+
+
+  const wantedCity =
+    normalized(
+      savedContract.deliveryCity
+    );
+
+
+  let match =
+    locations.find(
+      function(location) {
+
+        return (
+          wantedName &&
+          normalized(
+            location.locationName
+          ) ===
+          wantedName &&
+          (
+            !wantedStreet ||
+            normalized(
+              location.street
+            ) ===
+            wantedStreet
+          ) &&
+          (
+            !wantedCity ||
+            normalized(
+              location.city
+            ) ===
+            wantedCity
+          )
+        );
+
+      }
+    );
+
+
+  if (
+    !match &&
+    wantedName
+  ) {
+
+    match =
+      locations.find(
+        function(location) {
+
+          return (
+            normalized(
+              location.locationName
+            ) ===
+            wantedName
+          );
+
+        }
+      );
+
+  }
+
+
+  if (match) {
+
     select.value =
-      selectedLocationId;
+      match.id;
 
   }
 
@@ -2126,6 +2591,11 @@ function setEditBushels(
 
   const input =
     $("edit-contract-bushels");
+
+
+  if (!input) {
+    return;
+  }
 
 
   const numeric =
@@ -2297,6 +2767,11 @@ function setEditPrice(
     $("edit-price");
 
 
+  if (!input) {
+    return;
+  }
+
+
   const numeric =
     numberValue(
       value
@@ -2340,6 +2815,11 @@ function renderEditPrice() {
 
   const input =
     $("edit-price");
+
+
+  if (!input) {
+    return;
+  }
 
 
   if (!editPriceHasValue) {
@@ -2390,6 +2870,11 @@ function validateEditPrice() {
 
   const input =
     $("edit-price");
+
+
+  if (!input) {
+    return false;
+  }
 
 
   input.setCustomValidity(
@@ -2492,6 +2977,17 @@ function updateEditDateLimits() {
 
 
   if (
+    !contractDate ||
+    !start ||
+    !end
+  ) {
+
+    return;
+
+  }
+
+
+  if (
     contractDate.value
   ) {
 
@@ -2543,6 +3039,17 @@ function validateEditDates() {
 
   const end =
     $("edit-delivery-end");
+
+
+  if (
+    !contractDate ||
+    !start ||
+    !end
+  ) {
+
+    return false;
+
+  }
 
 
   start.setCustomValidity(
@@ -2920,8 +3427,8 @@ async function saveContractChanges(
 
 
     /*
-      UPDATE LOCAL STATE SO WE DO NOT
-      NEED ANOTHER FIRESTORE READ.
+      Update local state so the next open uses
+      exactly what was just saved.
     */
 
     Object.assign(
