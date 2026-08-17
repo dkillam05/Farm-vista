@@ -1120,23 +1120,34 @@
 
 
 
-            <section class="card">
+            <!-- ====================================================
+                 GRAIN SOURCE LOCATION
+            ===================================================== -->
+
+            <section
+              id="grainSourceSection"
+              class="card"
+            >
 
               <h2>
-                Driver / Source
+                Grain Source Location
               </h2>
 
+              <p class="card-sub">
+                Shows exactly where this load of grain came from.
+              </p>
 
-              <div class="form-grid two">
+
+              <div class="form-grid three">
 
                 <div class="field">
 
                   <label>
-                    Driver
+                    Site
                   </label>
 
                   <div
-                    id="driverName"
+                    id="grainSourceSite"
                     class="readonly-line"
                   >
                     —
@@ -1148,11 +1159,59 @@
                 <div class="field">
 
                   <label>
-                    Entry Method
+                    Bin / Bag
                   </label>
 
                   <div
-                    id="entryMethod"
+                    id="loadoutGrainSource"
+                    class="readonly-line"
+                  >
+                    —
+                  </div>
+
+                </div>
+
+
+                <div class="field">
+
+                  <label>
+                    Source Type
+                  </label>
+
+                  <div
+                    id="loadoutSourceType"
+                    class="readonly-line"
+                  >
+                    —
+                  </div>
+
+                </div>
+
+
+                <div class="field">
+
+                  <label>
+                    Farm Field
+                  </label>
+
+                  <div
+                    id="grainSourceField"
+                    class="readonly-line"
+                  >
+                    —
+                  </div>
+
+                </div>
+
+
+                <div class="field">
+
+                  <label>
+                    Crop Year
+                  </label>
+
+                  <div
+                    id="grainSourceCropYear"
                     class="readonly-line"
                   >
                     —
@@ -1166,6 +1225,10 @@
 
 
 
+            <!-- ====================================================
+                 LOADOUT INFORMATION
+            ===================================================== -->
+
             <section
               id="loadoutSection"
               class="card"
@@ -1176,7 +1239,7 @@
               </h2>
 
               <p class="card-sub">
-                Shows where this load came from and the dispatch assignment connected to this grain ticket.
+                Dispatch and delivery information connected to this grain ticket.
               </p>
 
 
@@ -1222,38 +1285,6 @@
 
                   <div
                     id="loadoutDate"
-                    class="readonly-line"
-                  >
-                    —
-                  </div>
-
-                </div>
-
-
-                <div class="field">
-
-                  <label>
-                    Grain Loaded From
-                  </label>
-
-                  <div
-                    id="loadoutGrainSource"
-                    class="readonly-line"
-                  >
-                    —
-                  </div>
-
-                </div>
-
-
-                <div class="field">
-
-                  <label>
-                    Source Type
-                  </label>
-
-                  <div
-                    id="loadoutSourceType"
                     class="readonly-line"
                   >
                     —
@@ -1382,6 +1413,56 @@
 
                   <div
                     id="loadoutSmsStatus"
+                    class="readonly-line"
+                  >
+                    —
+                  </div>
+
+                </div>
+
+              </div>
+
+            </section>
+
+
+
+            <!-- ====================================================
+                 DRIVER / SOURCE
+            ===================================================== -->
+
+            <section class="card">
+
+              <h2>
+                Driver / Source
+              </h2>
+
+
+              <div class="form-grid two">
+
+                <div class="field">
+
+                  <label>
+                    Driver
+                  </label>
+
+                  <div
+                    id="driverName"
+                    class="readonly-line"
+                  >
+                    —
+                  </div>
+
+                </div>
+
+
+                <div class="field">
+
+                  <label>
+                    Entry Method
+                  </label>
+
+                  <div
+                    id="entryMethod"
                     class="readonly-line"
                   >
                     —
@@ -1725,6 +1806,18 @@ crop:
 
       entryMethod:
         $("entryMethod"),
+
+      grainSourceSection:
+        $("grainSourceSection"),
+
+      grainSourceSite:
+        $("grainSourceSite"),
+
+      grainSourceField:
+        $("grainSourceField"),
+
+      grainSourceCropYear:
+        $("grainSourceCropYear"),
 
       loadoutSection:
         $("loadoutSection"),
@@ -3923,6 +4016,18 @@ function handleTicketTouchEnd(
           "—";
 
 
+        elements.grainSourceSite.textContent =
+          "—";
+
+
+        elements.grainSourceField.textContent =
+          "—";
+
+
+        elements.grainSourceCropYear.textContent =
+          "—";
+
+
         elements.loadoutGrainSource.textContent =
           "—";
 
@@ -4008,17 +4113,106 @@ function handleTicketTouchEnd(
         "—";
 
 
-      elements.loadoutGrainSource.textContent =
+      /*
+        ==========================================================
+        PHYSICAL GRAIN SOURCE
+        ==========================================================
+
+        grain_loadouts stores the physical grain source separately
+        from the delivery destination. Keep that information grouped
+        together here so the ticket clearly shows where the grain
+        actually came from.
+      */
+
+
+      elements.grainSourceSite.textContent =
         clean(
-          load.grainSourceName
+          load.grainSourceSiteName
         ) ||
         "—";
 
 
-      elements.loadoutSourceType.textContent =
-        titleCaseStatus(
+      const sourceType =
+        normalize(
           load.grainSourceType
         );
+
+
+      if (
+        sourceType ===
+          "bin"
+      ) {
+
+        const binNumber =
+          clean(
+            load.grainSourceBinNumber
+          );
+
+
+        elements.loadoutGrainSource.textContent =
+          binNumber
+            ? `Bin ${binNumber}`
+            : clean(
+                load.grainSourceName
+              ) ||
+              "—";
+
+      }
+      else if (
+        sourceType ===
+          "grain bag" ||
+        sourceType ===
+          "grain_bag" ||
+        sourceType ===
+          "bag"
+      ) {
+
+        elements.loadoutGrainSource.textContent =
+          clean(
+            load.grainSourceName
+          ) ||
+          "Grain Bag";
+
+      }
+      else {
+
+        elements.loadoutGrainSource.textContent =
+          clean(
+            load.grainSourceName
+          ) ||
+          "—";
+
+      }
+
+
+      elements.loadoutSourceType.textContent =
+        sourceType ===
+          "grain bag" ||
+        sourceType ===
+          "grain_bag" ||
+        sourceType ===
+          "bag"
+            ? "Grain Bag"
+            : sourceType ===
+                "bin"
+              ? "Grain Bin"
+              : titleCaseStatus(
+                  load.grainSourceType
+                );
+
+
+      elements.grainSourceField.textContent =
+        clean(
+          load.grainSourceFieldName
+        ) ||
+        "—";
+
+
+      elements.grainSourceCropYear.textContent =
+        clean(
+          load.grainSourceCropYear
+        ) ||
+        "—";
 
 
       elements.loadoutDriver.textContent =
