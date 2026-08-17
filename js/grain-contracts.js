@@ -1,17 +1,16 @@
 // /Farm-vista/js/grain-contracts.js
+// Rebuilt 2026-08-17
+// Full replacement file.
 //
-// FULL FILE
-//
-// FIX:
-// - Edit Contract now restores ALL saved Firestore values.
-// - Buyer restores by buyerId, with buyerName fallback.
-// - Customer restores by customerId, with customerName fallback.
-// - Crop restores safely.
-// - Contract Type restores safely.
-// - Delivery Location restores by deliveryLocationId, with saved
-//   location/address fallback.
-// - Existing contract totals, ticket assignment, drag/drop,
-//   assigned ticket details, filters, and settlement shell retained.
+// KEY EDIT FIX:
+// - Buyer restores from Firestore buyerId / buyerName.
+// - Customer restores from Firestore customerId / customerName.
+// - Crop is rebuilt as a BRAND-NEW select every time a contract opens.
+// - Contract Type is rebuilt as a BRAND-NEW select every time.
+// - Delivery Location restores from Firestore deliveryLocationId.
+// - Nothing from the previously opened contract is allowed to remain.
+// - Existing ticket assignment, drag/drop, assigned-ticket details,
+//   filtering, totals, editing, and settlement shell are retained.
 
 
 import {
@@ -52,7 +51,7 @@ const TICKET_COLLECTION =
 
 
 /* ============================================================
-   HELPERS
+   BASIC HELPERS
 ============================================================ */
 
 const $ =
@@ -91,16 +90,16 @@ function numberValue(
   value
 ) {
 
-  const n =
+  const number =
     Number(
       value
     );
 
 
   return Number.isFinite(
-    n
+    number
   )
-    ? n
+    ? number
     : 0;
 
 }
@@ -510,7 +509,11 @@ function addDays(
   days
 ) {
 
-  const parts =
+  const [
+    year,
+    month,
+    day
+  ] =
     isoDate
       .split(
         "-"
@@ -522,9 +525,9 @@ function addDays(
 
   const date =
     new Date(
-      parts[0],
-      parts[1] - 1,
-      parts[2]
+      year,
+      month - 1,
+      day
     );
 
 
@@ -534,39 +537,19 @@ function addDays(
   );
 
 
-  const yyyy =
-    date.getFullYear();
-
-
-  const mm =
-    String(
-      date.getMonth() +
-      1
-    )
-      .padStart(
-        2,
-        "0"
-      );
-
-
-  const dd =
-    String(
-      date.getDate()
-    )
-      .padStart(
-        2,
-        "0"
-      );
-
-
-  return `${yyyy}-${mm}-${dd}`;
+  return (
+    `${date.getFullYear()}-` +
+    `${String(date.getMonth() + 1).padStart(2, "0")}-` +
+    `${String(date.getDate()).padStart(2, "0")}`
+  );
 
 }
 
 
-/*
-  Safely restore a select by its saved Firestore ID/value.
-*/
+/* ============================================================
+   SELECT HELPERS
+============================================================ */
+
 function setSelectValue(
   select,
   value
@@ -630,12 +613,6 @@ function setSelectValue(
 }
 
 
-/*
-  Fallback helper.
-
-  If an old contract has a missing/bad ID but still has the saved
-  Firestore name, locate the matching picker option by its name.
-*/
 function setObjectSelectByIdOrName(
   select,
   savedId,
@@ -657,14 +634,14 @@ function setObjectSelectByIdOrName(
   }
 
 
-  const wantedName =
+  const wanted =
     normalized(
       savedName
     );
 
 
   if (
-    !wantedName
+    !wanted
   ) {
 
     select.value =
@@ -681,7 +658,7 @@ function setObjectSelectByIdOrName(
         normalized(
           item.name
         ) ===
-        wantedName
+        wanted
     );
 
 
@@ -704,183 +681,6 @@ function setObjectSelectByIdOrName(
 
 
   return match.id;
-
-}
-
-
-/*
-  Crop and Contract Type are static dropdowns.
-
-  This restores them case-insensitively so Firestore values such
-  as "Corn" and "Cash" always match the HTML option.
-*/
-function setStaticSelectValue(
-  select,
-  savedValue
-) {
-
-  if (
-    !select
-  ) {
-
-    return false;
-
-  }
-
-
-  const wanted =
-    normalized(
-      savedValue
-    );
-
-
-  if (
-    !wanted
-  ) {
-
-    select.value =
-      "";
-
-    return false;
-
-  }
-
-
-  const option =
-    [
-      ...select.options
-    ]
-      .find(
-        item =>
-          normalized(
-            item.value
-          ) ===
-          wanted
-      );
-
-
-  if (
-    !option
-  ) {
-
-    select.value =
-      "";
-
-    return false;
-
-  }
-
-
-  select.value =
-    option.value;
-
-
-  return true;
-
-}
-
-function forceSelectValue(
-  select,
-  savedValue
-) {
-
-  if (
-    !select
-  ) {
-
-    return false;
-
-  }
-
-
-  const wanted =
-    clean(
-      savedValue
-    );
-
-
-  if (
-    !wanted
-  ) {
-
-    select.selectedIndex =
-      0;
-
-    return false;
-
-  }
-
-
-  const options =
-    [
-      ...select.options
-    ];
-
-
-  let index =
-    options.findIndex(
-      option =>
-        clean(
-          option.value
-        ).toLowerCase() ===
-        wanted.toLowerCase()
-    );
-
-
-  if (
-    index ===
-    -1
-  ) {
-
-    index =
-      options.findIndex(
-        option =>
-          clean(
-            option.textContent
-          ).toLowerCase() ===
-          wanted.toLowerCase()
-      );
-
-  }
-
-
-  if (
-    index ===
-    -1
-  ) {
-
-    console.warn(
-      "[Grain Contracts] Could not restore select:",
-      select.id,
-      "saved value:",
-      savedValue
-    );
-
-
-    return false;
-
-  }
-
-
-  select.selectedIndex =
-    index;
-
-
-  options.forEach(
-    (
-      option,
-      optionIndex
-    ) => {
-
-      option.selected =
-        optionIndex ===
-        index;
-
-    }
-  );
-
-
-  return true;
 
 }
 
@@ -940,7 +740,7 @@ const state = {
 
 
 /* ============================================================
-   START
+   STARTUP
 ============================================================ */
 
 function onReady(
@@ -972,7 +772,7 @@ function onReady(
 
 
 onReady(
-  async function() {
+  async () => {
 
     setupFilters();
 
@@ -994,7 +794,7 @@ onReady(
       await loadAllData();
 
 
-      rebuildContractTotalsFromTickets(
+      await rebuildContractTotalsFromTickets(
         false
       );
 
@@ -1006,37 +806,43 @@ onReady(
 
     }
     catch (
-      err
+      error
     ) {
 
       console.error(
         "[Grain Contracts] Initial load failed:",
-        err
+        error
       );
 
 
-      $("contracts-table-body")
-        .innerHTML = `
+      if (
+        $("contracts-table-body")
+      ) {
 
-          <tr>
-            <td colspan="12">
+        $("contracts-table-body")
+          .innerHTML = `
 
-              <div class="empty-state">
+            <tr>
+              <td colspan="12">
 
-                <div class="empty-title">
-                  Unable to Load Grain Contracts
+                <div class="empty-state">
+
+                  <div class="empty-title">
+                    Unable to Load Grain Contracts
+                  </div>
+
+                  <div class="empty-sub">
+                    Check the browser console for the Firestore error.
+                  </div>
+
                 </div>
 
-                <div class="empty-sub">
-                  Check the browser console for the Firestore error.
-                </div>
+              </td>
+            </tr>
 
-              </div>
+          `;
 
-            </td>
-          </tr>
-
-        `;
+      }
 
     }
 
@@ -1045,7 +851,7 @@ onReady(
 
 
 /* ============================================================
-   LOAD DATA
+   LOAD FIRESTORE DATA
 ============================================================ */
 
 async function loadAllData() {
@@ -1100,17 +906,17 @@ async function loadAllData() {
   state.contracts =
     contractSnapshot.docs
       .map(
-        docSnapshot => {
+        snapshot => {
 
           const data =
-            docSnapshot.data() ||
+            snapshot.data() ||
             {};
 
 
           return {
 
             id:
-              docSnapshot.id,
+              snapshot.id,
 
             ...data,
 
@@ -1241,17 +1047,17 @@ async function loadAllData() {
   state.buyers =
     buyerSnapshot.docs
       .map(
-        docSnapshot => {
+        snapshot => {
 
           const data =
-            docSnapshot.data() ||
+            snapshot.data() ||
             {};
 
 
           return {
 
             id:
-              docSnapshot.id,
+              snapshot.id,
 
             name:
               clean(
@@ -1271,17 +1077,17 @@ async function loadAllData() {
   state.customers =
     customerSnapshot.docs
       .map(
-        docSnapshot => {
+        snapshot => {
 
           const data =
-            docSnapshot.data() ||
+            snapshot.data() ||
             {};
 
 
           return {
 
             id:
-              docSnapshot.id,
+              snapshot.id,
 
             name:
               clean(
@@ -1301,17 +1107,17 @@ async function loadAllData() {
   state.deliveryLocations =
     locationSnapshot.docs
       .map(
-        docSnapshot => {
+        snapshot => {
 
           const data =
-            docSnapshot.data() ||
+            snapshot.data() ||
             {};
 
 
           return {
 
             id:
-              docSnapshot.id,
+              snapshot.id,
 
             buyerId:
               clean(
@@ -1357,17 +1163,17 @@ async function loadAllData() {
   state.tickets =
     ticketSnapshot.docs
       .map(
-        docSnapshot => {
+        snapshot => {
 
           const data =
-            docSnapshot.data() ||
+            snapshot.data() ||
             {};
 
 
           return {
 
             id:
-              docSnapshot.id,
+              snapshot.id,
 
             ...data,
 
@@ -1471,7 +1277,7 @@ async function loadAllData() {
 
 
 /* ============================================================
-   CONTRACT TOTALS FROM TICKETS
+   CONTRACT TOTALS
 ============================================================ */
 
 function getAssignedTickets(
@@ -1530,21 +1336,18 @@ function calculateContractTotals(
     deliveredBushels;
 
 
-  const overhaulBushels =
-    Math.max(
-      0,
-      deliveredBushels -
-      contractBushels
-    );
-
-
   return {
 
     deliveredBushels,
 
     openBushels,
 
-    overhaulBushels,
+    overhaulBushels:
+      Math.max(
+        0,
+        deliveredBushels -
+        contractBushels
+      ),
 
     loadCount:
       assigned.length
@@ -1562,41 +1365,20 @@ function rebuildContractTotalsFromTickets(
   state.contracts.forEach(
     contract => {
 
-      const totals =
+      Object.assign(
+        contract,
         calculateContractTotals(
           contract
-        );
-
-
-      contract.deliveredBushels =
-        totals.deliveredBushels;
-
-
-      contract.openBushels =
-        totals.openBushels;
-
-
-      contract.loadCount =
-        totals.loadCount;
-
-
-      contract.overhaulBushels =
-        totals.overhaulBushels;
+        )
+      );
 
     }
   );
 
 
-  if (
-    writeToFirestore
-  ) {
-
-    return syncAllContractTotals();
-
-  }
-
-
-  return Promise.resolve();
+  return writeToFirestore
+    ? syncAllContractTotals()
+    : Promise.resolve();
 
 }
 
@@ -1606,9 +1388,8 @@ async function syncAllContractTotals() {
   await Promise.all(
 
     state.contracts.map(
-      contract => {
-
-        return updateDoc(
+      contract =>
+        updateDoc(
           doc(
             db,
             CONTRACT_COLLECTION,
@@ -1630,9 +1411,7 @@ async function syncAllContractTotals() {
               serverTimestamp()
 
           }
-        );
-
-      }
+        )
     )
 
   );
@@ -2075,7 +1854,7 @@ function applyContractFilters() {
 
 
 /* ============================================================
-   RENDER CONTRACTS
+   RENDER CONTRACT TABLE
 ============================================================ */
 
 function renderAll() {
@@ -2149,41 +1928,71 @@ function renderContractSummary() {
   );
 
 
-  $("summary-contracts")
-    .textContent =
-      state.filteredContracts
-        .length
-        .toLocaleString(
-          "en-US"
+  if (
+    $("summary-contracts")
+  ) {
+
+    $("summary-contracts")
+      .textContent =
+        state.filteredContracts
+          .length
+          .toLocaleString(
+            "en-US"
+          );
+
+  }
+
+
+  if (
+    $("summary-contracted")
+  ) {
+
+    $("summary-contracted")
+      .textContent =
+        formatBushels(
+          contracted
         );
 
-
-  $("summary-contracted")
-    .textContent =
-      formatBushels(
-        contracted
-      );
+  }
 
 
-  $("summary-delivered")
-    .textContent =
-      formatBushels(
-        delivered
-      );
+  if (
+    $("summary-delivered")
+  ) {
+
+    $("summary-delivered")
+      .textContent =
+        formatBushels(
+          delivered
+        );
+
+  }
 
 
-  $("summary-open")
-    .textContent =
-      formatBushels(
-        open
-      );
+  if (
+    $("summary-open")
+  ) {
+
+    $("summary-open")
+      .textContent =
+        formatBushels(
+          open
+        );
+
+  }
 
 
-  $("summary-over")
-    .textContent =
-      formatBushels(
-        over
-      );
+  if (
+    $("summary-over")
+  ) {
+
+    $("summary-over")
+      .textContent =
+        formatBushels(
+          over
+        );
+
+  }
 
 }
 
@@ -2192,6 +2001,15 @@ function renderContractTable() {
 
   const tbody =
     $("contracts-table-body");
+
+
+  if (
+    !tbody
+  ) {
+
+    return;
+
+  }
 
 
   tbody.innerHTML =
@@ -2314,10 +2132,13 @@ function renderContractTable() {
 
       row.addEventListener(
         "click",
-        () =>
+        () => {
+
           openEditModal(
             contract.id
-          )
+          );
+
+        }
       );
 
 
@@ -2356,7 +2177,7 @@ function renderContractTable() {
 
 
 /* ============================================================
-   OBJECT SELECTS
+   GENERAL OBJECT SELECTS
 ============================================================ */
 
 function populateObjectSelect(
@@ -2510,7 +2331,7 @@ function setupReconciliationControls() {
   $("clear-ticket-selection-btn")
     ?.addEventListener(
       "click",
-      function() {
+      () => {
 
         state.selectedTicketIds
           .clear();
@@ -2619,24 +2440,21 @@ function getAvailableContracts() {
 
 function selectAllVisibleTickets() {
 
-  const tickets =
-    getVisibleUnassignedTickets();
-
-
   state.selectedTicketIds
     .clear();
 
 
-  tickets.forEach(
-    ticket => {
+  getVisibleUnassignedTickets()
+    .forEach(
+      ticket => {
 
-      state.selectedTicketIds
-        .add(
-          ticket.id
-        );
+        state.selectedTicketIds
+          .add(
+            ticket.id
+          );
 
-    }
-  );
+      }
+    );
 
 
   renderReconciliation();
@@ -2670,80 +2488,139 @@ function renderReconciliation() {
     $("refresh-reconciliation-btn");
 
 
-  selectAllBtn.disabled =
-    !ready;
+  if (
+    selectAllBtn
+  ) {
+
+    selectAllBtn.disabled =
+      !ready;
+
+  }
 
 
-  clearBtn.disabled =
-    !ready ||
-    state.selectedTicketIds
-      .size ===
-      0;
+  if (
+    clearBtn
+  ) {
+
+    clearBtn.disabled =
+      !ready ||
+      state.selectedTicketIds
+        .size ===
+        0;
+
+  }
 
 
-  refreshBtn.disabled =
-    !ready;
+  if (
+    refreshBtn
+  ) {
+
+    refreshBtn.disabled =
+      !ready;
+
+  }
 
 
   if (
     !ready
   ) {
 
-    message.classList
+    message
+      ?.classList
       .remove(
         "ready"
       );
 
 
-    message.textContent =
-      "Select Buyer and Customer to begin assigning tickets.";
+    if (
+      message
+    ) {
+
+      message.textContent =
+        "Select Buyer and Customer to begin assigning tickets.";
+
+    }
 
 
-    $("selection-count")
-      .textContent =
-        "0 selected";
+    if (
+      $("selection-count")
+    ) {
+
+      $("selection-count")
+        .textContent =
+          "0 selected";
+
+    }
 
 
-    $("unassigned-count")
-      .textContent =
-        "0 tickets";
+    if (
+      $("unassigned-count")
+    ) {
+
+      $("unassigned-count")
+        .textContent =
+          "0 tickets";
+
+    }
 
 
-    $("available-contract-count")
-      .textContent =
-        "0 contracts";
+    if (
+      $("available-contract-count")
+    ) {
+
+      $("available-contract-count")
+        .textContent =
+          "0 contracts";
+
+    }
 
 
-    $("unassigned-ticket-list")
-      .innerHTML = `
+    if (
+      $("unassigned-ticket-list")
+    ) {
 
-        <div class="empty-state">
-          <div class="empty-title">
-            Select Buyer and Customer
+      $("unassigned-ticket-list")
+        .innerHTML = `
+
+          <div class="empty-state">
+
+            <div class="empty-title">
+              Select Buyer and Customer
+            </div>
+
+            <div class="empty-sub">
+              Unassigned tickets will appear here after both filters are selected.
+            </div>
+
           </div>
 
-          <div class="empty-sub">
-            Unassigned tickets will appear here after both filters are selected.
+        `;
+
+    }
+
+
+    if (
+      $("available-contract-list")
+    ) {
+
+      $("available-contract-list")
+        .innerHTML = `
+
+          <div class="empty-state">
+
+            <div class="empty-title">
+              Select Buyer and Customer
+            </div>
+
+            <div class="empty-sub">
+              Matching contracts will appear here after both filters are selected.
+            </div>
+
           </div>
-        </div>
 
-      `;
+        `;
 
-
-    $("available-contract-list")
-      .innerHTML = `
-
-        <div class="empty-state">
-          <div class="empty-title">
-            Select Buyer and Customer
-          </div>
-
-          <div class="empty-sub">
-            Matching contracts will appear here after both filters are selected.
-          </div>
-        </div>
-
-      `;
+    }
 
 
     return;
@@ -2751,14 +2628,21 @@ function renderReconciliation() {
   }
 
 
-  message.classList
+  message
+    ?.classList
     .add(
       "ready"
     );
 
 
-  message.textContent =
-    "Ready — drag tickets to a contract or use the assignment buttons.";
+  if (
+    message
+  ) {
+
+    message.textContent =
+      "Ready — drag tickets to a contract or use the assignment buttons.";
+
+  }
 
 
   const tickets =
@@ -2769,55 +2653,72 @@ function renderReconciliation() {
     getAvailableContracts();
 
 
-  for (
-    const ticketId
-    of
-    [
-      ...state.selectedTicketIds
-    ]
+  [
+    ...state.selectedTicketIds
+  ]
+    .forEach(
+      ticketId => {
+
+        if (
+          !tickets.some(
+            ticket =>
+              ticket.id ===
+              ticketId
+          )
+        ) {
+
+          state.selectedTicketIds
+            .delete(
+              ticketId
+            );
+
+        }
+
+      }
+    );
+
+
+  if (
+    $("selection-count")
   ) {
 
-    if (
-      !tickets.some(
-        ticket =>
-          ticket.id ===
-          ticketId
-      )
-    ) {
-
-      state.selectedTicketIds
-        .delete(
-          ticketId
-        );
-
-    }
+    $("selection-count")
+      .textContent =
+        `${state.selectedTicketIds.size} selected`;
 
   }
 
 
-  $("selection-count")
-    .textContent =
-      `${state.selectedTicketIds.size} selected`;
+  if (
+    $("unassigned-count")
+  ) {
+
+    $("unassigned-count")
+      .textContent =
+        `${tickets.length} ${
+          tickets.length ===
+            1
+            ? "ticket"
+            : "tickets"
+        }`;
+
+  }
 
 
-  $("unassigned-count")
-    .textContent =
-      `${tickets.length} ${
-        tickets.length ===
-          1
-          ? "ticket"
-          : "tickets"
-      }`;
+  if (
+    $("available-contract-count")
+  ) {
 
+    $("available-contract-count")
+      .textContent =
+        `${contracts.length} ${
+          contracts.length ===
+            1
+            ? "contract"
+            : "contracts"
+        }`;
 
-  $("available-contract-count")
-    .textContent =
-      `${contracts.length} ${
-        contracts.length ===
-          1
-          ? "contract"
-          : "contracts"
-      }`;
+  }
 
 
   renderTicketCards(
@@ -2845,6 +2746,15 @@ function renderTicketCards(
     $("unassigned-ticket-list");
 
 
+  if (
+    !container
+  ) {
+
+    return;
+
+  }
+
+
   container.innerHTML =
     "";
 
@@ -2856,6 +2766,7 @@ function renderTicketCards(
     container.innerHTML = `
 
       <div class="empty-state">
+
         <div class="empty-title">
           No Unassigned Tickets
         </div>
@@ -2863,6 +2774,7 @@ function renderTicketCards(
         <div class="empty-sub">
           There are no unassigned grain tickets for this buyer and customer.
         </div>
+
       </div>
 
     `;
@@ -2923,13 +2835,15 @@ function renderTicketCards(
           <div class="ticket-meta">
 
             <span>
-              ${escapeHtml(
-                ticket.ticketDate
-                  ? formatDate(
-                      ticket.ticketDate
-                    )
-                  : "No date"
-              )}
+              ${
+                escapeHtml(
+                  ticket.ticketDate
+                    ? formatDate(
+                        ticket.ticketDate
+                      )
+                    : "No date"
+                )
+              }
             </span>
 
             <span>
@@ -2981,16 +2895,28 @@ function renderTicketCards(
           }
 
 
-          $("selection-count")
-            .textContent =
-              `${state.selectedTicketIds.size} selected`;
+          if (
+            $("selection-count")
+          ) {
+
+            $("selection-count")
+              .textContent =
+                `${state.selectedTicketIds.size} selected`;
+
+          }
 
 
-          $("clear-ticket-selection-btn")
-            .disabled =
-              state.selectedTicketIds
-                .size ===
-                0;
+          if (
+            $("clear-ticket-selection-btn")
+          ) {
+
+            $("clear-ticket-selection-btn")
+              .disabled =
+                state.selectedTicketIds
+                  .size ===
+                  0;
+
+          }
 
 
           renderContractDropCards(
@@ -3070,7 +2996,7 @@ function renderTicketCards(
 
 
 /* ============================================================
-   ASSIGNED TICKET HTML
+   ASSIGNED TICKET MARKUP
 ============================================================ */
 
 function assignedTicketMarkup(
@@ -3232,7 +3158,7 @@ function assignedTicketMarkup(
 
 
 /* ============================================================
-   CONTRACT DROP CARDS
+   CONTRACT RECONCILIATION CARDS
 ============================================================ */
 
 function renderContractDropCards(
@@ -3242,6 +3168,15 @@ function renderContractDropCards(
 
   const container =
     $("available-contract-list");
+
+
+  if (
+    !container
+  ) {
+
+    return;
+
+  }
 
 
   container.innerHTML =
@@ -3277,15 +3212,11 @@ function renderContractDropCards(
   contracts.forEach(
     contract => {
 
-      const totals =
-        calculateContractTotals(
-          contract
-        );
-
-
       Object.assign(
         contract,
-        totals
+        calculateContractTotals(
+          contract
+        )
       );
 
 
@@ -3321,18 +3252,13 @@ function renderContractDropCards(
       const allMatchingCropTickets =
         visibleTickets
           .filter(
-            ticket => {
-
-              return (
-                normalized(
-                  ticket.crop
-                ) ===
-                normalized(
-                  contract.crop
-                )
-              );
-
-            }
+            ticket =>
+              normalized(
+                ticket.crop
+              ) ===
+              normalized(
+                contract.crop
+              )
           );
 
 
@@ -3385,6 +3311,7 @@ function renderContractDropCards(
         <div class="contract-stats">
 
           <div class="contract-stat">
+
             <div class="contract-stat-label">
               Contract
             </div>
@@ -3392,10 +3319,12 @@ function renderContractDropCards(
             <div class="contract-stat-value">
               ${formatBushels(contract.contractBushels)}
             </div>
+
           </div>
 
 
           <div class="contract-stat">
+
             <div class="contract-stat-label">
               Assigned
             </div>
@@ -3403,6 +3332,7 @@ function renderContractDropCards(
             <div class="contract-stat-value">
               ${formatBushels(contract.deliveredBushels)}
             </div>
+
           </div>
 
 
@@ -3425,27 +3355,38 @@ function renderContractDropCards(
                   : ""
               }"
             >
-              ${formatBushels(
-                contract.openBushels <
-                  0
-                  ? Math.abs(
-                      contract.openBushels
-                    )
-                  : contract.openBushels
-              )}
+              ${
+                formatBushels(
+                  contract.openBushels <
+                    0
+                    ? Math.abs(
+                        contract.openBushels
+                      )
+                    : contract.openBushels
+                )
+              }
             </div>
 
           </div>
 
 
           <div class="contract-stat">
+
             <div class="contract-stat-label">
               Loads
             </div>
 
             <div class="contract-stat-value">
-              ${numberValue(contract.loadCount).toLocaleString("en-US")}
+              ${
+                numberValue(
+                  contract.loadCount
+                )
+                  .toLocaleString(
+                    "en-US"
+                  )
+              }
             </div>
+
           </div>
 
         </div>
@@ -3467,7 +3408,6 @@ function renderContractDropCards(
           >
             Assign Selected (${selectedMatchingTickets.length})
           </button>
-
 
           <button
             type="button"
@@ -3518,56 +3458,50 @@ function renderContractDropCards(
         );
 
 
-      const selectedBtn =
-        card.querySelector(
+      card
+        .querySelector(
           ".assign-selected-btn"
-        );
+        )
+        .addEventListener(
+          "click",
+          event => {
+
+            event.stopPropagation();
 
 
-      selectedBtn.addEventListener(
-        "click",
-        event => {
-
-          event.stopPropagation();
-
-
-          assignTicketsToContract(
-            selectedMatchingTickets
-              .map(
+            assignTicketsToContract(
+              selectedMatchingTickets.map(
                 ticket =>
                   ticket.id
               ),
-            contract.id
-          );
+              contract.id
+            );
 
-        }
-      );
+          }
+        );
 
 
-      const allBtn =
-        card.querySelector(
+      card
+        .querySelector(
           ".assign-all-btn"
-        );
+        )
+        .addEventListener(
+          "click",
+          event => {
+
+            event.stopPropagation();
 
 
-      allBtn.addEventListener(
-        "click",
-        event => {
-
-          event.stopPropagation();
-
-
-          assignTicketsToContract(
-            allMatchingCropTickets
-              .map(
+            assignTicketsToContract(
+              allMatchingCropTickets.map(
                 ticket =>
                   ticket.id
               ),
-            contract.id
-          );
+              contract.id
+            );
 
-        }
-      );
+          }
+        );
 
 
       card.addEventListener(
@@ -3592,15 +3526,7 @@ function renderContractDropCards(
 
 
           if (
-            !ticket
-          ) {
-
-            return;
-
-          }
-
-
-          if (
+            !ticket ||
             normalized(
               ticket.crop
             ) !==
@@ -3778,7 +3704,7 @@ function setupTicketDetailModal() {
   $("open-full-ticket-btn")
     ?.addEventListener(
       "click",
-      function() {
+      () => {
 
         if (
           !state.activeTicket
@@ -3803,16 +3729,8 @@ function setupTicketDetailModal() {
     event => {
 
       if (
-        event.key !==
-        "Escape"
-      ) {
-
-        return;
-
-      }
-
-
-      if (
+        event.key ===
+          "Escape" &&
         $("ticket-detail-modal")
           ?.classList
           .contains(
@@ -4164,18 +4082,13 @@ async function assignTicketsToContract(
 
   const cropMismatch =
     tickets.find(
-      ticket => {
-
-        return (
-          normalized(
-            ticket.crop
-          ) !==
-          normalized(
-            contract.crop
-          )
-        );
-
-      }
+      ticket =>
+        normalized(
+          ticket.crop
+        ) !==
+        normalized(
+          contract.crop
+        )
     );
 
 
@@ -4213,14 +4126,11 @@ async function assignTicketsToContract(
       (
         total,
         ticket
-      ) => {
-
-        return total +
-          numberValue(
-            ticket.netBushels
-          );
-
-      },
+      ) =>
+        total +
+        numberValue(
+          ticket.netBushels
+        ),
       0
     );
 
@@ -4250,6 +4160,7 @@ async function assignTicketsToContract(
 
     const confirmed =
       window.confirm(
+
         `This assignment will put Contract ${
           contract.contractNumber ||
           contract.id
@@ -4284,6 +4195,7 @@ async function assignTicketsToContract(
         } bu\n\n` +
 
         `Continue and record the overhaul?`
+
       );
 
 
@@ -4310,9 +4222,8 @@ async function assignTicketsToContract(
     await Promise.all(
 
       tickets.map(
-        ticket => {
-
-          return updateDoc(
+        ticket =>
+          updateDoc(
             doc(
               db,
               TICKET_COLLECTION,
@@ -4334,9 +4245,7 @@ async function assignTicketsToContract(
                 serverTimestamp()
 
             }
-          );
-
-        }
+          )
       )
 
     );
@@ -4467,7 +4376,7 @@ async function refreshData() {
     await loadAllData();
 
 
-    rebuildContractTotalsFromTickets(
+    await rebuildContractTotalsFromTickets(
       false
     );
 
@@ -4512,6 +4421,19 @@ async function refreshData() {
 
 function renderSettlementShell() {
 
+  const tbody =
+    $("settlement-table-body");
+
+
+  if (
+    !tbody
+  ) {
+
+    return;
+
+  }
+
+
   const candidates =
     state.contracts
       .filter(
@@ -4537,10 +4459,6 @@ function renderSettlementShell() {
       );
 
 
-  const tbody =
-    $("settlement-table-body");
-
-
   if (
     !candidates.length
   ) {
@@ -4548,6 +4466,7 @@ function renderSettlementShell() {
     tbody.innerHTML = `
 
       <tr>
+
         <td colspan="8">
 
           <div class="empty-state">
@@ -4563,6 +4482,7 @@ function renderSettlementShell() {
           </div>
 
         </td>
+
       </tr>
 
     `;
@@ -4576,49 +4496,45 @@ function renderSettlementShell() {
   tbody.innerHTML =
     candidates
       .map(
-        contract => {
+        contract => `
 
-          return `
+          <tr>
 
-            <tr>
+            <td class="contract-number">
+              ${escapeHtml(contract.contractNumber || "—")}
+            </td>
 
-              <td class="contract-number">
-                ${escapeHtml(contract.contractNumber || "—")}
-              </td>
+            <td>
+              ${escapeHtml(contract.buyerName || "—")}
+            </td>
 
-              <td>
-                ${escapeHtml(contract.buyerName || "—")}
-              </td>
+            <td>
+              ${escapeHtml(contract.customerName || "—")}
+            </td>
 
-              <td>
-                ${escapeHtml(contract.customerName || "—")}
-              </td>
+            <td>
+              ${escapeHtml(contract.crop || "—")}
+            </td>
 
-              <td>
-                ${escapeHtml(contract.crop || "—")}
-              </td>
+            <td class="number-cell">
+              ${formatBushels(contract.deliveredBushels)}
+            </td>
 
-              <td class="number-cell">
-                ${formatBushels(contract.deliveredBushels)}
-              </td>
+            <td class="number-cell">
+              —
+            </td>
 
-              <td class="number-cell">
-                —
-              </td>
+            <td class="number-cell">
+              —
+            </td>
 
-              <td class="number-cell">
-                —
-              </td>
+            <td>
+              Pending Settlement
+            </td>
 
-              <td>
-                Pending Settlement
-              </td>
+          </tr>
 
-            </tr>
-
-          `;
-
-        }
+        `
       )
       .join(
         ""
@@ -4628,7 +4544,7 @@ function renderSettlementShell() {
 
 
 /* ============================================================
-   EDIT MODAL PICKERS
+   EDIT PICKERS
 ============================================================ */
 
 function populateEditPickers() {
@@ -4650,7 +4566,7 @@ function populateEditPickers() {
 
 
 /* ============================================================
-   CONTRACT EDIT MODAL
+   EDIT MODAL SETUP
 ============================================================ */
 
 function setupModal() {
@@ -4710,20 +4626,127 @@ function setupModal() {
 
 
 /* ============================================================
-   OPEN / CLOSE CONTRACT EDIT MODAL
+   IMPORTANT FIX:
+   BUILD A BRAND-NEW CROP / CONTRACT TYPE SELECT
+============================================================ */
 
-   IMPORTANT:
-   Rebuild the dynamic dropdowns FIRST, then restore Firestore
-   values AFTER their options exist.
+function rebuildEditStaticSelect(
+  selectId,
+  options,
+  savedValue
+) {
+
+  const oldSelect =
+    $(
+      selectId
+    );
+
+
+  if (
+    !oldSelect
+  ) {
+
+    return null;
+
+  }
+
+
+  const select =
+    document.createElement(
+      "select"
+    );
+
+
+  select.id =
+    oldSelect.id;
+
+
+  select.name =
+    oldSelect.name ||
+    "";
+
+
+  select.className =
+    oldSelect.className;
+
+
+  select.required =
+    oldSelect.required;
+
+
+  select.disabled =
+    oldSelect.disabled;
+
+
+  const wanted =
+    normalized(
+      savedValue
+    );
+
+
+  options.forEach(
+    (
+      [
+        value,
+        label
+      ]
+    ) => {
+
+      const option =
+        document.createElement(
+          "option"
+        );
+
+
+      option.value =
+        value;
+
+
+      option.textContent =
+        label;
+
+
+      const selected =
+        normalized(
+          value
+        ) ===
+        wanted;
+
+
+      option.selected =
+        selected;
+
+
+      option.defaultSelected =
+        selected;
+
+
+      select.appendChild(
+        option
+      );
+
+    }
+  );
+
+
+  oldSelect.replaceWith(
+    select
+  );
+
+
+  return select;
+
+}
+
+
+/* ============================================================
+   OPEN EDIT CONTRACT
 ============================================================ */
 
 function openEditModal(
   contractId
 ) {
 
-  /*
-    Find the EXACT contract that was clicked.
-  */
   const contract =
     state.contracts.find(
       item =>
@@ -4745,96 +4768,36 @@ function openEditModal(
       contractId
     );
 
+
     return;
 
   }
 
 
-  /*
-    IMPORTANT:
-    Make this contract the active contract FIRST.
-  */
   state.activeContract =
     contract;
 
 
-  /*
-    Recalculate assigned/open totals.
-  */
-  const totals =
+  Object.assign(
+    contract,
     calculateContractTotals(
       contract
-    );
-
-
-  contract.deliveredBushels =
-    totals.deliveredBushels;
-
-
-  contract.openBushels =
-    totals.openBushels;
-
-
-  contract.loadCount =
-    totals.loadCount;
-
-
-  contract.overhaulBushels =
-    totals.overhaulBushels;
+    )
+  );
 
 
   /*
-    ============================================================
-    COMPLETELY RESET THE EDIT FORM
-
-    This prevents Crop / Contract Type / other selections from
-    carrying over from the previously opened contract.
-    ============================================================
+    Clear old form values first.
   */
-
   $("edit-contract-form")
     ?.reset();
 
 
-  $("edit-buyer")
-    .value =
-      "";
-
-
-  $("edit-customer")
-    .value =
-      "";
-
-
-  $("edit-crop")
-    .value =
-      "";
-
-
-  $("edit-contract-type")
-    .value =
-      "";
-
-
-  $("edit-delivery-location")
-    .innerHTML =
-      "";
-
-
   /*
-    ============================================================
-    REBUILD BUYER + CUSTOMER OPTIONS
-    ============================================================
+    Rebuild Buyer and Customer.
   */
-
   populateEditPickers();
 
-
-  /*
-    ============================================================
-    HEADER
-    ============================================================
-  */
 
   $("edit-modal-sub")
     .textContent =
@@ -4847,282 +4810,150 @@ function openEditModal(
 
 
   /*
-    ============================================================
-    BUYER
-    Pull directly from THIS contract.
-    ============================================================
+    Buyer / Elevator
   */
-
   const buyer =
     state.buyers.find(
-      item => {
-
-        return (
-          clean(
-            item.id
-          ) ===
-          clean(
-            contract.buyerId
-          )
-        );
-
-      }
+      item =>
+        clean(
+          item.id
+        ) ===
+        clean(
+          contract.buyerId
+        )
     ) ||
     state.buyers.find(
-      item => {
-
-        return (
-          normalized(
-            item.name
-          ) ===
-          normalized(
-            contract.buyerName
-          )
-        );
-
-      }
+      item =>
+        normalized(
+          item.name
+        ) ===
+        normalized(
+          contract.buyerName
+        )
     );
 
 
-  if (
-    buyer
-  ) {
-
-    $("edit-buyer")
-      .value =
-        buyer.id;
-
-  }
-  else {
-
-    $("edit-buyer")
-      .value =
-        "";
-
-  }
-
-
-  /*
-    ============================================================
-    CUSTOMER
-    Pull directly from THIS contract.
-    ============================================================
-  */
-
-  const customer =
-    state.customers.find(
-      item => {
-
-        return (
-          clean(
-            item.id
-          ) ===
-          clean(
-            contract.customerId
-          )
-        );
-
-      }
-    ) ||
-    state.customers.find(
-      item => {
-
-        return (
-          normalized(
-            item.name
-          ) ===
-          normalized(
-            contract.customerName
-          )
-        );
-
-      }
-    );
-
-
-  if (
-    customer
-  ) {
-
-    $("edit-customer")
-      .value =
-        customer.id;
-
-  }
-  else {
-
-    $("edit-customer")
-      .value =
-        "";
-
-  }
-
-
-  /*
-    ============================================================
-    CROP
-    Pull directly from Firestore contract data.
-
-    Example:
-    crop = "Corn"
-    ============================================================
-  */
-
-  /*
-    ============================================================
-    CROP + CONTRACT TYPE
-
-    These values are already loaded from Firestore into
-    contract.crop and contract.contractType.
-
-    Set the native select value AND fire input/change events so
-    FarmVista's select UI updates its visible selected value.
-    ============================================================
-  */
-
-  const cropSelect =
-    $("edit-crop");
-
-
-  const contractTypeSelect =
-    $("edit-contract-type");
-
-
-  /*
-    CROP
-  */
-  cropSelect.value =
-    clean(
-      contract.crop
-    );
-
-
-  /*
-    If casing/spacing ever differs, find the matching option.
-  */
-  if (
-    cropSelect.value !==
-    clean(
-      contract.crop
-    )
-  ) {
-
-    const cropMatch =
-      [
-        ...cropSelect.options
-      ]
-        .find(
-          option =>
-            normalized(
-              option.value
-            ) ===
-            normalized(
-              contract.crop
-            )
-        );
-
-
-    cropSelect.value =
-      cropMatch
-        ? cropMatch.value
+  $("edit-buyer")
+    .value =
+      buyer
+        ? buyer.id
         : "";
 
-  }
+
+  /*
+    Customer
+  */
+  const customer =
+    state.customers.find(
+      item =>
+        clean(
+          item.id
+        ) ===
+        clean(
+          contract.customerId
+        )
+    ) ||
+    state.customers.find(
+      item =>
+        normalized(
+          item.name
+        ) ===
+        normalized(
+          contract.customerName
+        )
+    );
+
+
+  $("edit-customer")
+    .value =
+      customer
+        ? customer.id
+        : "";
 
 
   /*
-    Tell any FarmVista/custom select handling that the value
-    changed programmatically.
+    CROP
+
+    We DO NOT reuse the existing select.
+
+    It is destroyed and replaced with a brand-new native select
+    containing the Firestore crop as the selected/defaultSelected
+    option.
+
+    Example:
+      Firestore crop = Soybeans
+      New select = Soybeans selected
   */
-  cropSelect.dispatchEvent(
-    new Event(
-      "input",
-      {
-        bubbles:
-          true
-      }
-    )
-  );
+  const cropSelect =
+    rebuildEditStaticSelect(
 
+      "edit-crop",
 
-  cropSelect.dispatchEvent(
-    new Event(
-      "change",
-      {
-        bubbles:
-          true
-      }
-    )
-  );
+      [
+        [
+          "",
+          "Select crop"
+        ],
+        [
+          "Corn",
+          "Corn"
+        ],
+        [
+          "Soybeans",
+          "Soybeans"
+        ]
+      ],
+
+      contract.crop
+
+    );
 
 
   /*
     CONTRACT TYPE
+
+    Same method as Crop.
+
+    Example:
+      Firestore contractType = Basis
+      New select = Basis selected
   */
-  contractTypeSelect.value =
-    clean(
+  const typeSelect =
+    rebuildEditStaticSelect(
+
+      "edit-contract-type",
+
+      [
+        [
+          "",
+          "Select type"
+        ],
+        [
+          "Cash",
+          "Cash"
+        ],
+        [
+          "Basis",
+          "Basis"
+        ],
+        [
+          "Futures",
+          "Futures"
+        ],
+        [
+          "Program",
+          "Program"
+        ]
+      ],
+
       contract.contractType
+
     );
 
 
-  if (
-    contractTypeSelect.value !==
-    clean(
-      contract.contractType
-    )
-  ) {
-
-    const typeMatch =
-      [
-        ...contractTypeSelect.options
-      ]
-        .find(
-          option =>
-            normalized(
-              option.value
-            ) ===
-            normalized(
-              contract.contractType
-            )
-        );
-
-
-    contractTypeSelect.value =
-      typeMatch
-        ? typeMatch.value
-        : "";
-
-  }
-
-
-  contractTypeSelect.dispatchEvent(
-    new Event(
-      "input",
-      {
-        bubbles:
-          true
-      }
-    )
-  );
-
-
-  contractTypeSelect.dispatchEvent(
-    new Event(
-      "change",
-      {
-        bubbles:
-          true
-      }
-    )
-  );
-
-
   /*
-    ============================================================
-    CONTRACT NUMBER
-    ============================================================
+    Contract Number
   */
-
   $("edit-contract-number")
     .value =
       clean(
@@ -5131,11 +4962,8 @@ function openEditModal(
 
 
   /*
-    ============================================================
-    CONTRACT DATE
-    ============================================================
+    Contract Date
   */
-
   $("edit-contract-date")
     .value =
       clean(
@@ -5144,55 +4972,44 @@ function openEditModal(
 
 
   /*
-    ============================================================
-    CONTRACT BUSHELS
-    ============================================================
+    Bushels
   */
-
   setEditBushels(
     contract.contractBushels
   );
 
 
   /*
-    ============================================================
-    PRICE
-    ============================================================
+    Price
   */
-
   setEditPrice(
     contract.pricePerBushel
   );
 
 
   /*
-    ============================================================
-    DELIVERY LOCATION
-
-    First rebuild locations for THIS contract's buyer.
-    Then select THIS contract's saved location.
-    ============================================================
+    Delivery Location
   */
-
   populateLocationPicker(
+
     buyer
       ? buyer.id
       : clean(
           contract.buyerId
         ),
+
     clean(
       contract.deliveryLocationId
     ),
+
     contract
+
   );
 
 
   /*
-    ============================================================
-    DELIVERY DATES
-    ============================================================
+    Delivery Dates
   */
-
   $("edit-delivery-start")
     .value =
       clean(
@@ -5208,11 +5025,8 @@ function openEditModal(
 
 
   /*
-    ============================================================
-    ASSIGNED BUSHELS
-    ============================================================
+    Assigned Bushels
   */
-
   $("edit-delivered")
     .value =
       formatBushels(
@@ -5221,23 +5035,14 @@ function openEditModal(
 
 
   /*
-    ============================================================
-    NOTES
-    ============================================================
+    Notes
   */
-
   $("edit-notes")
     .value =
       clean(
         contract.notes
       );
 
-
-  /*
-    ============================================================
-    DATE LIMITS + OPEN BUSHELS
-    ============================================================
-  */
 
   updateEditDateLimits();
 
@@ -5246,50 +5051,46 @@ function openEditModal(
 
 
   /*
-    Debugging line.
+    This log is intentional.
 
-    This proves which contract values are being loaded into the
-    modal each time a row is clicked.
+    For your ADM example it should show:
+
+      firestoreCrop: "Soybeans"
+      selectCrop: "Soybeans"
+
+      firestoreContractType: "Basis"
+      selectContractType: "Basis"
   */
   console.log(
-    "[Grain Contracts] Opening contract:",
+    "[Grain Contracts] Edit modal restore:",
     {
-      id:
-        contract.id,
 
       contractNumber:
         contract.contractNumber,
 
-      buyerId:
-        contract.buyerId,
-
-      buyerName:
-        contract.buyerName,
-
-      customerId:
-        contract.customerId,
-
-      customerName:
-        contract.customerName,
-
-      crop:
+      firestoreCrop:
         contract.crop,
 
-      contractType:
+      selectCrop:
+        cropSelect
+          ?.value ??
+        null,
+
+      firestoreContractType:
         contract.contractType,
 
-      deliveryLocationId:
-        contract.deliveryLocationId
+      selectContractType:
+        typeSelect
+          ?.value ??
+        null
+
     }
   );
 
 
   /*
-    ============================================================
-    OPEN MODAL LAST
-    ============================================================
+    Open the modal ONLY after every field has been rebuilt.
   */
-
   $("edit-modal")
     .classList
     .add(
@@ -5303,6 +5104,10 @@ function openEditModal(
 
 }
 
+
+/* ============================================================
+   CLOSE EDIT MODAL
+============================================================ */
 
 function closeEditModal() {
 
@@ -5325,7 +5130,7 @@ function closeEditModal() {
 
 
 /* ============================================================
-   LOCATION PICKER
+   DELIVERY LOCATION PICKER
 ============================================================ */
 
 function populateLocationPicker(
@@ -5404,36 +5209,35 @@ function populateLocationPicker(
       );
 
 
-  matchingLocations
-    .forEach(
-      location => {
+  matchingLocations.forEach(
+    location => {
 
-        const option =
-          document.createElement(
-            "option"
-          );
-
-
-        option.value =
-          location.id;
-
-
-        option.textContent =
-          formatLocationOption(
-            location
-          );
-
-
-        select.appendChild(
-          option
+      const option =
+        document.createElement(
+          "option"
         );
 
-      }
-    );
+
+      option.value =
+        location.id;
+
+
+      option.textContent =
+        formatLocationOption(
+          location
+        );
+
+
+      select.appendChild(
+        option
+      );
+
+    }
+  );
 
 
   /*
-    First choice: exact saved Firestore document ID.
+    Exact Firestore location ID is always first choice.
   */
   if (
     setSelectValue(
@@ -5447,10 +5251,6 @@ function populateLocationPicker(
   }
 
 
-  /*
-    Fallback for older/broken IDs:
-    match the saved location name/address.
-  */
   if (
     !savedContract
   ) {
@@ -5462,36 +5262,31 @@ function populateLocationPicker(
 
   const wantedName =
     normalized(
-      savedContract
-        .deliveryLocationName
+      savedContract.deliveryLocationName
     );
 
 
   const wantedStreet =
     normalized(
-      savedContract
-        .deliveryStreet
+      savedContract.deliveryStreet
     );
 
 
   const wantedCity =
     normalized(
-      savedContract
-        .deliveryCity
+      savedContract.deliveryCity
     );
 
 
   const wantedState =
     normalized(
-      savedContract
-        .deliveryState
+      savedContract.deliveryState
     );
 
 
   const wantedZip =
     normalized(
-      savedContract
-        .deliveryZip
+      savedContract.deliveryZip
     );
 
 
@@ -5504,20 +5299,22 @@ function populateLocationPicker(
           normalized(
             item.locationName
           ) ===
-          wantedName &&
+            wantedName &&
+
           (
             !wantedStreet ||
             normalized(
               item.street
             ) ===
-            wantedStreet
+              wantedStreet
           ) &&
+
           (
             !wantedCity ||
             normalized(
               item.city
             ) ===
-            wantedCity
+              wantedCity
           )
         );
 
@@ -5535,17 +5332,18 @@ function populateLocationPicker(
 
           return (
             wantedStreet &&
+
             normalized(
               item.street
             ) ===
-            wantedStreet &&
+              wantedStreet &&
 
             (
               !wantedCity ||
               normalized(
                 item.city
               ) ===
-              wantedCity
+                wantedCity
             ) &&
 
             (
@@ -5553,7 +5351,7 @@ function populateLocationPicker(
               normalized(
                 item.state
               ) ===
-              wantedState
+                wantedState
             ) &&
 
             (
@@ -5561,7 +5359,7 @@ function populateLocationPicker(
               normalized(
                 item.zip
               ) ===
-              wantedZip
+                wantedZip
             )
           );
 
@@ -5633,16 +5431,9 @@ function formatLocationOption(
       );
 
 
-  if (
-    !address
-  ) {
-
-    return location.locationName;
-
-  }
-
-
-  return `${location.locationName} — ${address}`;
+  return address
+    ? `${location.locationName} — ${address}`
+    : location.locationName;
 
 }
 
@@ -5668,7 +5459,7 @@ function setupEditBushels() {
 
   input.addEventListener(
     "input",
-    function() {
+    () => {
 
       const digits =
         String(
@@ -5735,6 +5526,15 @@ function setEditBushels(
     $("edit-contract-bushels");
 
 
+  if (
+    !input
+  ) {
+
+    return;
+
+  }
+
+
   const numeric =
     numberValue(
       value
@@ -5756,7 +5556,7 @@ function setEditBushels(
 
 
 /* ============================================================
-   EDIT OPEN BUSHELS
+   OPEN / OVER BUSHELS
 ============================================================ */
 
 function updateEditOpenBushels() {
@@ -5790,32 +5590,56 @@ function updateEditOpenBushels() {
     delivered;
 
 
-  $("edit-open")
-    .value =
-      formatBushels(
-        open
-      );
+  if (
+    $("edit-open")
+  ) {
+
+    $("edit-open")
+      .value =
+        formatBushels(
+          open
+        );
+
+  }
 
 
-  $("modal-contracted")
-    .textContent =
-      formatBushels(
-        contracted
-      );
+  if (
+    $("modal-contracted")
+  ) {
+
+    $("modal-contracted")
+      .textContent =
+        formatBushels(
+          contracted
+        );
+
+  }
 
 
-  $("modal-delivered")
-    .textContent =
-      formatBushels(
-        delivered
-      );
+  if (
+    $("modal-delivered")
+  ) {
+
+    $("modal-delivered")
+      .textContent =
+        formatBushels(
+          delivered
+        );
+
+  }
 
 
-  $("modal-open")
-    .textContent =
-      formatBushels(
-        open
-      );
+  if (
+    $("modal-open")
+  ) {
+
+    $("modal-open")
+      .textContent =
+        formatBushels(
+          open
+        );
+
+  }
 
 }
 
@@ -5841,7 +5665,7 @@ function setupEditPrice() {
 
   input.addEventListener(
     "input",
-    function() {
+    () => {
 
       const digits =
         String(
@@ -5916,6 +5740,15 @@ function setEditPrice(
     $("edit-price");
 
 
+  if (
+    !input
+  ) {
+
+    return;
+
+  }
+
+
   const numeric =
     numberValue(
       value
@@ -5960,6 +5793,15 @@ function renderEditPrice() {
 
   const input =
     $("edit-price");
+
+
+  if (
+    !input
+  ) {
+
+    return;
+
+  }
 
 
   if (
@@ -6020,6 +5862,15 @@ function validateEditPrice() {
     $("edit-price");
 
 
+  if (
+    !input
+  ) {
+
+    return false;
+
+  }
+
+
   input.setCustomValidity(
     ""
   );
@@ -6075,7 +5926,7 @@ function setupEditDates() {
   $("edit-contract-date")
     ?.addEventListener(
       "change",
-      function() {
+      () => {
 
         updateEditDateLimits();
 
@@ -6088,7 +5939,7 @@ function setupEditDates() {
   $("edit-delivery-start")
     ?.addEventListener(
       "change",
-      function() {
+      () => {
 
         updateEditDateLimits();
 
@@ -6119,6 +5970,17 @@ function updateEditDateLimits() {
 
   const end =
     $("edit-delivery-end");
+
+
+  if (
+    !contractDate ||
+    !start ||
+    !end
+  ) {
+
+    return;
+
+  }
 
 
   if (
@@ -6174,6 +6036,17 @@ function validateEditDates() {
     $("edit-delivery-end");
 
 
+  if (
+    !contractDate ||
+    !start ||
+    !end
+  ) {
+
+    return false;
+
+  }
+
+
   start.setCustomValidity(
     ""
   );
@@ -6224,7 +6097,7 @@ function validateEditDates() {
 
 
 /* ============================================================
-   SAVE CONTRACT EDIT
+   SAVE CONTRACT CHANGES
 ============================================================ */
 
 async function saveContractChanges(
@@ -6272,7 +6145,7 @@ async function saveContractChanges(
   ) {
 
     $("edit-contract-bushels")
-      .setCustomValidity(
+      ?.setCustomValidity(
         "Enter Contract Bushels."
       );
 
@@ -6280,7 +6153,7 @@ async function saveContractChanges(
   else {
 
     $("edit-contract-bushels")
-      .setCustomValidity(
+      ?.setCustomValidity(
         ""
       );
 
@@ -6409,14 +6282,11 @@ async function saveContractChanges(
       $("edit-contract-date")
         .value,
 
-    contractBushels:
-      contractBushels,
+    contractBushels,
 
-    deliveredBushels:
-      deliveredBushels,
+    deliveredBushels,
 
-    openBushels:
-      openBushels,
+    openBushels,
 
     pricePerBushel:
       state.editPriceCents /
