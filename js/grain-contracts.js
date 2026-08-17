@@ -4721,11 +4721,18 @@ function openEditModal(
   contractId
 ) {
 
+  /*
+    Find the EXACT contract that was clicked.
+  */
   const contract =
     state.contracts.find(
       item =>
-        item.id ===
-        contractId
+        clean(
+          item.id
+        ) ===
+        clean(
+          contractId
+        )
     );
 
 
@@ -4733,74 +4740,315 @@ function openEditModal(
     !contract
   ) {
 
+    console.error(
+      "[Grain Contracts] Contract not found:",
+      contractId
+    );
+
     return;
 
   }
 
 
+  /*
+    IMPORTANT:
+    Make this contract the active contract FIRST.
+  */
+  state.activeContract =
+    contract;
+
+
+  /*
+    Recalculate assigned/open totals.
+  */
   const totals =
     calculateContractTotals(
       contract
     );
 
 
-  Object.assign(
-    contract,
-    totals
-  );
+  contract.deliveredBushels =
+    totals.deliveredBushels;
 
 
-  state.activeContract =
-    contract;
+  contract.openBushels =
+    totals.openBushels;
+
+
+  contract.loadCount =
+    totals.loadCount;
+
+
+  contract.overhaulBushels =
+    totals.overhaulBushels;
 
 
   /*
-    Always rebuild these options before selecting the saved values.
-    This prevents a previously rebuilt/cleared select from losing
-    the Firestore selection.
+    ============================================================
+    COMPLETELY RESET THE EDIT FORM
+
+    This prevents Crop / Contract Type / other selections from
+    carrying over from the previously opened contract.
+    ============================================================
   */
+
+  $("edit-contract-form")
+    ?.reset();
+
+
+  $("edit-buyer")
+    .value =
+      "";
+
+
+  $("edit-customer")
+    .value =
+      "";
+
+
+  $("edit-crop")
+    .value =
+      "";
+
+
+  $("edit-contract-type")
+    .value =
+      "";
+
+
+  $("edit-delivery-location")
+    .innerHTML =
+      "";
+
+
+  /*
+    ============================================================
+    REBUILD BUYER + CUSTOMER OPTIONS
+    ============================================================
+  */
+
   populateEditPickers();
 
+
+  /*
+    ============================================================
+    HEADER
+    ============================================================
+  */
 
   $("edit-modal-sub")
     .textContent =
       `Contract ${
-        contract.contractNumber ||
+        clean(
+          contract.contractNumber
+        ) ||
         contract.id
       }`;
 
 
   /*
+    ============================================================
     BUYER
-
-    Firestore example:
-    buyerId: IIiotmPg4Fdm58I8c9z9
-    buyerName: Bartlett Grain
+    Pull directly from THIS contract.
+    ============================================================
   */
-  const restoredBuyerId =
-    setObjectSelectByIdOrName(
-      $("edit-buyer"),
-      contract.buyerId,
-      contract.buyerName,
-      state.buyers
+
+  const buyer =
+    state.buyers.find(
+      item => {
+
+        return (
+          clean(
+            item.id
+          ) ===
+          clean(
+            contract.buyerId
+          )
+        );
+
+      }
+    ) ||
+    state.buyers.find(
+      item => {
+
+        return (
+          normalized(
+            item.name
+          ) ===
+          normalized(
+            contract.buyerName
+          )
+        );
+
+      }
     );
 
 
+  if (
+    buyer
+  ) {
+
+    $("edit-buyer")
+      .value =
+        buyer.id;
+
+  }
+  else {
+
+    $("edit-buyer")
+      .value =
+        "";
+
+  }
+
+
   /*
+    ============================================================
     CUSTOMER
-
-    Firestore example:
-    customerId: WTo7z60PmvfxBg4FABju
-    customerName: Cargill
+    Pull directly from THIS contract.
+    ============================================================
   */
-  setObjectSelectByIdOrName(
-    $("edit-customer"),
-    contract.customerId,
-    contract.customerName,
-    state.customers
-  );
+
+  const customer =
+    state.customers.find(
+      item => {
+
+        return (
+          clean(
+            item.id
+          ) ===
+          clean(
+            contract.customerId
+          )
+        );
+
+      }
+    ) ||
+    state.customers.find(
+      item => {
+
+        return (
+          normalized(
+            item.name
+          ) ===
+          normalized(
+            contract.customerName
+          )
+        );
+
+      }
+    );
 
 
+  if (
+    customer
+  ) {
+
+    $("edit-customer")
+      .value =
+        customer.id;
+
+  }
+  else {
+
+    $("edit-customer")
+      .value =
+        "";
+
+  }
+
+
+  /*
+    ============================================================
+    CROP
+    Pull directly from Firestore contract data.
+
+    Example:
+    crop = "Corn"
+    ============================================================
+  */
+
+  const cropValue =
+    clean(
+      contract.crop
+    );
+
+
+  const cropOption =
+    [
+      ...$("edit-crop").options
+    ]
+      .find(
+        option => {
+
+          return (
+            normalized(
+              option.value
+            ) ===
+            normalized(
+              cropValue
+            )
+          );
+
+        }
+      );
+
+
+  $("edit-crop")
+    .value =
+      cropOption
+        ? cropOption.value
+        : "";
+
+
+  /*
+    ============================================================
+    CONTRACT TYPE
+    Pull directly from Firestore contract data.
+
+    Example:
+    contractType = "Cash"
+    ============================================================
+  */
+
+  const contractTypeValue =
+    clean(
+      contract.contractType
+    );
+
+
+  const contractTypeOption =
+    [
+      ...$("edit-contract-type").options
+    ]
+      .find(
+        option => {
+
+          return (
+            normalized(
+              option.value
+            ) ===
+            normalized(
+              contractTypeValue
+            )
+          );
+
+        }
+      );
+
+
+  $("edit-contract-type")
+    .value =
+      contractTypeOption
+        ? contractTypeOption.value
+        : "";
+
+
+  /*
+    ============================================================
+    CONTRACT NUMBER
+    ============================================================
+  */
 
   $("edit-contract-number")
     .value =
@@ -4809,6 +5057,12 @@ function openEditModal(
       );
 
 
+  /*
+    ============================================================
+    CONTRACT DATE
+    ============================================================
+  */
+
   $("edit-contract-date")
     .value =
       clean(
@@ -4816,10 +5070,22 @@ function openEditModal(
       );
 
 
+  /*
+    ============================================================
+    CONTRACT BUSHELS
+    ============================================================
+  */
+
   setEditBushels(
     contract.contractBushels
   );
 
+
+  /*
+    ============================================================
+    PRICE
+    ============================================================
+  */
 
   setEditPrice(
     contract.pricePerBushel
@@ -4827,21 +5093,32 @@ function openEditModal(
 
 
   /*
+    ============================================================
     DELIVERY LOCATION
 
-    Rebuild locations using the restored Buyer ID first.
-    Then restore the saved deliveryLocationId.
-
-    If the location document ID has changed, the picker also
-    attempts to match the saved location/address.
+    First rebuild locations for THIS contract's buyer.
+    Then select THIS contract's saved location.
+    ============================================================
   */
+
   populateLocationPicker(
-    restoredBuyerId ||
-    contract.buyerId,
-    contract.deliveryLocationId,
+    buyer
+      ? buyer.id
+      : clean(
+          contract.buyerId
+        ),
+    clean(
+      contract.deliveryLocationId
+    ),
     contract
   );
 
+
+  /*
+    ============================================================
+    DELIVERY DATES
+    ============================================================
+  */
 
   $("edit-delivery-start")
     .value =
@@ -4857,12 +5134,24 @@ function openEditModal(
       );
 
 
+  /*
+    ============================================================
+    ASSIGNED BUSHELS
+    ============================================================
+  */
+
   $("edit-delivered")
     .value =
       formatBushels(
         contract.deliveredBushels
       );
 
+
+  /*
+    ============================================================
+    NOTES
+    ============================================================
+  */
 
   $("edit-notes")
     .value =
@@ -4871,11 +5160,62 @@ function openEditModal(
       );
 
 
+  /*
+    ============================================================
+    DATE LIMITS + OPEN BUSHELS
+    ============================================================
+  */
+
   updateEditDateLimits();
 
 
   updateEditOpenBushels();
 
+
+  /*
+    Debugging line.
+
+    This proves which contract values are being loaded into the
+    modal each time a row is clicked.
+  */
+  console.log(
+    "[Grain Contracts] Opening contract:",
+    {
+      id:
+        contract.id,
+
+      contractNumber:
+        contract.contractNumber,
+
+      buyerId:
+        contract.buyerId,
+
+      buyerName:
+        contract.buyerName,
+
+      customerId:
+        contract.customerId,
+
+      customerName:
+        contract.customerName,
+
+      crop:
+        contract.crop,
+
+      contractType:
+        contract.contractType,
+
+      deliveryLocationId:
+        contract.deliveryLocationId
+    }
+  );
+
+
+  /*
+    ============================================================
+    OPEN MODAL LAST
+    ============================================================
+  */
 
   $("edit-modal")
     .classList
@@ -4887,46 +5227,6 @@ function openEditModal(
   document.body.style
     .overflow =
       "hidden";
-
-
-  /*
-    Restore Crop and Contract Type AFTER
-    the edit modal has finished opening.
-  */
-  requestAnimationFrame(
-    () => {
-
-      forceSelectValue(
-        $("edit-crop"),
-        contract.crop
-      );
-
-
-      forceSelectValue(
-        $("edit-contract-type"),
-        contract.contractType
-      );
-
-
-      requestAnimationFrame(
-        () => {
-
-          forceSelectValue(
-            $("edit-crop"),
-            contract.crop
-          );
-
-
-          forceSelectValue(
-            $("edit-contract-type"),
-            contract.contractType
-          );
-
-        }
-      );
-
-    }
-  );
 
 }
 
