@@ -4636,46 +4636,32 @@ function rebuildEditStaticSelect(
   savedValue
 ) {
 
-  const oldSelect =
+  /*
+    IMPORTANT:
+
+    DO NOT replace the <select> element.
+
+    FarmVista already styles/enhances the original select.
+    Replacing the entire DOM element creates a second native
+    dropdown underneath the FarmVista dropdown.
+
+    Instead, keep the ORIGINAL select and only rebuild
+    the OPTION elements inside it.
+  */
+
+  const select =
     $(
       selectId
     );
 
 
   if (
-    !oldSelect
+    !select
   ) {
 
     return null;
 
   }
-
-
-  const select =
-    document.createElement(
-      "select"
-    );
-
-
-  select.id =
-    oldSelect.id;
-
-
-  select.name =
-    oldSelect.name ||
-    "";
-
-
-  select.className =
-    oldSelect.className;
-
-
-  select.required =
-    oldSelect.required;
-
-
-  select.disabled =
-    oldSelect.disabled;
 
 
   const wanted =
@@ -4684,6 +4670,16 @@ function rebuildEditStaticSelect(
     );
 
 
+  /*
+    Remove every old option.
+  */
+  select.innerHTML =
+    "";
+
+
+  /*
+    Build fresh options.
+  */
   options.forEach(
     (
       [
@@ -4706,19 +4702,17 @@ function rebuildEditStaticSelect(
         label;
 
 
-      const selected =
+      if (
         normalized(
           value
         ) ===
-        wanted;
+        wanted
+      ) {
 
+        option.selected =
+          true;
 
-      option.selected =
-        selected;
-
-
-      option.defaultSelected =
-        selected;
+      }
 
 
       select.appendChild(
@@ -4729,8 +4723,50 @@ function rebuildEditStaticSelect(
   );
 
 
-  oldSelect.replaceWith(
-    select
+  /*
+    Explicitly set the final value after all options exist.
+  */
+  const matchingOption =
+    [
+      ...select.options
+    ]
+      .find(
+        option =>
+          normalized(
+            option.value
+          ) ===
+          wanted
+      );
+
+
+  select.value =
+    matchingOption
+      ? matchingOption.value
+      : "";
+
+
+  /*
+    Same native events the other dropdowns use.
+  */
+  select.dispatchEvent(
+    new Event(
+      "input",
+      {
+        bubbles:
+          true
+      }
+    )
+  );
+
+
+  select.dispatchEvent(
+    new Event(
+      "change",
+      {
+        bubbles:
+          true
+      }
+    )
   );
 
 
@@ -4746,6 +4782,12 @@ function rebuildEditStaticSelect(
 function openEditModal(
   contractId
 ) {
+
+  /*
+    ============================================================
+    FIND EXACT CONTRACT CLICKED
+    ============================================================
+  */
 
   const contract =
     state.contracts.find(
@@ -4774,6 +4816,12 @@ function openEditModal(
   }
 
 
+  /*
+    ============================================================
+    ACTIVE CONTRACT
+    ============================================================
+  */
+
   state.activeContract =
     contract;
 
@@ -4787,17 +4835,31 @@ function openEditModal(
 
 
   /*
-    Clear old form values first.
+    ============================================================
+    RESET FORM
+
+    Clear anything left from the previously opened contract.
+    ============================================================
   */
+
   $("edit-contract-form")
     ?.reset();
 
 
   /*
-    Rebuild Buyer and Customer.
+    ============================================================
+    REBUILD BUYER + CUSTOMER OPTIONS
+    ============================================================
   */
+
   populateEditPickers();
 
+
+  /*
+    ============================================================
+    HEADER
+    ============================================================
+  */
 
   $("edit-modal-sub")
     .textContent =
@@ -4810,8 +4872,11 @@ function openEditModal(
 
 
   /*
-    Buyer / Elevator
+    ============================================================
+    BUYER / ELEVATOR
+    ============================================================
   */
+
   const buyer =
     state.buyers.find(
       item =>
@@ -4841,8 +4906,11 @@ function openEditModal(
 
 
   /*
-    Customer
+    ============================================================
+    CUSTOMER
+    ============================================================
   */
+
   const customer =
     state.customers.find(
       item =>
@@ -4872,18 +4940,18 @@ function openEditModal(
 
 
   /*
+    ============================================================
     CROP
 
-    We DO NOT reuse the existing select.
+    Keep the ORIGINAL FarmVista dropdown.
+    Only rebuild its options.
 
-    It is destroyed and replaced with a brand-new native select
-    containing the Firestore crop as the selected/defaultSelected
-    option.
-
-    Example:
-      Firestore crop = Soybeans
-      New select = Soybeans selected
+    Firestore examples:
+      "Corn"
+      "Soybeans"
+    ============================================================
   */
+
   const cropSelect =
     rebuildEditStaticSelect(
 
@@ -4894,10 +4962,12 @@ function openEditModal(
           "",
           "Select crop"
         ],
+
         [
           "Corn",
           "Corn"
         ],
+
         [
           "Soybeans",
           "Soybeans"
@@ -4910,14 +4980,20 @@ function openEditModal(
 
 
   /*
+    ============================================================
     CONTRACT TYPE
 
-    Same method as Crop.
+    Keep the ORIGINAL FarmVista dropdown.
+    Only rebuild its options.
 
-    Example:
-      Firestore contractType = Basis
-      New select = Basis selected
+    Firestore examples:
+      "Cash"
+      "Basis"
+      "Futures"
+      "Program"
+    ============================================================
   */
+
   const typeSelect =
     rebuildEditStaticSelect(
 
@@ -4928,18 +5004,22 @@ function openEditModal(
           "",
           "Select type"
         ],
+
         [
           "Cash",
           "Cash"
         ],
+
         [
           "Basis",
           "Basis"
         ],
+
         [
           "Futures",
           "Futures"
         ],
+
         [
           "Program",
           "Program"
@@ -4952,8 +5032,11 @@ function openEditModal(
 
 
   /*
-    Contract Number
+    ============================================================
+    CONTRACT NUMBER
+    ============================================================
   */
+
   $("edit-contract-number")
     .value =
       clean(
@@ -4962,8 +5045,11 @@ function openEditModal(
 
 
   /*
-    Contract Date
+    ============================================================
+    CONTRACT DATE
+    ============================================================
   */
+
   $("edit-contract-date")
     .value =
       clean(
@@ -4972,24 +5058,33 @@ function openEditModal(
 
 
   /*
-    Bushels
+    ============================================================
+    CONTRACT BUSHELS
+    ============================================================
   */
+
   setEditBushels(
     contract.contractBushels
   );
 
 
   /*
-    Price
+    ============================================================
+    PRICE
+    ============================================================
   */
+
   setEditPrice(
     contract.pricePerBushel
   );
 
 
   /*
-    Delivery Location
+    ============================================================
+    DELIVERY LOCATION
+    ============================================================
   */
+
   populateLocationPicker(
 
     buyer
@@ -5008,14 +5103,23 @@ function openEditModal(
 
 
   /*
-    Delivery Dates
+    ============================================================
+    DELIVERY START
+    ============================================================
   */
+
   $("edit-delivery-start")
     .value =
       clean(
         contract.deliveryStart
       );
 
+
+  /*
+    ============================================================
+    DELIVERY END
+    ============================================================
+  */
 
   $("edit-delivery-end")
     .value =
@@ -5025,8 +5129,11 @@ function openEditModal(
 
 
   /*
-    Assigned Bushels
+    ============================================================
+    ASSIGNED BUSHELS
+    ============================================================
   */
+
   $("edit-delivered")
     .value =
       formatBushels(
@@ -5035,14 +5142,23 @@ function openEditModal(
 
 
   /*
-    Notes
+    ============================================================
+    NOTES
+    ============================================================
   */
+
   $("edit-notes")
     .value =
       clean(
         contract.notes
       );
 
+
+  /*
+    ============================================================
+    CALCULATED VALUES
+    ============================================================
+  */
 
   updateEditDateLimits();
 
@@ -5051,18 +5167,25 @@ function openEditModal(
 
 
   /*
-    This log is intentional.
+    ============================================================
+    DEBUG
 
-    For your ADM example it should show:
+    Bartlett contract should report:
+      firestoreCrop = Corn
+      selectedCrop = Corn
+      firestoreType = Cash
+      selectedType = Cash
 
-      firestoreCrop: "Soybeans"
-      selectCrop: "Soybeans"
-
-      firestoreContractType: "Basis"
-      selectContractType: "Basis"
+    ADM contract should report:
+      firestoreCrop = Soybeans
+      selectedCrop = Soybeans
+      firestoreType = Basis
+      selectedType = Basis
+    ============================================================
   */
+
   console.log(
-    "[Grain Contracts] Edit modal restore:",
+    "[Grain Contracts] Edit restore:",
     {
 
       contractNumber:
@@ -5071,26 +5194,29 @@ function openEditModal(
       firestoreCrop:
         contract.crop,
 
-      selectCrop:
+      selectedCrop:
         cropSelect
-          ?.value ??
-        null,
+          ?.value ||
+        "",
 
-      firestoreContractType:
+      firestoreType:
         contract.contractType,
 
-      selectContractType:
+      selectedType:
         typeSelect
-          ?.value ??
-        null
+          ?.value ||
+        ""
 
     }
   );
 
 
   /*
-    Open the modal ONLY after every field has been rebuilt.
+    ============================================================
+    OPEN MODAL LAST
+    ============================================================
   */
+
   $("edit-modal")
     .classList
     .add(
