@@ -1927,128 +1927,51 @@ section[data-hide-for-now]{ display:none !important; }
             </div>
           </div>
 
-<div class="loadout-field full">
-  <label for="loadout-destination-button">Destination / Elevator</label>
-
-  <div
-    id="loadout-destination-picker"
-    class="loadout-source-picker"
-  >
-
-    <button
-      id="loadout-destination-button"
-      type="button"
-      class="loadout-source-button"
-      aria-haspopup="listbox"
-      aria-expanded="false"
-    >
-      <span id="loadout-destination-button-text">
-        Select destination
-      </span>
-    </button>
-
-    <div
-      id="loadout-destination-menu"
-      class="loadout-source-menu"
-      role="listbox"
-      aria-label="Destination or elevator"
-    ></div>
-
-    <input
-      id="loadout-destination"
-      type="hidden"
-      value=""
-    >
-
-  </div>
 <div class="loadout-field">
-  <label for="loadout-customer-button">Sold Under / Customer</label>
-
-  <div
-    id="loadout-customer-picker"
-    class="loadout-source-picker"
-  >
-
-    <button
-      id="loadout-customer-button"
-      type="button"
-      class="loadout-source-button"
-      aria-haspopup="listbox"
-      aria-expanded="false"
-    >
-      <span id="loadout-customer-button-text">
-        Select customer
-      </span>
-    </button>
-
-    <div
-      id="loadout-customer-menu"
-      class="loadout-source-menu"
-      role="listbox"
-      aria-label="Sold under customer"
-    ></div>
-
-    <input
-      id="loadout-customer"
-      type="hidden"
-      value=""
-    >
-
-  </div>
-</div>
-
-          <div class="loadout-field">
             <label for="loadout-crop">Crop</label>
-            <select
-              id="loadout-crop"
-              class="loadout-select"
-              required
-            >
+            <select id="loadout-crop" class="loadout-select" required>
               <option value="">Select crop</option>
-              <option value="Corn">Corn</option>
-              <option value="Soybeans">Soybeans</option>
-              <option value="Wheat">Wheat</option>
             </select>
           </div>
 
-
           <div class="loadout-field full">
             <label for="loadout-source-button">Grain Source</label>
-
             <div id="loadout-source-picker" class="loadout-source-picker">
-              <button
-                id="loadout-source-button"
-                type="button"
-                class="loadout-source-button"
-                aria-haspopup="listbox"
-                aria-expanded="false"
-              >
-                <span id="loadout-source-button-text">Select bin or grain bag</span>
+              <button id="loadout-source-button" type="button" class="loadout-source-button" aria-haspopup="listbox" aria-expanded="false">
+                <span id="loadout-source-button-text">Select crop first</span>
               </button>
-
-              <div
-                id="loadout-source-menu"
-                class="loadout-source-menu"
-                role="listbox"
-                aria-label="Grain source"
-              ></div>
-
+              <div id="loadout-source-menu" class="loadout-source-menu" role="listbox" aria-label="Grain source"></div>
               <input id="loadout-source" type="hidden" value="">
             </div>
+            <div class="loadout-help">Only bins and grain bags with available inventory for the selected crop are shown.</div>
+          </div>
 
-            <div class="loadout-help">
-              Select a matching contract first. Then FarmVista shows only bins and grain bags with available inventory for that contract crop.
+          <div class="loadout-field full">
+            <label for="loadout-destination-button">Destination / Elevator</label>
+            <div id="loadout-destination-picker" class="loadout-source-picker">
+              <button id="loadout-destination-button" type="button" class="loadout-source-button" aria-haspopup="listbox" aria-expanded="false">
+                <span id="loadout-destination-button-text">Select grain source first</span>
+              </button>
+              <div id="loadout-destination-menu" class="loadout-source-menu" role="listbox" aria-label="Destination or elevator"></div>
+              <input id="loadout-destination" type="hidden" value="">
+            </div>
+          </div>
+
+          <div class="loadout-field full">
+            <label for="loadout-customer-button">Sold Under / Customer</label>
+            <div id="loadout-customer-picker" class="loadout-source-picker">
+              <button id="loadout-customer-button" type="button" class="loadout-source-button" aria-haspopup="listbox" aria-expanded="false">
+                <span id="loadout-customer-button-text">Select destination first</span>
+              </button>
+              <div id="loadout-customer-menu" class="loadout-source-menu" role="listbox" aria-label="Sold under customer"></div>
+              <input id="loadout-customer" type="hidden" value="">
             </div>
           </div>
 
           <div class="loadout-field full">
             <label for="loadout-contract">Contract</label>
-            <select
-              id="loadout-contract"
-              class="loadout-select"
-              disabled
-            >
-              <option value="">Select customer and crop first</option>
+            <select id="loadout-contract" class="loadout-select" disabled>
+              <option value="">Select sold under first</option>
             </select>
             <div id="loadout-contract-note" class="loadout-contract-note"></div>
           </div>
@@ -6694,31 +6617,26 @@ crop: $lo("loadout-crop"),
     return loState.contracts.filter(loContractIsOpen);
   }
 
+  function loContractsForSelectedCrop(){
+    const crop = loNorm(loEls.crop?.value);
+    if (!crop) return [];
+    return loOpenContracts().filter(contract => loContractCrop(contract) === crop);
+  }
+
   function loContractsForDestination(){
     const location = loSelectedLocation();
     if (!location) return [];
-
-    return loOpenContracts().filter(contract =>
-      loContractMatchesLocation(contract,location)
-    );
+    return loContractsForSelectedCrop().filter(contract => loContractMatchesLocation(contract,location));
   }
 
   function loContractsForCustomer(){
     const customerId = loClean(loEls.customer?.value);
     if (!customerId) return [];
-
-    return loContractsForDestination().filter(contract =>
-      loContractCustomerId(contract) === customerId
-    );
+    return loContractsForDestination().filter(contract => loContractCustomerId(contract) === customerId);
   }
 
   function loContractsForCrop(){
-    const crop = loNorm(loEls.crop?.value);
-    if (!crop) return [];
-
-    return loContractsForCustomer().filter(contract =>
-      loContractCrop(contract) === crop
-    );
+    return loContractsForCustomer();
   }
 
   function loContractIsOpen(contract){
@@ -7294,33 +7212,37 @@ function loChooseDestinationValue(
 
 
 function loRenderDestinationPicker(){
+  if (!loEls.destinationMenu || !loEls.destinationButton) return;
 
-  if (!loEls.destinationMenu) {
+  loEls.destinationMenu.innerHTML = "";
+  const crop = loNorm(loEls.crop?.value);
+  const source = loSelectedSource();
+  const ready = !!crop && !!source;
+  loEls.destinationButton.disabled = !ready;
+
+  if (!ready) {
+    loEls.destination.value = "";
+    loEls.destinationButtonText.textContent = crop ? "Select grain source first" : "Select crop first";
+    const empty = document.createElement("div");
+    empty.className = "loadout-source-empty";
+    empty.textContent = crop ? "Select a grain source first." : "Select a crop first.";
+    loEls.destinationMenu.appendChild(empty);
     return;
   }
 
-  loEls.destinationMenu.innerHTML = "";
+  const cropContracts = loContractsForSelectedCrop();
+  const eligibleLocations = loState.locations.filter(location =>
+    cropContracts.some(contract => loContractMatchesLocation(contract,location))
+  ).sort((a,b) => `${a.buyerName} ${a.locationName}`.localeCompare(`${b.buyerName} ${b.locationName}`,undefined,{numeric:true,sensitivity:"base"}));
 
-  const openContracts = loOpenContracts();
-
-  const eligibleLocations = loState.locations
-    .filter(location =>
-      openContracts.some(contract =>
-        loContractMatchesLocation(contract,location)
-      )
-    )
-    .sort((a,b) => {
-      const aText = `${a.buyerName} ${a.locationName}`;
-      const bText = `${b.buyerName} ${b.locationName}`;
-      return aText.localeCompare(bText,undefined,{numeric:true,sensitivity:"base"});
-    });
+  if (loEls.destination.value && !eligibleLocations.some(x => x.id === loEls.destination.value)) loEls.destination.value = "";
 
   if (!eligibleLocations.length) {
+    loEls.destinationButtonText.textContent = "No matching destination";
     const empty = document.createElement("div");
     empty.className = "loadout-source-empty";
-    empty.textContent = "No destinations have an open grain contract.";
+    empty.textContent = `No destination has an open ${loClean(loEls.crop.value)} contract.`;
     loEls.destinationMenu.appendChild(empty);
-    loSyncDestinationButton();
     return;
   }
 
@@ -7329,23 +7251,12 @@ function loRenderDestinationPicker(){
     button.type = "button";
     button.className = "loadout-source-choice";
     button.dataset.destinationValue = location.id;
-
-    const buyer = location.buyerName
-      ? `${location.buyerName} — `
-      : "";
-
-    button.textContent = `${buyer}${location.locationName}`;
-
-    button.addEventListener("click",() => {
-      loChooseDestinationValue(location.id);
-    });
-
+    button.textContent = `${location.buyerName ? `${location.buyerName} — ` : ""}${location.locationName}`;
+    button.addEventListener("click",() => loChooseDestinationValue(location.id));
     loEls.destinationMenu.appendChild(button);
   });
-
   loSyncDestinationButton();
 }
-
 
 function loOpenDestinationMenu(){
   loRenderDestinationPicker();
@@ -7453,20 +7364,14 @@ function loChooseCustomerValue(
 
 
 function loRenderCustomerPicker(){
-
-  if (!loEls.customerMenu || !loEls.customerButton) {
-    return;
-  }
-
+  if (!loEls.customerMenu || !loEls.customerButton) return;
   loEls.customerMenu.innerHTML = "";
 
   const location = loSelectedLocation();
   loEls.customerButton.disabled = !location;
-
   if (!location) {
     loEls.customer.value = "";
     loEls.customerButtonText.textContent = "Select destination first";
-
     const empty = document.createElement("div");
     empty.className = "loadout-source-empty";
     empty.textContent = "Select a destination first.";
@@ -7474,51 +7379,30 @@ function loRenderCustomerPicker(){
     return;
   }
 
-  const eligibleCustomerIds = new Set(
-    loContractsForDestination()
-      .map(loContractCustomerId)
-      .filter(Boolean)
-  );
+  const eligibleIds = new Set(loContractsForDestination().map(loContractCustomerId).filter(Boolean));
+  const eligible = loState.customers.filter(c => eligibleIds.has(c.id)).sort((a,b)=>a.name.localeCompare(b.name));
+  if (loEls.customer.value && !eligibleIds.has(loEls.customer.value)) loEls.customer.value = "";
 
-  const eligibleCustomers = loState.customers
-    .filter(customer => eligibleCustomerIds.has(customer.id))
-    .sort((a,b) => a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:"base"}));
-
-  if (!eligibleCustomers.length) {
-    loEls.customer.value = "";
+  if (!eligible.length) {
     loEls.customerButtonText.textContent = "No sold-under match";
-
     const empty = document.createElement("div");
     empty.className = "loadout-source-empty";
-    empty.textContent = "No sold-under customer has an open contract for this destination.";
+    empty.textContent = "No sold-under customer has an open contract for this crop and destination.";
     loEls.customerMenu.appendChild(empty);
     return;
   }
 
-  if (
-    loEls.customer.value &&
-    !eligibleCustomerIds.has(loEls.customer.value)
-  ) {
-    loEls.customer.value = "";
-  }
-
-  eligibleCustomers.forEach(customer => {
+  eligible.forEach(customer => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "loadout-source-choice";
     button.dataset.customerValue = customer.id;
     button.textContent = customer.name;
-
-    button.addEventListener("click",() => {
-      loChooseCustomerValue(customer.id);
-    });
-
+    button.addEventListener("click",() => loChooseCustomerValue(customer.id));
     loEls.customerMenu.appendChild(button);
   });
-
   loSyncCustomerButton();
 }
-
 
 function loOpenCustomerMenu(){
   if (loEls.customerButton?.disabled) return;
@@ -7531,242 +7415,78 @@ function loOpenCustomerMenu(){
 
   function loRenderCropOptions(preferredValue=""){
     if (!loEls.crop) return;
-
-    const destination = loSelectedLocation();
-    const customerId = loClean(loEls.customer?.value);
     const wanted = loNorm(preferredValue || loEls.crop.value);
-
+    const inventoryCrops = new Set([...loState.binSources,...loState.bagSources].map(x=>loNorm(x.crop)).filter(Boolean));
+    const contractCrops = new Map();
+    loOpenContracts().forEach(contract => {
+      const raw = loClean(contract.crop || contract.commodity);
+      if (raw) contractCrops.set(loNorm(raw),raw);
+    });
+    const crops = [...contractCrops.entries()].filter(([norm])=>inventoryCrops.has(norm)).map(([,raw])=>raw).sort((a,b)=>a.localeCompare(b));
     loEls.crop.innerHTML = "";
-
     const blank = document.createElement("option");
     blank.value = "";
-
-    if (!destination) {
-      blank.textContent = "Select destination first";
-      loEls.crop.disabled = true;
-      loEls.crop.appendChild(blank);
-      return;
-    }
-
-    if (!customerId) {
-      blank.textContent = "Select sold under first";
-      loEls.crop.disabled = true;
-      loEls.crop.appendChild(blank);
-      return;
-    }
-
-    const crops = [...new Set(
-      loContractsForCustomer()
-        .map(contract => loClean(contract.crop || contract.commodity))
-        .filter(Boolean)
-    )].sort((a,b) => a.localeCompare(b,undefined,{numeric:true,sensitivity:"base"}));
-
-    blank.textContent = crops.length
-      ? "Select crop"
-      : "No crop with open contract";
-
+    blank.textContent = crops.length ? "Select crop" : "No crop has inventory + open contract";
     loEls.crop.appendChild(blank);
     loEls.crop.disabled = !crops.length;
-
-    crops.forEach(crop => {
-      const option = document.createElement("option");
-      option.value = crop;
-      option.textContent = crop;
-      loEls.crop.appendChild(option);
-    });
-
-    const match = Array.from(loEls.crop.options).find(option =>
-      option.value && loNorm(option.value) === wanted
-    );
-
-    loEls.crop.value = match?.value || "";
+    crops.forEach(crop => { const o=document.createElement("option"); o.value=crop; o.textContent=crop; loEls.crop.appendChild(o); });
+    const match=[...loEls.crop.options].find(o=>o.value&&loNorm(o.value)===wanted);
+    loEls.crop.value=match?.value||"";
   }
-
 
   function loCurrentSourceItems(){
     const crop = loNorm(loEls.crop?.value);
-    const contract = loSelectedContract();
-
-    if (!contract || !crop) {
-      return [];
-    }
-
-    const matchCrop = item =>
-      !!item.crop && loNorm(item.crop) === crop;
-
-    return [
-      ...loState.binSources.filter(matchCrop),
-      ...loState.bagSources.filter(matchCrop)
-    ];
+    if (!crop) return [];
+    const matchCrop = item => !!item.crop && loNorm(item.crop) === crop;
+    return [...loState.binSources.filter(matchCrop),...loState.bagSources.filter(matchCrop)];
   }
-
 
   function loSelectedSource(){
     const value = loClean(loEls.source?.value);
-
-    return loCurrentSourceItems().find(
-      item => item.value === value
-    ) || [
-      ...loState.binSources,
-      ...loState.bagSources
-    ].find(item => item.value === value) || null;
+    return loCurrentSourceItems().find(item=>item.value===value) || [...loState.binSources,...loState.bagSources].find(item=>item.value===value) || null;
   }
 
-  function loCloseSourceMenu(){
-    loEls.sourceMenu?.classList.remove("open");
-    loEls.sourceButton?.setAttribute("aria-expanded","false");
-  }
+  function loCloseSourceMenu(){ loEls.sourceMenu?.classList.remove("open"); loEls.sourceButton?.setAttribute("aria-expanded","false"); }
 
   function loSyncSourceButton(){
     if (!loEls.sourceButtonText || !loEls.source) return;
-
-    const selected = loSelectedSource();
-
-    loEls.sourceButtonText.textContent =
-      selected?.label || "Select bin or grain bag";
-
-    loEls.sourceMenu
-      ?.querySelectorAll(".loadout-source-choice")
-      .forEach(button => {
-        button.classList.toggle(
-          "selected",
-          button.dataset.sourceValue === loEls.source.value
-        );
-      });
+    const selected=loSelectedSource();
+    loEls.sourceButtonText.textContent = selected?.label || (loEls.crop?.value ? "Select bin or grain bag" : "Select crop first");
+    loEls.sourceMenu?.querySelectorAll(".loadout-source-choice").forEach(button=>button.classList.toggle("selected",button.dataset.sourceValue===loEls.source.value));
   }
 
   function loChooseSourceValue(value){
     if (!loEls.source) return;
-
-    loEls.source.value = value || "";
+    loEls.source.value=value||"";
     loSyncSourceButton();
     loCloseSourceMenu();
-
-    loEls.source.dispatchEvent(
-      new Event("change",{bubbles:true})
-    );
+    loEls.source.dispatchEvent(new Event("change",{bubbles:true}));
   }
 
   function loRenderSourceSelector(searchText=""){
     if (!loEls.sourceMenu || !loEls.source) return;
-
-    const contractReady = !!loSelectedContract();
-    if (loEls.sourceButton) {
-      loEls.sourceButton.disabled = !contractReady;
+    const cropReady=!!loNorm(loEls.crop?.value);
+    if (loEls.sourceButton) loEls.sourceButton.disabled=!cropReady;
+    if (!cropReady) {
+      loEls.source.value=""; loEls.sourceMenu.innerHTML="";
+      const empty=document.createElement("div"); empty.className="loadout-source-empty"; empty.textContent="Select a crop first."; loEls.sourceMenu.appendChild(empty);
+      loSyncSourceButton(); return;
     }
-
-    if (!contractReady) {
-      loEls.source.value = "";
-      loEls.sourceMenu.innerHTML = "";
-
-      const empty = document.createElement("div");
-      empty.className = "loadout-source-empty";
-      empty.textContent = "Select a matching contract first.";
-      loEls.sourceMenu.appendChild(empty);
-
-      if (loEls.sourceButtonText) {
-        loEls.sourceButtonText.textContent = "Select contract first";
-      }
-      return;
-    }
-
-    const selectedValue = loClean(loEls.source.value);
-    const allItems = loCurrentSourceItems();
-    const search = loNorm(searchText);
-
-    if (
-      selectedValue &&
-      ![...loState.binSources,...loState.bagSources]
-        .some(item => item.value === selectedValue)
-    ) {
-      loEls.source.value = "";
-    }
-
-    loEls.sourceMenu.innerHTML = "";
-
-    const searchWrap = document.createElement("div");
-    searchWrap.className = "loadout-source-search-wrap";
-
-    const searchInput = document.createElement("input");
-    searchInput.type = "search";
-    searchInput.className = "loadout-source-search";
-    searchInput.placeholder = "Search bin site, bin, field, crop…";
-    searchInput.autocomplete = "off";
-    searchInput.value = searchText || "";
-
-    searchWrap.appendChild(searchInput);
-    loEls.sourceMenu.appendChild(searchWrap);
-
-    const renderGroup = (title, items) => {
-      const filtered = items.filter(item => {
-        if (!search) return true;
-        return loNorm(
-          `${item.label} ${item.crop || ""} ${item.searchText || ""}`
-        ).includes(search);
-      });
-
-      if (!filtered.length) return;
-
-      const header = document.createElement("div");
-      header.className = "loadout-source-group";
-      header.textContent = title;
-      loEls.sourceMenu.appendChild(header);
-
-      filtered.forEach(item => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "loadout-source-choice";
-        button.dataset.sourceValue = item.value;
-        button.textContent = item.label;
-
-        button.addEventListener("click",() => {
-          loChooseSourceValue(item.value);
-        });
-
-        loEls.sourceMenu.appendChild(button);
-      });
-    };
-
-    const bins = allItems.filter(item => item.type === "bin");
-    const bags = allItems.filter(item => item.type === "grain_bag");
-
-    renderGroup("Bin Sites", bins);
-    renderGroup("Grain Bags", bags);
-
-    if (!bins.length && !bags.length) {
-      const empty = document.createElement("div");
-      empty.className = "loadout-source-empty";
-      empty.textContent =
-        loEls.crop?.value
-          ? "No grain source with available inventory matches this crop."
-          : "No grain sources with available inventory were found.";
-      loEls.sourceMenu.appendChild(empty);
-    }
-
-    searchInput.addEventListener("input",() => {
-      const caretValue = searchInput.value;
-      loRenderSourceSelector(caretValue);
-      const replacement = loEls.sourceMenu.querySelector(".loadout-source-search");
-      replacement?.focus();
-      replacement?.setSelectionRange(caretValue.length,caretValue.length);
-    });
-
+    const allItems=loCurrentSourceItems(); const search=loNorm(searchText);
+    if (loEls.source.value && !allItems.some(x=>x.value===loEls.source.value)) loEls.source.value="";
+    loEls.sourceMenu.innerHTML="";
+    const wrap=document.createElement("div"); wrap.className="loadout-source-search-wrap";
+    const input=document.createElement("input"); input.type="search"; input.className="loadout-source-search"; input.placeholder="Search bin site, bin, field…"; input.autocomplete="off"; input.value=searchText||""; wrap.appendChild(input); loEls.sourceMenu.appendChild(wrap);
+    const renderGroup=(title,items)=>{ const filtered=items.filter(item=>!search||loNorm(`${item.label} ${item.searchText||""}`).includes(search)); if(!filtered.length)return; const h=document.createElement("div"); h.className="loadout-source-group"; h.textContent=title; loEls.sourceMenu.appendChild(h); filtered.forEach(item=>{const b=document.createElement("button");b.type="button";b.className="loadout-source-choice";b.dataset.sourceValue=item.value;b.textContent=item.label;b.addEventListener("click",()=>loChooseSourceValue(item.value));loEls.sourceMenu.appendChild(b);}); };
+    renderGroup("Bin Sites",allItems.filter(x=>x.type==="bin")); renderGroup("Grain Bags",allItems.filter(x=>x.type==="grain_bag"));
+    if(!allItems.length){const empty=document.createElement("div");empty.className="loadout-source-empty";empty.textContent="No grain source with available inventory matches this crop.";loEls.sourceMenu.appendChild(empty);}
+    input.addEventListener("input",()=>{const v=input.value;loRenderSourceSelector(v);const r=loEls.sourceMenu.querySelector(".loadout-source-search");r?.focus();r?.setSelectionRange(v.length,v.length);});
     loSyncSourceButton();
   }
 
   function loOpenSourceMenu(){
-    if (!loSelectedContract()) {
-      loShowMessage("Select a matching contract before choosing grain inventory.","error");
-      return;
-    }
-
-    loRenderSourceSelector("");
-    loEls.sourceMenu?.classList.add("open");
-    loEls.sourceButton?.setAttribute("aria-expanded","true");
-    setTimeout(
-      () => loEls.sourceMenu?.querySelector(".loadout-source-search")?.focus(),
-      0
-    );
+    if (!loEls.crop?.value) { loShowMessage("Select the crop first.","error"); return; }
+    loRenderSourceSelector(""); loEls.sourceMenu?.classList.add("open"); loEls.sourceButton?.setAttribute("aria-expanded","true"); setTimeout(()=>loEls.sourceMenu?.querySelector(".loadout-source-search")?.focus(),0);
   }
 
   function loApplyPreloadUI(){
@@ -7820,75 +7540,24 @@ function loOpenCustomerMenu(){
   }
 
   function loRenderContracts(preferredContractId=""){
-    const destination = loSelectedLocation();
-    const customerId = loClean(loEls.customer?.value);
-    const crop = loNorm(loEls.crop?.value);
-    const wantedContractId = loClean(preferredContractId || loEls.contract?.value);
-
-    loEls.contract.innerHTML = "";
-    loEls.contractNote.className = "loadout-contract-note";
-    loEls.contractNote.textContent = "";
-
-    const option = document.createElement("option");
-    option.value = "";
-
-    if (!destination) {
-      loEls.contract.disabled = true;
-      option.textContent = "Select destination first";
-      loEls.contract.appendChild(option);
-      return;
-    }
-
-    if (!customerId) {
-      loEls.contract.disabled = true;
-      option.textContent = "Select sold under first";
-      loEls.contract.appendChild(option);
-      return;
-    }
-
-    if (!crop) {
-      loEls.contract.disabled = true;
-      option.textContent = "Select crop first";
-      loEls.contract.appendChild(option);
-      return;
-    }
-
-    const matches = loContractsForCrop()
-      .sort((a,b) => loContractLabel(a).localeCompare(loContractLabel(b)));
-
-    if (!matches.length) {
-      loEls.contract.disabled = true;
-      option.textContent = "No open matching contracts";
-      loEls.contract.appendChild(option);
-
-      loEls.contractNote.className = "loadout-contract-note warn";
-      loEls.contractNote.textContent =
-        "No open contract matches this destination, sold-under customer, and crop.";
-      return;
-    }
-
-    loEls.contract.disabled = false;
-    option.textContent = matches.length === 1
-      ? "Select contract"
-      : `Select one of ${matches.length} contracts`;
-    loEls.contract.appendChild(option);
-
-    matches.forEach(contract => {
-      const contractOption = document.createElement("option");
-      contractOption.value = contract.id;
-      contractOption.textContent = loContractLabel(contract);
-      loEls.contract.appendChild(contractOption);
-    });
-
-    if (wantedContractId && matches.some(contract => contract.id === wantedContractId)) {
-      loEls.contract.value = wantedContractId;
-    }
-
-    loEls.contractNote.className = "loadout-contract-note good";
-    loEls.contractNote.textContent =
-      `${matches.length} open contract${matches.length === 1 ? "" : "s"} match destination + sold under + crop.`;
+    const destination=loSelectedLocation();
+    const customerId=loClean(loEls.customer?.value);
+    const crop=loNorm(loEls.crop?.value);
+    const source=loSelectedSource();
+    const wanted=loClean(preferredContractId||loEls.contract?.value);
+    loEls.contract.innerHTML=""; loEls.contractNote.className="loadout-contract-note"; loEls.contractNote.textContent="";
+    const option=document.createElement("option"); option.value="";
+    if(!crop){loEls.contract.disabled=true;option.textContent="Select crop first";loEls.contract.appendChild(option);return;}
+    if(!source){loEls.contract.disabled=true;option.textContent="Select grain source first";loEls.contract.appendChild(option);return;}
+    if(!destination){loEls.contract.disabled=true;option.textContent="Select destination first";loEls.contract.appendChild(option);return;}
+    if(!customerId){loEls.contract.disabled=true;option.textContent="Select sold under first";loEls.contract.appendChild(option);return;}
+    const matches=loContractsForCustomer().sort((a,b)=>loContractLabel(a).localeCompare(loContractLabel(b)));
+    if(!matches.length){loEls.contract.disabled=true;option.textContent="No open matching contracts";loEls.contract.appendChild(option);loEls.contractNote.className="loadout-contract-note warn";loEls.contractNote.textContent="No open contract matches this crop, destination, and sold-under customer.";return;}
+    loEls.contract.disabled=false;option.textContent=matches.length===1?"Select contract":`Select one of ${matches.length} contracts`;loEls.contract.appendChild(option);
+    matches.forEach(contract=>{const o=document.createElement("option");o.value=contract.id;o.textContent=loContractLabel(contract);loEls.contract.appendChild(o);});
+    if(wanted&&matches.some(c=>c.id===wanted))loEls.contract.value=wanted;
+    loEls.contractNote.className="loadout-contract-note good";loEls.contractNote.textContent=`${matches.length} possible open contract${matches.length===1?"":"s"}.`;
   }
-
 
   function loPreviewNextNumber(targetDateISO = loLocalISO()){
     const prefix = loDayKey(targetDateISO);
@@ -7930,11 +7599,11 @@ function loResetModalBase(){
   loCloseSourceMenu();
   loResetAddDriverPanel();
   loRenderSubdriverSelect();
+  loRenderCropOptions();
+  loRenderSourceSelector("");
   loRenderDestinationPicker();
   loRenderCustomerPicker();
-  loRenderCropOptions();
   loRenderContracts();
-  loRenderSourceSelector("");
 
   loState.etaAt = null;
   loState.etaMinutes = null;
@@ -9660,7 +9329,7 @@ loState.drivers = employeeSnapshot.docs
       loShowMessage(
         needsSubDriver
           ? "Select or add a driver for this trucking subcontractor."
-          : "Complete Destination → Sold Under → Crop → Contract → Grain Source. Every choice must match an open contract.",
+          : "Complete Crop → Grain Source → Destination → Sold Under → Contract. Every choice must match.",
         "error"
       );
       return;
@@ -10309,14 +9978,8 @@ loEls.addSubdriverBtn?.addEventListener("click",loOpenAddDriverPanel);
   loEls.subdriverSave?.addEventListener("click",loSaveSubcontractorDriver);
 
   loEls.customer?.addEventListener("change",() => {
-    loEls.crop.value = "";
     loEls.contract.value = "";
-    loEls.source.value = "";
-
-    loRenderCropOptions();
     loRenderContracts();
-    loRenderSourceSelector("");
-    loSyncSourceButton();
   });
 
   loEls.preload?.addEventListener("change",() => {
@@ -10372,32 +10035,39 @@ loEls.addSubdriverBtn?.addEventListener("click",loOpenAddDriverPanel);
   loEls.resendBtn?.addEventListener("click",loResendCurrentLoad);
 
   loEls.crop?.addEventListener("change",() => {
+    loEls.source.value = "";
+    loEls.destination.value = "";
+    loEls.customer.value = "";
     loEls.contract.value = "";
-    loEls.source.value = "";
-
+    loRenderSourceSelector("");
+    loRenderDestinationPicker();
+    loRenderCustomerPicker();
     loRenderContracts();
-    loRenderSourceSelector("");
     loSyncSourceButton();
+    loSyncDestinationButton();
+    loSyncCustomerButton();
   });
 
-  loEls.contract?.addEventListener("change",() => {
-    loEls.source.value = "";
-    loRenderSourceSelector("");
-    loSyncSourceButton();
+  loEls.source?.addEventListener("change",() => {
+    loEls.destination.value = "";
+    loEls.customer.value = "";
+    loEls.contract.value = "";
+    loRenderDestinationPicker();
+    loRenderCustomerPicker();
+    loRenderContracts();
+    loSyncDestinationButton();
+    loSyncCustomerButton();
   });
+
+  loEls.contract?.addEventListener("change",() => {});
 
   loEls.destination?.addEventListener("change", async () => {
     loEls.customer.value = "";
-    loEls.crop.value = "";
     loEls.contract.value = "";
-    loEls.source.value = "";
 
     loRenderCustomerPicker();
-    loRenderCropOptions();
     loRenderContracts();
-    loRenderSourceSelector("");
     loSyncCustomerButton();
-    loSyncSourceButton();
 
     loEls.saveBtn.disabled = true;
     loEls.eta.value = "Calculating…";
