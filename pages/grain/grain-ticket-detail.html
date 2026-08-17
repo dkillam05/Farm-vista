@@ -522,14 +522,112 @@
       color:#2F6C3C;
     }
 
-    /* ==========================================================
-       TICKET IMAGE VIEWER
-    ========================================================== */
+/* ==========================================================
+   TICKET IMAGE VIEWER
+========================================================== */
 
-    .image-card{
-      position:sticky;
-      top:14px;
-    }
+/*
+  Keep the ENTIRE right-side ticket card beside the form
+  while scrolling down the page.
+*/
+.layout > aside{
+  position:sticky;
+  top:14px;
+  align-self:start;
+  min-width:0;
+}
+
+.image-card{
+  position:relative;
+  margin:0;
+}
+
+
+/*
+  Ticket viewer:
+  - Wheel = zoom
+  - Click + drag = pan
+  - No visible scrollbars
+*/
+.ticket-image-wrap{
+  width:100%;
+
+  height:min(72vh,760px);
+  min-height:440px;
+
+  position:relative;
+
+  overflow:auto;
+
+  border:1px solid var(--border);
+  border-radius:12px;
+
+  background:#111;
+
+  overscroll-behavior:contain;
+
+  touch-action:none;
+
+  cursor:grab;
+
+  /*
+    Keep scrolling functionality but hide
+    the ugly browser scrollbars.
+  */
+  scrollbar-width:none;
+  -ms-overflow-style:none;
+}
+
+.ticket-image-wrap::-webkit-scrollbar{
+  width:0;
+  height:0;
+  display:none;
+}
+
+.ticket-image-wrap.is-panning{
+  cursor:grabbing;
+  user-select:none;
+}
+
+.ticket-image-stage{
+  position:relative;
+
+  width:100%;
+  height:100%;
+
+  min-width:100%;
+  min-height:100%;
+}
+
+.ticket-image-stage img{
+  position:absolute;
+
+  left:50%;
+  top:50%;
+
+  display:block;
+
+  max-width:none;
+  max-height:none;
+
+  transform-origin:center center;
+
+  user-select:none;
+  -webkit-user-drag:none;
+
+  pointer-events:none;
+
+  transition:transform .12s ease;
+}
+
+
+/*
+  Do not animate the image while dragging it around.
+*/
+.ticket-image-wrap.is-panning
+.ticket-image-stage img{
+  transition:none;
+}
 
 
 .ticket-image-wrap{
@@ -702,16 +800,19 @@
     }
 
 
-    @media(max-width:900px){
+@media(max-width:900px){
 
-      .layout{
-        grid-template-columns:1fr;
-      }
+  .layout{
+    grid-template-columns:1fr;
+  }
 
+  .layout > aside{
+    position:static;
+  }
 
-      .image-card{
-        position:static;
-      }
+  .image-card{
+    position:relative;
+  }
 
 
       .ticket-image-wrap{
@@ -1627,7 +1728,25 @@ pinchStartDistance:
   0,
 
 pinchStartZoom:
-  1
+  1,
+
+imagePanning:
+  false,
+
+imagePanPointerId:
+  null,
+
+imagePanStartX:
+  0,
+
+imagePanStartY:
+  0,
+
+imagePanStartScrollLeft:
+  0,
+
+imagePanStartScrollTop:
+  0
 
     };
 
@@ -2432,6 +2551,200 @@ crop:
       );
 
     }
+
+ function handleTicketPointerDown(
+  event
+) {
+
+  if (
+    elements.ticketImage.hidden
+  ) {
+
+    return;
+
+  }
+
+
+  /*
+    Mouse: only left click.
+    Pen/touch pointer events are also supported.
+  */
+  if (
+    event.pointerType === "mouse" &&
+    event.button !== 0
+  ) {
+
+    return;
+
+  }
+
+
+  /*
+    Let the existing two-finger pinch code handle
+    touchscreen zooming instead of starting mouse-style pan.
+  */
+  if (
+    event.pointerType === "touch"
+  ) {
+
+    return;
+
+  }
+
+
+  event.preventDefault();
+
+
+  state.imagePanning =
+    true;
+
+
+  state.imagePanPointerId =
+    event.pointerId;
+
+
+  state.imagePanStartX =
+    event.clientX;
+
+
+  state.imagePanStartY =
+    event.clientY;
+
+
+  state.imagePanStartScrollLeft =
+    elements.ticketImageWrap.scrollLeft;
+
+
+  state.imagePanStartScrollTop =
+    elements.ticketImageWrap.scrollTop;
+
+
+  elements.ticketImageWrap.classList.add(
+    "is-panning"
+  );
+
+
+  try {
+
+    elements.ticketImageWrap.setPointerCapture(
+      event.pointerId
+    );
+
+  }
+  catch (
+    error
+  ) {
+
+    /* Pointer capture is optional. */
+
+  }
+
+}
+
+
+function handleTicketPointerMove(
+  event
+) {
+
+  if (
+    !state.imagePanning ||
+    event.pointerId !==
+      state.imagePanPointerId
+  ) {
+
+    return;
+
+  }
+
+
+  event.preventDefault();
+
+
+  const moveX =
+    event.clientX -
+    state.imagePanStartX;
+
+
+  const moveY =
+    event.clientY -
+    state.imagePanStartY;
+
+
+  elements.ticketImageWrap.scrollLeft =
+    state.imagePanStartScrollLeft -
+    moveX;
+
+
+  elements.ticketImageWrap.scrollTop =
+    state.imagePanStartScrollTop -
+    moveY;
+
+}
+
+
+function stopTicketPointerPan(
+  event
+) {
+
+  if (
+    !state.imagePanning
+  ) {
+
+    return;
+
+  }
+
+
+  if (
+    event?.pointerId !== undefined &&
+    state.imagePanPointerId !== null &&
+    event.pointerId !==
+      state.imagePanPointerId
+  ) {
+
+    return;
+
+  }
+
+
+  state.imagePanning =
+    false;
+
+
+  state.imagePanPointerId =
+    null;
+
+
+  elements.ticketImageWrap.classList.remove(
+    "is-panning"
+  );
+
+
+  try {
+
+    if (
+      event?.pointerId !== undefined &&
+      elements.ticketImageWrap.hasPointerCapture(
+        event.pointerId
+      )
+    ) {
+
+      elements.ticketImageWrap.releasePointerCapture(
+        event.pointerId
+      );
+
+    }
+
+  }
+  catch (
+    error
+  ) {
+
+    /* Nothing else needed. */
+
+  }
+
+}
 
     function touchDistance(
   touches
@@ -9191,6 +9504,40 @@ function renderLocationOptions() {
               false
           }
         );
+
+      elements.ticketImageWrap
+  .addEventListener(
+    "pointerdown",
+    handleTicketPointerDown
+  );
+
+
+elements.ticketImageWrap
+  .addEventListener(
+    "pointermove",
+    handleTicketPointerMove
+  );
+
+
+elements.ticketImageWrap
+  .addEventListener(
+    "pointerup",
+    stopTicketPointerPan
+  );
+
+
+elements.ticketImageWrap
+  .addEventListener(
+    "pointercancel",
+    stopTicketPointerPan
+  );
+
+
+elements.ticketImageWrap
+  .addEventListener(
+    "lostpointercapture",
+    stopTicketPointerPan
+  );
 
 
       elements.ticketImageWrap
