@@ -232,7 +232,15 @@
             </div>
           </div>
 
-          <div class="farm-field-row">
+          <div class="field">
+            <label for="siteType">Site Type</label>
+            <select id="siteType" class="select">
+              <option value="field" selected>Field-Linked Bin Site</option>
+              <option value="central">Central Elevator / No Field</option>
+            </select>
+          </div>
+
+          <div class="farm-field-row" id="addFarmFieldRow">
             <div class="field combo">
               <label for="farmBtn">Farm <span class="req">*</span></label>
               <div class="combo-anchor">
@@ -319,7 +327,15 @@
           <input id="editName" class="input" placeholder="Site name">
         </div>
 
-        <div class="farm-field-row">
+        <div class="field">
+          <label for="editSiteType">Site Type</label>
+          <select id="editSiteType" class="select">
+            <option value="field">Field-Linked Bin Site</option>
+            <option value="central">Central Elevator / No Field</option>
+          </select>
+        </div>
+
+        <div class="farm-field-row" id="editFarmFieldRow">
           <div class="field combo">
             <label for="editFarmBtn">Farm <span class="req">*</span></label>
             <div class="combo-anchor">
@@ -406,6 +422,8 @@
       const binsBox = $("bins");
       const addBtn = $("addBin"), saveBtn = $("save"), clearBtn = $("clear");
       const siteName = $("siteName");
+      const siteType = $("siteType");
+      const addFarmFieldRow = $("addFarmFieldRow");
 
       const binModal = $("binModal"), binMdClose = $("binMdClose"), binMdSave = $("binMdSave");
       const binBushels = $("binBushels"), binMdTitle = $("binMdTitle");
@@ -413,6 +431,8 @@
       const listBox = $("list");
       const modal = $("modal"), mdClose = $("mdClose"), mdSave = $("mdSave"), mdArchive = $("mdArchive"), mdDelete = $("mdDelete");
       const mdName = $("editName"), mdBinsBox = $("mdBins"), mdBinCountPill = $("mdBinCountPill"), mdBushelTotalPill = $("mdBushelTotalPill");
+      const editSiteType = $("editSiteType");
+      const editFarmFieldRow = $("editFarmFieldRow");
       const statusPill = $("statusPill"), usedPill = $("usedPill");
 
       let db = null;
@@ -575,6 +595,27 @@
         $("fieldBtn").textContent = "Select field…";
         addFarmCombo?.setItems(farmFieldState.farms);
         addFieldCombo?.setItems(farmFieldState.fields);
+      }
+
+      function syncAddSiteType(){
+        const isCentral = siteType.value === "central";
+        addFarmFieldRow.style.display = isCentral ? "none" : "grid";
+        if(isCentral){
+          resetAddFarmField();
+        }
+      }
+
+      function syncEditSiteType(){
+        const isCentral = editSiteType.value === "central";
+        editFarmFieldRow.style.display = isCentral ? "none" : "grid";
+        if(isCentral){
+          farmFieldState.editFarm = null;
+          farmFieldState.editField = null;
+          $("editFarmBtn").textContent = "Select farm…";
+          $("editFieldBtn").textContent = "Select field…";
+          editFarmCombo?.setItems(farmFieldState.farms);
+          editFieldCombo?.setItems(farmFieldState.fields);
+        }
       }
 
       function setEditFarm(farm){
@@ -806,8 +847,10 @@
 
       clearBtn.addEventListener("click", ()=>{
         siteName.value = "";
+        siteType.value = "field";
         addBins = [];
         resetAddFarmField();
+        syncAddSiteType();
         renderBins(addBins, binsBox, null, {});
         showErr("");
       });
@@ -842,8 +885,11 @@
           const pills = `
             <span class="pill">${binsCount} ${binsCount===1?'bin':'bins'}</span>
             <span class="pill">${fmtComma(it.totalBushels||0)} corn bu</span>
-            ${it.fieldName ? `<span class="pill">Field: ${escapeHTML(it.fieldName)}</span>` : `<span class="pill">Field not assigned</span>`}
-            ${it.farmName ? `<span class="pill">Farm: ${escapeHTML(it.farmName)}</span>` : ""}
+            ${(it.siteType === "central")
+              ? `<span class="pill">Central Elevator / No Field</span>`
+              : `${it.fieldName ? `<span class="pill">Field: ${escapeHTML(it.fieldName)}</span>` : `<span class="pill">Field not assigned</span>`}
+                 ${it.farmName ? `<span class="pill">Farm: ${escapeHTML(it.farmName)}</span>` : ""}`
+            }
             ${(it.status==='archived') ? `<span class="pill">Archived</span>` : ""}
           `;
           div.innerHTML = `
@@ -887,7 +933,9 @@
           editId = id;
 
           mdName.value = it.name || "";
+          editSiteType.value = (it.siteType === "central") ? "central" : "field";
           restoreEditFarmField(it);
+          syncEditSiteType();
 
           const totalOnHand = Number(it.totalOnHand || 0);
           lockedBinNums = new Set();
@@ -955,12 +1003,13 @@
           return;
         }
         const name = siteName.value.trim();
+        const selectedSiteType = siteType.value === "central" ? "central" : "field";
         const farm = farmFieldState.addFarm;
         const field = farmFieldState.addField;
 
         if(!name){ alert("Please enter a site name."); return; }
-        if(!field){ alert("Please select a field for this bin site."); return; }
-        if(!farm){ alert("The selected field must be assigned to a farm."); return; }
+        if(selectedSiteType === "field" && !field){ alert("Please select a field for this bin site."); return; }
+        if(selectedSiteType === "field" && !farm){ alert("The selected field must be assigned to a farm."); return; }
         if(addBins.length === 0){ alert("Please add at least one bin before saving."); return; }
 
         const bins = addBins.map(b=>({ num: Number(b.num)||0, bushels: toNum(b.bushels) }));
@@ -974,10 +1023,11 @@
           showErr("");
           await addDoc(collection(db, COLL), {
             name,
-            farmId: farm.id,
-            farmName: farm.name,
-            fieldId: field.id,
-            fieldName: field.name,
+            siteType: selectedSiteType,
+            farmId: selectedSiteType === "field" ? farm.id : null,
+            farmName: selectedSiteType === "field" ? farm.name : null,
+            fieldId: selectedSiteType === "field" ? field.id : null,
+            fieldName: selectedSiteType === "field" ? field.name : null,
             bins,
             totalBushels: total,
             status: 'active',
@@ -987,8 +1037,10 @@
           });
           showToast("Successfully saved.");
           siteName.value = "";
+          siteType.value = "field";
           addBins = [];
           resetAddFarmField();
+          syncAddSiteType();
           renderBins(addBins, binsBox, null, {});
           await renderList();
           window.scrollTo({top:0, behavior:"smooth"});
@@ -1004,12 +1056,13 @@
           return;
         }
         const name = mdName.value.trim();
+        const selectedSiteType = editSiteType.value === "central" ? "central" : "field";
         const farm = farmFieldState.editFarm;
         const field = farmFieldState.editField;
 
         if(!name){ alert("Please enter a site name."); return; }
-        if(!field){ alert("Please select a field for this bin site."); return; }
-        if(!farm){ alert("The selected field must be assigned to a farm."); return; }
+        if(selectedSiteType === "field" && !field){ alert("Please select a field for this bin site."); return; }
+        if(selectedSiteType === "field" && !farm){ alert("The selected field must be assigned to a farm."); return; }
         if(mdBins.length === 0){ alert("Please keep at least one bin on the site."); return; }
 
         const bins = mdBins.map(b=>({ num:Number(b.num)||0, bushels: toNum(b.bushels) }));
@@ -1022,10 +1075,11 @@
         try{
           await setDoc(doc(db, COLL, editId), {
             name,
-            farmId: farm.id,
-            farmName: farm.name,
-            fieldId: field.id,
-            fieldName: field.name,
+            siteType: selectedSiteType,
+            farmId: selectedSiteType === "field" ? farm.id : null,
+            farmName: selectedSiteType === "field" ? farm.name : null,
+            fieldId: selectedSiteType === "field" ? field.id : null,
+            fieldName: selectedSiteType === "field" ? field.name : null,
             bins,
             totalBushels: total,
             updatedAt: serverTimestamp()
@@ -1157,7 +1211,11 @@
           showErr("Unable to load farms/fields. Check Firestore or network.");
         }
 
+        siteType.addEventListener("change", syncAddSiteType);
+        editSiteType.addEventListener("change", syncEditSiteType);
+
         resetAddFarmField();
+        syncAddSiteType();
         renderBins(addBins, binsBox, null, {});
         await renderList();
       })();
