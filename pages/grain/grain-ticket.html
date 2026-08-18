@@ -6510,6 +6510,9 @@ const filterButtons =
   const LOADOUT_SMS_FUNCTION_URL =
     "https://sendloadtickettext-300398089669.us-central1.run.app";
 
+  const LOADOUT_ETA_FUNCTION_URL =
+  "PASTE_YOUR_GETGRAINLOADETA_FUNCTION_URL_HERE";
+
   const $lo = id => document.getElementById(id);
 
   const loState = {
@@ -9374,359 +9377,436 @@ async function loFindDrivingRoute(
   }
 
 
-  async function loUpdateEta(){
+async function loUpdateEta(){
 
-    const location =
-      loSelectedLocation();
+  const location =
+    loSelectedLocation();
 
-    const grainSource =
-      loSelectedSource();
+  const grainSource =
+    loSelectedSource();
 
-    const isPreload =
-      !!loEls.preload?.checked;
+  const isPreload =
+    !!loEls.preload?.checked;
 
 
-    loState.etaAt =
-      null;
+  loState.etaAt =
+    null;
 
+  loState.etaMinutes =
+    null;
 
-    loState.etaMinutes =
-      null;
+  loState.etaDistanceText =
+    "";
 
 
-    loState.etaDistanceText =
-      "";
-
-
-    if (
-      isPreload
-    ) {
-
-      loEls.eta.value =
-        "N/A";
-
-
-      loEls.etaHelp.textContent =
-        "Estimated arrival is N/A for preloads until FarmVista has a real departure-time source.";
-
-
-      return true;
-
-    }
-
-
-    if (
-      !grainSource
-    ) {
-
-      loEls.eta.value =
-        "—";
-
-
-      loEls.etaHelp.textContent =
-        "Select a grain source to calculate ETA.";
-
-
-      return false;
-
-    }
-
-
-    if (
-      !location
-    ) {
-
-      loEls.eta.value =
-        "—";
-
-
-      loEls.etaHelp.textContent =
-        "Select a destination to calculate ETA.";
-
-
-      return false;
-
-    }
-
-
-    const originLatLng =
-      loSelectedSourceLatLng();
-
-
-    if (
-      !originLatLng
-    ) {
-
-      loEls.eta.value =
-        "—";
-
-
-      loEls.etaHelp.textContent =
-        "The selected grain source does not have a GPS latitude/longitude saved yet.";
-
-
-      return false;
-
-    }
-
-
-    const destinationLatLng =
-      loLocationLatLng(
-        location
-      );
-
-
-    const destinationAddress =
-      loFormatAddress(
-        location
-      );
-
-
-    const destinationWaypoint =
-      destinationLatLng
-        ? loRouteWaypointFromLatLng(
-            destinationLatLng
-          )
-        : destinationAddress
-          ? {
-              address:
-                destinationAddress
-            }
-          : null;
-
-
-    if (
-      !destinationWaypoint
-    ) {
-
-      loEls.eta.value =
-        "—";
-
-
-      loEls.etaHelp.textContent =
-        "This destination does not have GPS coordinates or a complete address saved.";
-
-
-      return false;
-
-    }
-
-
-    if (
-      !LOADOUT_ROUTES_API_KEY
-    ) {
-
-      loEls.eta.value =
-        "—";
-
-
-      loEls.etaHelp.textContent =
-        "Routes API key is missing.";
-
-
-      return false;
-
-    }
-
+  /*
+    Preloads intentionally do not get an ETA.
+  */
+  if (
+    isPreload
+  ) {
 
     loEls.eta.value =
-      "Calculating…";
-
+      "N/A";
 
     loEls.etaHelp.textContent =
-      `From ${grainSource.label || "selected grain source"} to ${location.locationName || "selected destination"}.`;
+      "Estimated arrival is N/A for preloads until FarmVista has a real departure-time source.";
+
+    return true;
+
+  }
+
+
+  if (
+    !grainSource
+  ) {
+
+    loEls.eta.value =
+      "—";
+
+    loEls.etaHelp.textContent =
+      "Select a grain source to calculate ETA.";
+
+    return false;
+
+  }
+
+
+  if (
+    !location
+  ) {
+
+    loEls.eta.value =
+      "—";
+
+    loEls.etaHelp.textContent =
+      "Select a destination to calculate ETA.";
+
+    return false;
+
+  }
+
+
+  const originLatLng =
+    loSelectedSourceLatLng();
+
+
+  if (
+    !originLatLng
+  ) {
+
+    loEls.eta.value =
+      "—";
+
+    loEls.etaHelp.textContent =
+      "The selected grain source does not have a GPS latitude/longitude saved yet.";
+
+    return false;
+
+  }
+
+
+  const destinationLatLng =
+    loLocationLatLng(
+      location
+    );
+
+
+  const destinationAddress =
+    loFormatAddress(
+      location
+    );
+
+
+  if (
+    !destinationLatLng &&
+    !destinationAddress
+  ) {
+
+    loEls.eta.value =
+      "—";
+
+    loEls.etaHelp.textContent =
+      "This destination does not have GPS coordinates or a complete address saved.";
+
+    return false;
+
+  }
+
+
+  if (
+    !LOADOUT_ETA_FUNCTION_URL ||
+    LOADOUT_ETA_FUNCTION_URL.includes(
+      "PASTE_YOUR"
+    )
+  ) {
+
+    loEls.eta.value =
+      "—";
+
+    loEls.etaHelp.textContent =
+      "FarmVista Grain ETA function URL has not been configured.";
+
+    return false;
+
+  }
+
+
+  loEls.eta.value =
+    "Calculating…";
+
+  loEls.etaHelp.textContent =
+    `From ${grainSource.label || "selected grain source"} to ${location.locationName || "selected destination"}.`;
+
+
+  try {
+
+    const requestBody = {
+
+      origin: {
+        latitude:
+          originLatLng.latitude,
+
+        longitude:
+          originLatLng.longitude
+      }
+
+    };
+
+
+    if (
+      destinationLatLng
+    ) {
+
+      requestBody.destination = {
+        latitude:
+          destinationLatLng.latitude,
+
+        longitude:
+          destinationLatLng.longitude
+      };
+
+    }
+    else {
+
+      requestBody.destinationAddress =
+        destinationAddress;
+
+    }
+
+
+    console.log(
+      "[grain loadout] calling FarmVista ETA function:",
+      {
+        url:
+          LOADOUT_ETA_FUNCTION_URL,
+
+        requestBody,
+
+        grainSource:
+          grainSource.label,
+
+        destinationName:
+          location.locationName
+      }
+    );
+
+
+    const response =
+      await fetch(
+        LOADOUT_ETA_FUNCTION_URL,
+        {
+          method:
+            "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json"
+          },
+
+          body:
+            JSON.stringify(
+              requestBody
+            )
+        }
+      );
+
+
+    let result =
+      null;
 
 
     try {
 
-      const routeResult =
-        await loFindDrivingRoute(
-          originLatLng,
-          destinationWaypoint
-        );
-
-
-      if (
-        !routeResult?.route
-      ) {
-
-        throw new Error(
-          "Google could not find a drivable road from this grain source. Make sure Roads API is enabled for this Google Maps key."
-        );
-
-      }
-
-
-      const route =
-        routeResult.route;
-
-
-      const durationSeconds =
-        loParseGoogleDuration(
-          route.duration
-        );
-
-
-      if (
-        durationSeconds <=
-          0
-      ) {
-
-        throw new Error(
-          "Google Routes returned no drive time."
-        );
-
-      }
-
-
-      const durationMillis =
-        durationSeconds *
-        1000;
-
-
-      const minutes =
-        Math.max(
-          1,
-          Math.round(
-            durationSeconds /
-            60
-          )
-        );
-
-
-      const eta =
-        new Date(
-          Date.now() +
-          durationMillis
-        );
-
-
-      const distanceText =
-        loFormatMiles(
-          route.distanceMeters
-        );
-
-
-      loState.etaMinutes =
-        minutes;
-
-
-      loState.etaAt =
-        eta;
-
-
-      loState.etaDistanceText =
-        distanceText;
-
-
-      loEls.eta.value =
-        loFormatClock(
-          eta
-        );
-
-
-      loEls.etaHelp.textContent =
-        `${minutes} min${
-          distanceText
-            ? ` • ${distanceText}`
-            : ""
-        } from ${grainSource.label || "selected grain source"}${
-          routeResult.usedNearestRoad
-            ? " • snapped to nearest road"
-            : routeResult.usedNearbyFallback
-              ? " • routed from nearby drivable road"
-              : ""
-        }.`;
-
-
-      console.log(
-        "[grain loadout] Routes API ETA:",
-        {
-          savedOrigin:
-            originLatLng,
-
-          routedOrigin:
-            routeResult.routedOrigin,
-
-          usedNearbyFallback:
-            routeResult.usedNearbyFallback,
-
-          usedNearestRoad:
-            routeResult.usedNearestRoad ??
-            false,
-
-          routeOriginMode:
-            routeResult.routeOriginMode ||
-            "unknown",
-
-          fallbackDistanceMeters:
-            routeResult.fallbackDistanceMeters,
-
-          fallbackBearingDegrees:
-            routeResult.fallbackBearingDegrees ??
-            null,
-
-          originSource:
-            grainSource.label,
-
-          destination:
-            destinationLatLng ||
-            destinationAddress,
-
-          destinationName:
-            location.locationName,
-
-          minutes,
-
-          distanceMeters:
-            route.distanceMeters,
-
-          distanceText,
-
-          estimatedArrival:
-            eta
-        }
-      );
-
-
-      return true;
+      result =
+        await response.json();
 
     }
-    catch (
-      error
+    catch (_) {
+
+      result =
+        null;
+
+    }
+
+
+    console.log(
+      "[grain loadout] FarmVista ETA response:",
+      {
+        status:
+          response.status,
+
+        result
+      }
+    );
+
+
+    if (
+      !response.ok ||
+      !result?.ok
     ) {
 
-      console.error(
-        "[grain loadout] Routes API ETA failed:",
-        {
-          error,
-          origin:
-            originLatLng,
-          grainSource:
-            grainSource.label,
-          destination:
-            destinationLatLng ||
-            destinationAddress
-        }
+      throw new Error(
+        result?.error ||
+        `FarmVista ETA function returned HTTP ${response.status}.`
       );
-
-
-      loEls.eta.value =
-        "—";
-
-
-      loEls.etaHelp.textContent =
-        `ETA unavailable: ${
-          error?.message ||
-          "Google Routes request failed."
-        }`;
-
-
-      return false;
 
     }
 
+
+    const minutes =
+      Number(
+        result.minutes
+      );
+
+
+    const eta =
+      result.estimatedArrivalISO
+        ? new Date(
+            result.estimatedArrivalISO
+          )
+        : (
+            Number.isFinite(
+              minutes
+            )
+              ? new Date(
+                  Date.now() +
+                  minutes *
+                  60 *
+                  1000
+                )
+              : null
+          );
+
+
+    if (
+      !eta ||
+      Number.isNaN(
+        eta.getTime()
+      )
+    ) {
+
+      throw new Error(
+        "ETA function returned an invalid arrival time."
+      );
+
+    }
+
+
+    const distanceText =
+      loClean(
+        result.distanceText
+      );
+
+
+    loState.etaMinutes =
+      Number.isFinite(
+        minutes
+      )
+        ? minutes
+        : null;
+
+
+    loState.etaAt =
+      eta;
+
+
+    loState.etaDistanceText =
+      distanceText;
+
+
+    loEls.eta.value =
+      loFormatClock(
+        eta
+      );
+
+
+    let routeNote =
+      "";
+
+
+    if (
+      result.routeOriginMode ===
+      "nearest_road"
+    ) {
+
+      routeNote =
+        " • snapped to nearest road";
+
+    }
+    else if (
+      result.routeOriginMode ===
+      "source_gps"
+    ) {
+
+      routeNote =
+        " • routed from grain source GPS";
+
+    }
+
+
+    loEls.etaHelp.textContent =
+      `${loState.etaMinutes || "—"} min${
+        distanceText
+          ? ` • ${distanceText}`
+          : ""
+      } from ${
+        grainSource.label ||
+        "selected grain source"
+      }${routeNote}.`;
+
+
+    console.log(
+      "[grain loadout] FarmVista ETA success:",
+      {
+        origin:
+          originLatLng,
+
+        routedOrigin:
+          result.routedOrigin,
+
+        routeOriginMode:
+          result.routeOriginMode,
+
+        snappedRoadDistanceMeters:
+          result.snappedRoadDistanceMeters,
+
+        destination:
+          destinationLatLng ||
+          destinationAddress,
+
+        minutes:
+          loState.etaMinutes,
+
+        distanceText,
+
+        estimatedArrival:
+          eta
+      }
+    );
+
+
+    return true;
+
   }
+  catch (
+    error
+  ) {
+
+    console.error(
+      "[grain loadout] FarmVista ETA function failed:",
+      {
+        error,
+
+        origin:
+          originLatLng,
+
+        grainSource:
+          grainSource.label,
+
+        destination:
+          destinationLatLng ||
+          destinationAddress
+      }
+    );
+
+
+    loEls.eta.value =
+      "—";
+
+
+    loEls.etaHelp.textContent =
+      `ETA unavailable: ${
+        error?.message ||
+        "FarmVista ETA service failed."
+      }`;
+
+
+    return false;
+
+  }
+
+}
 
   function loLoadHasLinkedTicket(load){
     /*
