@@ -1689,13 +1689,21 @@ onReady(
 
       rebuildContractTotalsFromTickets();
 
-      if (
-        migratedContracts.length
-      ) {
-        await syncContractTotalsForIds(
-          migratedContracts
-        );
-      }
+      /*
+        ALWAYS synchronize every contract from the
+        actual active grain-ticket allocations.
+
+        This makes tickets / contractAllocations the
+        source of truth and repairs stale Firestore values
+        if a ticket was unlinked somewhere else.
+      */
+
+      await syncContractTotalsForIds(
+        state.contracts.map(
+          contract =>
+            contract.id
+        )
+      );
 
       populateAllPickers();
 
@@ -7363,13 +7371,23 @@ async function refreshData() {
 
     rebuildContractTotalsFromTickets();
 
-    if (
-      migrated.length
-    ) {
-      await syncContractTotalsForIds(
-        migrated
-      );
-    }
+    /*
+      Recalculate AND write every contract total back
+      to Firestore on refresh.
+
+      Example:
+      25,000 bu contract with no assigned tickets becomes:
+
+      deliveredBushels: 0
+      openBushels: 25000
+    */
+
+    await syncContractTotalsForIds(
+      state.contracts.map(
+        contract =>
+          contract.id
+      )
+    );
 
     populateAllPickers();
   }
