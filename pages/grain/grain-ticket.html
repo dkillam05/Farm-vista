@@ -2548,22 +2548,107 @@ const filterButtons =
   }
 
 
-  function ticketHasContract(
+function ticketHasContract(
     ticket
   ) {
 
-    /*
-      IMPORTANT:
-      OCR can read a contract number even when FarmVista has NOT
-      linked the ticket to a real grain_contracts document.
+    const allocations =
+      Array.isArray(
+        ticket?.contractAllocations
+      )
+        ? ticket.contractAllocations
+        : [];
 
-      Only a real Firestore contract ID counts as assigned.
+
+    const allocatedBushels =
+      allocations.reduce(
+        (
+          total,
+          allocation
+        ) =>
+          total +
+          Math.max(
+            0,
+            numberValue(
+              allocation?.bushels
+            )
+          ),
+        0
+      );
+
+
+    /*
+      New split-allocation model is the source of truth.
+
+      A stale legacy contractId does NOT mean the ticket
+      is fully assigned when unassignedBushels still exist.
+    */
+    if (
+      numberValue(
+        ticket?.allocationModelVersion
+      ) >= 2
+    ) {
+
+      return allocatedBushels > 0;
+
+    }
+
+
+    /*
+      Legacy fallback for older tickets that have not yet
+      been migrated into contractAllocations.
     */
     return !!String(
       ticket.contractId ||
       ticket.grainContractId ||
       ""
     ).trim();
+
+  }
+
+
+  function isNeedsContract(
+    ticket
+  ) {
+
+    if (
+      isNeedsReview(
+        ticket
+      )
+    ) {
+
+      return false;
+
+    }
+
+
+    /*
+      Split-allocation model:
+      if ANY bushels remain unassigned,
+      this ticket still Needs Contract.
+    */
+    if (
+      numberValue(
+        ticket?.allocationModelVersion
+      ) >= 2
+    ) {
+
+      return (
+        numberValue(
+          ticket?.unassignedBushels
+        ) >
+        0.005
+      );
+
+    }
+
+
+    /*
+      Legacy fallback.
+    */
+    return !ticketHasContract(
+      ticket
+    );
 
   }
 
