@@ -3154,7 +3154,84 @@ function renderContractTable() {
 /* ============================================================
    RECONCILIATION BUYER -> CUSTOMER
 ============================================================ */
+function getBuyersWithActiveContracts() {
+  const activeContracts =
+    state.contracts.filter(
+      contract =>
+        !contract.voided
+    );
 
+  const buyerIds =
+    new Set(
+      activeContracts
+        .map(
+          contract =>
+            clean(
+              contract.buyerId
+            )
+        )
+        .filter(
+          Boolean
+        )
+    );
+
+  const buyerNames =
+    new Set(
+      activeContracts
+        .map(
+          contract =>
+            normalized(
+              contract.buyerName
+            )
+        )
+        .filter(
+          Boolean
+        )
+    );
+
+  return state.buyers
+    .filter(
+      buyer => {
+
+        const idMatches =
+          buyerIds.has(
+            clean(
+              buyer.id
+            )
+          );
+
+        const nameMatches =
+          buyerNames.has(
+            normalized(
+              buyer.name
+            )
+          );
+
+        return (
+          idMatches ||
+          nameMatches
+        );
+      }
+    )
+    .sort(
+      (
+        a,
+        b
+      ) =>
+        clean(
+          a.name
+        ).localeCompare(
+          clean(
+            b.name
+          ),
+          undefined,
+          {
+            numeric: true,
+            sensitivity: "base"
+          }
+        )
+    );
+}
 function getCustomersForBuyer(
   buyerId
 ) {
@@ -3302,10 +3379,38 @@ function getCustomersForBuyer(
 
 
 function populateReconciliationPickers() {
+  const buyersWithContracts =
+    getBuyersWithActiveContracts();
+
+  const selectedBuyerStillValid =
+    buyersWithContracts.some(
+      buyer =>
+        clean(
+          buyer.id
+        ) ===
+        clean(
+          state.reconcileBuyerId
+        )
+    );
+
+  if (
+    !selectedBuyerStillValid
+  ) {
+    state.reconcileBuyerId =
+      "";
+
+    state.reconcileCustomerId =
+      "";
+  }
+
   populateObjectSelect(
     $("reconcile-buyer"),
-    state.buyers,
-    "Select Buyer",
+    buyersWithContracts,
+
+    buyersWithContracts.length
+      ? "Select Buyer"
+      : "No Buyers With Contracts",
+
     state.reconcileBuyerId
   );
 
