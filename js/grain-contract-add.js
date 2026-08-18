@@ -62,15 +62,27 @@ let selectedDeliveryLocation = null;
 
 
 /*
-  Price stored internally as cents.
+  CONTRACT PRICING
 
-  Example:
-  user types 535
-  priceCents = 535
-  display = $5.35
+  Cash:
+    Futures + Basis = Cash Price
+
+  Basis:
+    Basis only
+
+  Futures:
+    Futures only
+
+  Program:
+    Cash Price entered directly
+
+  pricePerBushel remains the final cash price
+  whenever one exists.
 */
-let priceCents = 0;
-let priceHasValue = false;
+
+let futuresPrice = null;
+let basisPrice = null;
+let cashPrice = null;
 
 
 
@@ -2438,121 +2450,571 @@ function setupBushels() {
 
 
 /* ============================================================
-   PRICE
-   BANK STYLE
+   CONTRACT PRICING
 ============================================================ */
 
 function setupPrice() {
 
-  const input =
+  const contractType =
+    $("contract-type");
+
+  const futuresInput =
+    $("futures-price");
+
+  const basisInput =
+    $("basis-price");
+
+  const cashInput =
     $("price");
 
 
-  if (!input) {
+  if (
+    !contractType ||
+    !futuresInput ||
+    !basisInput ||
+    !cashInput
+  ) {
     return;
   }
 
 
-  input.addEventListener(
-    "input",
+  contractType.addEventListener(
+    "change",
     function () {
 
-      /*
-        Any visible value gets reduced to digits.
+      resetPricing();
 
-        535 -> $5.35
-      */
-
-      const digits =
-        String(
-          input.value || ""
-        )
-          .replace(/\D/g, "");
-
-
-      if (!digits) {
-
-        priceCents =
-          0;
-
-
-        priceHasValue =
-          false;
-
-
-        input.value =
-          "";
-
-
-        input.dataset.rawValue =
-          "";
-
-
-        input.setCustomValidity(
-          ""
-        );
-
-
-        return;
-
-      }
-
-
-      priceCents =
-        Number(digits);
-
-
-      priceHasValue =
-        true;
-
-
-      renderPrice();
+      updatePriceFields();
 
     }
   );
 
 
-  input.addEventListener(
+  futuresInput.addEventListener(
+    "input",
+    function () {
+
+      futuresPrice =
+        parseDollarPrice(
+          futuresInput.value
+        );
+
+
+      futuresInput.setCustomValidity(
+        ""
+      );
+
+
+      calculateCashPrice();
+
+    }
+  );
+
+
+  futuresInput.addEventListener(
     "blur",
-    validatePrice
+    function () {
+
+      if (
+        futuresPrice !== null
+      ) {
+
+        futuresInput.value =
+          formatDollarPrice(
+            futuresPrice
+          );
+
+      }
+
+
+      validatePrice();
+
+    }
+  );
+
+
+  basisInput.addEventListener(
+    "input",
+    function () {
+
+      basisPrice =
+        parseBasisPrice(
+          basisInput.value
+        );
+
+
+      basisInput.setCustomValidity(
+        ""
+      );
+
+
+      calculateCashPrice();
+
+    }
+  );
+
+
+  basisInput.addEventListener(
+    "blur",
+    function () {
+
+      if (
+        basisPrice !== null
+      ) {
+
+        basisInput.value =
+          formatBasisPrice(
+            basisPrice
+          );
+
+      }
+
+
+      validatePrice();
+
+    }
+  );
+
+
+  cashInput.addEventListener(
+    "input",
+    function () {
+
+      /*
+        Cash is manually entered only
+        for Program contracts.
+      */
+
+      if (
+        $("contract-type").value !==
+        "Program"
+      ) {
+        return;
+      }
+
+
+      cashPrice =
+        parseDollarPrice(
+          cashInput.value
+        );
+
+
+      cashInput.setCustomValidity(
+        ""
+      );
+
+    }
+  );
+
+
+  cashInput.addEventListener(
+    "blur",
+    function () {
+
+      if (
+        cashPrice !== null
+      ) {
+
+        cashInput.value =
+          formatDollarPrice(
+            cashPrice
+          );
+
+      }
+
+
+      validatePrice();
+
+    }
+  );
+
+
+  updatePriceFields();
+
+}
+
+
+
+function resetPricing() {
+
+  futuresPrice =
+    null;
+
+  basisPrice =
+    null;
+
+  cashPrice =
+    null;
+
+
+  const futuresInput =
+    $("futures-price");
+
+  const basisInput =
+    $("basis-price");
+
+  const cashInput =
+    $("price");
+
+
+  if (futuresInput) {
+
+    futuresInput.value =
+      "";
+
+    futuresInput.setCustomValidity(
+      ""
+    );
+
+  }
+
+
+  if (basisInput) {
+
+    basisInput.value =
+      "";
+
+    basisInput.setCustomValidity(
+      ""
+    );
+
+  }
+
+
+  if (cashInput) {
+
+    cashInput.value =
+      "";
+
+    cashInput.setCustomValidity(
+      ""
+    );
+
+  }
+
+}
+
+
+
+function updatePriceFields() {
+
+  const type =
+    $("contract-type")
+      ?.value || "";
+
+
+  const futuresInput =
+    $("futures-price");
+
+  const basisInput =
+    $("basis-price");
+
+  const cashInput =
+    $("price");
+
+
+  if (
+    !futuresInput ||
+    !basisInput ||
+    !cashInput
+  ) {
+    return;
+  }
+
+
+  /*
+    Default:
+    nothing can be entered until
+    a contract type is selected.
+  */
+
+  futuresInput.disabled =
+    true;
+
+  basisInput.disabled =
+    true;
+
+  cashInput.disabled =
+    true;
+
+
+  futuresInput.required =
+    false;
+
+  basisInput.required =
+    false;
+
+  cashInput.required =
+    false;
+
+
+  cashInput.placeholder =
+    "Not set";
+
+
+  if (type === "Cash") {
+
+    futuresInput.disabled =
+      false;
+
+    basisInput.disabled =
+      false;
+
+
+    futuresInput.required =
+      true;
+
+    basisInput.required =
+      true;
+
+
+    cashInput.placeholder =
+      "Calculated automatically";
+
+  }
+
+
+  else if (type === "Basis") {
+
+    basisInput.disabled =
+      false;
+
+    basisInput.required =
+      true;
+
+
+    cashInput.placeholder =
+      "Not set until contract becomes Cash";
+
+  }
+
+
+  else if (type === "Futures") {
+
+    futuresInput.disabled =
+      false;
+
+    futuresInput.required =
+      true;
+
+
+    cashInput.placeholder =
+      "Not set until contract becomes Cash";
+
+  }
+
+
+  else if (type === "Program") {
+
+    cashInput.disabled =
+      false;
+
+    cashInput.required =
+      true;
+
+
+    cashInput.placeholder =
+      "$0.00";
+
+  }
+
+
+  else {
+
+    cashInput.placeholder =
+      "Select contract type";
+
+  }
+
+
+  calculateCashPrice();
+
+}
+
+
+
+function calculateCashPrice() {
+
+  const type =
+    $("contract-type")
+      ?.value || "";
+
+
+  const cashInput =
+    $("price");
+
+
+  if (!cashInput) {
+    return;
+  }
+
+
+  if (type !== "Cash") {
+
+    /*
+      Program keeps its manually
+      entered cash price.
+
+      Basis and Futures have no
+      final cash price yet.
+    */
+
+    if (
+      type !== "Program"
+    ) {
+
+      cashPrice =
+        null;
+
+      cashInput.value =
+        "";
+
+    }
+
+
+    return;
+  }
+
+
+  if (
+    futuresPrice === null ||
+    basisPrice === null
+  ) {
+
+    cashPrice =
+      null;
+
+    cashInput.value =
+      "";
+
+    return;
+
+  }
+
+
+  cashPrice =
+    roundPrice(
+      futuresPrice +
+      basisPrice
+    );
+
+
+  cashInput.value =
+    formatDollarPrice(
+      cashPrice
+    );
+
+}
+
+
+
+function parseDollarPrice(
+  value
+) {
+
+  const cleaned =
+    String(value || "")
+      .trim()
+      .replace(/\$/g, "")
+      .replace(/,/g, "");
+
+
+  if (!cleaned) {
+    return null;
+  }
+
+
+  const number =
+    Number(cleaned);
+
+
+  if (!Number.isFinite(number)) {
+    return null;
+  }
+
+
+  return roundPrice(number);
+
+}
+
+
+
+function parseBasisPrice(
+  value
+) {
+
+  let cleaned =
+    String(value || "")
+      .trim()
+      .replace(/\$/g, "")
+      .replace(/,/g, "")
+      .replace(/\s/g, "");
+
+
+  if (!cleaned) {
+    return null;
+  }
+
+
+  /*
+    Allows:
+      -0.15
+      +0.10
+      0.10
+  */
+
+  if (
+    !/^[+-]?\d*(?:\.\d*)?$/.test(
+      cleaned
+    )
+  ) {
+    return null;
+  }
+
+
+  const number =
+    Number(cleaned);
+
+
+  if (!Number.isFinite(number)) {
+    return null;
+  }
+
+
+  return roundPrice(number);
+
+}
+
+
+
+function roundPrice(
+  value
+) {
+
+  return (
+    Math.round(
+      Number(value) * 10000
+    ) / 10000
   );
 
 }
 
 
 
-function renderPrice() {
+function formatDollarPrice(
+  value
+) {
 
-  const input =
-    $("price");
-
-
-  if (!input) {
-    return;
+  if (
+    value === null ||
+    !Number.isFinite(value)
+  ) {
+    return "";
   }
 
 
-  if (!priceHasValue) {
-
-    input.value =
-      "";
-
-
-    input.dataset.rawValue =
-      "";
-
-
-    return;
-
-  }
-
-
-  const dollars =
-    priceCents / 100;
-
-
-  input.value =
-    dollars.toLocaleString(
+  return Number(value)
+    .toLocaleString(
       "en-US",
       {
 
@@ -2566,17 +3028,62 @@ function renderPrice() {
           2,
 
         maximumFractionDigits:
-          2
+          4
 
       }
     );
 
-
-  input.dataset.rawValue =
-    dollars.toFixed(2);
+}
 
 
-  validatePrice();
+
+function formatBasisPrice(
+  value
+) {
+
+  if (
+    value === null ||
+    !Number.isFinite(value)
+  ) {
+    return "";
+  }
+
+
+  const absolute =
+    Math.abs(value)
+      .toLocaleString(
+        "en-US",
+        {
+
+          minimumFractionDigits:
+            2,
+
+          maximumFractionDigits:
+            4
+
+        }
+      );
+
+
+  if (value > 0) {
+
+    return (
+      `+$${absolute}`
+    );
+
+  }
+
+
+  if (value < 0) {
+
+    return (
+      `-$${absolute}`
+    );
+
+  }
+
+
+  return "$0.00";
 
 }
 
@@ -2584,40 +3091,142 @@ function renderPrice() {
 
 function validatePrice() {
 
-  const input =
+  const type =
+    $("contract-type")
+      ?.value || "";
+
+
+  const futuresInput =
+    $("futures-price");
+
+  const basisInput =
+    $("basis-price");
+
+  const cashInput =
     $("price");
 
 
-  if (!input) {
+  if (
+    !futuresInput ||
+    !basisInput ||
+    !cashInput
+  ) {
     return false;
   }
 
 
-  input.setCustomValidity(
+  futuresInput.setCustomValidity(
+    ""
+  );
+
+  basisInput.setCustomValidity(
+    ""
+  );
+
+  cashInput.setCustomValidity(
     ""
   );
 
 
-  if (!priceHasValue) {
+  if (type === "Cash") {
 
-    return false;
+    if (futuresPrice === null) {
+
+      futuresInput.setCustomValidity(
+        "Enter the Futures Price."
+      );
+
+      return false;
+
+    }
+
+
+    if (basisPrice === null) {
+
+      basisInput.setCustomValidity(
+        "Enter the Basis."
+      );
+
+      return false;
+
+    }
+
+
+    if (cashPrice === null) {
+
+      cashInput.setCustomValidity(
+        "Unable to calculate Cash Price."
+      );
+
+      return false;
+
+    }
 
   }
 
 
-  const value =
-    priceCents / 100;
+  else if (type === "Basis") {
 
+    if (basisPrice === null) {
+
+      basisInput.setCustomValidity(
+        "Enter the Basis."
+      );
+
+      return false;
+
+    }
+
+  }
+
+
+  else if (type === "Futures") {
+
+    if (futuresPrice === null) {
+
+      futuresInput.setCustomValidity(
+        "Enter the Futures Price."
+      );
+
+      return false;
+
+    }
+
+  }
+
+
+  else if (type === "Program") {
+
+    if (cashPrice === null) {
+
+      cashInput.setCustomValidity(
+        "Enter the Cash Price."
+      );
+
+      return false;
+
+    }
+
+  }
+
+
+  /*
+    Keep normal grain price protection
+    anywhere we actually have a final
+    cash price.
+  */
 
   if (
-    value < 2 ||
-    value > 30
+    cashPrice !== null &&
+    (
+      cashPrice < 2 ||
+      cashPrice > 30
+    )
   ) {
 
-    input.setCustomValidity(
-      "Price Per Bushel must be between $2.00 and $30.00."
+    cashInput.setCustomValidity(
+      "Cash Price must be between $2.00 and $30.00."
     );
-
 
     return false;
 
@@ -2627,7 +3236,6 @@ function validatePrice() {
   return true;
 
 }
-
 
 
 /* ============================================================
@@ -3199,8 +3807,26 @@ function getFormData() {
     ) || 0;
 
 
-  const pricePerBushel =
-    priceCents / 100;
+  const contractType =
+    $("contract-type")
+      .value;
+
+
+  /*
+    Only Cash and Program contracts
+    have a final cash price.
+
+    Basis and Futures contracts remain
+    open-priced until converted to Cash.
+  */
+
+  const finalPricePerBushel =
+    (
+      contractType === "Cash" ||
+      contractType === "Program"
+    )
+      ? cashPrice
+      : null;
 
 
   return {
@@ -3229,7 +3855,7 @@ function getFormData() {
       $("crop").value,
 
     contractType:
-      $("contract-type").value,
+      contractType,
 
     contractNumber:
       $("contract-number")
@@ -3253,10 +3879,16 @@ function getFormData() {
       bushels,
 
 
-    /* Price */
+    /* Pricing */
+
+    futuresPrice:
+      futuresPrice,
+
+    basisPrice:
+      basisPrice,
 
     pricePerBushel:
-      pricePerBushel,
+      finalPricePerBushel,
 
 
     /* Delivery location snapshot */
