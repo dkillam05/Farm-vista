@@ -647,6 +647,58 @@
       color:var(--muted,#67706B);
     }
 
+
+    /* ============================================================
+       GPS LOCATION PICKER
+    ============================================================ */
+
+    .gps-row{
+      display:grid;
+      grid-template-columns:1fr;
+      gap:10px;
+    }
+
+    .gps-actions{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+
+    #siteLocationMapShell,
+    #editSiteLocationMapShell{
+      border-radius:12px;
+      border:1px solid var(--border);
+      overflow:hidden;
+      background:#000;
+    }
+
+    #siteMap,
+    #editSiteMap{
+      width:100%;
+      height:52vh;
+      min-height:320px;
+      max-height:680px;
+    }
+
+    @media (max-width:699px){
+      #siteMap,
+      #editSiteMap{
+        height:58vh;
+        min-height:340px;
+        max-height:560px;
+      }
+    }
+
+    @media (min-width:700px){
+      #siteMap,
+      #editSiteMap{
+        height:64vh;
+        min-height:460px;
+        max-height:720px;
+      }
+    }
+
   </style>
 
   <script>
@@ -927,6 +979,31 @@
 
             </div>
 
+          </div>
+
+
+          <!-- ADD GPS LOCATION -->
+
+          <div class="gps-row">
+            <div class="field">
+              <label>
+                GPS Location
+                <span class="muted">(optional)</span>
+              </label>
+
+              <div class="gps-actions">
+                <button id="btnMarkLocation" class="btn" type="button">
+                  Mark Location
+                </button>
+              </div>
+
+              <input id="siteLat" type="hidden">
+              <input id="siteLng" type="hidden">
+
+              <div id="siteLocationLabel" class="muted" style="margin-top:4px;">
+                No location set.
+              </div>
+            </div>
           </div>
 
 
@@ -1291,6 +1368,31 @@
         </div>
 
 
+        <!-- EDIT GPS LOCATION -->
+
+        <div class="gps-row">
+          <div class="field">
+            <label>
+              GPS Location
+              <span class="muted">(optional)</span>
+            </label>
+
+            <div class="gps-actions">
+              <button id="editBtnMarkLocation" class="btn" type="button">
+                Edit Location on Map
+              </button>
+            </div>
+
+            <input id="editSiteLat" type="hidden">
+            <input id="editSiteLng" type="hidden">
+
+            <div id="editSiteLocationLabel" class="muted" style="margin-top:4px;">
+              No location set.
+            </div>
+          </div>
+        </div>
+
+
         <!-- EDIT BINS -->
 
         <div class="bins-card">
@@ -1418,6 +1520,73 @@
     </div>
 
   </div>
+
+
+  <!-- ============================================================
+       ADD GPS LOCATION MODAL
+  ============================================================ -->
+
+  <div id="siteLocationModal" class="modal" aria-hidden="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="siteLocationTitle">
+      <div class="dialog-head">
+        <h3 id="siteLocationTitle">Set Bin Site Location</h3>
+        <button id="siteLocationClose" class="closex" type="button">Back</button>
+      </div>
+
+      <div class="dialog-body" data-perm="setup-grain-sites:add">
+        <button id="siteUseLocation" class="btn" type="button">Use my location</button>
+        <p id="siteLocationStatus" class="muted" style="margin-top:4px;">
+          Tap on the map to drop a pin, or use your current location.
+        </p>
+        <div id="siteLocationMapShell">
+          <div id="siteMap"></div>
+        </div>
+      </div>
+
+      <div class="dialog-footer">
+        <div class="left-btns">
+          <button id="siteLocationClear" class="btn btn-quiet" type="button">Clear</button>
+          <button id="siteLocationCancel" class="btn" type="button">Cancel</button>
+        </div>
+        <button id="siteLocationSave" class="btn btn-primary" type="button" data-perm="setup-grain-sites:add">Save location</button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ============================================================
+       EDIT GPS LOCATION MODAL
+  ============================================================ -->
+
+  <div id="editSiteLocationModal" class="modal" aria-hidden="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="editSiteLocationTitle">
+      <div class="dialog-head">
+        <h3 id="editSiteLocationTitle">Edit Bin Site Location</h3>
+        <button id="editSiteLocationClose" class="closex" type="button">Back</button>
+      </div>
+
+      <div class="dialog-body" data-perm="setup-grain-sites:edit">
+        <button id="editSiteUseLocation" class="btn" type="button">Use my location</button>
+        <p id="editSiteLocationStatus" class="muted" style="margin-top:4px;">
+          Tap on the map to drop a pin, or use your current location.
+        </p>
+        <div id="editSiteLocationMapShell">
+          <div id="editSiteMap"></div>
+        </div>
+      </div>
+
+      <div class="dialog-footer">
+        <div class="left-btns">
+          <button id="editSiteLocationClear" class="btn btn-quiet" type="button" data-perm="setup-grain-sites:edit">Clear</button>
+          <button id="editSiteLocationCancel" class="btn" type="button">Cancel</button>
+        </div>
+        <button id="editSiteLocationSave" class="btn btn-primary" type="button" data-perm="setup-grain-sites:edit">Save location</button>
+      </div>
+    </div>
+  </div>
+
+
+  <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCzKBEQ1-wCJ8_nv1dR3wQI0nTk1IrgWzY"></script>
 
 
   <!-- ============================================================
@@ -1554,6 +1723,14 @@
 
 
       let db = null;
+
+      let siteMap = null;
+      let siteMapMarker = null;
+      let siteMapLatLng = null;
+
+      let editSiteMap = null;
+      let editSiteMapMarker = null;
+      let editSiteMapLatLng = null;
 
 
       /* ============================================================
@@ -2171,6 +2348,14 @@
 
         }
 
+        if(field?.location){
+          setAddLocationValues(
+            field.location.lat,
+            field.location.lng,
+            true
+          );
+        }
+
       }
 
 
@@ -2278,6 +2463,14 @@
             )
           );
 
+        }
+
+        if(field?.location){
+          setEditLocationValues(
+            field.location.lat,
+            field.location.lng,
+            true
+          );
         }
 
       }
@@ -2425,7 +2618,19 @@
                   data.farmId ||
                   data.farm ||
                   data.farmDocId ||
-                  null
+                  null,
+
+                location:
+                  (
+                    data.location &&
+                    Number.isFinite(Number(data.location.lat)) &&
+                    Number.isFinite(Number(data.location.lng))
+                  )
+                    ? {
+                        lat:Number(data.location.lat),
+                        lng:Number(data.location.lng)
+                      }
+                    : null
 
               };
 
@@ -2450,6 +2655,594 @@
 
         editFieldCombo?.setItems(
           farmFieldState.fields
+        );
+
+      }
+
+
+
+      /* ============================================================
+         GPS LOCATION
+      ============================================================ */
+
+      function validLatLng(lat,lng){
+        const latN = Number(lat);
+        const lngN = Number(lng);
+
+        return (
+          Number.isFinite(latN) &&
+          Number.isFinite(lngN) &&
+          Math.abs(latN) <= 90 &&
+          Math.abs(lngN) <= 180
+        );
+      }
+
+
+      function setAddLocationValues(lat,lng,fromField=false){
+
+        if(!validLatLng(lat,lng)){
+          return;
+        }
+
+        const latN = Number(lat);
+        const lngN = Number(lng);
+
+        $("siteLat").value = latN;
+        $("siteLng").value = lngN;
+
+        $("siteLocationLabel").textContent =
+          `${fromField ? "Using field GPS: " : "Location set: "}${latN.toFixed(5)}, ${lngN.toFixed(5)}`;
+
+        if(window.google && window.google.maps){
+          siteMapLatLng = new google.maps.LatLng(latN,lngN);
+        }
+
+      }
+
+
+      function setEditLocationValues(lat,lng,fromField=false){
+
+        if(!validLatLng(lat,lng)){
+          return;
+        }
+
+        const latN = Number(lat);
+        const lngN = Number(lng);
+
+        $("editSiteLat").value = latN;
+        $("editSiteLng").value = lngN;
+
+        $("editSiteLocationLabel").textContent =
+          `${fromField ? "Using field GPS: " : "Location set: "}${latN.toFixed(5)}, ${lngN.toFixed(5)}`;
+
+        if(window.google && window.google.maps){
+          editSiteMapLatLng = new google.maps.LatLng(latN,lngN);
+        }
+
+      }
+
+
+      function clearAddLocation(){
+
+        $("siteLat").value = "";
+        $("siteLng").value = "";
+        $("siteLocationLabel").textContent = "No location set.";
+
+        siteMapLatLng = null;
+
+        if(siteMapMarker){
+          siteMapMarker.setMap(null);
+          siteMapMarker = null;
+        }
+
+      }
+
+
+      function clearEditLocation(){
+
+        $("editSiteLat").value = "";
+        $("editSiteLng").value = "";
+        $("editSiteLocationLabel").textContent = "No location set.";
+
+        editSiteMapLatLng = null;
+
+        if(editSiteMapMarker){
+          editSiteMapMarker.setMap(null);
+          editSiteMapMarker = null;
+        }
+
+      }
+
+
+      function getAddLocationPayload(){
+
+        const lat = $("siteLat").value;
+        const lng = $("siteLng").value;
+
+        return validLatLng(lat,lng)
+          ? {lat:Number(lat),lng:Number(lng)}
+          : null;
+
+      }
+
+
+      function getEditLocationPayload(){
+
+        const lat = $("editSiteLat").value;
+        const lng = $("editSiteLng").value;
+
+        return validLatLng(lat,lng)
+          ? {lat:Number(lat),lng:Number(lng)}
+          : null;
+
+      }
+
+
+      function ensureSiteMap(){
+
+        if(siteMap){
+          return;
+        }
+
+        if(!(window.google && window.google.maps)){
+          $("siteLocationStatus").textContent =
+            "Map failed to load. Check your connection.";
+          return;
+        }
+
+        siteMap = new google.maps.Map(
+          $("siteMap"),
+          {
+            center:{lat:39.5650,lng:-89.6554},
+            zoom:15,
+            mapTypeId:google.maps.MapTypeId.HYBRID,
+            disableDefaultUI:true,
+            zoomControl:false,
+            gestureHandling:"greedy"
+          }
+        );
+
+        siteMap.addListener(
+          "click",
+          ev=>setSiteMapMarker(ev.latLng)
+        );
+
+      }
+
+
+      function setSiteMapMarker(latLng){
+
+        if(!latLng){
+          return;
+        }
+
+        if(!siteMapMarker){
+          siteMapMarker =
+            new google.maps.Marker({
+              position:latLng,
+              map:siteMap
+            });
+        }else{
+          siteMapMarker.setPosition(latLng);
+          siteMapMarker.setMap(siteMap);
+        }
+
+        siteMapLatLng = latLng;
+
+        const lat = latLng.lat();
+        const lng = latLng.lng();
+
+        $("siteLocationStatus").textContent =
+          `Pin set at ${lat.toFixed(5)}, ${lng.toFixed(5)}. Tap again to move it.`;
+
+      }
+
+
+      function ensureEditSiteMap(){
+
+        if(editSiteMap){
+          return;
+        }
+
+        if(!(window.google && window.google.maps)){
+          $("editSiteLocationStatus").textContent =
+            "Map failed to load. Check your connection.";
+          return;
+        }
+
+        editSiteMap = new google.maps.Map(
+          $("editSiteMap"),
+          {
+            center:{lat:39.5650,lng:-89.6554},
+            zoom:15,
+            mapTypeId:google.maps.MapTypeId.HYBRID,
+            disableDefaultUI:true,
+            zoomControl:false,
+            gestureHandling:"greedy"
+          }
+        );
+
+        editSiteMap.addListener(
+          "click",
+          ev=>setEditSiteMapMarker(ev.latLng)
+        );
+
+      }
+
+
+      function setEditSiteMapMarker(latLng){
+
+        if(!latLng){
+          return;
+        }
+
+        if(!editSiteMapMarker){
+          editSiteMapMarker =
+            new google.maps.Marker({
+              position:latLng,
+              map:editSiteMap
+            });
+        }else{
+          editSiteMapMarker.setPosition(latLng);
+          editSiteMapMarker.setMap(editSiteMap);
+        }
+
+        editSiteMapLatLng = latLng;
+
+        const lat = latLng.lat();
+        const lng = latLng.lng();
+
+        $("editSiteLocationStatus").textContent =
+          `Pin set at ${lat.toFixed(5)}, ${lng.toFixed(5)}. Tap again to move it.`;
+
+      }
+
+
+      function openSiteLocationModal(){
+
+        closeAllCombos();
+
+        if(!canNow("setup-grain-sites:add")){
+          alert("You don't have permission to add bin sites.");
+          return;
+        }
+
+        const gpsModal = $("siteLocationModal");
+
+        gpsModal.setAttribute("open","");
+        gpsModal.setAttribute("aria-hidden","false");
+
+        document.documentElement.classList.add("no-scroll");
+        document.body.classList.add("no-scroll");
+
+        $("siteLocationStatus").textContent =
+          "Tap on the map to drop a pin, or use your current location.";
+
+        ensureSiteMap();
+
+        const lat = $("siteLat").value;
+        const lng = $("siteLng").value;
+
+        if(siteMap && validLatLng(lat,lng)){
+
+          const ll =
+            new google.maps.LatLng(
+              Number(lat),
+              Number(lng)
+            );
+
+          siteMap.setCenter(ll);
+          siteMap.setZoom(18);
+          setSiteMapMarker(ll);
+
+        }else if(siteMap){
+
+          siteMap.setCenter({lat:39.5650,lng:-89.6554});
+          siteMap.setZoom(15);
+
+        }
+
+        setTimeout(()=>{
+          if(siteMap){
+            google.maps.event.trigger(siteMap,"resize");
+            if(siteMapLatLng){
+              siteMap.setCenter(siteMapLatLng);
+            }
+          }
+        },80);
+
+      }
+
+
+      function closeSiteLocationModal(){
+
+        const gpsModal = $("siteLocationModal");
+
+        gpsModal.removeAttribute("open");
+        gpsModal.setAttribute("aria-hidden","true");
+
+        document.documentElement.classList.remove("no-scroll");
+        document.body.classList.remove("no-scroll");
+
+      }
+
+
+      function openEditSiteLocationModal(){
+
+        closeAllCombos();
+
+        if(!canNow("setup-grain-sites:edit")){
+          alert("You don't have permission to edit bin sites.");
+          return;
+        }
+
+        const gpsModal = $("editSiteLocationModal");
+
+        gpsModal.setAttribute("open","");
+        gpsModal.setAttribute("aria-hidden","false");
+
+        document.documentElement.classList.add("no-scroll");
+        document.body.classList.add("no-scroll");
+
+        $("editSiteLocationStatus").textContent =
+          "Tap on the map to drop a pin, or use your current location.";
+
+        ensureEditSiteMap();
+
+        const lat = $("editSiteLat").value;
+        const lng = $("editSiteLng").value;
+
+        if(editSiteMap && validLatLng(lat,lng)){
+
+          const ll =
+            new google.maps.LatLng(
+              Number(lat),
+              Number(lng)
+            );
+
+          editSiteMap.setCenter(ll);
+          editSiteMap.setZoom(18);
+          setEditSiteMapMarker(ll);
+
+        }else if(editSiteMap){
+
+          editSiteMap.setCenter({lat:39.5650,lng:-89.6554});
+          editSiteMap.setZoom(15);
+
+        }
+
+        setTimeout(()=>{
+          if(editSiteMap){
+            google.maps.event.trigger(editSiteMap,"resize");
+            if(editSiteMapLatLng){
+              editSiteMap.setCenter(editSiteMapLatLng);
+            }
+          }
+        },80);
+
+      }
+
+
+      function closeEditSiteLocationModal(){
+
+        const gpsModal = $("editSiteLocationModal");
+
+        gpsModal.removeAttribute("open");
+        gpsModal.setAttribute("aria-hidden","true");
+
+        document.documentElement.classList.remove("no-scroll");
+        document.body.classList.remove("no-scroll");
+
+      }
+
+
+      function setupGpsPickers(){
+
+        $("btnMarkLocation").addEventListener(
+          "click",
+          openSiteLocationModal
+        );
+
+        $("siteLocationClose").addEventListener(
+          "click",
+          closeSiteLocationModal
+        );
+
+        $("siteLocationCancel").addEventListener(
+          "click",
+          closeSiteLocationModal
+        );
+
+        $("siteLocationModal").addEventListener(
+          "click",
+          e=>{
+            if(e.target === $("siteLocationModal")){
+              closeSiteLocationModal();
+            }
+          }
+        );
+
+        $("siteUseLocation").addEventListener(
+          "click",
+          ()=>{
+
+            if(!navigator.geolocation){
+              $("siteLocationStatus").textContent =
+                "Geolocation not supported on this device.";
+              return;
+            }
+
+            $("siteLocationStatus").textContent =
+              "Getting your location…";
+
+            navigator.geolocation.getCurrentPosition(
+              pos=>{
+
+                ensureSiteMap();
+
+                if(!siteMap){
+                  return;
+                }
+
+                const ll =
+                  new google.maps.LatLng(
+                    pos.coords.latitude,
+                    pos.coords.longitude
+                  );
+
+                siteMap.panTo(ll);
+                siteMap.setZoom(18);
+                setSiteMapMarker(ll);
+
+              },
+              ()=>{
+                $("siteLocationStatus").textContent =
+                  "Could not get current location. Check permissions.";
+              },
+              {
+                enableHighAccuracy:true,
+                timeout:12000
+              }
+            );
+
+          }
+        );
+
+        $("siteLocationSave").addEventListener(
+          "click",
+          ()=>{
+
+            if(!siteMapLatLng){
+              $("siteLocationStatus").textContent =
+                "Tap on the map to set a pin before saving.";
+              return;
+            }
+
+            setAddLocationValues(
+              siteMapLatLng.lat(),
+              siteMapLatLng.lng(),
+              false
+            );
+
+            showToast("Bin site location set.");
+            closeSiteLocationModal();
+
+          }
+        );
+
+        $("siteLocationClear").addEventListener(
+          "click",
+          ()=>{
+
+            clearAddLocation();
+            showToast("Bin site location cleared.");
+            closeSiteLocationModal();
+
+          }
+        );
+
+
+        $("editBtnMarkLocation").addEventListener(
+          "click",
+          openEditSiteLocationModal
+        );
+
+        $("editSiteLocationClose").addEventListener(
+          "click",
+          closeEditSiteLocationModal
+        );
+
+        $("editSiteLocationCancel").addEventListener(
+          "click",
+          closeEditSiteLocationModal
+        );
+
+        $("editSiteLocationModal").addEventListener(
+          "click",
+          e=>{
+            if(e.target === $("editSiteLocationModal")){
+              closeEditSiteLocationModal();
+            }
+          }
+        );
+
+        $("editSiteUseLocation").addEventListener(
+          "click",
+          ()=>{
+
+            if(!navigator.geolocation){
+              $("editSiteLocationStatus").textContent =
+                "Geolocation not supported on this device.";
+              return;
+            }
+
+            $("editSiteLocationStatus").textContent =
+              "Getting your location…";
+
+            navigator.geolocation.getCurrentPosition(
+              pos=>{
+
+                ensureEditSiteMap();
+
+                if(!editSiteMap){
+                  return;
+                }
+
+                const ll =
+                  new google.maps.LatLng(
+                    pos.coords.latitude,
+                    pos.coords.longitude
+                  );
+
+                editSiteMap.panTo(ll);
+                editSiteMap.setZoom(18);
+                setEditSiteMapMarker(ll);
+
+              },
+              ()=>{
+                $("editSiteLocationStatus").textContent =
+                  "Could not get current location. Check permissions.";
+              },
+              {
+                enableHighAccuracy:true,
+                timeout:12000
+              }
+            );
+
+          }
+        );
+
+        $("editSiteLocationSave").addEventListener(
+          "click",
+          ()=>{
+
+            if(!editSiteMapLatLng){
+              $("editSiteLocationStatus").textContent =
+                "Tap on the map to set a pin before saving.";
+              return;
+            }
+
+            setEditLocationValues(
+              editSiteMapLatLng.lat(),
+              editSiteMapLatLng.lng(),
+              false
+            );
+
+            showToast("Bin site location updated.");
+            closeEditSiteLocationModal();
+
+          }
+        );
+
+        $("editSiteLocationClear").addEventListener(
+          "click",
+          ()=>{
+
+            clearEditLocation();
+            showToast("Bin site location cleared.");
+            closeEditSiteLocationModal();
+
+          }
         );
 
       }
@@ -3144,6 +3937,8 @@
 
           resetAddFarmField();
 
+          clearAddLocation();
+
           syncAddSiteType();
 
 
@@ -3305,6 +4100,17 @@
                 corn bu
 
               </span>
+
+              ${
+                it.location &&
+                validLatLng(it.location.lat,it.location.lng)
+                  ? `
+                      <span class="pill">
+                        GPS set
+                      </span>
+                    `
+                  : ""
+              }
 
               ${
                 it.siteType ===
@@ -3603,6 +4409,20 @@
 
 
           syncEditSiteType();
+
+          if(
+            it.location &&
+            Number.isFinite(Number(it.location.lat)) &&
+            Number.isFinite(Number(it.location.lng))
+          ){
+            setEditLocationValues(
+              Number(it.location.lat),
+              Number(it.location.lng),
+              false
+            );
+          }else{
+            clearEditLocation();
+          }
 
 
           const totalOnHand =
@@ -4067,6 +4887,9 @@
                     ? field.name
                     : null,
 
+                location:
+                  getAddLocationPayload(),
+
                 bins,
 
                 totalBushels:
@@ -4110,6 +4933,8 @@
 
 
             resetAddFarmField();
+
+            clearAddLocation();
 
             syncAddSiteType();
 
@@ -4359,6 +5184,9 @@
                   "field"
                     ? field.name
                     : null,
+
+                location:
+                  getEditLocationPayload(),
 
                 bins,
 
@@ -4712,6 +5540,9 @@
           return;
 
         }
+
+
+        setupGpsPickers();
 
 
         /* SITE TYPE - ADD */
