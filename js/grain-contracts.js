@@ -1380,12 +1380,63 @@ function getContractStatus(
     total -
     delivered;
 
+
+  /*
+    A filled contract is Completed.
+  */
   if (
     open <= EPSILON &&
     total > 0
   ) {
     return "complete";
   }
+
+
+  /*
+    A contract does not become Open until
+    its Delivery Start date arrives.
+  */
+  const deliveryStart =
+    clean(
+      contract.deliveryStart
+    );
+
+
+  if (
+    deliveryStart
+  ) {
+    const now =
+      new Date();
+
+
+    const today =
+      `${
+        now.getFullYear()
+      }-${
+        String(
+          now.getMonth() + 1
+        ).padStart(
+          2,
+          "0"
+        )
+      }-${
+        String(
+          now.getDate()
+        ).padStart(
+          2,
+          "0"
+        )
+      }`;
+
+
+    if (
+      deliveryStart >
+      today
+    ) {
+      return "pending";
+    }
+  }
+
 
   if (
     total > 0 &&
@@ -1399,9 +1450,9 @@ function getContractStatus(
     return "near";
   }
 
+
   return "open";
 }
-
 
 function getStatusLabel(
   contract
@@ -1417,6 +1468,9 @@ function getStatusLabel(
 
     complete:
       "Completed",
+
+    pending:
+      "Pending",
 
     near:
       "Near Full",
@@ -4233,8 +4287,23 @@ function getAvailableContracts() {
   return state.contracts
     .filter(
       contract => {
+        /*
+          DND may only use contracts that are
+          currently assignable.
+
+          This automatically excludes:
+          - Pending
+          - Completed
+          - Voided
+        */
+        const status =
+          getContractStatus(
+            contract
+          );
+
         if (
-          contract.voided
+          status !== "open" &&
+          status !== "near"
         ) {
           return false;
         }
