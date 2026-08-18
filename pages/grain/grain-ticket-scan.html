@@ -43,7 +43,6 @@
       margin: 0;
       width: 100%;
       height: 100%;
-      min-height: 100%;
       overflow: hidden;
       background: #000;
       font-family:
@@ -59,11 +58,21 @@
       position: fixed;
       inset: 0;
       width: 100%;
-      height: var(--fv-viewport-height, 100dvh);
-      min-height: var(--fv-viewport-height, 100dvh);
+      height: 100svh;
+      min-height: 100svh;
+      max-height: 100svh;
+      overflow: hidden;
       color: #fff;
       overscroll-behavior: none;
       touch-action: manipulation;
+    }
+
+    @supports not (height: 100svh) {
+      body {
+        height: 100%;
+        min-height: 100%;
+        max-height: 100%;
+      }
     }
 
 
@@ -81,12 +90,21 @@
       top: 0;
       left: 0;
       width: 100%;
-      height: var(--fv-viewport-height, 100dvh);
-      min-height: var(--fv-viewport-height, 100dvh);
-      background: #000;
-      display: flex;
-      flex-direction: column;
+      height: 100svh;
+      min-height: 100svh;
+      max-height: 100svh;
       overflow: hidden;
+      background: #000;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+    }
+
+    @supports not (height: 100svh) {
+      .camera-page {
+        height: 100%;
+        min-height: 100%;
+        max-height: 100%;
+      }
     }
 
 
@@ -152,42 +170,52 @@
 
     .camera-view {
       position: relative;
-      flex: 1 1 auto;
+      width: 100%;
+      min-width: 0;
       min-height: 0;
       overflow: hidden;
       background: #000;
+      contain: layout paint size;
     }
 
 
     #cameraVideo {
       position: absolute;
-      inset: 0;
-
+      top: 0;
+      left: 0;
       width: 100%;
       height: 100%;
-
+      max-width: none;
+      max-height: none;
       object-fit: cover;
+      object-position: 50% 50%;
       background: #000;
+      transform: translateZ(0);
+      backface-visibility: hidden;
     }
 
 
     .camera-overlay {
       position: absolute;
-      inset: 0;
-
-      display: flex;
-      align-items: center;
-      justify-content: center;
-
-      padding: 14px;
-
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
       pointer-events: none;
+      transform: translateZ(0);
     }
 
 
     .ticket-frame {
-      width: var(--ticket-frame-width, min(82vw, 390px));
-      height: var(--ticket-frame-height, min(68vh, 590px));
+      width: min(82vw, 390px);
+      height: min(82%, 590px);
+      aspect-ratio: 0.66 / 1;
+
+      max-width: calc(100% - 36px);
+      max-height: calc(100% - 70px);
 
       border: 3px solid rgba(255,255,255,.94);
       border-radius: 16px;
@@ -4086,263 +4114,58 @@ function showResult() {
 
 
       // ==========================================================
-      // CAMERA VIEWPORT / FRAME GEOMETRY
+      // CAMERA
       // ==========================================================
 
-function syncViewportHeight() {
+function waitForVideoGeometry() {
 
-  const viewport =
-    window.visualViewport;
+  return new Promise(
+    resolve => {
 
+      if (
+        cameraVideo.readyState >= 2 &&
+        cameraVideo.videoWidth > 0 &&
+        cameraVideo.videoHeight > 0
+      ) {
+        resolve();
+        return;
+      }
 
-  const height =
-    Math.round(
-      viewport?.height ||
-      window.innerHeight ||
-      document.documentElement.clientHeight ||
-      0
-    );
+      const done =
+        () => {
+          cameraVideo.removeEventListener(
+            "loadedmetadata",
+            done
+          );
+          cameraVideo.removeEventListener(
+            "canplay",
+            done
+          );
+          resolve();
+        };
 
+      cameraVideo.addEventListener(
+        "loadedmetadata",
+        done,
+        { once: true }
+      );
 
-  if (
-    height > 0
-  ) {
-
-    document.documentElement.style.setProperty(
-      "--fv-viewport-height",
-      `${height}px`
-    );
-
-  }
-
-}
-
-
-function syncTicketFrame() {
-
-  const cameraView =
-    document.querySelector(
-      ".camera-view"
-    );
-
-
-  if (
-    !cameraView
-  ) {
-    return;
-  }
-
-
-  const rect =
-    cameraView.getBoundingClientRect();
-
-
-  if (
-    !rect.width ||
-    !rect.height
-  ) {
-    return;
-  }
-
-
-  /*
-    Keep a portrait ticket shape inside the camera area.
-    The frame is calculated from the REAL visible camera area,
-    not from vh units that can jump when mobile browser chrome
-    or camera controls settle.
-  */
-
-  const maxWidth =
-    Math.min(
-      rect.width * 0.82,
-      390
-    );
-
-
-  const maxHeight =
-    Math.min(
-      rect.height - 72,
-      590
-    );
-
-
-  const targetRatio =
-    0.66;
-
-
-  let frameWidth =
-    maxWidth;
-
-
-  let frameHeight =
-    frameWidth /
-    targetRatio;
-
-
-  if (
-    frameHeight >
-    maxHeight
-  ) {
-
-    frameHeight =
-      maxHeight;
-
-
-    frameWidth =
-      frameHeight *
-      targetRatio;
-
-  }
-
-
-  frameWidth =
-    Math.max(
-      180,
-      Math.round(
-        frameWidth
-      )
-    );
-
-
-  frameHeight =
-    Math.max(
-      270,
-      Math.round(
-        frameHeight
-      )
-    );
-
-
-  ticketFrame.style.setProperty(
-    "--ticket-frame-width",
-    `${frameWidth}px`
-  );
-
-
-  ticketFrame.style.setProperty(
-    "--ticket-frame-height",
-    `${frameHeight}px`
-  );
-
-}
-
-
-function syncCameraLayout() {
-
-  syncViewportHeight();
-
-
-  requestAnimationFrame(
-    () => {
-
-      syncTicketFrame();
+      cameraVideo.addEventListener(
+        "canplay",
+        done,
+        { once: true }
+      );
 
     }
   );
 
 }
 
-
-function getVisibleVideoCrop() {
-
-  const viewRect =
-    cameraVideo.getBoundingClientRect();
-
-
-  const sourceWidth =
-    cameraVideo.videoWidth;
-
-
-  const sourceHeight =
-    cameraVideo.videoHeight;
-
-
-  if (
-    !viewRect.width ||
-    !viewRect.height ||
-    !sourceWidth ||
-    !sourceHeight
-  ) {
-
-    return {
-      sx: 0,
-      sy: 0,
-      sw: sourceWidth,
-      sh: sourceHeight
-    };
-
-  }
-
-
-  const scale =
-    Math.max(
-      viewRect.width /
-        sourceWidth,
-      viewRect.height /
-        sourceHeight
-    );
-
-
-  const renderedWidth =
-    sourceWidth *
-    scale;
-
-
-  const renderedHeight =
-    sourceHeight *
-    scale;
-
-
-  const hiddenX =
-    Math.max(
-      0,
-      (renderedWidth -
-        viewRect.width) /
-        2
-    );
-
-
-  const hiddenY =
-    Math.max(
-      0,
-      (renderedHeight -
-        viewRect.height) /
-        2
-    );
-
-
-  return {
-    sx:
-      hiddenX /
-      scale,
-
-    sy:
-      hiddenY /
-      scale,
-
-    sw:
-      viewRect.width /
-      scale,
-
-    sh:
-      viewRect.height /
-      scale
-  };
-
-}
-
-
-      // ==========================================================
-      // CAMERA
-      // ==========================================================
-
 async function startCamera() {
 
   stopCamera();
 
   showCameraScreen();
-
-  syncCameraLayout();
 
   captureBtn.disabled =
     true;
@@ -4425,23 +4248,44 @@ async function startCamera() {
       true;
 
 
+    await waitForVideoGeometry();
+
+
     await cameraVideo.play();
 
 
-    syncCameraLayout();
-
-
     /*
-      Do NOT automatically turn on the flashlight.
-
-      We only check whether the phone supports it
-      and show the button when available.
+      The camera preview can report its final geometry a frame or two
+      after play() resolves.  We do NOT resize the page around it.
+      Instead the preview settles inside the already-fixed camera surface.
     */
+
+    await new Promise(
+      resolve =>
+        requestAnimationFrame(
+          () =>
+            requestAnimationFrame(
+              resolve
+            )
+        )
+    );
+
 
     await setupTorch();
 
 
-    syncCameraLayout();
+    /*
+      Some Android devices change camera settings when torch is enabled.
+      Give the track one paint to settle, but never recalculate viewport
+      height or move the green frame.
+    */
+
+    await new Promise(
+      resolve =>
+        requestAnimationFrame(
+          resolve
+        )
+    );
 
 
     ticketFrame.classList.add(
@@ -4730,15 +4574,71 @@ if (
             );
 
 
-          const visibleCrop =
-            getVisibleVideoCrop();
+          const sourceWidth =
+            cameraVideo.videoWidth;
+
+
+          const sourceHeight =
+            cameraVideo.videoHeight;
+
+
+          const previewRect =
+            cameraVideo.getBoundingClientRect();
+
+
+          const previewWidth =
+            Math.max(
+              1,
+              previewRect.width
+            );
+
+
+          const previewHeight =
+            Math.max(
+              1,
+              previewRect.height
+            );
+
+
+          /*
+            Match CSS object-fit: cover so the saved image is the same
+            portion of the camera feed the driver saw behind the green box.
+          */
+
+          const scale =
+            Math.max(
+              previewWidth / sourceWidth,
+              previewHeight / sourceHeight
+            );
+
+
+          const visibleSourceWidth =
+            previewWidth / scale;
+
+
+          const visibleSourceHeight =
+            previewHeight / scale;
+
+
+          const sourceX =
+            Math.max(
+              0,
+              (sourceWidth - visibleSourceWidth) / 2
+            );
+
+
+          const sourceY =
+            Math.max(
+              0,
+              (sourceHeight - visibleSourceHeight) / 2
+            );
 
 
           const width =
             Math.max(
               1,
               Math.round(
-                visibleCrop.sw
+                visibleSourceWidth
               )
             );
 
@@ -4747,7 +4647,7 @@ if (
             Math.max(
               1,
               Math.round(
-                visibleCrop.sh
+                visibleSourceHeight
               )
             );
 
@@ -4768,10 +4668,10 @@ if (
 
           ctx.drawImage(
             cameraVideo,
-            visibleCrop.sx,
-            visibleCrop.sy,
-            visibleCrop.sw,
-            visibleCrop.sh,
+            sourceX,
+            sourceY,
+            visibleSourceWidth,
+            visibleSourceHeight,
             0,
             0,
             width,
@@ -5644,43 +5544,6 @@ closeBtn.addEventListener(
 
         }
       );
-
-
-      window.addEventListener(
-        "resize",
-        syncCameraLayout
-      );
-
-
-      window.addEventListener(
-        "orientationchange",
-        () => {
-
-          setTimeout(
-            syncCameraLayout,
-            120
-          );
-
-        }
-      );
-
-
-      if (
-        window.visualViewport
-      ) {
-
-        window.visualViewport.addEventListener(
-          "resize",
-          syncCameraLayout
-        );
-
-
-        window.visualViewport.addEventListener(
-          "scroll",
-          syncCameraLayout
-        );
-
-      }
 
 
       window.addEventListener(
