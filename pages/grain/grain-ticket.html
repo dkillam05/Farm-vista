@@ -8706,152 +8706,435 @@ loEls.contract.value = contractId;
   }
 
 
-  async function loNearestRoadPoint(
-    point
+async function loNearestRoadPoint(
+  point
+) {
+
+  if (
+    !point ||
+    !LOADOUT_ROUTES_API_KEY
   ) {
-
-    if (
-      !point ||
-      !LOADOUT_ROUTES_API_KEY
-    ) {
-      return null;
-    }
+    return null;
+  }
 
 
-    const latitude =
-      Number(
-        point.latitude
-      );
-
-
-    const longitude =
-      Number(
-        point.longitude
-      );
-
-
-    if (
-      !Number.isFinite(latitude) ||
-      !Number.isFinite(longitude)
-    ) {
-      return null;
-    }
-
-
-    const url =
-      new URL(
-        "https://roads.googleapis.com/v1/nearestRoads"
-      );
-
-
-    url.searchParams.set(
-      "points",
-      `${latitude},${longitude}`
+  const latitude =
+    Number(
+      point.latitude
     );
 
 
-    url.searchParams.set(
-      "key",
-      LOADOUT_ROUTES_API_KEY
+  const longitude =
+    Number(
+      point.longitude
     );
 
 
-    const response =
-      await fetch(
-        url.toString(),
-        {
-          method:
-            "GET"
-        }
-      );
+  if (
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude)
+  ) {
+    return null;
+  }
 
 
-    let data =
-      null;
+  /*
+    IMPORTANT:
 
+    Do NOT ask Roads API about only the exact bin pin.
 
-    try {
+    Farm/bin GPS can easily be hundreds of feet inside:
+      - a farmyard
+      - grain pad
+      - field
+      - private driveway
+      - bin complex
 
-      data =
-        await response.json();
+    FarmVista already knows how to generate nearby probe points.
 
-    }
-    catch (_) {
+    Google Roads accepts up to 100 independent points in one
+    nearestRoads request, so send the original bin GPS PLUS
+    all of our surrounding probe points.
 
-      data =
-        null;
+    Google will tell us which of those points are near mapped roads.
+  */
 
-    }
-
-
-    if (
-      !response.ok
-    ) {
-
-      const googleMessage =
-        data?.error?.message ||
-        data?.message ||
-        `Google Roads returned HTTP ${response.status}.`;
-
-
-      const error =
-        new Error(
-          googleMessage
-        );
-
-
-      error.googleStatus =
-        response.status;
-
-
-      throw error;
-
-    }
-
-
-    const snapped =
-      Array.isArray(
-        data?.snappedPoints
-      )
-        ? data.snappedPoints[0]
-        : null;
-
-
-    const snappedLatitude =
-      Number(
-        snapped?.location?.latitude
-      );
-
-
-    const snappedLongitude =
-      Number(
-        snapped?.location?.longitude
-      );
-
-
-    if (
-      !Number.isFinite(snappedLatitude) ||
-      !Number.isFinite(snappedLongitude)
-    ) {
-      return null;
-    }
-
-
-    return {
-      latitude:
-        snappedLatitude,
-
-      longitude:
-        snappedLongitude,
-
-      placeId:
-        loClean(
-          snapped?.placeId
-        ) ||
+  const probePoints = [
+    {
+      latitude,
+      longitude,
+      radiusMeters:
+        0,
+      bearingDegrees:
         null
-    };
+    },
+
+    ...loNearbyRoutePoints({
+      latitude,
+      longitude
+    })
+  ]
+    .slice(
+      0,
+      100
+    );
+
+
+  const url =
+    new URL(
+      "https://roads.googleapis.com/v1/nearestRoads"
+    );
+
+
+  url.searchParams.set(
+    "points",
+    probePoints
+      .map(
+        probe =>
+          `${probe.latitude},${probe.longitude}`
+      )
+      .join("|")
+  );
+
+
+  url.searchParams.set(
+    "key",
+    LOADOUT_ROUTES_API_KEY
+  );
+
+
+  console.log(
+    "[grain loadout] Roads API lookup:",
+    {
+      grainSourceGps: {
+        latitude,
+        longitude
+      },
+
+      probeCount:
+        probePoints.length
+    }
+  );
+
+
+  const response =
+    await fetch(
+      url.toString(),
+      {
+        method:
+          "GET"
+      }
+    );
+
+
+  let data =
+    null;
+
+
+  try {
+
+    data =
+      await response.json();
 
   }
+  catch (_) {
+
+    data =
+      null;
+
+  }
+
+
+  if (
+    !response.ok
+  ) {
+
+    const googleMessage =
+      data?.error?.message ||
+      data?.message ||
+      `Google Roads returned HTTP ${response.status}.`;
+
+
+    const error =
+      new Error(
+        googleMessage
+      );
+
+
+    error.googleStatus =
+      response.status;
+
+
+    error.googleResponse =
+      data;
+
+
+    throw error;
+
+  }
+
+
+  const snappedPoints =
+    Array.isArray(
+      data?.snappedPoints
+    )
+      ? data.snappedPoints
+      : [];
+
+
+  console.log(
+    "[grain loadout] Roads API returned:",
+    {
+      snappedPointCount:
+        snappedPoints.length,
+
+      snappedPoints
+    }
+  );
+
+
+  if (
+    !snappedPoints.length
+  ) {
+
+    return null;
+
+  }
+
+
+  /*
+    Calculate actual distance between the original grain-source GPS
+    and every road Google returned.
+
+    We want the physically closest returned road to the bin site,
+    not simply whichever probe happened to appear first.
+  */
+
+  function distanceMeters(
+    a,
+    b
+  ) {
+
+    const earthRadius =
+      6371000;
+
+
+    const lat1 =
+      Number(
+        a.latitude
+      ) *
+      Math.PI /
+      180;
+
+
+    const lat2 =
+      Number(
+        b.latitude
+      ) *
+      Math.PI /
+      180;
+
+
+    const deltaLat =
+      (
+        Number(
+          b.latitude
+        ) -
+        Number(
+          a.latitude
+        )
+      ) *
+      Math.PI /
+      180;
+
+
+    const deltaLng =
+      (
+        Number(
+          b.longitude
+        ) -
+        Number(
+          a.longitude
+        )
+      ) *
+      Math.PI /
+      180;
+
+
+    const haversine =
+      Math.sin(
+        deltaLat /
+        2
+      ) **
+      2 +
+
+      Math.cos(
+        lat1
+      ) *
+
+      Math.cos(
+        lat2
+      ) *
+
+      Math.sin(
+        deltaLng /
+        2
+      ) **
+      2;
+
+
+    const angular =
+      2 *
+      Math.atan2(
+        Math.sqrt(
+          haversine
+        ),
+        Math.sqrt(
+          1 -
+          haversine
+        )
+      );
+
+
+    return earthRadius *
+      angular;
+
+  }
+
+
+  const roadCandidates =
+    snappedPoints
+      .map(
+        snapped => {
+
+          const snappedLatitude =
+            Number(
+              snapped?.location?.latitude
+            );
+
+
+          const snappedLongitude =
+            Number(
+              snapped?.location?.longitude
+            );
+
+
+          if (
+            !Number.isFinite(
+              snappedLatitude
+            ) ||
+            !Number.isFinite(
+              snappedLongitude
+            )
+          ) {
+
+            return null;
+
+          }
+
+
+          const roadPoint = {
+            latitude:
+              snappedLatitude,
+
+            longitude:
+              snappedLongitude
+          };
+
+
+          const originalIndex =
+            Number.isFinite(
+              Number(
+                snapped?.originalIndex
+              )
+            )
+              ? Number(
+                  snapped.originalIndex
+                )
+              : null;
+
+
+          const probe =
+            originalIndex !==
+              null
+              ? probePoints[
+                  originalIndex
+                ] ||
+                null
+              : null;
+
+
+          return {
+            latitude:
+              snappedLatitude,
+
+            longitude:
+              snappedLongitude,
+
+            placeId:
+              loClean(
+                snapped?.placeId
+              ) ||
+              null,
+
+            originalIndex,
+
+            probeRadiusMeters:
+              probe?.radiusMeters ??
+              null,
+
+            probeBearingDegrees:
+              probe?.bearingDegrees ??
+              null,
+
+            distanceFromGrainSourceMeters:
+              distanceMeters(
+                {
+                  latitude,
+                  longitude
+                },
+                roadPoint
+              )
+          };
+
+        }
+      )
+      .filter(
+        Boolean
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          a.distanceFromGrainSourceMeters -
+          b.distanceFromGrainSourceMeters
+      );
+
+
+  const closestRoad =
+    roadCandidates[0] ||
+    null;
+
+
+  if (
+    !closestRoad
+  ) {
+
+    return null;
+
+  }
+
+
+  console.log(
+    "[grain loadout] Closest drivable road:",
+    closestRoad
+  );
+
+
+  return closestRoad;
+
+}
 
 
 async function loFindDrivingRoute(
