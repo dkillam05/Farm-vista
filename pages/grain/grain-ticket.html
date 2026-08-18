@@ -8473,31 +8473,37 @@ loEls.contract.value = contractId;
     }
 
     /*
-      Rural bin sites and grain bags can sit well inside a field or farmyard.
-      Google Routes usually snaps a raw lat/lng to a road, but occasionally
-      returns no route when the point is too far from a routable segment.
+      LAST-CHANCE FALLBACK ONLY.
 
-      Keep the actual grain-source GPS as attempt #1, then probe small nearby
-      points around that GPS. We never fall back to the FarmVista company
-      address, so the ETA is still based on the selected grain source.
+      FarmVista now tries Google's real Nearest Roads service before
+      using these points. These probes stay here as a backup in case
+      Roads API is temporarily unavailable or not enabled on the key.
+
+      The saved grain-source GPS remains the center of every probe.
+      We NEVER fall back to the FarmVista company address.
     */
     const radiiMeters = [
-      90,
-      180,
-      350,
-      650,
-      1000
+      100,
+      250,
+      500,
+      900,
+      1500,
+      2500
     ];
 
     const bearingsDegrees = [
       0,
-      45,
+      30,
+      60,
       90,
-      135,
+      120,
+      150,
       180,
-      225,
+      210,
+      240,
       270,
-      315
+      300,
+      330
     ];
 
     const earthRadiusMeters =
@@ -8569,10 +8575,52 @@ loEls.contract.value = contractId;
   }
 
 
+  function loOriginWaypointFromLatLng(point){
+
+    const waypoint =
+      loRouteWaypointFromLatLng(
+        point
+      );
+
+
+    if (
+      !waypoint
+    ) {
+      return null;
+    }
+
+
+    /*
+      Tell Routes this is an actual vehicle pickup/departure point.
+      Google then prefers a road suitable for stopping/loading instead
+      of treating the raw field coordinate as an exact pass-through.
+    */
+    waypoint.vehicleStopover =
+      true;
+
+
+    return waypoint;
+
+  }
+
+
   async function loRequestDrivingRoute(
     originLatLng,
     destinationWaypoint
   ) {
+
+    const originWaypoint =
+      loOriginWaypointFromLatLng(
+        originLatLng
+      );
+
+
+    if (
+      !originWaypoint
+    ) {
+      return null;
+    }
+
 
     const response =
       await fetch(
@@ -8595,9 +8643,7 @@ loEls.contract.value = contractId;
           body:
             JSON.stringify({
               origin:
-                loRouteWaypointFromLatLng(
-                  originLatLng
-                ),
+                originWaypoint,
 
               destination:
                 destinationWaypoint,
@@ -8664,15 +8710,159 @@ loEls.contract.value = contractId;
     }
 
 
-    const route =
+    return Array.isArray(
+      data?.routes
+    )
+      ? data.routes[0] || null
+      : null;
+
+  }
+
+
+  async function loNearestRoadPoint(
+    point
+  ) {
+
+    if (
+      !point ||
+      !LOADOUT_ROUTES_API_KEY
+    ) {
+      return null;
+    }
+
+
+    const latitude =
+      Number(
+        point.latitude
+      );
+
+
+    const longitude =
+      Number(
+        point.longitude
+      );
+
+
+    if (
+      !Number.isFinite(latitude) ||
+      !Number.isFinite(longitude)
+    ) {
+      return null;
+    }
+
+
+    const url =
+      new URL(
+        "https://roads.googleapis.com/v1/nearestRoads"
+      );
+
+
+    url.searchParams.set(
+      "points",
+      `${latitude},${longitude}`
+    );
+
+
+    url.searchParams.set(
+      "key",
+      LOADOUT_ROUTES_API_KEY
+    );
+
+
+    const response =
+      await fetch(
+        url.toString(),
+        {
+          method:
+            "GET"
+        }
+      );
+
+
+    let data =
+      null;
+
+
+    try {
+
+      data =
+        await response.json();
+
+    }
+    catch (_) {
+
+      data =
+        null;
+
+    }
+
+
+    if (
+      !response.ok
+    ) {
+
+      const googleMessage =
+        data?.error?.message ||
+        data?.message ||
+        `Google Roads returned HTTP ${response.status}.`;
+
+
+      const error =
+        new Error(
+          googleMessage
+        );
+
+
+      error.googleStatus =
+        response.status;
+
+
+      throw error;
+
+    }
+
+
+    const snapped =
       Array.isArray(
-        data?.routes
+        data?.snappedPoints
       )
-        ? data.routes[0]
+        ? data.snappedPoints[0]
         : null;
 
 
-    return route;
+    const snappedLatitude =
+      Number(
+        snapped?.location?.latitude
+      );
+
+
+    const snappedLongitude =
+      Number(
+        snapped?.location?.longitude
+      );
+
+
+    if (
+      !Number.isFinite(snappedLatitude) ||
+      !Number.isFinite(snappedLongitude)
+    ) {
+      return null;
+    }
+
+
+    return {
+      latitude:
+        snappedLatitude,
+
+      longitude:
+        snappedLongitude,
+
+      placeId:
+        loClean(
+          snapped?.placeId
+        ) ||
+        null
+    };
 
   }
 
@@ -8683,7 +8873,10 @@ loEls.contract.value = contractId;
   ) {
 
     /*
-      First try the exact saved grain-source GPS.
+      1) Exact saved bin/bag GPS.
+
+      vehicleStopover=true tells Google this coordinate represents a
+      truck departure point and lets Routes choose a suitable nearby road.
     */
     const directRoute =
       await loRequestDrivingRoute(
@@ -8703,7 +8896,13 @@ loEls.contract.value = contractId;
         routedOrigin:
           originLatLng,
 
+        routeOriginMode:
+          "source_gps",
+
         usedNearbyFallback:
+          false,
+
+        usedNearestRoad:
           false,
 
         fallbackDistanceMeters:
@@ -8714,9 +8913,93 @@ loEls.contract.value = contractId;
 
 
     /*
-      If Google accepted the request but returned no route, probe nearby
-      points until we find the closest routable road. This is especially
-      useful for rural bins located hundreds of feet inside a field.
+      2) Real Google Nearest Roads lookup.
+
+      A bin pin can be in the middle of a farm, grain pad, or field.
+      Nobody should need to place the GPS pin perfectly on the driveway.
+      Ask Google for the nearest actual road segment, then route from the
+      snapped road coordinate to the selected destination.
+    */
+    try {
+
+      const roadPoint =
+        await loNearestRoadPoint(
+          originLatLng
+        );
+
+
+      if (
+        roadPoint
+      ) {
+
+        const roadRoute =
+          await loRequestDrivingRoute(
+            roadPoint,
+            destinationWaypoint
+          );
+
+
+        if (
+          roadRoute
+        ) {
+
+          return {
+            route:
+              roadRoute,
+
+            routedOrigin: {
+              latitude:
+                roadPoint.latitude,
+
+              longitude:
+                roadPoint.longitude
+            },
+
+            routeOriginMode:
+              "nearest_road",
+
+            usedNearbyFallback:
+              true,
+
+            usedNearestRoad:
+              true,
+
+            nearestRoadPlaceId:
+              roadPoint.placeId ||
+              null,
+
+            fallbackDistanceMeters:
+              0
+          };
+
+        }
+
+      }
+
+    }
+    catch (
+      roadsError
+    ) {
+
+      /*
+        Do not kill ETA just because Roads API is unavailable.
+        Continue into the geometric backup below.
+      */
+      console.warn(
+        "[grain loadout] Google Nearest Roads lookup failed; trying nearby-road fallback:",
+        roadsError
+      );
+
+    }
+
+
+    /*
+      3) Backup only: probe outward around the saved source GPS.
+
+      Every probe is still passed to Routes as a vehicle stopover, so it
+      can snap to a truck-suitable road. This protects FarmVista if the
+      Roads API is temporarily unavailable while still keeping the route
+      centered on the selected grain source.
     */
     const nearbyPoints =
       loNearbyRoutePoints(
@@ -8751,8 +9034,14 @@ loEls.contract.value = contractId;
               point.longitude
           },
 
+          routeOriginMode:
+            "nearby_probe",
+
           usedNearbyFallback:
             true,
+
+          usedNearestRoad:
+            false,
 
           fallbackDistanceMeters:
             point.radiusMeters,
@@ -8948,7 +9237,7 @@ loEls.contract.value = contractId;
       ) {
 
         throw new Error(
-          "Google Routes returned no driving route from the grain source or nearby roads."
+          "Google could not find a drivable road from this grain source. Make sure Roads API is enabled for this Google Maps key."
         );
 
       }
@@ -9028,9 +9317,11 @@ loEls.contract.value = contractId;
             ? ` • ${distanceText}`
             : ""
         } from ${grainSource.label || "selected grain source"}${
-          routeResult.usedNearbyFallback
-            ? " • road access estimated from nearby routable point"
-            : ""
+          routeResult.usedNearestRoad
+            ? " • snapped to nearest road"
+            : routeResult.usedNearbyFallback
+              ? " • routed from nearby drivable road"
+              : ""
         }.`;
 
 
@@ -9045,6 +9336,14 @@ loEls.contract.value = contractId;
 
           usedNearbyFallback:
             routeResult.usedNearbyFallback,
+
+          usedNearestRoad:
+            routeResult.usedNearestRoad ??
+            false,
+
+          routeOriginMode:
+            routeResult.routeOriginMode ||
+            "unknown",
 
           fallbackDistanceMeters:
             routeResult.fallbackDistanceMeters,
