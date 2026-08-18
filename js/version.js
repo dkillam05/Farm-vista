@@ -12,8 +12,8 @@
 
   // ---- EDIT THESE FOR RELEASES ONLY ----
   window.FV_VERSION = {
-    number:  "05.15.09",
-    date:    "2026-05-15",
+    number:  "08.18.01",
+    date:    "2026-08-18",
     tagline: "Farm Data - Simplified"
   };
   // -------------------------------------
