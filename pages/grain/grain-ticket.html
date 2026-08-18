@@ -2011,7 +2011,7 @@ section[data-hide-for-now]{ display:none !important; }
               value="—"
             >
             <div id="loadout-eta-help" class="loadout-help">
-              ETA uses Google Routes directly from the company address to the selected elevator.
+              ETA uses Google Routes from the selected grain source GPS location to the selected destination.
             </div>
           </div>
 
@@ -6725,6 +6725,115 @@ crop: $lo("loadout-crop"),
       .join(", ");
   }
 
+  function loFiniteCoordinate(value){
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+
+  function loReadLatLng(source){
+    if (!source || typeof source !== "object") {
+      return null;
+    }
+
+    const candidates = [
+      source,
+      source.location,
+      source.gpsLocation,
+      source.gps,
+      source.coordinates,
+      source.latLng,
+      source.position
+    ].filter(Boolean);
+
+    for (const item of candidates) {
+      if (!item || typeof item !== "object") continue;
+
+      const latitude =
+        loFiniteCoordinate(
+          item.latitude ??
+          item.lat ??
+          item.gpsLatitude ??
+          item.gpsLat
+        );
+
+      const longitude =
+        loFiniteCoordinate(
+          item.longitude ??
+          item.lng ??
+          item.lon ??
+          item.gpsLongitude ??
+          item.gpsLng ??
+          item.gpsLon
+        );
+
+      if (
+        latitude !== null &&
+        longitude !== null &&
+        latitude >= -90 &&
+        latitude <= 90 &&
+        longitude >= -180 &&
+        longitude <= 180
+      ) {
+        return { latitude, longitude };
+      }
+    }
+
+    return null;
+  }
+
+  function loSelectedSourceLatLng(){
+    const source = loSelectedSource();
+
+    if (!source) {
+      return null;
+    }
+
+    const latitude = loFiniteCoordinate(source.latitude);
+    const longitude = loFiniteCoordinate(source.longitude);
+
+    if (
+      latitude === null ||
+      longitude === null
+    ) {
+      return null;
+    }
+
+    return { latitude, longitude };
+  }
+
+  function loLocationLatLng(location){
+    if (!location) {
+      return null;
+    }
+
+    const latitude = loFiniteCoordinate(location.latitude);
+    const longitude = loFiniteCoordinate(location.longitude);
+
+    if (
+      latitude === null ||
+      longitude === null
+    ) {
+      return null;
+    }
+
+    return { latitude, longitude };
+  }
+
+  function loRouteWaypointFromLatLng(point){
+    if (!point) {
+      return null;
+    }
+
+    return {
+      location: {
+        latLng: {
+          latitude: point.latitude,
+          longitude: point.longitude
+        }
+      }
+    };
+  }
+
   function loContractCustomerId(contract){
     return loClean(
       contract.customerId ||
@@ -7667,7 +7776,26 @@ function loOpenCustomerMenu(){
       if (!loEls.deliveryDate.value) {
         loEls.deliveryDate.value = loTomorrowISO();
       }
+
       loEls.deliveryDate.min = loLocalISO();
+
+      /*
+        A preload does not have a meaningful departure time yet.
+        Keep ETA intentionally blank instead of pretending the truck
+        is leaving now.
+      */
+      loState.etaAt = null;
+      loState.etaMinutes = null;
+      loState.etaDistanceText = "";
+
+      if (loEls.eta) {
+        loEls.eta.value = "N/A";
+      }
+
+      if (loEls.etaHelp) {
+        loEls.etaHelp.textContent =
+          "Estimated arrival is N/A for preloads until FarmVista has a real departure-time source.";
+      }
     }
     else if (loEls.deliveryDate) {
       loEls.deliveryDate.value = "";
@@ -7796,7 +7924,7 @@ function loResetModalBase(){
     loEls.loadedTime.value = loFormatClock(new Date());
     loEls.eta.value = "—";
     loEls.etaHelp.textContent =
-      "ETA uses Google Routes directly from the company address to the selected elevator.";
+      "ETA uses Google Routes from the selected grain source GPS location to the selected destination.";
 
     loApplyPreloadUI();
 
@@ -8096,21 +8224,32 @@ function loOpenEditModal(load){
       load.estimatedDistanceText
     );
 
-  loEls.eta.value =
-    loState.etaAt
-      ? loFormatClock(
-          loState.etaAt
-        )
-      : "—";
+  if (isPreload) {
+    loState.etaAt = null;
+    loState.etaMinutes = null;
+    loState.etaDistanceText = "";
 
-  loEls.etaHelp.textContent =
-    loState.etaMinutes
-      ? `${loState.etaMinutes} min${
-          loState.etaDistanceText
-            ? ` • ${loState.etaDistanceText}`
-            : ""
-        }.`
-      : "ETA can be recalculated by changing the destination.";
+    loEls.eta.value = "N/A";
+    loEls.etaHelp.textContent =
+      "Estimated arrival is N/A for preloads until FarmVista has a real departure-time source.";
+  }
+  else {
+    loEls.eta.value =
+      loState.etaAt
+        ? loFormatClock(
+            loState.etaAt
+          )
+        : "—";
+
+    loEls.etaHelp.textContent =
+      loState.etaMinutes
+        ? `${loState.etaMinutes} min${
+            loState.etaDistanceText
+              ? ` • ${loState.etaDistanceText}`
+              : ""
+          }.`
+        : "ETA can be recalculated by changing the grain source or destination.";
+  }
 
 
   /* ============================================================
@@ -8319,6 +8458,12 @@ loEls.contract.value = contractId;
     const location =
       loSelectedLocation();
 
+    const grainSource =
+      loSelectedSource();
+
+    const isPreload =
+      !!loEls.preload?.checked;
+
 
     loState.etaAt =
       null;
@@ -8333,6 +8478,40 @@ loEls.contract.value = contractId;
 
 
     if (
+      isPreload
+    ) {
+
+      loEls.eta.value =
+        "N/A";
+
+
+      loEls.etaHelp.textContent =
+        "Estimated arrival is N/A for preloads until FarmVista has a real departure-time source.";
+
+
+      return true;
+
+    }
+
+
+    if (
+      !grainSource
+    ) {
+
+      loEls.eta.value =
+        "—";
+
+
+      loEls.etaHelp.textContent =
+        "Select a grain source to calculate ETA.";
+
+
+      return false;
+
+    }
+
+
+    if (
       !location
     ) {
 
@@ -8340,9 +8519,40 @@ loEls.contract.value = contractId;
         "—";
 
 
+      loEls.etaHelp.textContent =
+        "Select a destination to calculate ETA.";
+
+
       return false;
 
     }
+
+
+    const originLatLng =
+      loSelectedSourceLatLng();
+
+
+    if (
+      !originLatLng
+    ) {
+
+      loEls.eta.value =
+        "—";
+
+
+      loEls.etaHelp.textContent =
+        "The selected grain source does not have a GPS latitude/longitude saved yet.";
+
+
+      return false;
+
+    }
+
+
+    const destinationLatLng =
+      loLocationLatLng(
+        location
+      );
 
 
     const destinationAddress =
@@ -8351,12 +8561,21 @@ loEls.contract.value = contractId;
       );
 
 
-    const originAddress =
-      loCompanyAddress();
+    const destinationWaypoint =
+      destinationLatLng
+        ? loRouteWaypointFromLatLng(
+            destinationLatLng
+          )
+        : destinationAddress
+          ? {
+              address:
+                destinationAddress
+            }
+          : null;
 
 
     if (
-      !destinationAddress
+      !destinationWaypoint
     ) {
 
       loEls.eta.value =
@@ -8364,24 +8583,7 @@ loEls.contract.value = contractId;
 
 
       loEls.etaHelp.textContent =
-        "This destination does not have a complete address saved.";
-
-
-      return false;
-
-    }
-
-
-    if (
-      !originAddress
-    ) {
-
-      loEls.eta.value =
-        "—";
-
-
-      loEls.etaHelp.textContent =
-        "Company address is missing from company/main.";
+        "This destination does not have GPS coordinates or a complete address saved.";
 
 
       return false;
@@ -8411,18 +8613,10 @@ loEls.contract.value = contractId;
 
 
     loEls.etaHelp.textContent =
-      `From ${originAddress} to ${destinationAddress}`;
+      `From ${grainSource.label || "selected grain source"} to ${location.locationName || "selected destination"}.`;
 
 
     try {
-
-      /*
-        Direct Routes API request.
-
-        This intentionally bypasses google.maps entirely so another
-        FarmVista script cannot cause this page to reuse a Maps session
-        that was initialized under a different Google Cloud project.
-      */
 
       const response =
         await fetch(
@@ -8444,15 +8638,13 @@ loEls.contract.value = contractId;
 
             body:
               JSON.stringify({
-                origin: {
-                  address:
-                    originAddress
-                },
+                origin:
+                  loRouteWaypointFromLatLng(
+                    originLatLng
+                  ),
 
-                destination: {
-                  address:
-                    destinationAddress
-                },
+                destination:
+                  destinationWaypoint,
 
                 travelMode:
                   "DRIVE",
@@ -8596,22 +8788,24 @@ loEls.contract.value = contractId;
           distanceText
             ? ` • ${distanceText}`
             : ""
-        } from ${
-          loClean(
-            loState.company?.name
-          ) ||
-          "company location"
-        }.`;
+        } from ${grainSource.label || "selected grain source"}.`;
 
 
       console.log(
         "[grain loadout] Direct Routes API ETA:",
         {
           origin:
-            originAddress,
+            originLatLng,
+
+          originSource:
+            grainSource.label,
 
           destination:
+            destinationLatLng ||
             destinationAddress,
+
+          destinationName:
+            location.locationName,
 
           minutes,
 
@@ -8656,19 +8850,129 @@ loEls.contract.value = contractId;
 
   }
 
+  function loLoadHasLinkedTicket(load){
+    /*
+      A real FarmVista ticket document ID is the strongest signal.
+      An elevator ticket number by itself is not enough to make a load
+      disappear; require link metadata with that legacy fallback.
+    */
+    if (
+      loClean(load?.grainTicketId) ||
+      loClean(load?.ticketId)
+    ) {
+      return true;
+    }
+
+    return !!(
+      loClean(load?.elevatorTicketNumber) &&
+      (
+        load?.ticketLinkedAt ||
+        load?.linkedAt ||
+        loClean(load?.linkedDate) ||
+        loClean(load?.ticketLinkedDate)
+      )
+    );
+  }
+
+
+  function loIsPreloadRecord(load){
+    return (
+      load?.isPreload === true ||
+      loNorm(load?.status) === "preload"
+    );
+  }
+
+
+  async function loRollDuePreloadsToTransit(){
+    const today = loLocalISO();
+
+    const dueLoads =
+      loState.loads.filter(load => {
+        if (!loIsPreloadRecord(load)) {
+          return false;
+        }
+
+        if (loLoadHasLinkedTicket(load)) {
+          return false;
+        }
+
+        const deliveryDate =
+          loClean(
+            load.deliveryDate ||
+            load.loadDate
+          );
+
+        return !!deliveryDate && deliveryDate <= today;
+      });
+
+
+    if (!dueLoads.length) {
+      return;
+    }
+
+
+    /*
+      Update the in-memory copy first so the row can never disappear
+      while Firestore writes are happening.
+    */
+    dueLoads.forEach(load => {
+      load.status = "in_transit";
+      load.preloadActivatedDate = today;
+    });
+
+
+    await Promise.all(
+      dueLoads
+        .filter(load => loNorm(load._persistedStatus || load.status) !== "in_transit")
+        .map(async load => {
+          try {
+            await updateDoc(
+              doc(
+                db,
+                LOADOUT_COLLECTION,
+                load.id
+              ),
+              {
+                status:
+                  "in_transit",
+
+                preloadActivatedDate:
+                  today,
+
+                preloadActivatedAt:
+                  serverTimestamp(),
+
+                updatedAt:
+                  serverTimestamp()
+              }
+            );
+          }
+          catch (error) {
+            console.warn(
+              "[grain loadout] preload rollover write failed:",
+              {
+                loadId:load.id,
+                loadNumber:load.loadNumber,
+                error
+              }
+            );
+          }
+        })
+    );
+  }
+
+
   function loLoadStatus(load){
     const isPreload =
-      load.isPreload === true ||
-      loNorm(load.status) === "preload";
+      loIsPreloadRecord(load);
 
     const deliveryDate =
       loClean(load.deliveryDate || load.loadDate);
 
     /*
-      IMPORTANT:
-      A future preload must remain visible as Preload even if a ticket
-      was linked early. The delivery date controls when it becomes a
-      normal linked/in-transit load on the board.
+      Future preloads stay blue.
+      On the delivery date (or after), an unlinked preload becomes
+      In Transit and remains visible until a ticket is actually linked.
     */
     if (
       isPreload &&
@@ -8678,7 +8982,7 @@ loEls.contract.value = contractId;
       return "preload";
     }
 
-    if (load.grainTicketId || load.ticketId || load.elevatorTicketNumber) {
+    if (loLoadHasLinkedTicket(load)) {
       return "linked";
     }
 
@@ -9136,7 +9440,11 @@ function loLiveGrainSourceLabel(load){
         </td>
 
         <td>
-          ${loEscape(loFormatClock(load.estimatedArrivalAt))}
+          ${loEscape(
+            loIsPreloadRecord(load)
+              ? "N/A"
+              : loFormatClock(load.estimatedArrivalAt)
+          )}
         </td>
       `;
 
@@ -9291,6 +9599,9 @@ loState.drivers = employeeSnapshot.docs
         const buyer =
           buyerById.get(loClean(data.buyerId));
 
+        const gps =
+          loReadLatLng(data);
+
         return {
           id:snapshot.id,
           buyerId:loClean(data.buyerId),
@@ -9302,7 +9613,9 @@ loState.drivers = employeeSnapshot.docs
           street:loClean(data.street),
           city:loClean(data.city),
           state:loClean(data.state),
-          zip:loClean(data.zip)
+          zip:loClean(data.zip),
+          latitude:gps?.latitude ?? null,
+          longitude:gps?.longitude ?? null
         };
       })
       .filter(item => item.locationName)
@@ -9319,10 +9632,28 @@ loState.drivers = employeeSnapshot.docs
       }));
 
     loState.loads = loadSnapshot.docs
-      .map(snapshot => ({
-        id:snapshot.id,
-        ...snapshot.data()
-      }));
+      .map(snapshot => {
+        const data =
+          snapshot.data() ||
+          {};
+
+        return {
+          id:snapshot.id,
+          ...data,
+          _persistedStatus:
+            loClean(
+              data.status
+            )
+        };
+      });
+
+    /*
+      This is the daily preload handoff.
+      A preload due today is promoted to In Transit in Firestore and
+      in memory before the dashboard renders. It stays on the board
+      until a scale ticket is actually linked.
+    */
+    await loRollDuePreloadsToTransit();
 
     loState.binSources = [];
 
@@ -9330,6 +9661,7 @@ loState.drivers = employeeSnapshot.docs
       const data = snapshot.data() || {};
       const siteName = loClean(data.name) || `Bin Site ${snapshot.id.slice(0,6)}`;
       const bins = Array.isArray(data.bins) ? data.bins : [];
+      const siteGps = loReadLatLng(data);
 
       bins.forEach((bin,index) => {
         const onHand = Number(bin?.onHand || 0);
@@ -9358,6 +9690,8 @@ loState.drivers = employeeSnapshot.docs
           binIndex:index,
           crop,
           onHand,
+          latitude:siteGps?.latitude ?? null,
+          longitude:siteGps?.longitude ?? null,
           label,
           searchText:`${siteName} bin ${binNum} ${crop}`
         });
@@ -9494,6 +9828,10 @@ loState.drivers = employeeSnapshot.docs
           `${Math.round(availableBushels).toLocaleString("en-US")} bu`
         ].filter(Boolean);
 
+        const bagGps =
+          loReadLatLng(event) ||
+          loReadLatLng(event.field);
+
         return {
           type:"grain_bag",
           value:`bag:${event.id}`,
@@ -9502,6 +9840,8 @@ loState.drivers = employeeSnapshot.docs
           fieldId:loClean(event.field?.id),
           fieldName,
           cropYear:year,
+          latitude:bagGps?.latitude ?? null,
+          longitude:bagGps?.longitude ?? null,
           brand,
           diameterFt:diameter || null,
           sizeFeet:sizeFeet || null,
@@ -9843,7 +10183,7 @@ loState.drivers = employeeSnapshot.docs
       return;
     }
 
-    if (!loState.etaAt) {
+    if (!isPreload && !loState.etaAt) {
       loEls.saveBtn.disabled = true;
       loEls.saveBtn.textContent = "Calculating ETA…";
 
@@ -9851,10 +10191,13 @@ loState.drivers = employeeSnapshot.docs
 
       if (!etaReady) {
         loEls.saveBtn.disabled = false;
-        loEls.saveBtn.textContent = "Assign Load";
+        loEls.saveBtn.textContent =
+          loState.mode === "edit"
+            ? "Save Changes"
+            : "Assign Load";
 
         loShowMessage(
-          "ETA could not be calculated. Check the destination address or Google Maps setup.",
+          "ETA could not be calculated. Make sure the selected grain source has GPS latitude/longitude and the destination is valid.",
           "error"
         );
         return;
@@ -9912,7 +10255,7 @@ loState.drivers = employeeSnapshot.docs
         ? loState.loads
         .filter(load =>
           loDriverMatchesLoad(load,driver) &&
-          !(load.grainTicketId || load.ticketId || load.elevatorTicketNumber) &&
+          !loLoadHasLinkedTicket(load) &&
           loNorm(load.status) !== "ticket_missing" &&
           !(
             (load.isPreload === true || loNorm(load.status) === "preload") &&
@@ -10017,9 +10360,9 @@ loState.drivers = employeeSnapshot.docs
           : null,
 
         loadedAt,
-        estimatedArrivalAt:loState.etaAt || null,
-        estimatedDriveMinutes:loState.etaMinutes || null,
-        estimatedDistanceText:loState.etaDistanceText || null,
+        estimatedArrivalAt:isPreload ? null : (loState.etaAt || null),
+        estimatedDriveMinutes:isPreload ? null : (loState.etaMinutes || null),
+        estimatedDistanceText:isPreload ? null : (loState.etaDistanceText || null),
 
         status:isPreload ? "preload" : "in_transit",
 
@@ -10456,7 +10799,7 @@ loEls.addSubdriverBtn?.addEventListener("click",loOpenAddDriverPanel);
     loRenderContracts();
   });
 
-  loEls.preload?.addEventListener("change",() => {
+  loEls.preload?.addEventListener("change",async () => {
     loApplyPreloadUI();
 
     if (loEls.preload.checked) {
@@ -10473,6 +10816,30 @@ loEls.addSubdriverBtn?.addEventListener("click",loOpenAddDriverPanel);
           loEls.deliveryDate?.focus();
         }
       },0);
+
+      return;
+    }
+
+    /*
+      If the user changes a preload back to a live load while editing,
+      calculate a fresh ETA from the selected grain source GPS.
+    */
+    if (
+      loSelectedSource() &&
+      loSelectedLocation()
+    ) {
+      loEls.saveBtn.disabled = true;
+
+      await loUpdateEta();
+
+      if (!loState.saving) {
+        loEls.saveBtn.disabled = false;
+      }
+    }
+    else {
+      loEls.eta.value = "—";
+      loEls.etaHelp.textContent =
+        "ETA uses Google Routes from the selected grain source GPS location to the selected destination.";
     }
   });
 
@@ -10526,6 +10893,26 @@ loEls.addSubdriverBtn?.addEventListener("click",loOpenAddDriverPanel);
     loEls.destination.value = "";
     loEls.customer.value = "";
     loEls.contract.value = "";
+    loState.etaAt = null;
+    loState.etaMinutes = null;
+    loState.etaDistanceText = "";
+
+    if (loEls.preload?.checked) {
+      loEls.eta.value = "N/A";
+      loEls.etaHelp.textContent =
+        "Estimated arrival is N/A for preloads until FarmVista has a real departure-time source.";
+    }
+    else {
+      loEls.eta.value = "—";
+
+      const source = loSelectedSource();
+
+      loEls.etaHelp.textContent =
+        source && loSelectedSourceLatLng()
+          ? "Select a destination to calculate ETA from this grain source."
+          : "The selected grain source needs GPS latitude/longitude before ETA can be calculated.";
+    }
+
     loRenderDestinationPicker();
     loRenderCustomerPicker();
     loRenderContracts();
@@ -10542,6 +10929,11 @@ loEls.addSubdriverBtn?.addEventListener("click",loOpenAddDriverPanel);
     loRenderCustomerPicker();
     loRenderContracts();
     loSyncCustomerButton();
+
+    if (loEls.preload?.checked) {
+      loApplyPreloadUI();
+      return;
+    }
 
     loEls.saveBtn.disabled = true;
     loEls.eta.value = "Calculating…";
