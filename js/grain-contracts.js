@@ -3505,7 +3505,7 @@ function applyContractFilters() {
   const status =
     $("status-filter")
       ?.value ||
-    "all";
+    "open";
 
   const crop =
     $("crop-filter")
@@ -3522,80 +3522,230 @@ function applyContractFilters() {
       ?.value ||
     "";
 
-  state.filteredContracts =
-    state.contracts.filter(
-      contract => {
-        if (
-          contract.voided &&
-          !state.showVoided
-        ) {
-          return false;
-        }
 
-        if (
-          search
-        ) {
-          const haystack =
-            [
-              contract.contractNumber,
-              contract.buyerName,
-              contract.customerName,
-              contract.crop,
-              contract.contractType,
-              contract.deliveryLocationName,
-              contract.deliveryCity,
-              contract.deliveryState
-            ]
-              .join(" ")
-              .toLowerCase();
+  state.filteredContracts =
+    state.contracts
+      .filter(
+        contract => {
 
           if (
-            !haystack.includes(
-              search
-            )
+            contract.voided &&
+            !state.showVoided
           ) {
             return false;
           }
-        }
 
-        if (
-          crop &&
-          contract.crop !==
-          crop
-        ) {
-          return false;
-        }
 
-        if (
-          buyer &&
-          contract.buyerName !==
-          buyer
-        ) {
-          return false;
-        }
+          if (
+            search
+          ) {
+            const haystack =
+              [
+                contract.contractNumber,
+                contract.buyerName,
+                contract.customerName,
+                contract.crop,
+                contract.contractType,
+                contract.deliveryLocationName,
+                contract.deliveryCity,
+                contract.deliveryState
+              ]
+                .join(" ")
+                .toLowerCase();
 
-        if (
-          customer &&
-          contract.customerName !==
-          customer
-        ) {
-          return false;
-        }
 
-        if (
-          status !==
-          "all" &&
-          getContractStatus(
-            contract
-          ) !==
-          status
-        ) {
-          return false;
-        }
+            if (
+              !haystack.includes(
+                search
+              )
+            ) {
+              return false;
+            }
+          }
 
-        return true;
-      }
-    );
+
+          if (
+            crop &&
+            contract.crop !==
+            crop
+          ) {
+            return false;
+          }
+
+
+          if (
+            buyer &&
+            contract.buyerName !==
+            buyer
+          ) {
+            return false;
+          }
+
+
+          if (
+            customer &&
+            contract.customerName !==
+            customer
+          ) {
+            return false;
+          }
+
+
+          const contractStatus =
+            getContractStatus(
+              contract
+            );
+
+
+          /*
+            OPEN VIEW
+
+            Show:
+            - Open
+            - Near Full
+            - Pending
+
+            Hide:
+            - Completed
+            - Voided unless Show Voided is checked
+          */
+          if (
+            status ===
+            "open"
+          ) {
+            return [
+              "open",
+              "near",
+              "pending"
+            ].includes(
+              contractStatus
+            );
+          }
+
+
+          /*
+            All Contracts still keeps completed
+            hidden by default.
+
+            Completed can be viewed by choosing
+            Completed from the Status dropdown.
+          */
+          if (
+            status ===
+            "all"
+          ) {
+            if (
+              contractStatus ===
+              "complete"
+            ) {
+              return false;
+            }
+
+            return true;
+          }
+
+
+          if (
+            contractStatus !==
+            status
+          ) {
+            return false;
+          }
+
+
+          return true;
+
+        }
+      )
+      .sort(
+        (
+          a,
+          b
+        ) => {
+
+          const aStatus =
+            getContractStatus(
+              a
+            );
+
+          const bStatus =
+            getContractStatus(
+              b
+            );
+
+
+          /*
+            Current contracts first.
+            Upcoming/Pending contracts second.
+          */
+          const statusOrder = {
+            open: 0,
+            near: 0,
+            pending: 1,
+            complete: 2,
+            voided: 3
+          };
+
+
+          const orderCompare =
+            (
+              statusOrder[
+                aStatus
+              ] ?? 9
+            ) -
+            (
+              statusOrder[
+                bStatus
+              ] ?? 9
+            );
+
+
+          if (
+            orderCompare !==
+            0
+          ) {
+            return orderCompare;
+          }
+
+
+          /*
+            Pending contracts:
+            nearest Delivery Start first.
+          */
+          if (
+            aStatus ===
+              "pending" &&
+            bStatus ===
+              "pending"
+          ) {
+
+            const dateCompare =
+              clean(
+                a.deliveryStart
+              ).localeCompare(
+                clean(
+                  b.deliveryStart
+                )
+              );
+
+
+            if (
+              dateCompare
+            ) {
+              return dateCompare;
+            }
+
+          }
+
+
+          return compareContracts(
+            a,
+            b
+          );
+
+        }
+      );
+
 
   renderContracts();
 }
