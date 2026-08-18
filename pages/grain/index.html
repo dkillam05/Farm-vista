@@ -103,9 +103,13 @@
     }
 
     @media(min-width:900px){
-      .inventory-kpis.bin-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}
-      .inventory-kpis.bag-kpis{grid-template-columns:repeat(4,minmax(0,1fr))}
+      .inventory-kpis.bin-kpis,
+      .inventory-kpis.bag-kpis{
+        grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+      }
     }
+
+    .crop-kpi-group{display:contents}
 
     .mini-kpi{
       min-width:0;
@@ -520,10 +524,7 @@
             <div class="mini-kpi-label">Bins With Grain</div>
             <div class="mini-kpi-value" id="bin-count">—</div>
           </div>
-          <div class="mini-kpi">
-            <div class="mini-kpi-label">Bushels On Hand</div>
-            <div class="mini-kpi-value" id="bin-total-bu">—</div>
-          </div>
+          <div id="bin-crop-kpis" class="crop-kpi-group"></div>
         </div>
 
       <div class="inventory-toolbar">
@@ -531,8 +532,6 @@
           <label for="bin-crop">Crop</label>
           <select id="bin-crop" class="select">
           <option value="all">All Crops</option>
-          <option value="corn">Corn</option>
-          <option value="soybeans">Soybeans</option>
           </select>
         </div>
 
@@ -591,10 +590,7 @@
             <div class="mini-kpi-label">Partial Bags</div>
             <div class="mini-kpi-value" id="bag-partial-count">—</div>
           </div>
-          <div class="mini-kpi">
-            <div class="mini-kpi-label">Estimated Bushels</div>
-            <div class="mini-kpi-value" id="bag-total-bu">—</div>
-          </div>
+          <div id="bag-crop-kpis" class="crop-kpi-group"></div>
         </div>
 
       <div class="inventory-toolbar">
@@ -602,8 +598,6 @@
           <label for="bag-crop">Crop</label>
           <select id="bag-crop" class="select">
           <option value="all">All Crops</option>
-          <option value="corn">Corn</option>
-          <option value="soybeans">Soybeans</option>
           </select>
         </div>
 
@@ -690,6 +684,7 @@
               <option value="">—</option>
               <option value="Corn">Corn</option>
               <option value="Soybeans">Soybeans</option>
+              <option value="Wheat">Wheat</option>
             </select>
           </div>
           <div class="field">
@@ -708,6 +703,7 @@
               <option value="">—</option>
               <option value="Corn">Corn</option>
               <option value="Soybeans">Soybeans</option>
+              <option value="Wheat">Wheat</option>
             </select>
           </div>
           <div class="field">
@@ -798,6 +794,7 @@
     const c = norm(v);
     if(["soy","soybean","soybeans","beans","sb"].includes(c)) return "soybeans";
     if(["corn","maize"].includes(c)) return "corn";
+    if(["wheat","winter wheat","spring wheat"].includes(c)) return "wheat";
     return c;
   }
 
@@ -805,6 +802,7 @@
     const c = cropKey(v);
     if(c === "corn") return "Corn";
     if(c === "soybeans") return "Soybeans";
+    if(c === "wheat") return "Wheat";
     return clean(v) || "—";
   }
 
@@ -823,12 +821,92 @@
       return;
     }
 
+    if(key === "wheat"){
+      selectEl.value = "Wheat";
+      return;
+    }
+
+    const label = cropLabel(value);
+    if(label && label !== "—"){
+      let option = [...selectEl.options].find(opt => cropKey(opt.value) === key);
+      if(!option){
+        option = document.createElement("option");
+        option.value = label;
+        option.textContent = label;
+        selectEl.appendChild(option);
+      }
+      selectEl.value = option.value;
+      return;
+    }
+
     selectEl.value = "";
   }
 
   function fmtBu(v){
     const n = num(v,0);
     return `${Math.round(n).toLocaleString("en-US")} bu`;
+  }
+
+  function cropSortKey(label){
+    const key = cropKey(label);
+    const order = {corn:1,soybeans:2,wheat:3};
+    return [order[key] || 99, cropLabel(label)];
+  }
+
+  function sortCropLabels(labels){
+    return [...labels].sort((a,b) => {
+      const ak = cropSortKey(a);
+      const bk = cropSortKey(b);
+      return ak[0] - bk[0] || ak[1].localeCompare(bk[1]);
+    });
+  }
+
+  function renderCropKpis(containerId, totals, suffix="On Hand"){
+    const el = $(containerId);
+    if(!el) return;
+
+    const entries = sortCropLabels(
+      [...totals.keys()].filter(label => num(totals.get(label),0) > 0.01)
+    );
+
+    if(!entries.length){
+      el.innerHTML = `
+        <div class="mini-kpi">
+          <div class="mini-kpi-label">Bushels On Hand</div>
+          <div class="mini-kpi-value">0 bu</div>
+        </div>
+      `;
+      return;
+    }
+
+    el.innerHTML = entries.map(label => `
+      <div class="mini-kpi">
+        <div class="mini-kpi-label">${esc(cropLabel(label))} ${esc(suffix)}</div>
+        <div class="mini-kpi-value">${fmtBu(totals.get(label))}</div>
+      </div>
+    `).join("");
+  }
+
+  function refreshCropFilter(selectId, cropLabels){
+    const select = $(selectId);
+    if(!select) return;
+
+    const previous = cropKey(select.value || "all");
+    const unique = new Map();
+
+    cropLabels.forEach(label => {
+      const key = cropKey(label);
+      if(!key || key === "—" || key === "all") return;
+      if(!unique.has(key)) unique.set(key,cropLabel(label));
+    });
+
+    const labels = sortCropLabels([...unique.values()]);
+    select.innerHTML = `<option value="all">All Crops</option>` + labels.map(label => {
+      const key = cropKey(label);
+      return `<option value="${esc(key)}">${esc(cropLabel(label))}</option>`;
+    }).join("");
+
+    select.value = [...select.options].some(o => o.value === previous) ? previous : "all";
   }
 
   function fmtGrade(v){
@@ -1273,20 +1351,21 @@
     const filteredSites = state.bins.filter(binPassesFilters);
 
     let visibleBins = 0;
-    let visibleBu = 0;
+    const cropTotals = new Map();
 
     filteredSites.forEach(site => {
       site.bins.forEach(b => {
         if(crop === "all" || cropKey(b.crop) === crop){
           visibleBins += 1;
-          visibleBu += b.onHand;
+          const label = cropLabel(b.crop);
+          cropTotals.set(label,(cropTotals.get(label) || 0) + b.onHand);
         }
       });
     });
 
     $("bin-site-count").textContent = filteredSites.length.toLocaleString("en-US");
     $("bin-count").textContent = visibleBins.toLocaleString("en-US");
-    $("bin-total-bu").textContent = fmtBu(visibleBu);
+    renderCropKpis("bin-crop-kpis",cropTotals,"On Hand");
 
     if(!filteredSites.length){
       tbody.innerHTML = `<tr><td colspan="7" class="empty-row">No bin sites with grain match this filter.</td></tr>`;
@@ -1368,18 +1447,17 @@
     const crop = cropKey($("bag-crop").value);
     const filteredFields = state.bagFields.filter(bagPassesFilters);
 
-    let bagRows = 0;
     let totalFullBags = 0;
     let totalPartialBags = 0;
-    let totalBu = 0;
+    const cropTotals = new Map();
 
     filteredFields.forEach(field => {
       field.bags.forEach(b => {
         if(crop === "all" || cropKey(b.crop) === crop){
-          bagRows += 1;
           totalFullBags += Math.max(0,num(b.fullBags,0));
           totalPartialBags += Math.max(0,num(b.partialBags,0));
-          totalBu += b.bushels;
+          const label = cropLabel(b.crop);
+          cropTotals.set(label,(cropTotals.get(label) || 0) + b.bushels);
         }
       });
     });
@@ -1387,7 +1465,7 @@
     $("bag-field-count").textContent = filteredFields.length.toLocaleString("en-US");
     $("bag-full-count").textContent = totalFullBags.toLocaleString("en-US");
     $("bag-partial-count").textContent = totalPartialBags.toLocaleString("en-US");
-    $("bag-total-bu").textContent = fmtBu(totalBu);
+    renderCropKpis("bag-crop-kpis",cropTotals,"On Hand");
 
     if(!filteredFields.length){
       tbody.innerHTML = `<tr><td colspan="9" class="empty-row">No grain bag fields with grain match this filter.</td></tr>`;
@@ -1696,6 +1774,16 @@
 
       state.bins = buildBinInventory(siteSnapshot);
       state.bagFields = buildBagInventory();
+
+      refreshCropFilter(
+        "bin-crop",
+        state.bins.flatMap(site => site.bins.map(b => b.crop))
+      );
+
+      refreshCropFilter(
+        "bag-crop",
+        state.bagFields.flatMap(field => field.bags.map(b => b.crop))
+      );
 
       renderBins();
       renderBags();
