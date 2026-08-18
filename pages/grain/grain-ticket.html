@@ -8867,10 +8867,19 @@ loEls.contract.value = contractId;
   }
 
 
-  async function loFindDrivingRoute(
+async function loFindDrivingRoute(
     originLatLng,
     destinationWaypoint
   ) {
+
+    /*
+      Keep the REAL Google Roads error.
+      If every routing method fails, FarmVista will show exactly
+      what Google returned instead of replacing it with a generic
+      "could not find a road" message.
+    */
+    let nearestRoadError =
+      null;
 
     /*
       1) Exact saved bin/bag GPS.
@@ -8981,14 +8990,33 @@ loEls.contract.value = contractId;
       roadsError
     ) {
 
-      /*
-        Do not kill ETA just because Roads API is unavailable.
-        Continue into the geometric backup below.
-      */
-      console.warn(
-        "[grain loadout] Google Nearest Roads lookup failed; trying nearby-road fallback:",
-        roadsError
+      nearestRoadError =
+        roadsError;
+
+      console.error(
+        "[grain loadout] Google Nearest Roads API failed:",
+        {
+          message:
+            roadsError?.message ||
+            String(roadsError),
+
+          httpStatus:
+            roadsError?.googleStatus ??
+            null,
+
+          error:
+            roadsError,
+
+          sourceGps:
+            originLatLng
+        }
       );
+
+      /*
+        Still continue into FarmVista's nearby-road backup.
+        If that backup also fails, the REAL Roads API error
+        gets sent back to the ETA box below.
+      */
 
     }
 
@@ -9051,6 +9079,22 @@ loEls.contract.value = contractId;
         };
 
       }
+
+    }
+
+
+    /*
+      Nothing worked.
+
+      If Google Roads itself failed, preserve Google's actual error.
+      This is much more useful than pretending that Google simply
+      could not find a nearby road.
+    */
+    if (
+      nearestRoadError
+    ) {
+
+      throw nearestRoadError;
 
     }
 
