@@ -57,22 +57,7 @@
     body {
       position: fixed;
       inset: 0;
-      width: 100%;
-      height: 100svh;
-      min-height: 100svh;
-      max-height: 100svh;
-      overflow: hidden;
       color: #fff;
-      overscroll-behavior: none;
-      touch-action: manipulation;
-    }
-
-    @supports not (height: 100svh) {
-      body {
-        height: 100%;
-        min-height: 100%;
-        max-height: 100%;
-      }
     }
 
 
@@ -87,24 +72,10 @@
 
     .camera-page {
       position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100svh;
-      min-height: 100svh;
-      max-height: 100svh;
-      overflow: hidden;
+      inset: 0;
       background: #000;
-      display: grid;
-      grid-template-rows: auto minmax(0, 1fr) auto;
-    }
-
-    @supports not (height: 100svh) {
-      .camera-page {
-        height: 100%;
-        min-height: 100%;
-        max-height: 100%;
-      }
+      display: flex;
+      flex-direction: column;
     }
 
 
@@ -170,52 +141,41 @@
 
     .camera-view {
       position: relative;
-      width: 100%;
-      min-width: 0;
+      flex: 1 1 auto;
       min-height: 0;
       overflow: hidden;
       background: #000;
-      contain: layout paint size;
     }
 
 
     #cameraVideo {
       position: absolute;
-      top: 0;
-      left: 0;
+      inset: 0;
+
       width: 100%;
       height: 100%;
-      max-width: none;
-      max-height: none;
+
       object-fit: cover;
-      object-position: 50% 50%;
       background: #000;
-      transform: translateZ(0);
-      backface-visibility: hidden;
     }
 
 
     .camera-overlay {
       position: absolute;
-      top: 0;
-      right: 0;
-      bottom: 0;
-      left: 0;
-      display: grid;
-      place-items: center;
-      overflow: hidden;
+      inset: 0;
+
       pointer-events: none;
-      transform: translateZ(0);
     }
 
 
     .ticket-frame {
-      width: min(82vw, 390px);
-      height: min(82%, 590px);
-      aspect-ratio: 0.66 / 1;
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
 
-      max-width: calc(100% - 36px);
-      max-height: calc(100% - 70px);
+      width: min(82vw, 390px);
+      height: min(68vh, 590px);
 
       border: 3px solid rgba(255,255,255,.94);
       border-radius: 16px;
@@ -1223,6 +1183,12 @@ const ALIAS_COLLECTION =
         );
 
 
+      const cameraView =
+        document.querySelector(
+          ".camera-view"
+        );
+
+
       const ticketFrame =
         document.getElementById(
           "ticketFrame"
@@ -1356,6 +1322,11 @@ const tryAgainBtn =
 
       let processing =
         false;
+
+
+      let ticketFrameLocked =
+        false;
+
 
       let signedInUser =
   null;
@@ -4114,58 +4085,155 @@ function showResult() {
 
 
       // ==========================================================
-      // CAMERA
+      // CAMERA FRAME POSITION
       // ==========================================================
 
-function waitForVideoGeometry() {
+function resetTicketFramePosition() {
 
-  return new Promise(
-    resolve => {
+  ticketFrameLocked =
+    false;
 
-      if (
-        cameraVideo.readyState >= 2 &&
-        cameraVideo.videoWidth > 0 &&
-        cameraVideo.videoHeight > 0
-      ) {
-        resolve();
-        return;
-      }
 
-      const done =
-        () => {
-          cameraVideo.removeEventListener(
-            "loadedmetadata",
-            done
-          );
-          cameraVideo.removeEventListener(
-            "canplay",
-            done
-          );
-          resolve();
-        };
+  ticketFrame.style.left =
+    "50%";
 
-      cameraVideo.addEventListener(
-        "loadedmetadata",
-        done,
-        { once: true }
-      );
 
-      cameraVideo.addEventListener(
-        "canplay",
-        done,
-        { once: true }
-      );
+  ticketFrame.style.top =
+    "50%";
 
+
+  ticketFrame.style.transform =
+    "translate(-50%, -50%)";
+
+}
+
+
+function lockTicketFramePosition() {
+
+  if (
+    ticketFrameLocked ||
+    !cameraView
+  ) {
+
+    return;
+
+  }
+
+
+  const viewWidth =
+    cameraView.clientWidth;
+
+
+  const viewHeight =
+    cameraView.clientHeight;
+
+
+  const frameWidth =
+    ticketFrame.offsetWidth;
+
+
+  const frameHeight =
+    ticketFrame.offsetHeight;
+
+
+  if (
+    !viewWidth ||
+    !viewHeight ||
+    !frameWidth ||
+    !frameHeight
+  ) {
+
+    return;
+
+  }
+
+
+  /*
+    IMPORTANT FOR iPHONE / PWA CAMERA:
+
+    The frame initially appears in the correct centered position.
+    Safari can then change the usable viewport when the live camera
+    and flashlight finish initializing. If the frame remains centered
+    with percentages, that later viewport change moves the box.
+
+    Convert the good initial position to fixed pixel coordinates once
+    the video is playing. After that, normal browser viewport changes
+    cannot recenter or shift the ticket box.
+  */
+
+  const lockedLeft =
+    Math.max(
+      0,
+      Math.round(
+        (viewWidth - frameWidth) / 2
+      )
+    );
+
+
+  const lockedTop =
+    Math.max(
+      0,
+      Math.round(
+        (viewHeight - frameHeight) / 2
+      )
+    );
+
+
+  ticketFrame.style.left =
+    `${lockedLeft}px`;
+
+
+  ticketFrame.style.top =
+    `${lockedTop}px`;
+
+
+  ticketFrame.style.transform =
+    "none";
+
+
+  ticketFrameLocked =
+    true;
+
+
+  console.log(
+    "[Grain Ticket] Ticket frame locked.",
+    {
+      left:
+        lockedLeft,
+
+      top:
+        lockedTop,
+
+      width:
+        frameWidth,
+
+      height:
+        frameHeight,
+
+      cameraViewWidth:
+        viewWidth,
+
+      cameraViewHeight:
+        viewHeight
     }
   );
 
 }
+
+
+      // ==========================================================
+      // CAMERA
+      // ==========================================================
 
 async function startCamera() {
 
   stopCamera();
 
   showCameraScreen();
+
+
+  resetTicketFramePosition();
+
 
   captureBtn.disabled =
     true;
@@ -4248,16 +4316,14 @@ async function startCamera() {
       true;
 
 
-    await waitForVideoGeometry();
-
-
     await cameraVideo.play();
 
 
     /*
-      The camera preview can report its final geometry a frame or two
-      after play() resolves.  We do NOT resize the page around it.
-      Instead the preview settles inside the already-fixed camera surface.
+      Lock the green ticket frame while the preview is still in its
+      original good position. This happens BEFORE flashlight startup,
+      because iPhone Safari/PWA can resize its usable camera viewport
+      when the torch is enabled.
     */
 
     await new Promise(
@@ -4271,21 +4337,15 @@ async function startCamera() {
     );
 
 
-    await setupTorch();
+    lockTicketFramePosition();
 
 
     /*
-      Some Android devices change camera settings when torch is enabled.
-      Give the track one paint to settle, but never recalculate viewport
-      height or move the green frame.
+      Check whether the phone supports the flashlight.
+      The existing FarmVista behavior automatically turns it on.
     */
 
-    await new Promise(
-      resolve =>
-        requestAnimationFrame(
-          resolve
-        )
-    );
+    await setupTorch();
 
 
     ticketFrame.classList.add(
@@ -4400,6 +4460,9 @@ async function startCamera() {
         ticketFrame.classList.remove(
           "ready"
         );
+
+
+        resetTicketFramePosition();
 
       }
 
@@ -4574,82 +4637,12 @@ if (
             );
 
 
-          const sourceWidth =
+          const width =
             cameraVideo.videoWidth;
 
 
-          const sourceHeight =
-            cameraVideo.videoHeight;
-
-
-          const previewRect =
-            cameraVideo.getBoundingClientRect();
-
-
-          const previewWidth =
-            Math.max(
-              1,
-              previewRect.width
-            );
-
-
-          const previewHeight =
-            Math.max(
-              1,
-              previewRect.height
-            );
-
-
-          /*
-            Match CSS object-fit: cover so the saved image is the same
-            portion of the camera feed the driver saw behind the green box.
-          */
-
-          const scale =
-            Math.max(
-              previewWidth / sourceWidth,
-              previewHeight / sourceHeight
-            );
-
-
-          const visibleSourceWidth =
-            previewWidth / scale;
-
-
-          const visibleSourceHeight =
-            previewHeight / scale;
-
-
-          const sourceX =
-            Math.max(
-              0,
-              (sourceWidth - visibleSourceWidth) / 2
-            );
-
-
-          const sourceY =
-            Math.max(
-              0,
-              (sourceHeight - visibleSourceHeight) / 2
-            );
-
-
-          const width =
-            Math.max(
-              1,
-              Math.round(
-                visibleSourceWidth
-              )
-            );
-
-
           const height =
-            Math.max(
-              1,
-              Math.round(
-                visibleSourceHeight
-              )
-            );
+            cameraVideo.videoHeight;
 
 
           canvas.width =
@@ -4668,10 +4661,6 @@ if (
 
           ctx.drawImage(
             cameraVideo,
-            sourceX,
-            sourceY,
-            visibleSourceWidth,
-            visibleSourceHeight,
             0,
             0,
             width,
