@@ -967,12 +967,32 @@
                 Checking for a linked FarmVista load…
               </div>
 
-              <div class="load-details-grid">
+<div class="load-details-grid">
 
-                <div class="field full">
-                  <label for="ticketCrop">
-                    Crop
-                  </label>
+  <div class="field full">
+    <label for="loadNumberSelect">
+      FarmVista Load Number
+    </label>
+
+    <select
+      id="loadNumberSelect"
+      class="control"
+    >
+      <option value="">
+        No linked load
+      </option>
+    </select>
+
+    <div class="load-detail-help">
+      Select an existing FarmVista load number to link this grain ticket and automatically fill the load details below.
+    </div>
+  </div>
+
+
+  <div class="field full">
+    <label for="ticketCrop">
+      Crop
+    </label>
 
                   <select
                     id="ticketCrop"
@@ -1774,11 +1794,14 @@ imagePanStartScrollTop:
       reviewList:
         $("reviewList"),
 
-      linkedLoadoutContext:
-        $("linkedLoadoutContext"),
+linkedLoadoutContext:
+  $("linkedLoadoutContext"),
 
-      destinationPicker:
-        $("destinationPicker"),
+loadNumberSelect:
+  $("loadNumberSelect"),
+
+destinationPicker:
+  $("destinationPicker"),
 
       destinationButton:
         $("destinationButton"),
@@ -2932,7 +2955,612 @@ function handleTicketTouchEnd(
 
     }
 
+// ==========================================================
+// MANUAL LOAD NUMBER LINKING
+// ==========================================================
 
+async function renderLoadNumberOptions() {
+
+  const select =
+    $("loadNumberSelect");
+
+
+  if (
+    !select
+  ) {
+
+    return;
+
+  }
+
+
+  const snapshot =
+    await getDocs(
+      collection(
+        db,
+        "grain_loadouts"
+      )
+    );
+
+
+  const loads =
+    snapshot.docs
+      .map(
+        item => ({
+          id:
+            item.id,
+
+          ...item.data()
+        })
+      )
+      .filter(
+        load => {
+
+          const linkedTicketId =
+            clean(
+              load.grainTicketId ||
+              load.ticketId
+            );
+
+
+          /*
+            Show:
+            - unclaimed loads
+            - this ticket's currently linked load
+
+            Hide anything already linked to a DIFFERENT ticket.
+          */
+          return (
+            !linkedTicketId ||
+            linkedTicketId ===
+              ticketId
+          );
+
+        }
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          clean(
+            b.loadNumber
+          )
+            .localeCompare(
+              clean(
+                a.loadNumber
+              ),
+              undefined,
+              {
+                numeric:
+                  true,
+
+                sensitivity:
+                  "base"
+              }
+            )
+      );
+
+
+  select.innerHTML =
+    "";
+
+
+  const blank =
+    document.createElement(
+      "option"
+    );
+
+
+  blank.value =
+    "";
+
+
+  blank.textContent =
+    "No linked load";
+
+
+  select.appendChild(
+    blank
+  );
+
+
+  loads.forEach(
+    load => {
+
+      const loadNumber =
+        clean(
+          load.loadNumber
+        );
+
+
+      if (
+        !loadNumber
+      ) {
+
+        return;
+
+      }
+
+
+      const option =
+        document.createElement(
+          "option"
+        );
+
+
+      option.value =
+        load.id;
+
+
+      const details = [
+        loadNumber,
+
+        clean(
+          load.driverName
+        ),
+
+        clean(
+          load.crop
+        ),
+
+        clean(
+          load.destinationName ||
+          load.deliveryLocationName
+        )
+      ]
+        .filter(
+          Boolean
+        );
+
+
+      option.textContent =
+        details.join(
+          " • "
+        );
+
+
+      select.appendChild(
+        option
+      );
+
+    }
+  );
+
+
+  if (
+    state.loadout?.id &&
+    loads.some(
+      load =>
+        load.id ===
+        state.loadout.id
+    )
+  ) {
+
+    select.value =
+      state.loadout.id;
+
+  }
+
+}
+
+
+function loadSourceValueFromLoadout(
+  load
+) {
+
+  if (
+    !load
+  ) {
+
+    return "";
+
+  }
+
+
+  const direct =
+    clean(
+      load.grainSourceValue
+    );
+
+
+  if (
+    direct
+  ) {
+
+    return direct;
+
+  }
+
+
+  const type =
+    normalize(
+      load.grainSourceType
+    );
+
+
+  if (
+    type ===
+    "bin"
+  ) {
+
+    const siteId =
+      clean(
+        load.grainSourceSiteId
+      );
+
+
+    const binNumber =
+      clean(
+        load.grainSourceBinNumber
+      );
+
+
+    if (
+      siteId &&
+      binNumber
+    ) {
+
+      return `bin:${siteId}:${binNumber}`;
+
+    }
+
+  }
+
+
+  if (
+    type ===
+      "grain bag" ||
+    type ===
+      "grain_bag" ||
+    type ===
+      "bag"
+  ) {
+
+    const sourceId =
+      clean(
+        load.grainSourceId
+      );
+
+
+    if (
+      sourceId
+    ) {
+
+      return `bag:${sourceId}`;
+
+    }
+
+  }
+
+
+  return "";
+
+}
+
+
+async function chooseLoadNumber(
+  loadoutId
+) {
+
+  clearMessage();
+
+
+  if (
+    !loadoutId
+  ) {
+
+    state.loadout =
+      null;
+
+
+    renderLoadoutInformation();
+
+
+    return;
+
+  }
+
+
+  const snapshot =
+    await getDoc(
+      doc(
+        db,
+        "grain_loadouts",
+        loadoutId
+      )
+    );
+
+
+  if (
+    !snapshot.exists()
+  ) {
+
+    showMessage(
+      "That FarmVista load could not be found.",
+      "error"
+    );
+
+
+    return;
+
+  }
+
+
+  const load = {
+    id:
+      snapshot.id,
+
+    ...snapshot.data()
+  };
+
+
+  const linkedTicketId =
+    clean(
+      load.grainTicketId ||
+      load.ticketId
+    );
+
+
+  if (
+    linkedTicketId &&
+    linkedTicketId !==
+      ticketId
+  ) {
+
+    showMessage(
+      "That load is already linked to another grain ticket.",
+      "error"
+    );
+
+
+    await renderLoadNumberOptions();
+
+
+    return;
+
+  }
+
+
+  state.loadout =
+    load;
+
+
+  /*
+    ========================================================
+    CROP
+    ========================================================
+  */
+
+  const crop =
+    clean(
+      load.crop
+    )
+      .toLowerCase();
+
+
+  if (
+    crop.includes(
+      "corn"
+    )
+  ) {
+
+    elements.crop.value =
+      "Corn";
+
+  }
+  else if (
+    crop.includes(
+      "soy"
+    )
+  ) {
+
+    elements.crop.value =
+      "Soybeans";
+
+  }
+  else if (
+    crop.includes(
+      "wheat"
+    )
+  ) {
+
+    elements.crop.value =
+      "Wheat";
+
+  }
+
+
+  /*
+    ========================================================
+    GRAIN SOURCE
+    ========================================================
+  */
+
+  ensureSavedSourceAvailable();
+
+
+  const sourceValue =
+    loadSourceValueFromLoadout(
+      load
+    );
+
+
+  elements.grainSourceValue.value =
+    sourceValue;
+
+
+  state.selectedSource =
+    selectedSourceFromValue(
+      sourceValue
+    );
+
+
+  /*
+    ========================================================
+    DESTINATION / BUYER
+    ========================================================
+  */
+
+  const locationId =
+    clean(
+      load.destinationId ||
+      load.deliveryLocationId
+    );
+
+
+  state.selectedLocation =
+    state.locations.find(
+      location =>
+        location.id ===
+        locationId
+    ) ||
+    null;
+
+
+  elements.locationSelect.value =
+    state.selectedLocation?.id ||
+    "";
+
+
+  const buyerId =
+    clean(
+      load.buyerId ||
+      state.selectedLocation?.buyerId
+    );
+
+
+  state.selectedBuyer =
+    state.buyers.find(
+      buyer =>
+        buyer.id ===
+        buyerId
+    ) ||
+    (
+      buyerId
+        ? {
+            id:
+              buyerId,
+
+            name:
+              clean(
+                load.buyerName ||
+                state.selectedLocation?.buyerName
+              )
+          }
+        : null
+    );
+
+
+  elements.buyerSelect.value =
+    state.selectedBuyer?.id ||
+    "";
+
+
+  /*
+    ========================================================
+    SOLD UNDER / CUSTOMER
+    ========================================================
+  */
+
+  const customerId =
+    clean(
+      load.customerId
+    );
+
+
+  state.selectedCustomer =
+    state.customers.find(
+      customer =>
+        customer.id ===
+        customerId
+    ) ||
+    null;
+
+
+  elements.customerSelect.value =
+    state.selectedCustomer?.id ||
+    "";
+
+
+  /*
+    ========================================================
+    CONTRACT
+    ========================================================
+  */
+
+  const contractId =
+    clean(
+      load.contractId
+    );
+
+
+  state.selectedContract =
+    state.contracts.find(
+      contract =>
+        contract.id ===
+        contractId
+    ) ||
+    null;
+
+
+  /*
+    ========================================================
+    DRIVER
+    ========================================================
+  */
+
+  elements.driverName.textContent =
+    clean(
+      load.driverName
+    ) ||
+    clean(
+      state.ticket?.driverName
+    ) ||
+    "—";
+
+
+  /*
+    Refresh all visible controls.
+  */
+
+  syncGrainSourceButton();
+
+  syncDestinationButton();
+
+  syncCustomerButton();
+
+
+  renderGrainSourceOptions();
+
+  renderDestinationOptions();
+
+  renderCustomerOptions();
+
+  renderContractOptions();
+
+
+  if (
+    state.selectedContract
+  ) {
+
+    elements.contractSelect.value =
+      state.selectedContract.id;
+
+  }
+
+
+  renderLoadoutInformation();
+
+  updateReviewUI();
+
+
+  showMessage(
+    `Load ${clean(load.loadNumber) || ""} selected. Its load details were filled into this ticket. Save the ticket to complete the link.`,
+    "success"
+  );
+
+}
 
     // ==========================================================
     // LOAD TICKET
@@ -9888,16 +10516,31 @@ async function saveVerifiedTicketWithInventory(
                 null
               : null,
 
-          reconciliationStatus:
-            verified
-              ? "reconciled"
-              : "unreconciled",
+reconciliationStatus:
+  verified
+    ? "reconciled"
+    : "unreconciled",
 
-          reviewReasons,
+reviewReasons,
 
 
-          reviewedAt:
-            serverTimestamp(),
+/*
+  If a FarmVista dispatch load was manually selected,
+  permanently link this ticket back to that load.
+*/
+loadoutId:
+  state.loadout?.id ||
+  null,
+
+loadNumber:
+  clean(
+    state.loadout?.loadNumber
+  ) ||
+  null,
+
+
+reviewedAt:
+  serverTimestamp(),
 
           reviewedByUid:
             state.user?.uid ||
@@ -9961,11 +10604,36 @@ else {
           state.loadout?.id
         ) {
 
-          const loadPatch = {
+const loadPatch = {
 
-            destinationId:
-              selectedLocation?.id ||
-              null,
+  /*
+    This is the permanent Grain Ticket ↔ Load-Out relationship.
+    Once grainTicketId exists, FarmVista can treat the dispatch
+    as completed/linked instead of still waiting In Transit.
+  */
+
+  grainTicketId:
+    ticketId,
+
+  elevatorTicketNumber:
+    clean(
+      elements.ticketNumber.value
+    ) ||
+    null,
+
+  linkedDate:
+    clean(
+      elements.ticketDate.value
+    ) ||
+    null,
+
+  ticketLinkedAt:
+    serverTimestamp(),
+
+
+  destinationId:
+    selectedLocation?.id ||
+    null,
 
             destinationName:
               selectedLocation?.locationName ||
@@ -10080,11 +10748,6 @@ else {
                   null
                 : null,
 
-            elevatorTicketNumber:
-              clean(
-                elements.ticketNumber.value
-              ) ||
-              null,
 
             updatedAt:
               serverTimestamp()
@@ -10487,6 +11150,17 @@ elements.ticketImageWrap
         }
       );
 
+      elements.loadNumberSelect
+  .addEventListener(
+    "change",
+    async () => {
+
+      await chooseLoadNumber(
+        elements.loadNumberSelect.value
+      );
+
+    }
+  );
 
       elements.contractSelect
         .addEventListener(
@@ -10641,7 +11315,9 @@ elements.ticketImageWrap
       ]);
 
 
-      await loadLinkedLoadout();
+await loadLinkedLoadout();
+
+await renderLoadNumberOptions();
 
 
 renderBuyerOptions();
