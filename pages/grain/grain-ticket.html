@@ -9466,32 +9466,35 @@ async function loUpdateEta(){
   }
 
 
-  const destinationLatLng =
-    loLocationLatLng(
-      location
-    );
+/*
+  FarmVista grain-load routing rule:
+
+  Grain source = saved bin/bag GPS
+  Destination  = elevator delivery address
+
+  Do NOT use destination lat/lng here. Some older elevator records
+  contain placeholder coordinates of 0,0, which Google correctly
+  interprets as a real location in the Atlantic Ocean.
+*/
+const destinationAddress =
+  loFormatAddress(
+    location
+  );
 
 
-  const destinationAddress =
-    loFormatAddress(
-      location
-    );
+if (
+  !destinationAddress
+) {
 
+  loEls.eta.value =
+    "—";
 
-  if (
-    !destinationLatLng &&
-    !destinationAddress
-  ) {
+  loEls.etaHelp.textContent =
+    "This destination does not have a complete delivery address saved.";
 
-    loEls.eta.value =
-      "—";
+  return false;
 
-    loEls.etaHelp.textContent =
-      "This destination does not have GPS coordinates or a complete address saved.";
-
-    return false;
-
-  }
+}
 
 
   if (
@@ -9521,38 +9524,23 @@ async function loUpdateEta(){
 
   try {
 
-    const requestBody = {
+const requestBody = {
 
-      origin: {
-        latitude:
-          originLatLng.latitude,
+  origin: {
+    latitude:
+      originLatLng.latitude,
 
-        longitude:
-          originLatLng.longitude
-      }
+    longitude:
+      originLatLng.longitude
+  },
 
-    };
+  /*
+    Elevators route by their saved delivery address.
+  */
+  destinationAddress:
+    destinationAddress
 
-
-    if (
-      destinationLatLng
-    ) {
-
-      requestBody.destination = {
-        latitude:
-          destinationLatLng.latitude,
-
-        longitude:
-          destinationLatLng.longitude
-      };
-
-    }
-    else {
-
-      requestBody.destinationAddress =
-        destinationAddress;
-
-    }
+};
 
 
     console.log(
@@ -9751,9 +9739,8 @@ async function loUpdateEta(){
         snappedRoadDistanceMeters:
           result.snappedRoadDistanceMeters,
 
-        destination:
-          destinationLatLng ||
-          destinationAddress,
+destination:
+  destinationAddress
 
         minutes:
           loState.etaMinutes,
