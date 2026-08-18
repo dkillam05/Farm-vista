@@ -6538,31 +6538,36 @@ function ticketHasContract(
 
 
       /*
-        Auto-post verified tickets before rendering.
-        postEligibleTickets mutates successfully posted ticket objects
-        so the UI immediately reflects the real contract assignment.
+        Voided tickets stay in Firestore for audit history,
+        but they are no longer active FarmVista grain tickets.
+
+        Exclude them BEFORE:
+          • automatic contract/inventory posting
+          • dashboard visibility
+          • ticket counts
+          • today's bushel totals
+      */
+      const activeTickets =
+        loadedTickets.filter(
+          ticket =>
+            ticket?.voided !== true
+        );
+
+
+      /*
+        Auto-post verified ACTIVE tickets before rendering.
       */
       await postEligibleTickets(
-        loadedTickets
+        activeTickets
       );
 
 
       /*
-        Dashboard visibility rules:
-
-        • Always retain the newest 50 tickets.
-        • Always retain every ticket from today.
-        • Never age off Needs Review tickets.
-        • Never age off Needs Contract tickets.
-        • Good tickets remain for 3 calendar days.
-
-        This means an unresolved ticket can remain here
-        indefinitely until somebody fixes it.
+        Dashboard visibility rules apply only to active tickets.
       */
-
       const latest50Ids =
         new Set(
-          loadedTickets
+          activeTickets
             .slice(
               0,
               50
@@ -6575,7 +6580,7 @@ function ticketHasContract(
 
 
       allTickets =
-        loadedTickets.filter(
+        activeTickets.filter(
           ticket =>
             ticketShouldStayOnDashboard(
               ticket,
