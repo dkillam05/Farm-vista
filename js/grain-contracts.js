@@ -858,7 +858,7 @@ function buildAllocationPatch(
     remaining <= EPSILON &&
     spot <= EPSILON;
 
-  return {
+ return {
     contractAllocations:
       normalizedAllocations,
 
@@ -871,6 +871,19 @@ function buildAllocationPatch(
     allocationModelVersion:
       2,
 
+    /*
+      Legacy contract fields only stay populated when
+      100% of the ticket belongs to ONE contract.
+
+      If the ticket is:
+      - unassigned
+      - partially assigned
+      - split between contracts
+      - partly Spot
+
+      these legacy fields must not pretend the whole
+      ticket belongs to one contract.
+    */
     contractId:
       legacyWholeTicket
         ? onlyAllocation.contractId
@@ -884,6 +897,19 @@ function buildAllocationPatch(
             null
           )
         : null,
+
+    /*
+      Contract allocation status is separate from
+      validationStatus.
+
+      The ticket can remain "verified" while still
+      needing its remaining bushels assigned.
+    */
+    reconciliationStatus:
+      remaining >
+      EPSILON
+        ? "needs_contract"
+        : "reconciled",
 
     updatedAt:
       serverTimestamp()
