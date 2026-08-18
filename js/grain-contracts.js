@@ -3782,13 +3782,19 @@ function renderContractTable() {
 ============================================================ */
 
 function getBuyersWithActiveContracts() {
+  const openContracts =
+    state.contracts.filter(
+      contract =>
+        !contract.voided &&
+        numberValue(
+          contract.openBushels
+        ) >
+        EPSILON
+    );
+
   const buyerIds =
     new Set(
-      state.contracts
-        .filter(
-          contract =>
-            !contract.voided
-        )
+      openContracts
         .map(
           contract =>
             clean(
@@ -3800,11 +3806,7 @@ function getBuyersWithActiveContracts() {
 
   const buyerNames =
     new Set(
-      state.contracts
-        .filter(
-          contract =>
-            !contract.voided
-        )
+      openContracts
         .map(
           contract =>
             normalized(
@@ -4011,6 +4013,13 @@ function populateReconciliationCustomerPicker() {
   ) {
     state.reconcileCustomerId =
       "";
+  }
+
+  if (
+    customers.length === 1
+  ) {
+    state.reconcileCustomerId =
+      customers[0].id;
   }
 
   populateObjectSelect(
@@ -4559,6 +4568,65 @@ function renderReconciliation() {
     $("reconcile-filter-message");
 
 
+  /*
+    Keep this header message intentionally short
+    and consistent so the Buyer / Customer row
+    never grows or shifts when selections change.
+  */
+
+  if (message) {
+    message.innerHTML = `
+      <span
+        style="
+          display:inline-flex;
+          align-items:center;
+          gap:7px;
+          white-space:nowrap;
+        "
+        title="Choose a Buyer and Customer, then drag available ticket bushels to a matching crop contract or to Spot. FarmVista automatically stops at the contract limit."
+      >
+        <svg
+          width="17"
+          height="17"
+          viewBox="0 0 24 24"
+          fill="none"
+          aria-hidden="true"
+          style="flex:0 0 auto;"
+        >
+          <circle
+            cx="12"
+            cy="12"
+            r="9"
+            stroke="currentColor"
+            stroke-width="2"
+          />
+          <path
+            d="M12 10.75V17"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+          />
+          <circle
+            cx="12"
+            cy="7.25"
+            r="1.15"
+            fill="currentColor"
+          />
+        </svg>
+
+        <span>
+          Drag tickets to a matching contract or Spot
+        </span>
+      </span>
+    `;
+
+    message.classList.toggle(
+      "ready",
+      ready
+    );
+  }
+
+
   if (
     $("select-all-tickets-btn")
   ) {
@@ -4592,19 +4660,6 @@ function renderReconciliation() {
 
 
   if (!ready) {
-    message
-      ?.classList
-      .remove(
-        "ready"
-      );
-
-    if (message) {
-      message.textContent =
-        !state.reconcileBuyerId
-          ? "Select Buyer first. Only buyers with active contracts are shown."
-          : "Now select a Customer. Only customers with contracts for this buyer are shown.";
-    }
-
     if (
       $("selection-count")
     ) {
@@ -4656,18 +4711,6 @@ function renderReconciliation() {
     }
 
     return;
-  }
-
-
-  message
-    ?.classList
-    .add(
-      "ready"
-    );
-
-  if (message) {
-    message.textContent =
-      "Ready — drag available ticket bushels to a matching crop contract or to Spot. FarmVista automatically splits the final ticket exactly at the contract limit.";
   }
 
 
