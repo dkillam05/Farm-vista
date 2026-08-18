@@ -8727,6 +8727,304 @@ loEls.contract.value = contractId;
     return false;
   }
 
+  /* ============================================================
+   LIVE LOAD-OUT LABELS
+
+   IMPORTANT:
+   grain_loadouts stores contractLabel / grainSourceName as a
+   historical snapshot from when the load was created.
+
+   Never use those saved bushel numbers as the live dashboard
+   display. Resolve the current contract + inventory records.
+============================================================ */
+
+function loLiveContractLabel(load){
+
+  const contractId =
+    loClean(
+      load?.contractId
+    );
+
+
+  if (
+    contractId
+  ) {
+
+    const liveContract =
+      loState.contracts.find(
+        contract =>
+          loClean(
+            contract.id
+          ) ===
+          contractId
+      );
+
+
+    if (
+      liveContract
+    ) {
+
+      return loContractLabel(
+        liveContract
+      );
+
+    }
+
+  }
+
+
+  /*
+    Fallback only if the real contract cannot currently be found.
+    Strip the old "bushels left" portion so we never intentionally
+    show a stale bushel number.
+  */
+  const contractNumber =
+    loClean(
+      load?.contractNumber
+    );
+
+
+  if (
+    contractNumber
+  ) {
+
+    return contractNumber;
+
+  }
+
+
+  const savedLabel =
+    loClean(
+      load?.contractLabel
+    );
+
+
+  if (
+    savedLabel
+  ) {
+
+    return savedLabel
+      .split("•")[0]
+      .trim();
+
+  }
+
+
+  return "—";
+
+}
+
+
+function loLiveGrainSourceLabel(load){
+
+  const sourceType =
+    loNorm(
+      load?.grainSourceType
+    );
+
+
+  /* ============================================================
+     BIN
+  ============================================================ */
+
+  if (
+    sourceType ===
+    "bin"
+  ) {
+
+    const siteId =
+      loClean(
+        load?.grainSourceSiteId
+      );
+
+
+    const binIndex =
+      Number(
+        load?.grainSourceBinIndex
+      );
+
+
+    const binNumber =
+      load?.grainSourceBinNumber;
+
+
+    let liveSource =
+      null;
+
+
+    /*
+      Best match is site ID + array index because that is what the
+      accounting engine uses.
+    */
+    if (
+      siteId &&
+      Number.isFinite(
+        binIndex
+      )
+    ) {
+
+      liveSource =
+        loState.binSources.find(
+          source =>
+            source.siteId === siteId &&
+            Number(
+              source.binIndex
+            ) ===
+            binIndex
+        ) ||
+        null;
+
+    }
+
+
+    /*
+      Legacy fallback for older loads that might only have the
+      displayed bin number.
+    */
+    if (
+      !liveSource &&
+      siteId &&
+      binNumber !== undefined &&
+      binNumber !== null
+    ) {
+
+      liveSource =
+        loState.binSources.find(
+          source =>
+            source.siteId === siteId &&
+            String(
+              source.binNum
+            ) ===
+            String(
+              binNumber
+            )
+        ) ||
+        null;
+
+    }
+
+
+    if (
+      liveSource
+    ) {
+
+      return liveSource.label;
+
+    }
+
+
+    /*
+      Do NOT show the old saved bushel count if the live source
+      disappeared. Give enough identification to know the source.
+    */
+    const siteName =
+      loClean(
+        load?.grainSourceSiteName
+      );
+
+
+    if (
+      siteName
+    ) {
+
+      return `${siteName}${
+        binNumber !== undefined &&
+        binNumber !== null
+          ? ` — Bin ${binNumber}`
+          : ""
+      }`;
+
+    }
+
+  }
+
+
+  /* ============================================================
+     GRAIN BAG
+  ============================================================ */
+
+  if (
+    sourceType ===
+    "grain_bag"
+  ) {
+
+    const sourceId =
+      loClean(
+        load?.grainSourceId
+      );
+
+
+    if (
+      sourceId
+    ) {
+
+      const liveSource =
+        loState.bagSources.find(
+          source =>
+            loClean(
+              source.id
+            ) ===
+            sourceId
+        );
+
+
+      if (
+        liveSource
+      ) {
+
+        return liveSource.label;
+
+      }
+
+    }
+
+
+    const fieldName =
+      loClean(
+        load?.grainSourceFieldName
+      );
+
+
+    if (
+      fieldName
+    ) {
+
+      return fieldName;
+
+    }
+
+  }
+
+
+  /*
+    Last resort:
+    use the saved text, but remove a trailing bushel figure so an
+    old inventory number is never presented as current.
+  */
+  const savedName =
+    loClean(
+      load?.grainSourceName
+    );
+
+
+  if (
+    savedName
+  ) {
+
+    return savedName
+      .replace(
+        /\s*(?:—|•)\s*[\d,.]+\s*bu\s*$/i,
+        ""
+      )
+      .trim();
+
+  }
+
+
+  return "—";
+
+}
+
   function loRenderTable(){
     const visible = loState.loads
       .filter(loShouldShow)
@@ -8817,20 +9115,21 @@ loEls.contract.value = contractId;
           ${loEscape(load.crop || "—")}
         </td>
 
-        <td>
-          ${loEscape(
-            load.contractLabel ||
-            load.contractNumber ||
-            "—"
-          )}
-        </td>
+<td>
+  ${loEscape(
+    loLiveContractLabel(
+      load
+    )
+  )}
+</td>
 
-        <td>
-          ${loEscape(
-            load.grainSourceName ||
-            "—"
-          )}
-        </td>
+<td>
+  ${loEscape(
+    loLiveGrainSourceLabel(
+      load
+    )
+  )}
+</td>
 
         <td>
           ${loEscape(loFormatClock(load.loadedAt))}
@@ -10278,33 +10577,46 @@ loEls.addSubdriverBtn?.addEventListener("click",loOpenAddDriverPanel);
     Silent Load Out refresh every 30 seconds.
     No page reload and no helper/status text.
   */
-  async function loBackgroundRefresh(){
-    try {
-      const loadSnapshot =
-        await getDocs(
-          collection(
-            db,
-            LOADOUT_COLLECTION
-          )
-        );
+async function loBackgroundRefresh(){
 
-      loState.loads =
-        loadSnapshot.docs.map(
-          snapshot => ({
-            id:snapshot.id,
-            ...snapshot.data()
-          })
-        );
+  try {
 
-      loRenderTable();
+    /*
+      Refresh the complete reference data so the dashboard always
+      uses CURRENT:
+        - contract open bushels
+        - bin on-hand bushels
+        - grain bag remaining bushels
+        - load-out status
+
+      Do not rebuild an open edit form underneath the user.
+    */
+    if (
+      loEls.backdrop?.classList.contains(
+        "open"
+      )
+    ) {
+
+      return;
+
     }
-    catch (error) {
-      console.warn(
-        "[grain loadout] background refresh failed:",
-        error
-      );
-    }
+
+
+    await loLoadReferenceData();
+
   }
+  catch (
+    error
+  ) {
+
+    console.warn(
+      "[grain loadout] background refresh failed:",
+      error
+    );
+
+  }
+
+}
 
   setInterval(
     loBackgroundRefresh,
