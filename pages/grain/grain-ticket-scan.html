@@ -2370,122 +2370,936 @@ function findDeliveryLocationMatch(
   grainTicket
 ) {
 
-/*
-  LEARNED LOCATION MATCH
+  /*
+    ==========================================================
+    FARMVISTA SMART DELIVERY LOCATION MATCHING
 
-  This uses the combined OCR elevator/address wording
-  saved by the ticket-detail page.
-*/
+    Match using as many independent clues as possible:
 
-const locationAliasText =
-  buildLocationAliasText(
-    grainTicket
-  );
+      - learned alias
+      - buyer / elevator company
+      - street
+      - city
+      - state
+      - ZIP
+      - location name
+
+    IMPORTANT:
+    We do NOT guess when two locations have an equally
+    believable score.
+
+    Example ADM ticket:
+
+      elevatorName:
+        ADM QUINCY, IL
+
+      deliveryStreet:
+        2100 GARDNER EXPRESSWAY
+
+      structured city/state/zip may be null
+
+    FarmVista should still recognize:
+
+      ADM
+      Quincy
+      2100 Gardner Expressway
+      Quincy, IL 62305
+  */
 
 
-const learnedLocation =
-  findLearnedAlias(
-    "delivery_location",
-    locationAliasText
-  );
+  // ==========================================================
+  // LEARNED LOCATION MATCH FIRST
+  // ==========================================================
+
+  const locationAliasText =
+    buildLocationAliasText(
+      grainTicket
+    );
 
 
-if (
-  learnedLocation?.targetId
-) {
-
-  const location =
-    deliveryLocations.find(
-      item =>
-        item.id ===
-        learnedLocation.targetId
+  const learnedLocation =
+    findLearnedAlias(
+      "delivery_location",
+      locationAliasText
     );
 
 
   if (
-    location
+    learnedLocation?.targetId
   ) {
+
+    const location =
+      deliveryLocations.find(
+        item =>
+          item.id ===
+          learnedLocation.targetId
+      );
+
+
+    if (
+      location
+    ) {
+
+      return {
+        matched:
+          true,
+
+        matchType:
+          "learned_alias",
+
+        location
+      };
+
+    }
+
+  }
+
+
+  // ==========================================================
+  // NORMALIZATION HELPERS
+  // ==========================================================
+
+  function normalized(
+    value
+  ) {
+
+    return normalizeMatchText(
+      value
+    );
+
+  }
+
+
+  function normalizeStreet(
+    value
+  ) {
+
+    return String(
+      value ||
+      ""
+    )
+      .toLowerCase()
+
+      .replace(
+        /\bstreet\b/g,
+        "st"
+      )
+
+      .replace(
+        /\broad\b/g,
+        "rd"
+      )
+
+      .replace(
+        /\bavenue\b/g,
+        "ave"
+      )
+
+      .replace(
+        /\bboulevard\b/g,
+        "blvd"
+      )
+
+      .replace(
+        /\bdrive\b/g,
+        "dr"
+      )
+
+      .replace(
+        /\blane\b/g,
+        "ln"
+      )
+
+      .replace(
+        /\bhighway\b/g,
+        "hwy"
+      )
+
+      .replace(
+        /\broute\b/g,
+        "rt"
+      )
+
+      .replace(
+        /\bexpressway\b/g,
+        "expy"
+      )
+
+      .replace(
+        /[^a-z0-9]/g,
+        ""
+      );
+
+  }
+
+
+  function normalizeZip(
+    value
+  ) {
+
+    const digits =
+      String(
+        value ||
+        ""
+      )
+        .replace(
+          /\D/g,
+          ""
+        );
+
+
+    return digits
+      .slice(
+        0,
+        5
+      );
+
+  }
+
+
+  // ==========================================================
+  // OCR VALUES
+  // ==========================================================
+
+  const elevatorText =
+    String(
+      grainTicket?.elevatorName ||
+      ""
+    ).trim();
+
+
+  const rawText =
+    String(
+      grainTicket?.rawText ||
+      ""
+    );
+
+
+  const ocrStreet =
+    normalizeStreet(
+      grainTicket?.deliveryStreet
+    );
+
+
+  let ocrCity =
+    normalized(
+      grainTicket?.deliveryCity
+    );
+
+
+  let ocrState =
+    normalized(
+      grainTicket?.deliveryState
+    );
+
+
+  let ocrZip =
+    normalizeZip(
+      grainTicket?.deliveryZip
+    );
+
+
+  const normalizedElevator =
+    normalized(
+      elevatorText
+    );
+
+
+  // ==========================================================
+  // RECOVER CITY / STATE FROM ELEVATOR NAME
+  //
+  // Example:
+  //
+  // ADM QUINCY, IL
+  // ==========================================================
+
+  if (
+    !ocrCity ||
+    !ocrState
+  ) {
+
+    const elevatorCityState =
+      elevatorText.match(
+        /\b([A-Za-z][A-Za-z .'-]+?),?\s+([A-Z]{2})\b/
+      );
+
+
+    if (
+      elevatorCityState
+    ) {
+
+      let possibleCity =
+        String(
+          elevatorCityState[1] ||
+          ""
+        )
+          .trim();
+
+
+      /*
+        Remove known buyer name from the beginning.
+
+        ADM QUINCY
+        becomes
+        QUINCY
+      */
+
+      for (
+        const buyer of
+        buyers
+      ) {
+
+        const buyerName =
+          getBuyerName(
+            buyer
+          );
+
+
+        if (
+          !buyerName
+        ) {
+
+          continue;
+
+        }
+
+
+        const buyerPattern =
+          new RegExp(
+            `^${buyerName.replace(
+              /[.*+?^${}()|[\]\\]/g,
+              "\\$&"
+            )}\\s+`,
+            "i"
+          );
+
+
+        possibleCity =
+          possibleCity.replace(
+            buyerPattern,
+            ""
+          );
+
+      }
+
+
+      if (
+        !ocrCity
+      ) {
+
+        ocrCity =
+          normalized(
+            possibleCity
+          );
+
+      }
+
+
+      if (
+        !ocrState
+      ) {
+
+        ocrState =
+          normalized(
+            elevatorCityState[2]
+          );
+
+      }
+
+    }
+
+  }
+
+
+  // ==========================================================
+  // RECOVER ZIP FROM RAW OCR
+  //
+  // Prefer ZIP close to the OCR street.
+  // ==========================================================
+
+  if (
+    !ocrZip &&
+    grainTicket?.deliveryStreet
+  ) {
+
+    const rawLines =
+      rawText
+        .split(
+          /\r?\n/
+        )
+        .map(
+          line =>
+            String(
+              line ||
+              ""
+            ).trim()
+        )
+        .filter(
+          Boolean
+        );
+
+
+    const streetNormalized =
+      normalizeStreet(
+        grainTicket.deliveryStreet
+      );
+
+
+    for (
+      let i = 0;
+      i < rawLines.length;
+      i++
+    ) {
+
+      if (
+        normalizeStreet(
+          rawLines[i]
+        ) !==
+        streetNormalized
+      ) {
+
+        continue;
+
+      }
+
+
+      for (
+        let offset = -2;
+        offset <= 3;
+        offset++
+      ) {
+
+        const candidate =
+          rawLines[
+            i + offset
+          ] ||
+          "";
+
+
+        const zipMatch =
+          candidate.match(
+            /\b(\d{5})(?:-\d{4})?\b/
+          );
+
+
+        if (
+          zipMatch
+        ) {
+
+          ocrZip =
+            zipMatch[1];
+
+          break;
+
+        }
+
+      }
+
+
+      if (
+        ocrZip
+      ) {
+
+        break;
+
+      }
+
+    }
+
+  }
+
+
+  // ==========================================================
+  // SCORE ALL FARMVISTA LOCATIONS
+  // ==========================================================
+
+  const scored =
+    deliveryLocations
+      .map(
+        location => {
+
+          const locationStreet =
+            normalizeStreet(
+              getLocationStreet(
+                location
+              )
+            );
+
+
+          const locationCity =
+            normalized(
+              getLocationCity(
+                location
+              )
+            );
+
+
+          const locationState =
+            normalized(
+              getLocationState(
+                location
+              )
+            );
+
+
+          const locationZip =
+            normalizeZip(
+              getLocationZip(
+                location
+              )
+            );
+
+
+          const locationName =
+            normalized(
+              getLocationName(
+                location
+              )
+            );
+
+
+          const locationBuyer =
+            normalized(
+              location.buyerName ||
+              ""
+            );
+
+
+          let score =
+            0;
+
+
+          const reasons =
+            [];
+
+
+          /*
+            STREET
+
+            Exact normalized street is one of our strongest
+            destination identifiers.
+          */
+
+          if (
+            ocrStreet &&
+            locationStreet &&
+            ocrStreet ===
+              locationStreet
+          ) {
+
+            score +=
+              60;
+
+
+            reasons.push(
+              "street"
+            );
+
+          }
+
+
+          /*
+            ZIP
+          */
+
+          if (
+            ocrZip &&
+            locationZip &&
+            ocrZip ===
+              locationZip
+          ) {
+
+            score +=
+              40;
+
+
+            reasons.push(
+              "zip"
+            );
+
+          }
+
+
+          /*
+            CITY
+          */
+
+          if (
+            ocrCity &&
+            locationCity &&
+            ocrCity ===
+              locationCity
+          ) {
+
+            score +=
+              30;
+
+
+            reasons.push(
+              "city"
+            );
+
+          }
+
+
+          /*
+            STATE
+          */
+
+          if (
+            ocrState &&
+            locationState &&
+            ocrState ===
+              locationState
+          ) {
+
+            score +=
+              10;
+
+
+            reasons.push(
+              "state"
+            );
+
+          }
+
+
+          /*
+            BUYER / COMPANY
+
+            Examples:
+
+              OCR:
+                ADM QUINCY IL
+
+              FarmVista buyer:
+                ADM
+          */
+
+          if (
+            normalizedElevator &&
+            locationBuyer &&
+            (
+              normalizedElevator.includes(
+                locationBuyer
+              ) ||
+              locationBuyer.includes(
+                normalizedElevator
+              )
+            )
+          ) {
+
+            score +=
+              30;
+
+
+            reasons.push(
+              "buyer"
+            );
+
+          }
+
+
+          /*
+            LOCATION NAME
+
+            Quincy may appear directly in:
+              ADM QUINCY IL
+          */
+
+          if (
+            normalizedElevator &&
+            locationName &&
+            normalizedElevator.includes(
+              locationName
+            )
+          ) {
+
+            score +=
+              20;
+
+
+            reasons.push(
+              "location_name"
+            );
+
+          }
+
+
+          return {
+            location,
+            score,
+            reasons
+          };
+
+        }
+      )
+      .filter(
+        item =>
+          item.score >
+          0
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          b.score -
+          a.score
+      );
+
+
+  if (
+    !scored.length
+  ) {
+
+    console.log(
+      "[Grain Ticket] No delivery location candidates."
+    );
+
+
+    return {
+      matched:
+        false,
+
+      matchType:
+        null,
+
+      location:
+        null
+    };
+
+  }
+
+
+  const best =
+    scored[0];
+
+
+  const secondBest =
+    scored[1] ||
+    null;
+
+
+  console.log(
+    "[Grain Ticket] Delivery location scoring:",
+    scored.map(
+      item => ({
+        id:
+          item.location.id,
+
+        buyer:
+          item.location.buyerName,
+
+        location:
+          getLocationName(
+            item.location
+          ),
+
+        street:
+          getLocationStreet(
+            item.location
+          ),
+
+        city:
+          getLocationCity(
+            item.location
+          ),
+
+        state:
+          getLocationState(
+            item.location
+          ),
+
+        zip:
+          getLocationZip(
+            item.location
+          ),
+
+        score:
+          item.score,
+
+        reasons:
+          item.reasons
+      })
+    )
+  );
+
+
+  // ==========================================================
+  // SAFE AUTO-MATCH RULES
+  // ==========================================================
+
+  /*
+    An exact street match is very strong when it also has
+    another supporting clue such as buyer/city/zip/location.
+  */
+
+  const hasStreet =
+    best.reasons.includes(
+      "street"
+    );
+
+
+  const supportingClues =
+    best.reasons.filter(
+      reason =>
+        reason !==
+        "street"
+    ).length;
+
+
+  /*
+    Require a meaningful score.
+
+    Examples:
+
+      street + buyer
+        90
+
+      street + city
+        90
+
+      street + ZIP
+        100
+
+      buyer + city + state
+        70
+
+      buyer + city + location name
+        80
+  */
+
+  const meetsThreshold =
+    (
+      hasStreet &&
+      supportingClues >= 1 &&
+      best.score >= 80
+    ) ||
+    best.score >=
+      90;
+
+
+  /*
+    Do not auto-select if another location scored almost
+    exactly the same.
+
+    This protects us when a buyer has multiple similar
+    elevators.
+  */
+
+  const clearlyBetter =
+    !secondBest ||
+    (
+      best.score -
+      secondBest.score
+    ) >=
+      20;
+
+
+  if (
+    meetsThreshold &&
+    clearlyBetter
+  ) {
+
+    console.log(
+      "[Grain Ticket] Smart delivery location matched:",
+      {
+        id:
+          best.location.id,
+
+        buyer:
+          best.location.buyerName,
+
+        location:
+          getLocationName(
+            best.location
+          ),
+
+        score:
+          best.score,
+
+        reasons:
+          best.reasons
+      }
+    );
+
 
     return {
       matched:
         true,
 
       matchType:
-        "learned_alias",
+        "smart_location",
 
-      location
+      location:
+        best.location
     };
 
   }
 
-}
-
-
-const ocrStreet =
-  normalizeMatchText(
-    grainTicket?.deliveryStreet
-  );
-
-
-  const ocrCity =
-    normalizeMatchText(
-      grainTicket?.deliveryCity
-    );
-
-
-  const ocrState =
-    normalizeMatchText(
-      grainTicket?.deliveryState
-    );
-
-
-  const ocrZip =
-    normalizeMatchText(
-      grainTicket?.deliveryZip
-    );
-
 
   /*
-    Strongest location match:
-    street + city
+    UNIQUE EXACT STREET FALLBACK
+
+    If OCR got an exact street address and only ONE saved
+    FarmVista location has that street, accept it.
+
+    Street addresses are far stronger than a city-only guess.
   */
 
   if (
-    ocrStreet &&
-    ocrCity
+    ocrStreet
   ) {
 
-    const exactAddress =
-      deliveryLocations.find(
+    const streetMatches =
+      deliveryLocations.filter(
         location =>
-          normalizeMatchText(
+          normalizeStreet(
             getLocationStreet(
               location
             )
           ) ===
-            ocrStreet &&
-          normalizeMatchText(
-            getLocationCity(
-              location
-            )
-          ) ===
-            ocrCity
+            ocrStreet
       );
 
 
     if (
-      exactAddress
+      streetMatches.length ===
+      1
     ) {
+
+      console.log(
+        "[Grain Ticket] Unique street location matched:",
+        {
+          id:
+            streetMatches[0].id,
+
+          buyer:
+            streetMatches[0].buyerName,
+
+          location:
+            getLocationName(
+              streetMatches[0]
+            ),
+
+          street:
+            getLocationStreet(
+              streetMatches[0]
+            )
+        }
+      );
+
 
       return {
         matched:
           true,
 
         matchType:
-          "address",
+          "unique_street",
 
         location:
-          exactAddress
+          streetMatches[0]
       };
 
     }
@@ -2493,102 +3307,20 @@ const ocrStreet =
   }
 
 
-  /*
-    ZIP + city is useful when OCR misses the street.
-  */
+  console.warn(
+    "[Grain Ticket] Delivery location not confidently matched:",
+    {
+      bestScore:
+        best.score,
 
-  if (
-    ocrCity &&
-    ocrZip
-  ) {
+      bestReasons:
+        best.reasons,
 
-    const cityZipMatch =
-      deliveryLocations.find(
-        location =>
-          normalizeMatchText(
-            getLocationCity(
-              location
-            )
-          ) ===
-            ocrCity &&
-          normalizeMatchText(
-            getLocationZip(
-              location
-            )
-          ) ===
-            ocrZip
-      );
-
-
-    if (
-      cityZipMatch
-    ) {
-
-      return {
-        matched:
-          true,
-
-        matchType:
-          "city_zip",
-
-        location:
-          cityZipMatch
-      };
-
+      secondBestScore:
+        secondBest?.score ??
+        null
     }
-
-  }
-
-
-  /*
-    City + state fallback.
-
-    Only accept this if exactly one FarmVista location
-    matches, so we never guess between multiple elevators
-    in the same city.
-  */
-
-  if (
-    ocrCity &&
-    ocrState
-  ) {
-
-    const matches =
-      deliveryLocations.filter(
-        location =>
-          normalizeMatchText(
-            getLocationCity(
-              location
-            )
-          ) ===
-            ocrCity &&
-          normalizeMatchText(
-            getLocationState(
-              location
-            )
-          ) ===
-            ocrState
-      );
-
-
-    if (
-      matches.length === 1
-    ) {
-
-      return {
-        matched:
-          true,
-
-        matchType:
-          "city_state",
-
-        location:
-          matches[0]
-      };
-
-    }
-
-  }
+  );
 
 
   return {
