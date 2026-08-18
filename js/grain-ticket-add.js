@@ -2652,12 +2652,12 @@ function renderDriver(
 
           sub:
             driver.type ===
-              "employee"
+              "subcontractor"
                 ? (
-                    driver.email ||
+                    driver.subcontractorName ||
                     ""
                   )
-                : driver.subcontractorName,
+                : "",
 
           selected:
             driver.value ===
