@@ -43,6 +43,7 @@
       margin: 0;
       width: 100%;
       height: 100%;
+      min-height: 100%;
       overflow: hidden;
       background: #000;
       font-family:
@@ -57,7 +58,12 @@
     body {
       position: fixed;
       inset: 0;
+      width: 100%;
+      height: var(--fv-viewport-height, 100dvh);
+      min-height: var(--fv-viewport-height, 100dvh);
       color: #fff;
+      overscroll-behavior: none;
+      touch-action: manipulation;
     }
 
 
@@ -72,10 +78,15 @@
 
     .camera-page {
       position: fixed;
-      inset: 0;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: var(--fv-viewport-height, 100dvh);
+      min-height: var(--fv-viewport-height, 100dvh);
       background: #000;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
     }
 
 
@@ -168,13 +179,15 @@
       align-items: center;
       justify-content: center;
 
+      padding: 14px;
+
       pointer-events: none;
     }
 
 
     .ticket-frame {
-      width: min(82vw, 390px);
-      height: min(68vh, 590px);
+      width: var(--ticket-frame-width, min(82vw, 390px));
+      height: var(--ticket-frame-height, min(68vh, 590px));
 
       border: 3px solid rgba(255,255,255,.94);
       border-radius: 16px;
@@ -4073,6 +4086,253 @@ function showResult() {
 
 
       // ==========================================================
+      // CAMERA VIEWPORT / FRAME GEOMETRY
+      // ==========================================================
+
+function syncViewportHeight() {
+
+  const viewport =
+    window.visualViewport;
+
+
+  const height =
+    Math.round(
+      viewport?.height ||
+      window.innerHeight ||
+      document.documentElement.clientHeight ||
+      0
+    );
+
+
+  if (
+    height > 0
+  ) {
+
+    document.documentElement.style.setProperty(
+      "--fv-viewport-height",
+      `${height}px`
+    );
+
+  }
+
+}
+
+
+function syncTicketFrame() {
+
+  const cameraView =
+    document.querySelector(
+      ".camera-view"
+    );
+
+
+  if (
+    !cameraView
+  ) {
+    return;
+  }
+
+
+  const rect =
+    cameraView.getBoundingClientRect();
+
+
+  if (
+    !rect.width ||
+    !rect.height
+  ) {
+    return;
+  }
+
+
+  /*
+    Keep a portrait ticket shape inside the camera area.
+    The frame is calculated from the REAL visible camera area,
+    not from vh units that can jump when mobile browser chrome
+    or camera controls settle.
+  */
+
+  const maxWidth =
+    Math.min(
+      rect.width * 0.82,
+      390
+    );
+
+
+  const maxHeight =
+    Math.min(
+      rect.height - 72,
+      590
+    );
+
+
+  const targetRatio =
+    0.66;
+
+
+  let frameWidth =
+    maxWidth;
+
+
+  let frameHeight =
+    frameWidth /
+    targetRatio;
+
+
+  if (
+    frameHeight >
+    maxHeight
+  ) {
+
+    frameHeight =
+      maxHeight;
+
+
+    frameWidth =
+      frameHeight *
+      targetRatio;
+
+  }
+
+
+  frameWidth =
+    Math.max(
+      180,
+      Math.round(
+        frameWidth
+      )
+    );
+
+
+  frameHeight =
+    Math.max(
+      270,
+      Math.round(
+        frameHeight
+      )
+    );
+
+
+  ticketFrame.style.setProperty(
+    "--ticket-frame-width",
+    `${frameWidth}px`
+  );
+
+
+  ticketFrame.style.setProperty(
+    "--ticket-frame-height",
+    `${frameHeight}px`
+  );
+
+}
+
+
+function syncCameraLayout() {
+
+  syncViewportHeight();
+
+
+  requestAnimationFrame(
+    () => {
+
+      syncTicketFrame();
+
+    }
+  );
+
+}
+
+
+function getVisibleVideoCrop() {
+
+  const viewRect =
+    cameraVideo.getBoundingClientRect();
+
+
+  const sourceWidth =
+    cameraVideo.videoWidth;
+
+
+  const sourceHeight =
+    cameraVideo.videoHeight;
+
+
+  if (
+    !viewRect.width ||
+    !viewRect.height ||
+    !sourceWidth ||
+    !sourceHeight
+  ) {
+
+    return {
+      sx: 0,
+      sy: 0,
+      sw: sourceWidth,
+      sh: sourceHeight
+    };
+
+  }
+
+
+  const scale =
+    Math.max(
+      viewRect.width /
+        sourceWidth,
+      viewRect.height /
+        sourceHeight
+    );
+
+
+  const renderedWidth =
+    sourceWidth *
+    scale;
+
+
+  const renderedHeight =
+    sourceHeight *
+    scale;
+
+
+  const hiddenX =
+    Math.max(
+      0,
+      (renderedWidth -
+        viewRect.width) /
+        2
+    );
+
+
+  const hiddenY =
+    Math.max(
+      0,
+      (renderedHeight -
+        viewRect.height) /
+        2
+    );
+
+
+  return {
+    sx:
+      hiddenX /
+      scale,
+
+    sy:
+      hiddenY /
+      scale,
+
+    sw:
+      viewRect.width /
+      scale,
+
+    sh:
+      viewRect.height /
+      scale
+  };
+
+}
+
+
+      // ==========================================================
       // CAMERA
       // ==========================================================
 
@@ -4081,6 +4341,8 @@ async function startCamera() {
   stopCamera();
 
   showCameraScreen();
+
+  syncCameraLayout();
 
   captureBtn.disabled =
     true;
@@ -4166,6 +4428,9 @@ async function startCamera() {
     await cameraVideo.play();
 
 
+    syncCameraLayout();
+
+
     /*
       Do NOT automatically turn on the flashlight.
 
@@ -4174,6 +4439,9 @@ async function startCamera() {
     */
 
     await setupTorch();
+
+
+    syncCameraLayout();
 
 
     ticketFrame.classList.add(
@@ -4462,12 +4730,26 @@ if (
             );
 
 
+          const visibleCrop =
+            getVisibleVideoCrop();
+
+
           const width =
-            cameraVideo.videoWidth;
+            Math.max(
+              1,
+              Math.round(
+                visibleCrop.sw
+              )
+            );
 
 
           const height =
-            cameraVideo.videoHeight;
+            Math.max(
+              1,
+              Math.round(
+                visibleCrop.sh
+              )
+            );
 
 
           canvas.width =
@@ -4486,6 +4768,10 @@ if (
 
           ctx.drawImage(
             cameraVideo,
+            visibleCrop.sx,
+            visibleCrop.sy,
+            visibleCrop.sw,
+            visibleCrop.sh,
             0,
             0,
             width,
@@ -5358,6 +5644,43 @@ closeBtn.addEventListener(
 
         }
       );
+
+
+      window.addEventListener(
+        "resize",
+        syncCameraLayout
+      );
+
+
+      window.addEventListener(
+        "orientationchange",
+        () => {
+
+          setTimeout(
+            syncCameraLayout,
+            120
+          );
+
+        }
+      );
+
+
+      if (
+        window.visualViewport
+      ) {
+
+        window.visualViewport.addEventListener(
+          "resize",
+          syncCameraLayout
+        );
+
+
+        window.visualViewport.addEventListener(
+          "scroll",
+          syncCameraLayout
+        );
+
+      }
 
 
       window.addEventListener(
