@@ -8206,7 +8206,1413 @@ function renderLocationOptions() {
 
     }
 
+// ==========================================================
+// PHYSICAL INVENTORY POSTING
+// Bin + Grain Bag
+// ==========================================================
 
+function inventoryRoundBu(value) {
+
+  const number =
+    Number(value);
+
+  return Number.isFinite(number)
+    ? Number(number.toFixed(2))
+    : 0;
+
+}
+
+
+function inventoryNum(
+  value,
+  fallback = 0
+) {
+
+  const number =
+    Number(value);
+
+  return Number.isFinite(number)
+    ? number
+    : fallback;
+
+}
+
+
+function inventoryUser() {
+
+  return {
+    uid:
+      state.user?.uid ||
+      null,
+
+    name:
+      state.user?.displayName ||
+      state.user?.email ||
+      "FarmVista User",
+
+    email:
+      state.user?.email ||
+      null
+  };
+
+}
+
+
+function inventoryCropFactor(
+  crop
+) {
+
+  try {
+
+    const api =
+      window.FVGrainCapacity;
+
+    if (
+      api &&
+      typeof api.getFactor ===
+        "function"
+    ) {
+
+      const factor =
+        Number(
+          api.getFactor(
+            crop
+          )
+        );
+
+      if (
+        Number.isFinite(
+          factor
+        ) &&
+        factor > 0
+      ) {
+
+        return factor;
+
+      }
+
+    }
+
+  }
+  catch (_) {}
+
+
+  return 1;
+
+}
+
+
+function inventoryEstimateCornBuPerFoot(
+  diameterFt
+) {
+
+  const diameter =
+    Number(
+      diameterFt
+    ) ||
+    0;
+
+
+  if (
+    diameter >= 12
+  ) {
+
+    return 60;
+
+  }
+
+
+  if (
+    diameter >= 11
+  ) {
+
+    return 50;
+
+  }
+
+
+  if (
+    diameter >= 10
+  ) {
+
+    return 39;
+
+  }
+
+
+  if (
+    diameter >= 9
+  ) {
+
+    return 30;
+
+  }
+
+
+  if (
+    diameter > 0
+  ) {
+
+    return 25;
+
+  }
+
+
+  return 0;
+
+}
+
+
+async function inventoryBagCapacity(
+  transaction,
+  bagData
+) {
+
+  const sku =
+    bagData?.bagSku ||
+    {};
+
+
+  const lengthFt =
+    inventoryNum(
+      sku.sizeFeet ||
+      sku.lengthFt,
+      0
+    );
+
+
+  const diameterFt =
+    inventoryNum(
+      sku.diameterFt ||
+      sku.diameter,
+      0
+    );
+
+
+  const crop =
+    clean(
+      bagData?.cropType ||
+      bagData?.crop
+    );
+
+
+  let cornBuPerFoot =
+    0;
+
+
+  const productId =
+    clean(
+      sku.id
+    );
+
+
+  if (
+    productId
+  ) {
+
+    const productRef =
+      doc(
+        db,
+        "productsGrainBags",
+        productId
+      );
+
+
+    const productSnapshot =
+      await transaction.get(
+        productRef
+      );
+
+
+    if (
+      productSnapshot.exists()
+    ) {
+
+      const product =
+        productSnapshot.data() ||
+        {};
+
+
+      const productLength =
+        inventoryNum(
+          product.lengthFt,
+          lengthFt
+        );
+
+
+      const cornBushels =
+        inventoryNum(
+          product.bushels,
+          0
+        );
+
+
+      if (
+        productLength > 0 &&
+        cornBushels > 0
+      ) {
+
+        cornBuPerFoot =
+          cornBushels /
+          productLength;
+
+      }
+
+    }
+
+  }
+
+
+  if (
+    cornBuPerFoot <= 0
+  ) {
+
+    cornBuPerFoot =
+      inventoryEstimateCornBuPerFoot(
+        diameterFt
+      );
+
+  }
+
+
+  return {
+
+    lengthFt,
+
+    cropBuPerFoot:
+      cornBuPerFoot *
+      inventoryCropFactor(
+        crop
+      )
+
+  };
+
+}
+
+
+function inventoryBagCurrentFeet(
+  bagData,
+  lengthFt
+) {
+
+  const counts =
+    bagData?.counts ||
+    {};
+
+
+  const full =
+    Math.max(
+      0,
+      Math.floor(
+        inventoryNum(
+          counts.full,
+          0
+        )
+      )
+    );
+
+
+  const partial =
+    Math.max(
+      0,
+      Math.floor(
+        inventoryNum(
+          counts.partial,
+          0
+        )
+      )
+    );
+
+
+  const raw =
+    Array.isArray(
+      bagData?.partialFeet
+    )
+      ? bagData.partialFeet
+      : (
+          Array.isArray(
+            counts.partialFeet
+          )
+            ? counts.partialFeet
+            : []
+        );
+
+
+  let partialFeet =
+    raw.reduce(
+      (
+        total,
+        value
+      ) =>
+        total +
+        Math.max(
+          0,
+          inventoryNum(
+            value,
+            0
+          )
+        ),
+      0
+    );
+
+
+  /*
+    Older FarmVista bag records sometimes say
+    "1 partial" without storing its feet.
+
+    Preserve the existing FarmVista assumption:
+    use half a bag in that situation.
+  */
+  if (
+    partial > 0 &&
+    partialFeet <= 0 &&
+    lengthFt > 0
+  ) {
+
+    partialFeet =
+      partial *
+      0.5 *
+      lengthFt;
+
+  }
+
+
+  return (
+    full *
+    lengthFt
+  ) +
+  partialFeet;
+
+}
+
+
+function inventoryBagCountsFromFeet(
+  totalFeet,
+  lengthFt
+) {
+
+  if (
+    !(lengthFt > 0)
+  ) {
+
+    throw new Error(
+      "The selected grain bag does not have a valid bag length."
+    );
+
+  }
+
+
+  const safeFeet =
+    Math.max(
+      0,
+      inventoryNum(
+        totalFeet,
+        0
+      )
+    );
+
+
+  const full =
+    Math.floor(
+      safeFeet /
+      lengthFt
+    );
+
+
+  let remainder =
+    safeFeet -
+    (
+      full *
+      lengthFt
+    );
+
+
+  if (
+    remainder < 0.01
+  ) {
+
+    remainder =
+      0;
+
+  }
+
+
+  return {
+
+    full,
+
+    partial:
+      remainder > 0
+        ? 1
+        : 0,
+
+    partialFeet:
+      remainder > 0
+        ? [
+            Number(
+              remainder.toFixed(
+                2
+              )
+            )
+          ]
+        : []
+
+  };
+
+}
+
+
+async function saveVerifiedTicketWithInventory(
+  payload,
+  selectedSource
+) {
+
+  if (
+    !selectedSource
+  ) {
+
+    throw new Error(
+      "Select a grain source before verifying the ticket."
+    );
+
+  }
+
+
+  const ticketBushels =
+    inventoryRoundBu(
+      payload.netBushels
+    );
+
+
+  if (
+    !(ticketBushels > 0)
+  ) {
+
+    throw new Error(
+      "Net Bushels must be greater than zero."
+    );
+
+  }
+
+
+  /*
+    Dynamically load runTransaction instead of adding it
+    to the static import. This matches FarmVista's existing
+    transaction compatibility pattern.
+  */
+  const firebaseModule =
+    await import(
+      "/Farm-vista/js/firebase-init.js"
+    );
+
+
+  if (
+    typeof firebaseModule.runTransaction !==
+    "function"
+  ) {
+
+    throw new Error(
+      "Firestore transaction support is unavailable. Inventory was not changed."
+    );
+
+  }
+
+
+  const runTransaction =
+    firebaseModule.runTransaction;
+
+
+  const ticketRef =
+    doc(
+      db,
+      "grain_tickets",
+      ticketId
+    );
+
+
+  const who =
+    inventoryUser();
+
+
+  await runTransaction(
+    db,
+    async transaction => {
+
+      const ticketSnapshot =
+        await transaction.get(
+          ticketRef
+        );
+
+
+      if (
+        !ticketSnapshot.exists()
+      ) {
+
+        throw new Error(
+          "This grain ticket no longer exists."
+        );
+
+      }
+
+
+      const existingTicket =
+        ticketSnapshot.data() ||
+        {};
+
+
+      /*
+        Once physical inventory has posted, the source
+        cannot silently change later.
+      */
+      if (
+        existingTicket.inventoryPosted ===
+          true
+      ) {
+
+        const oldSource =
+          clean(
+            existingTicket.grainSourceValue
+          );
+
+
+        const newSource =
+          clean(
+            payload.grainSourceValue
+          );
+
+
+        if (
+          oldSource &&
+          newSource !== oldSource
+        ) {
+
+          throw new Error(
+            "This ticket has already removed grain from inventory. Void the ticket before changing its physical grain source."
+          );
+
+        }
+
+
+        /*
+          Already posted = normal ticket edit only.
+          DO NOT subtract inventory again.
+        */
+        transaction.update(
+          ticketRef,
+          payload
+        );
+
+
+        return;
+
+      }
+
+
+      // ======================================================
+      // BIN
+      // ======================================================
+
+      if (
+        selectedSource.type ===
+        "bin"
+      ) {
+
+        const siteId =
+          clean(
+            selectedSource.siteId
+          );
+
+
+        const binIndex =
+          Number(
+            selectedSource.binIndex
+          );
+
+
+        if (
+          !siteId ||
+          !Number.isInteger(
+            binIndex
+          ) ||
+          binIndex < 0
+        ) {
+
+          throw new Error(
+            "The selected bin information is incomplete."
+          );
+
+        }
+
+
+        const siteRef =
+          doc(
+            db,
+            "binSites",
+            siteId
+          );
+
+
+        const movementRef =
+          doc(
+            db,
+            "binMovements",
+            `ticket_${ticketId}`
+          );
+
+
+        const siteSnapshot =
+          await transaction.get(
+            siteRef
+          );
+
+
+        const movementSnapshot =
+          await transaction.get(
+            movementRef
+          );
+
+
+        /*
+          Recovery protection:
+          movement exists but ticket flag was never finished.
+        */
+        if (
+          movementSnapshot.exists()
+        ) {
+
+          const movement =
+            movementSnapshot.data() ||
+            {};
+
+
+          if (
+            normalize(
+              movement.direction
+            ) !==
+              "out"
+          ) {
+
+            throw new Error(
+              "An unexpected inventory movement already exists for this ticket."
+            );
+
+          }
+
+
+          transaction.update(
+            ticketRef,
+            {
+              ...payload,
+
+              inventoryPosted:
+                true,
+
+              inventoryPostedType:
+                "bin",
+
+              inventoryPostedBushels:
+                inventoryRoundBu(
+                  movement.bushels
+                ),
+
+              inventoryMovementId:
+                movementRef.id,
+
+              inventoryPostedAt:
+                serverTimestamp()
+            }
+          );
+
+
+          return;
+
+        }
+
+
+        if (
+          !siteSnapshot.exists()
+        ) {
+
+          throw new Error(
+            "The selected bin site no longer exists."
+          );
+
+        }
+
+
+        const site =
+          siteSnapshot.data() ||
+          {};
+
+
+        const bins =
+          Array.isArray(
+            site.bins
+          )
+            ? [
+                ...site.bins
+              ]
+            : [];
+
+
+        if (
+          !bins[
+            binIndex
+          ]
+        ) {
+
+          throw new Error(
+            "The selected bin could not be found."
+          );
+
+        }
+
+
+        const currentOnHand =
+          inventoryRoundBu(
+            bins[
+              binIndex
+            ].onHand
+          );
+
+
+        if (
+          currentOnHand +
+            0.005 <
+          ticketBushels
+        ) {
+
+          throw new Error(
+            `This ticket contains ${ticketBushels.toLocaleString("en-US")} bu, but the selected bin only has ${currentOnHand.toLocaleString("en-US")} bu available.`
+          );
+
+        }
+
+
+        const onHandAfter =
+          inventoryRoundBu(
+            currentOnHand -
+            ticketBushels
+          );
+
+
+        bins[
+          binIndex
+        ] = {
+
+          ...bins[
+            binIndex
+          ],
+
+          onHand:
+            onHandAfter,
+
+          lastUpdatedBy:
+            who.name,
+
+          lastUpdatedUid:
+            who.uid,
+
+          lastUpdatedMs:
+            Date.now()
+
+        };
+
+
+        transaction.update(
+          siteRef,
+          {
+            bins
+          }
+        );
+
+
+        /*
+          IMPORTANT:
+          grain-contracts.js void reversal looks for
+          binMovements/ticket_<ticketId>.
+        */
+        transaction.set(
+          movementRef,
+          {
+
+            siteId,
+
+            siteName:
+              clean(
+                selectedSource.siteName ||
+                site.name
+              ) ||
+              null,
+
+            binIndex,
+
+            binNum:
+              selectedSource.binNumber ??
+              bins[
+                binIndex
+              ]?.num ??
+              (
+                binIndex +
+                1
+              ),
+
+            direction:
+              "out",
+
+            bushels:
+              ticketBushels,
+
+            ticketNetBushels:
+              ticketBushels,
+
+            inventoryShortfallBushels:
+              0,
+
+            grainTicketId:
+              ticketId,
+
+            ticketNumber:
+              payload.ticketNumber ||
+              null,
+
+            crop:
+              payload.crop ||
+              null,
+
+            loadoutId:
+              state.loadout?.id ||
+              null,
+
+            loadNumber:
+              clean(
+                state.loadout?.loadNumber
+              ) ||
+              null,
+
+            note:
+              `Auto-posted from Grain Ticket ${
+                payload.ticketNumber ||
+                ticketId
+              }`,
+
+            submittedBy:
+              who.name,
+
+            submittedByUid:
+              who.uid,
+
+            dateISO:
+              payload.ticketDate ||
+              null,
+
+            createdAt:
+              serverTimestamp(),
+
+            updatedAt:
+              serverTimestamp()
+
+          }
+        );
+
+
+        transaction.update(
+          ticketRef,
+          {
+
+            ...payload,
+
+            inventoryPosted:
+              true,
+
+            inventoryPostedType:
+              "bin",
+
+            inventoryPostedBushels:
+              ticketBushels,
+
+            inventoryMovementId:
+              movementRef.id,
+
+            inventoryPostedAt:
+              serverTimestamp()
+
+          }
+        );
+
+
+        return;
+
+      }
+
+
+      // ======================================================
+      // GRAIN BAG
+      // ======================================================
+
+      if (
+        selectedSource.type ===
+        "grain_bag"
+      ) {
+
+        const putDownId =
+          clean(
+            selectedSource.id
+          );
+
+
+        if (
+          !putDownId
+        ) {
+
+          throw new Error(
+            "The selected grain bag information is incomplete."
+          );
+
+        }
+
+
+        const bagRef =
+          doc(
+            db,
+            "grain_bag_events",
+            putDownId
+          );
+
+
+        const pickupRef =
+          doc(
+            db,
+            "grain_bag_events",
+            `ticket_${ticketId}`
+          );
+
+
+        const bagSnapshot =
+          await transaction.get(
+            bagRef
+          );
+
+
+        const pickupSnapshot =
+          await transaction.get(
+            pickupRef
+          );
+
+
+        if (
+          pickupSnapshot.exists()
+        ) {
+
+          const pickup =
+            pickupSnapshot.data() ||
+            {};
+
+
+          if (
+            normalize(
+              pickup.type
+            ) !==
+              "pickup" ||
+            pickup.autoPostedFromTicket !==
+              true
+          ) {
+
+            throw new Error(
+              "An unexpected grain-bag movement already exists for this ticket."
+            );
+
+          }
+
+
+          transaction.update(
+            ticketRef,
+            {
+
+              ...payload,
+
+              inventoryPosted:
+                true,
+
+              inventoryPostedType:
+                "grain_bag",
+
+              inventoryPostedBushels:
+                inventoryRoundBu(
+                  pickup.bushelsPicked
+                ),
+
+              inventoryPostedFeet:
+                inventoryNum(
+                  pickup.feetPicked,
+                  0
+                ),
+
+              inventoryMovementId:
+                pickupRef.id,
+
+              inventoryPostedAt:
+                serverTimestamp()
+
+            }
+          );
+
+
+          return;
+
+        }
+
+
+        if (
+          !bagSnapshot.exists()
+        ) {
+
+          throw new Error(
+            "The selected grain bag no longer exists."
+          );
+
+        }
+
+
+        const bag =
+          bagSnapshot.data() ||
+          {};
+
+
+        if (
+          normalize(
+            bag.type
+          ) !==
+            "putdown"
+        ) {
+
+          throw new Error(
+            "The selected grain bag is not a putDown record."
+          );
+
+        }
+
+
+        const capacity =
+          await inventoryBagCapacity(
+            transaction,
+            bag
+          );
+
+
+        if (
+          !(capacity.lengthFt > 0) ||
+          !(capacity.cropBuPerFoot > 0)
+        ) {
+
+          throw new Error(
+            "FarmVista could not determine bushels per foot for this grain bag."
+          );
+
+        }
+
+
+        const currentFeet =
+          inventoryBagCurrentFeet(
+            bag,
+            capacity.lengthFt
+          );
+
+
+        const availableBushels =
+          inventoryRoundBu(
+            currentFeet *
+            capacity.cropBuPerFoot
+          );
+
+
+        if (
+          availableBushels +
+            0.005 <
+          ticketBushels
+        ) {
+
+          throw new Error(
+            `This ticket contains ${ticketBushels.toLocaleString("en-US")} bu, but the selected grain bag only has about ${availableBushels.toLocaleString("en-US")} bu available.`
+          );
+
+        }
+
+
+        const feetPicked =
+          Number(
+            (
+              ticketBushels /
+              capacity.cropBuPerFoot
+            )
+              .toFixed(
+                2
+              )
+          );
+
+
+        const remainingFeet =
+          Math.max(
+            0,
+            Number(
+              (
+                currentFeet -
+                feetPicked
+              )
+                .toFixed(
+                  2
+                )
+            )
+          );
+
+
+        const countsAfter =
+          inventoryBagCountsFromFeet(
+            remainingFeet,
+            capacity.lengthFt
+          );
+
+
+        const sourcePatch = {
+
+          "counts.full":
+            countsAfter.full,
+
+          "counts.partial":
+            countsAfter.partial,
+
+          "counts.partialFeet":
+            countsAfter.partialFeet,
+
+          partialFeet:
+            countsAfter.partialFeet,
+
+          updatedAt:
+            serverTimestamp()
+
+        };
+
+
+        if (
+          remainingFeet <=
+          0.01
+        ) {
+
+          sourcePatch.status =
+            "pickedUp";
+
+          sourcePatch.pickedUpAt =
+            payload.ticketDate ||
+            null;
+
+          sourcePatch.pickedUpBy = {
+            employeeId:
+              who.email ||
+              who.uid ||
+              null,
+
+            name:
+              who.name,
+
+            email:
+              who.email
+          };
+
+        }
+
+
+        transaction.update(
+          bagRef,
+          sourcePatch
+        );
+
+
+        /*
+          IMPORTANT:
+          grain-contracts.js void reversal looks for
+          grain_bag_events/ticket_<ticketId>
+          with:
+          type = pickup
+          autoPostedFromTicket = true
+          bushelsPicked
+          feetPicked
+          appliedTo[0].refPutDownId
+        */
+        transaction.set(
+          pickupRef,
+          {
+
+            type:
+              "pickUp",
+
+            autoPostedFromTicket:
+              true,
+
+            field: {
+              id:
+                clean(
+                  bag?.field?.id ||
+                  selectedSource.fieldId
+                ) ||
+                null,
+
+              name:
+                clean(
+                  bag?.field?.name ||
+                  selectedSource.fieldName
+                ) ||
+                null
+            },
+
+            cropYear:
+              bag?.cropYear ??
+              selectedSource.cropYear ??
+              null,
+
+            crop:
+              clean(
+                bag?.cropType ||
+                bag?.crop ||
+                payload.crop
+              ) ||
+              null,
+
+            countsPicked: {
+              full:
+                0,
+
+              partial:
+                0
+            },
+
+            bushelsPicked:
+              ticketBushels,
+
+            ticketNetBushels:
+              ticketBushels,
+
+            inventoryShortfallBushels:
+              0,
+
+            feetPicked,
+
+            bushelsPerFoot:
+              Number(
+                capacity.cropBuPerFoot.toFixed(
+                  4
+                )
+              ),
+
+            appliedTo: [
+              {
+                refPutDownId:
+                  putDownId,
+
+                takeFull:
+                  0,
+
+                takePartial:
+                  0,
+
+                takeBushels:
+                  ticketBushels,
+
+                takeFeet:
+                  feetPicked
+              }
+            ],
+
+            notes:
+              `Auto-posted from Grain Ticket ${
+                payload.ticketNumber ||
+                ticketId
+              }`,
+
+            pickedUpDate:
+              payload.ticketDate ||
+              null,
+
+            pickedUpBy: {
+              employeeId:
+                who.email ||
+                who.uid ||
+                null,
+
+              name:
+                who.name,
+
+              email:
+                who.email
+            },
+
+            loadoutId:
+              state.loadout?.id ||
+              null,
+
+            loadNumber:
+              clean(
+                state.loadout?.loadNumber
+              ) ||
+              null,
+
+            grainTicketId:
+              ticketId,
+
+            ticketNumber:
+              payload.ticketNumber ||
+              null,
+
+            createdAt:
+              serverTimestamp(),
+
+            updatedAt:
+              serverTimestamp()
+
+          }
+        );
+
+
+        transaction.update(
+          ticketRef,
+          {
+
+            ...payload,
+
+            inventoryPosted:
+              true,
+
+            inventoryPostedType:
+              "grain_bag",
+
+            inventoryPostedBushels:
+              ticketBushels,
+
+            inventoryPostedFeet:
+              feetPicked,
+
+            inventoryMovementId:
+              pickupRef.id,
+
+            inventoryPostedAt:
+              serverTimestamp()
+
+          }
+        );
+
+
+        return;
+
+      }
+
+
+      throw new Error(
+        "The selected grain source type is not supported."
+      );
+
+    }
+  );
+
+}
 
     // ==========================================================
     // SAVE / APPROVE
@@ -8513,14 +9919,33 @@ function renderLocationOptions() {
         };
 
 
-        await updateDoc(
-          doc(
-            db,
-            "grain_tickets",
-            ticketId
-          ),
-          payload
-        );
+if (
+  verified
+) {
+
+  await saveVerifiedTicketWithInventory(
+    payload,
+    selectedSource
+  );
+
+}
+else {
+
+  /*
+    A ticket may be saved while under review,
+    but physical grain does not leave inventory
+    until the ticket is completely verified.
+  */
+  await updateDoc(
+    doc(
+      db,
+      "grain_tickets",
+      ticketId
+    ),
+    payload
+  );
+
+}
 
 
         /*
