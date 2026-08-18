@@ -8453,6 +8453,324 @@ loEls.contract.value = contractId;
   }
 
 
+  function loNearbyRoutePoints(point){
+
+    if (!point) {
+      return [];
+    }
+
+    const latitude =
+      Number(point.latitude);
+
+    const longitude =
+      Number(point.longitude);
+
+    if (
+      !Number.isFinite(latitude) ||
+      !Number.isFinite(longitude)
+    ) {
+      return [];
+    }
+
+    /*
+      Rural bin sites and grain bags can sit well inside a field or farmyard.
+      Google Routes usually snaps a raw lat/lng to a road, but occasionally
+      returns no route when the point is too far from a routable segment.
+
+      Keep the actual grain-source GPS as attempt #1, then probe small nearby
+      points around that GPS. We never fall back to the FarmVista company
+      address, so the ETA is still based on the selected grain source.
+    */
+    const radiiMeters = [
+      90,
+      180,
+      350,
+      650,
+      1000
+    ];
+
+    const bearingsDegrees = [
+      0,
+      45,
+      90,
+      135,
+      180,
+      225,
+      270,
+      315
+    ];
+
+    const earthRadiusMeters =
+      6378137;
+
+    const lat1 =
+      latitude * Math.PI / 180;
+
+    const lon1 =
+      longitude * Math.PI / 180;
+
+    const points = [];
+
+    radiiMeters.forEach(
+      radiusMeters => {
+
+        const angularDistance =
+          radiusMeters /
+          earthRadiusMeters;
+
+        bearingsDegrees.forEach(
+          bearingDegrees => {
+
+            const bearing =
+              bearingDegrees *
+              Math.PI /
+              180;
+
+            const lat2 =
+              Math.asin(
+                Math.sin(lat1) *
+                Math.cos(angularDistance) +
+                Math.cos(lat1) *
+                Math.sin(angularDistance) *
+                Math.cos(bearing)
+              );
+
+            const lon2 =
+              lon1 +
+              Math.atan2(
+                Math.sin(bearing) *
+                Math.sin(angularDistance) *
+                Math.cos(lat1),
+                Math.cos(angularDistance) -
+                Math.sin(lat1) *
+                Math.sin(lat2)
+              );
+
+            points.push({
+              latitude:
+                lat2 * 180 / Math.PI,
+
+              longitude:
+                lon2 * 180 / Math.PI,
+
+              radiusMeters,
+
+              bearingDegrees
+            });
+
+          }
+        );
+
+      }
+    );
+
+    return points;
+
+  }
+
+
+  async function loRequestDrivingRoute(
+    originLatLng,
+    destinationWaypoint
+  ) {
+
+    const response =
+      await fetch(
+        "https://routes.googleapis.com/directions/v2:computeRoutes",
+        {
+          method:
+            "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+
+            "X-Goog-Api-Key":
+              LOADOUT_ROUTES_API_KEY,
+
+            "X-Goog-FieldMask":
+              "routes.duration,routes.distanceMeters"
+          },
+
+          body:
+            JSON.stringify({
+              origin:
+                loRouteWaypointFromLatLng(
+                  originLatLng
+                ),
+
+              destination:
+                destinationWaypoint,
+
+              travelMode:
+                "DRIVE",
+
+              routingPreference:
+                "TRAFFIC_AWARE",
+
+              computeAlternativeRoutes:
+                false,
+
+              languageCode:
+                "en-US",
+
+              units:
+                "IMPERIAL"
+            })
+        }
+      );
+
+
+    let data =
+      null;
+
+
+    try {
+
+      data =
+        await response.json();
+
+    }
+    catch (_) {
+
+      data =
+        null;
+
+    }
+
+
+    if (
+      !response.ok
+    ) {
+
+      const googleMessage =
+        data?.error?.message ||
+        data?.message ||
+        `Google Routes returned HTTP ${response.status}.`;
+
+
+      const error =
+        new Error(
+          googleMessage
+        );
+
+
+      error.googleStatus =
+        response.status;
+
+
+      throw error;
+
+    }
+
+
+    const route =
+      Array.isArray(
+        data?.routes
+      )
+        ? data.routes[0]
+        : null;
+
+
+    return route;
+
+  }
+
+
+  async function loFindDrivingRoute(
+    originLatLng,
+    destinationWaypoint
+  ) {
+
+    /*
+      First try the exact saved grain-source GPS.
+    */
+    const directRoute =
+      await loRequestDrivingRoute(
+        originLatLng,
+        destinationWaypoint
+      );
+
+
+    if (
+      directRoute
+    ) {
+
+      return {
+        route:
+          directRoute,
+
+        routedOrigin:
+          originLatLng,
+
+        usedNearbyFallback:
+          false,
+
+        fallbackDistanceMeters:
+          0
+      };
+
+    }
+
+
+    /*
+      If Google accepted the request but returned no route, probe nearby
+      points until we find the closest routable road. This is especially
+      useful for rural bins located hundreds of feet inside a field.
+    */
+    const nearbyPoints =
+      loNearbyRoutePoints(
+        originLatLng
+      );
+
+
+    for (
+      const point of
+      nearbyPoints
+    ) {
+
+      const route =
+        await loRequestDrivingRoute(
+          point,
+          destinationWaypoint
+        );
+
+
+      if (
+        route
+      ) {
+
+        return {
+          route,
+
+          routedOrigin: {
+            latitude:
+              point.latitude,
+
+            longitude:
+              point.longitude
+          },
+
+          usedNearbyFallback:
+            true,
+
+          fallbackDistanceMeters:
+            point.radiusMeters,
+
+          fallbackBearingDegrees:
+            point.bearingDegrees
+        };
+
+      }
+
+    }
+
+
+    return null;
+
+  }
+
+
   async function loUpdateEta(){
 
     const location =
@@ -8618,105 +8936,26 @@ loEls.contract.value = contractId;
 
     try {
 
-      const response =
-        await fetch(
-          "https://routes.googleapis.com/directions/v2:computeRoutes",
-          {
-            method:
-              "POST",
-
-            headers: {
-              "Content-Type":
-                "application/json",
-
-              "X-Goog-Api-Key":
-                LOADOUT_ROUTES_API_KEY,
-
-              "X-Goog-FieldMask":
-                "routes.duration,routes.distanceMeters"
-            },
-
-            body:
-              JSON.stringify({
-                origin:
-                  loRouteWaypointFromLatLng(
-                    originLatLng
-                  ),
-
-                destination:
-                  destinationWaypoint,
-
-                travelMode:
-                  "DRIVE",
-
-                routingPreference:
-                  "TRAFFIC_AWARE",
-
-                computeAlternativeRoutes:
-                  false,
-
-                languageCode:
-                  "en-US",
-
-                units:
-                  "IMPERIAL"
-              })
-          }
+      const routeResult =
+        await loFindDrivingRoute(
+          originLatLng,
+          destinationWaypoint
         );
 
 
-      let data =
-        null;
-
-
-      try {
-
-        data =
-          await response.json();
-
-      }
-      catch (_) {
-
-        data =
-          null;
-
-      }
-
-
       if (
-        !response.ok
+        !routeResult?.route
       ) {
 
-        const googleMessage =
-          data?.error?.message ||
-          data?.message ||
-          `Google Routes returned HTTP ${response.status}.`;
-
-
         throw new Error(
-          googleMessage
+          "Google Routes returned no driving route from the grain source or nearby roads."
         );
 
       }
 
 
       const route =
-        Array.isArray(
-          data?.routes
-        )
-          ? data.routes[0]
-          : null;
-
-
-      if (
-        !route
-      ) {
-
-        throw new Error(
-          "Google Routes returned no driving route."
-        );
-
-      }
+        routeResult.route;
 
 
       const durationSeconds =
@@ -8788,14 +9027,31 @@ loEls.contract.value = contractId;
           distanceText
             ? ` • ${distanceText}`
             : ""
-        } from ${grainSource.label || "selected grain source"}.`;
+        } from ${grainSource.label || "selected grain source"}${
+          routeResult.usedNearbyFallback
+            ? " • road access estimated from nearby routable point"
+            : ""
+        }.`;
 
 
       console.log(
-        "[grain loadout] Direct Routes API ETA:",
+        "[grain loadout] Routes API ETA:",
         {
-          origin:
+          savedOrigin:
             originLatLng,
+
+          routedOrigin:
+            routeResult.routedOrigin,
+
+          usedNearbyFallback:
+            routeResult.usedNearbyFallback,
+
+          fallbackDistanceMeters:
+            routeResult.fallbackDistanceMeters,
+
+          fallbackBearingDegrees:
+            routeResult.fallbackBearingDegrees ??
+            null,
 
           originSource:
             grainSource.label,
@@ -8828,8 +9084,17 @@ loEls.contract.value = contractId;
     ) {
 
       console.error(
-        "[grain loadout] Direct Routes API ETA failed:",
-        error
+        "[grain loadout] Routes API ETA failed:",
+        {
+          error,
+          origin:
+            originLatLng,
+          grainSource:
+            grainSource.label,
+          destination:
+            destinationLatLng ||
+            destinationAddress
+        }
       );
 
 
