@@ -5984,6 +5984,152 @@ function ticketHasContract(
   }
 
 
+  function ticketShouldStayOnDashboard(
+    ticket,
+    latest50Ids
+  ) {
+
+    /*
+      FARMVISTA GRAIN TICKET DASHBOARD RULES
+
+      Always keep a ticket visible when ANY are true:
+
+        1) It is one of the newest 50 tickets.
+        2) It is from today.
+        3) It still Needs Review.
+        4) It still Needs Contract assignment.
+        5) It is Good and its ticket date is within
+           today + the previous 2 calendar days.
+
+      An unresolved ticket NEVER ages off this dashboard.
+      It must become Good before age can remove it.
+    */
+
+    if (
+      latest50Ids?.has(
+        ticket.id
+      )
+    ) {
+
+      return true;
+
+    }
+
+
+    const ticketDate =
+      String(
+        ticket.ticketDate ||
+        ""
+      )
+        .trim();
+
+
+    const today =
+      todayISO();
+
+
+    /*
+      Always keep today's tickets.
+    */
+    if (
+      ticketDate ===
+      today
+    ) {
+
+      return true;
+
+    }
+
+
+    /*
+      Unresolved tickets NEVER fall off because of age.
+    */
+    if (
+      isNeedsReview(
+        ticket
+      ) ||
+      isNeedsContract(
+        ticket
+      )
+    ) {
+
+      return true;
+
+    }
+
+
+    /*
+      At this point the ticket is Good.
+
+      Keep Good tickets for 3 calendar days:
+        today
+        yesterday
+        two days ago
+    */
+    if (
+      ticketDate
+    ) {
+
+      const cutoff =
+        new Date();
+
+
+      cutoff.setHours(
+        12,
+        0,
+        0,
+        0
+      );
+
+
+      cutoff.setDate(
+        cutoff.getDate() -
+        2
+      );
+
+
+      const cutoffISO =
+        [
+          cutoff.getFullYear(),
+
+          String(
+            cutoff.getMonth() +
+            1
+          )
+            .padStart(
+              2,
+              "0"
+            ),
+
+          String(
+            cutoff.getDate()
+          )
+            .padStart(
+              2,
+              "0"
+            )
+        ]
+          .join(
+            "-"
+          );
+
+
+      if (
+        ticketDate >=
+        cutoffISO
+      ) {
+
+        return true;
+
+      }
+
+    }
+
+
+    return false;
+
+  }
+  
   function openTicket(
     ticketId
   ) {
