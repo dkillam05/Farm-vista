@@ -67,8 +67,9 @@ const state = {
 
   busy: false,
 
-  editPriceCents: 0,
-  editPriceHasValue: false,
+  editFuturesPrice: null,
+  editBasisPrice: null,
+  editCashPrice: null,
 
   showVoided: false
 };
@@ -8027,8 +8028,8 @@ function openEditModal(
   );
 
 
-  setEditPrice(
-    contract.pricePerBushel
+  setEditPricing(
+    contract
   );
 
 
@@ -8384,152 +8385,754 @@ function updateEditOpenBushels() {
 
 
 /* ============================================================
-   EDIT PRICE
+   EDIT CONTRACT PRICING
 ============================================================ */
 
 function setupEditPrice() {
-  const input =
+  const typeInput =
+    $("edit-contract-type");
+
+  const futuresInput =
+    $("edit-futures-price");
+
+  const basisInput =
+    $("edit-basis-price");
+
+  const cashInput =
     $("edit-price");
 
-  if (!input) {
+
+  if (
+    !typeInput ||
+    !futuresInput ||
+    !basisInput ||
+    !cashInput
+  ) {
     return;
   }
 
-  input.addEventListener(
-    "input",
-    () => {
-      const digits =
-        String(
-          input.value ||
-          ""
-        ).replace(
-          /\D/g,
-          ""
-        );
 
-      if (!digits) {
-        state.editPriceCents = 0;
-        state.editPriceHasValue = false;
+  /*
+    IMPORTANT:
 
-        input.value = "";
-        input.dataset.rawValue = "";
+    On EDIT, changing contract type does NOT
+    erase existing Futures or Basis.
 
-        return;
-      }
+    Example:
+    Basis → Cash keeps the saved Basis and
+    simply enables Futures.
+  */
 
-      state.editPriceCents =
-        Number(
-          digits
-        );
-
-      state.editPriceHasValue =
-        true;
-
-      renderEditPrice();
+  typeInput.addEventListener(
+    "change",
+    function () {
+      updateEditPriceFields();
+      calculateEditCashPrice();
+      validateEditPrice();
     }
   );
 
 
-  input.addEventListener(
+  futuresInput.addEventListener(
+    "input",
+    function () {
+      state.editFuturesPrice =
+        parseEditDollarPrice(
+          this.value
+        );
+
+      this.setCustomValidity("");
+
+      calculateEditCashPrice();
+    }
+  );
+
+
+  futuresInput.addEventListener(
     "blur",
-    validateEditPrice
+    function () {
+      if (
+        state.editFuturesPrice !==
+        null
+      ) {
+        this.value =
+          formatEditDollarPrice(
+            state.editFuturesPrice
+          );
+      }
+
+      validateEditPrice();
+    }
+  );
+
+
+  basisInput.addEventListener(
+    "input",
+    function () {
+      state.editBasisPrice =
+        parseEditBasisPrice(
+          this.value
+        );
+
+      this.setCustomValidity("");
+
+      calculateEditCashPrice();
+    }
+  );
+
+
+  basisInput.addEventListener(
+    "blur",
+    function () {
+      if (
+        state.editBasisPrice !==
+        null
+      ) {
+        this.value =
+          formatEditBasisPrice(
+            state.editBasisPrice
+          );
+      }
+
+      validateEditPrice();
+    }
+  );
+
+
+  cashInput.addEventListener(
+    "input",
+    function () {
+      /*
+        Cash can only be manually entered
+        on Program contracts.
+      */
+
+      if (
+        $("edit-contract-type")
+          ?.value !==
+        "Program"
+      ) {
+        return;
+      }
+
+      state.editCashPrice =
+        parseEditDollarPrice(
+          this.value
+        );
+
+      this.setCustomValidity("");
+    }
+  );
+
+
+  cashInput.addEventListener(
+    "blur",
+    function () {
+      if (
+        state.editCashPrice !==
+        null
+      ) {
+        this.value =
+          formatEditDollarPrice(
+            state.editCashPrice
+          );
+      }
+
+      validateEditPrice();
+    }
   );
 }
 
 
-function setEditPrice(
+
+function nullablePrice(
   value
 ) {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return null;
+  }
+
   const number =
-    numberValue(
-      value
-    );
+    Number(value);
 
-  state.editPriceCents =
-    Math.round(
-      number *
-      100
-    );
-
-  state.editPriceHasValue =
-    number > 0;
-
-  renderEditPrice();
+  return Number.isFinite(number)
+    ? roundEditPrice(number)
+    : null;
 }
 
 
-function renderEditPrice() {
-  const input =
+
+function setEditPricing(
+  contract
+) {
+  state.editFuturesPrice =
+    nullablePrice(
+      contract?.futuresPrice
+    );
+
+  state.editBasisPrice =
+    nullablePrice(
+      contract?.basisPrice
+    );
+
+  state.editCashPrice =
+    nullablePrice(
+      contract?.pricePerBushel
+    );
+
+
+  /*
+    LEGACY CONTRACT SUPPORT
+
+    Older FarmVista contracts only have
+    pricePerBushel.
+
+    We preserve that price so no old data
+    disappears when the edit modal opens.
+
+    We do NOT invent Futures or Basis values.
+  */
+
+
+  const futuresInput =
+    $("edit-futures-price");
+
+  const basisInput =
+    $("edit-basis-price");
+
+  const cashInput =
     $("edit-price");
 
-  if (!input) {
-    return;
+
+  if (futuresInput) {
+    futuresInput.value =
+      state.editFuturesPrice ===
+      null
+        ? ""
+        : formatEditDollarPrice(
+            state.editFuturesPrice
+          );
   }
+
+
+  if (basisInput) {
+    basisInput.value =
+      state.editBasisPrice ===
+      null
+        ? ""
+        : formatEditBasisPrice(
+            state.editBasisPrice
+          );
+  }
+
+
+  if (cashInput) {
+    cashInput.value =
+      state.editCashPrice ===
+      null
+        ? ""
+        : formatEditDollarPrice(
+            state.editCashPrice
+          );
+  }
+
+
+  updateEditPriceFields();
+
+  calculateEditCashPrice();
+}
+
+
+
+function updateEditPriceFields() {
+  const type =
+    $("edit-contract-type")
+      ?.value || "";
+
+  const futuresInput =
+    $("edit-futures-price");
+
+  const basisInput =
+    $("edit-basis-price");
+
+  const cashInput =
+    $("edit-price");
+
 
   if (
-    !state.editPriceHasValue
+    !futuresInput ||
+    !basisInput ||
+    !cashInput
   ) {
-    input.value = "";
     return;
   }
 
-  const value =
-    state.editPriceCents /
-    100;
 
-  input.value =
-    value.toLocaleString(
+  futuresInput.disabled =
+    true;
+
+  basisInput.disabled =
+    true;
+
+  cashInput.disabled =
+    true;
+
+
+  futuresInput.required =
+    false;
+
+  basisInput.required =
+    false;
+
+  cashInput.required =
+    false;
+
+
+  cashInput.placeholder =
+    "Not set";
+
+
+  if (
+    type === "Cash"
+  ) {
+    futuresInput.disabled =
+      false;
+
+    basisInput.disabled =
+      false;
+
+    futuresInput.required =
+      true;
+
+    basisInput.required =
+      true;
+
+    cashInput.placeholder =
+      "Calculated automatically";
+  }
+
+
+  else if (
+    type === "Basis"
+  ) {
+    basisInput.disabled =
+      false;
+
+    basisInput.required =
+      true;
+
+    cashInput.placeholder =
+      "Not set until contract becomes Cash";
+  }
+
+
+  else if (
+    type === "Futures"
+  ) {
+    futuresInput.disabled =
+      false;
+
+    futuresInput.required =
+      true;
+
+    cashInput.placeholder =
+      "Not set until contract becomes Cash";
+  }
+
+
+  else if (
+    type === "Program"
+  ) {
+    cashInput.disabled =
+      false;
+
+    cashInput.required =
+      true;
+
+    cashInput.placeholder =
+      "$0.00";
+  }
+
+
+  else {
+    cashInput.placeholder =
+      "Select contract type";
+  }
+}
+
+
+
+function calculateEditCashPrice() {
+  const type =
+    $("edit-contract-type")
+      ?.value || "";
+
+  const cashInput =
+    $("edit-price");
+
+
+  if (!cashInput) {
+    return;
+  }
+
+
+  if (
+    type === "Cash"
+  ) {
+    if (
+      state.editFuturesPrice ===
+        null ||
+      state.editBasisPrice ===
+        null
+    ) {
+      state.editCashPrice =
+        null;
+
+      cashInput.value =
+        "";
+
+      return;
+    }
+
+
+    state.editCashPrice =
+      roundEditPrice(
+        state.editFuturesPrice +
+        state.editBasisPrice
+      );
+
+
+    cashInput.value =
+      formatEditDollarPrice(
+        state.editCashPrice
+      );
+
+    return;
+  }
+
+
+  /*
+    Basis and Futures contracts do not
+    have a final cash price.
+
+    Program keeps the manually entered
+    cash price.
+  */
+
+  if (
+    type === "Basis" ||
+    type === "Futures"
+  ) {
+    state.editCashPrice =
+      null;
+
+    cashInput.value =
+      "";
+  }
+}
+
+
+
+function parseEditDollarPrice(
+  value
+) {
+  const cleaned =
+    String(value || "")
+      .trim()
+      .replace(/\$/g, "")
+      .replace(/,/g, "");
+
+
+  if (!cleaned) {
+    return null;
+  }
+
+
+  const number =
+    Number(cleaned);
+
+
+  if (!Number.isFinite(number)) {
+    return null;
+  }
+
+
+  return roundEditPrice(number);
+}
+
+
+
+function parseEditBasisPrice(
+  value
+) {
+  const cleaned =
+    String(value || "")
+      .trim()
+      .replace(/\$/g, "")
+      .replace(/,/g, "")
+      .replace(/\s/g, "");
+
+
+  if (!cleaned) {
+    return null;
+  }
+
+
+  if (
+    !/^[+-]?\d*(?:\.\d*)?$/.test(
+      cleaned
+    )
+  ) {
+    return null;
+  }
+
+
+  const number =
+    Number(cleaned);
+
+
+  if (!Number.isFinite(number)) {
+    return null;
+  }
+
+
+  return roundEditPrice(number);
+}
+
+
+
+function roundEditPrice(
+  value
+) {
+  return (
+    Math.round(
+      Number(value) *
+      10000
+    ) /
+    10000
+  );
+}
+
+
+
+function formatEditDollarPrice(
+  value
+) {
+  if (
+    value === null ||
+    !Number.isFinite(
+      Number(value)
+    )
+  ) {
+    return "";
+  }
+
+
+  return Number(value)
+    .toLocaleString(
       "en-US",
       {
-        style: "currency",
-        currency: "USD",
-        minimumFractionDigits: 2
+        style:
+          "currency",
+
+        currency:
+          "USD",
+
+        minimumFractionDigits:
+          2,
+
+        maximumFractionDigits:
+          4
       }
     );
-
-  input.dataset.rawValue =
-    value.toFixed(2);
-
-  validateEditPrice();
 }
+
+
+
+function formatEditBasisPrice(
+  value
+) {
+  if (
+    value === null ||
+    !Number.isFinite(
+      Number(value)
+    )
+  ) {
+    return "";
+  }
+
+
+  const number =
+    Number(value);
+
+
+  const absolute =
+    Math.abs(number)
+      .toLocaleString(
+        "en-US",
+        {
+          minimumFractionDigits:
+            2,
+
+          maximumFractionDigits:
+            4
+        }
+      );
+
+
+  if (number > 0) {
+    return `+$${absolute}`;
+  }
+
+
+  if (number < 0) {
+    return `-$${absolute}`;
+  }
+
+
+  return "$0.00";
+}
+
 
 
 function validateEditPrice() {
-  const input =
+  const type =
+    $("edit-contract-type")
+      ?.value || "";
+
+  const futuresInput =
+    $("edit-futures-price");
+
+  const basisInput =
+    $("edit-basis-price");
+
+  const cashInput =
     $("edit-price");
 
-  if (!input) {
+
+  if (
+    !futuresInput ||
+    !basisInput ||
+    !cashInput
+  ) {
     return false;
   }
 
-  input.setCustomValidity(
-    ""
-  );
+
+  futuresInput.setCustomValidity("");
+
+  basisInput.setCustomValidity("");
+
+  cashInput.setCustomValidity("");
+
 
   if (
-    !state.editPriceHasValue
+    type === "Cash"
   ) {
-    input.setCustomValidity(
-      "Enter Price Per Bushel."
+    if (
+      state.editFuturesPrice ===
+      null
+    ) {
+      futuresInput.setCustomValidity(
+        "Enter the Futures Price."
+      );
+
+      return false;
+    }
+
+
+    if (
+      state.editBasisPrice ===
+      null
+    ) {
+      basisInput.setCustomValidity(
+        "Enter the Basis."
+      );
+
+      return false;
+    }
+
+
+    if (
+      state.editCashPrice ===
+      null
+    ) {
+      cashInput.setCustomValidity(
+        "Unable to calculate Cash Price."
+      );
+
+      return false;
+    }
+  }
+
+
+  else if (
+    type === "Basis"
+  ) {
+    if (
+      state.editBasisPrice ===
+      null
+    ) {
+      basisInput.setCustomValidity(
+        "Enter the Basis."
+      );
+
+      return false;
+    }
+  }
+
+
+  else if (
+    type === "Futures"
+  ) {
+    if (
+      state.editFuturesPrice ===
+      null
+    ) {
+      futuresInput.setCustomValidity(
+        "Enter the Futures Price."
+      );
+
+      return false;
+    }
+  }
+
+
+  else if (
+    type === "Program"
+  ) {
+    if (
+      state.editCashPrice ===
+      null
+    ) {
+      cashInput.setCustomValidity(
+        "Enter the Cash Price."
+      );
+
+      return false;
+    }
+  }
+
+
+  if (
+    state.editCashPrice !==
+      null &&
+    (
+      state.editCashPrice < 2 ||
+      state.editCashPrice > 30
+    )
+  ) {
+    cashInput.setCustomValidity(
+      "Cash Price must be between $2.00 and $30.00."
     );
 
     return false;
   }
 
-  const value =
-    state.editPriceCents /
-    100;
-
-  if (
-    value < 2 ||
-    value > 30
-  ) {
-    input.setCustomValidity(
-      "Price Per Bushel must be between $2.00 and $30.00."
-    );
-
-    return false;
-  }
 
   return true;
 }
@@ -8846,9 +9449,38 @@ async function saveContractChanges(
 
     openBushels,
 
+
+    /* Pricing */
+
+    futuresPrice:
+      (
+        $("edit-contract-type")
+          .value === "Cash" ||
+        $("edit-contract-type")
+          .value === "Futures"
+      )
+        ? state.editFuturesPrice
+        : null,
+
+    basisPrice:
+      (
+        $("edit-contract-type")
+          .value === "Cash" ||
+        $("edit-contract-type")
+          .value === "Basis"
+      )
+        ? state.editBasisPrice
+        : null,
+
     pricePerBushel:
-      state.editPriceCents /
-      100,
+      (
+        $("edit-contract-type")
+          .value === "Cash" ||
+        $("edit-contract-type")
+          .value === "Program"
+      )
+        ? state.editCashPrice
+        : null,
 
     deliveryLocationId:
       location.id,
