@@ -1802,7 +1802,7 @@ onReady(
         $("contracts-table-body")
           .innerHTML = `
             <tr>
-              <td colspan="12">
+              <td colspan="11">
                 <div class="empty-state">
                   <div class="empty-title">
                     Unable to Load Grain Contracts
@@ -3941,9 +3941,15 @@ function renderContractTable() {
             ${escapeHtml(contract.crop || "—")}
           </td>
 
-          <td>
-            ${escapeHtml(contract.contractType || "—")}
-          </td>
+<td>
+  <span class="contract-type-pill ${
+    ["Basis", "Futures"].includes(contract.contractType)
+      ? "contract-type-needs-price"
+      : "contract-type-complete"
+  }">
+    ${escapeHtml(contract.contractType || "—")}
+  </span>
+</td>
 
           <td class="number-cell">
             ${formatBushels(contract.contractBushels)}
@@ -3961,9 +3967,6 @@ function renderContractTable() {
             ${numberValue(contract.loadCount).toLocaleString("en-US")}
           </td>
 
-          <td class="number-cell">
-            ${formatPrice(contract.pricePerBushel)}
-          </td>
 
           <td>
             ${escapeHtml(formatDeliveryWindow(contract))}
