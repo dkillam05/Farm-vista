@@ -7026,11 +7026,72 @@ function renderLocationOptions() {
         );
 
 
+const ticketUsesAllocationModel =
+        Number(
+          state.ticket?.allocationModelVersion ||
+          0
+        ) >= 2;
+
+
+      const ticketAllocations =
+        Array.isArray(
+          state.ticket?.contractAllocations
+        )
+          ? state.ticket.contractAllocations.filter(
+              allocation =>
+                clean(
+                  allocation?.contractId
+                ) &&
+                Number(
+                  allocation?.bushels ||
+                  0
+                ) >
+                0.005
+            )
+          : [];
+
+
+      const ticketUnassignedBushels =
+        Number(
+          state.ticket?.unassignedBushels ||
+          0
+        );
+
+
+      /*
+        Allocation model v2 is the source of truth.
+
+        Only preselect a ticket contract when the ticket is
+        completely allocated to ONE contract.
+
+        If any bushels remain unassigned, or the ticket is split
+        between contracts, leave the Contract picker unselected.
+      */
+      const allocatedTicketContractId =
+        ticketUsesAllocationModel &&
+        ticketAllocations.length === 1 &&
+        ticketUnassignedBushels <= 0.005
+          ? clean(
+              ticketAllocations[0]
+                ?.contractId
+            )
+          : "";
+
+
+      const legacyTicketContractId =
+        !ticketUsesAllocationModel
+          ? clean(
+              state.ticket?.contractId ||
+              state.ticket?.grainContractId
+            )
+          : "";
+
+
       const savedId =
         clean(
           state.loadout?.contractId ||
-          state.ticket?.contractId ||
-          state.ticket?.grainContractId
+          allocatedTicketContractId ||
+          legacyTicketContractId
         );
 
 
