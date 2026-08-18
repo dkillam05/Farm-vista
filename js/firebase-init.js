@@ -414,6 +414,22 @@ const addDocImpl = async (ref, data) => {
   return docRef;
 };
 
+const runTransactionImpl = async (dbInstance, updateFunction) => {
+  if (
+    storeModule &&
+    typeof storeModule.runTransaction === 'function'
+  ) {
+    return storeModule.runTransaction(
+      dbInstance || firestore,
+      updateFunction
+    );
+  }
+
+  throw new Error(
+    'Firestore transactions are unavailable in stub mode.'
+  );
+};
+
 // SAFE deleteDoc – works in stub and Firebase mode
 const deleteDocImpl = async (ref) => {
   if (storeModule && typeof storeModule.deleteDoc === 'function') {
@@ -662,6 +678,8 @@ export const getDoc = (ref) => getDocImpl(ref);
 export const setDoc = (ref, data, opts) => setDocImpl(ref, data, opts);
 export const updateDoc = (ref, data) => updateDocImpl(ref, data);
 export const addDoc = (ref, data) => addDocImpl(ref, data);
+export const runTransaction = (dbInstance, updateFunction) =>
+  runTransactionImpl(dbInstance, updateFunction);
 export const deleteDoc = (ref) => deleteDocImpl(ref);
 export const getDocs = (target) => getDocsImpl(target);
 export const onSnapshot = (target, cb) => onSnapshotImpl(target, cb);
