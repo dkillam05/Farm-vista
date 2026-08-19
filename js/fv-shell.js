@@ -800,12 +800,25 @@ _hideBootOverlayWithOptionalHold(){
       await this._loadScriptOnce('/Farm-vista/js/app/user-context.js').catch(()=>{});
       await this._loadScriptOnce('/Farm-vista/js/menu-acl.js').catch(()=>{});
 
-      // Phase A (hard): auth only
-      const authed = await this._requireAuthOnly();
-      if (!authed) {
-        this._kickToLogin('auth-timeout');
-        return;
-      }
+// Phase A (hard): auth only
+// Public legal/compliance pages are allowed without login.
+const publicPaths = new Set([
+  '/Farm-vista/pages/user-details/privacy-policy.html',
+  '/Farm-vista/pages/user-details/terms-and-conditions.html'
+]);
+
+const isPublicPage =
+  publicPaths.has(location.pathname);
+
+if (!isPublicPage) {
+  const authed =
+    await this._requireAuthOnly();
+
+  if (!authed) {
+    this._kickToLogin('auth-timeout');
+    return;
+  }
+}
 
       // Wire the rest ASAP; do NOT block on context/menu readiness
       this._wireAuthLogout(this.shadowRoot);
