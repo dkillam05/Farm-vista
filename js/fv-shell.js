@@ -804,26 +804,38 @@ _hideBootOverlayWithOptionalHold(){
 // Public legal/compliance pages are allowed without login.
 const publicPaths = new Set([
   '/Farm-vista/pages/user-details/privacy-policy.html',
-  '/Farm-vista/pages/user-details/terms-and-conditions.html'
+  '/Farm-vista/pages/user-details/terms-and-conditions.html',
+  '/Farm-vista/pages/user-details/sms-messaging.html'
 ]);
 
 const isPublicPage =
   publicPaths.has(location.pathname);
 
-if (!isPublicPage) {
-  const authed =
-    await this._requireAuthOnly();
 
-  if (!authed) {
-    this._kickToLogin('auth-timeout');
-    return;
-  }
+// Public compliance pages must remain fully accessible
+// without Firebase authentication or user context.
+if (isPublicPage) {
+
+  this._hideBootOverlayWithOptionalHold();
+
+  return;
 }
 
-      // Wire the rest ASAP; do NOT block on context/menu readiness
-      this._wireAuthLogout(this.shadowRoot);
-      this._initConnectionStatus();
-      this._watchUserContextForSwaps();
+
+// All other FarmVista pages require authentication.
+const authed =
+  await this._requireAuthOnly();
+
+if (!authed) {
+  this._kickToLogin('auth-timeout');
+  return;
+}
+
+
+// Wire authenticated FarmVista features.
+this._wireAuthLogout(this.shadowRoot);
+this._initConnectionStatus();
+this._watchUserContextForSwaps();
 
       // Hide overlay as soon as auth is confirmed (menu/context can finish in background)
       this._hideBootOverlayWithOptionalHold();
