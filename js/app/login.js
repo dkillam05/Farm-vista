@@ -1,22 +1,15 @@
 // /Farm-vista/js/app/login.js
-// Works under <base href="/Farm-vista/">
+// FarmVista Login
+// Email/password + approved employee phone authentication.
 
 import {
-
   ready,
-
   getAuth,
-
   signInWithEmailAndPassword,
-
   sendPasswordResetEmail,
-
   createRecaptchaVerifier,
-
   signInWithPhoneNumber,
-
   isStub
-
 } from "../firebase-init.js";
 
 
@@ -25,171 +18,93 @@ import {
 // ==========================================================
 
 const els = {
-
   emailTab:
-    document.getElementById(
-      "emailTab"
-    ),
+    document.getElementById("emailTab"),
 
   phoneTab:
-    document.getElementById(
-      "phoneTab"
-    ),
+    document.getElementById("phoneTab"),
 
   emailForm:
-    document.getElementById(
-      "loginForm"
-    ),
+    document.getElementById("loginForm"),
 
   phoneForm:
-    document.getElementById(
-      "phoneForm"
-    ),
+    document.getElementById("phoneForm"),
 
   email:
-    document.getElementById(
-      "email"
-    ),
+    document.getElementById("email"),
 
   password:
-    document.getElementById(
-      "password"
-    ),
+    document.getElementById("password"),
 
   err:
-    document.getElementById(
-      "errBox"
-    ),
+    document.getElementById("errBox"),
 
   forgot:
-    document.getElementById(
-      "forgot"
-    ),
+    document.getElementById("forgot"),
 
   signIn:
-    document.getElementById(
-      "signIn"
-    ),
+    document.getElementById("signIn"),
 
   phone:
-    document.getElementById(
-      "phone"
-    ),
+    document.getElementById("phone"),
 
   phoneRequestStep:
-    document.getElementById(
-      "phoneRequestStep"
-    ),
+    document.getElementById("phoneRequestStep"),
 
   phoneVerifyStep:
-    document.getElementById(
-      "phoneVerifyStep"
-    ),
+    document.getElementById("phoneVerifyStep"),
 
   phoneErr:
-    document.getElementById(
-      "phoneErrBox"
-    ),
+    document.getElementById("phoneErrBox"),
 
   phoneVerifyErr:
-    document.getElementById(
-      "phoneVerifyErrBox"
-    ),
+    document.getElementById("phoneVerifyErrBox"),
 
   sendCode:
-    document.getElementById(
-      "sendCode"
-    ),
+    document.getElementById("sendCode"),
 
   verifyCode:
-    document.getElementById(
-      "verifyCode"
-    ),
+    document.getElementById("verifyCode"),
 
   verificationCode:
-    document.getElementById(
-      "verificationCode"
-    ),
+    document.getElementById("verificationCode"),
 
   phoneStatus:
-    document.getElementById(
-      "phoneStatus"
-    ),
+    document.getElementById("phoneStatus"),
 
   changePhone:
-    document.getElementById(
-      "changePhone"
-    ),
+    document.getElementById("changePhone"),
 
   resendCode:
-    document.getElementById(
-      "resendCode"
-    )
-
+    document.getElementById("resendCode")
 };
 
 
 // ==========================================================
-// GENERAL HELPERS
+// BASIC HELPERS
 // ==========================================================
 
-function showErr(
-  message
-){
-
-  if (
-    !els.err
-  ) {
-
-    return;
-
-  }
-
+function showErr(message) {
+  if (!els.err) return;
 
   els.err.textContent =
-    message ||
-    "";
-
+    message || "";
 }
 
 
-function showPhoneErr(
-  message
-){
-
-  if (
-    !els.phoneErr
-  ) {
-
-    return;
-
-  }
-
+function showPhoneErr(message) {
+  if (!els.phoneErr) return;
 
   els.phoneErr.textContent =
-    message ||
-    "";
-
+    message || "";
 }
 
 
-function showPhoneVerifyErr(
-  message
-){
-
-  if (
-    !els.phoneVerifyErr
-  ) {
-
-    return;
-
-  }
-
+function showPhoneVerifyErr(message) {
+  if (!els.phoneVerifyErr) return;
 
   els.phoneVerifyErr.textContent =
-    message ||
-    "";
-
+    message || "";
 }
 
 
@@ -198,45 +113,29 @@ function setButtonBusy(
   busy,
   busyText,
   normalText
-){
-
-  if (
-    !button
-  ) {
-
-    return;
-
-  }
-
+) {
+  if (!button) return;
 
   button.disabled =
-    Boolean(
-      busy
-    );
-
+    Boolean(busy);
 
   button.textContent =
     busy
       ? busyText
       : normalText;
-
 }
 
 
 // ==========================================================
-// APP HOME
+// HOME / NEXT URL
 // ==========================================================
 
 const DEFAULT_HOME =
   "index.html";
 
 
-function resolveUnderBase(
-  pathLike
-){
-
+function resolveUnderBase(pathLike) {
   try {
-
     const url =
       new URL(
         pathLike,
@@ -244,66 +143,42 @@ function resolveUnderBase(
         location.href
       );
 
-
     return (
       url.pathname +
-      (
-        url.search ||
-        ""
-      ) +
-      (
-        url.hash ||
-        ""
-      )
+      (url.search || "") +
+      (url.hash || "")
     );
-
   }
   catch {
-
     return pathLike;
-
   }
-
 }
 
 
-function nextUrl(){
-
+function nextUrl() {
   const qs =
     new URLSearchParams(
       location.search
     );
 
-
   const hint =
     (
-      qs.get(
-        "next"
-      ) ||
+      qs.get("next") ||
       ""
     ).trim();
 
-
-  const target =
-    hint ||
-    DEFAULT_HOME;
-
-
   return resolveUnderBase(
-    target
+    hint ||
+    DEFAULT_HOME
   );
-
 }
 
 
 // ==========================================================
-// PHONE FORMAT
+// PHONE NORMALIZATION
 // ==========================================================
 
-function digitsOnly(
-  value
-){
-
+function digitsOnly(value) {
   return String(
     value ||
     ""
@@ -311,179 +186,116 @@ function digitsOnly(
     /\D/g,
     ""
   );
-
 }
 
 
-function formatUSPhoneDisplay(
-  value
-){
-
+function formatUSPhoneDisplay(value) {
   let digits =
-    digitsOnly(
-      value
-    );
-
+    digitsOnly(value);
 
   if (
     digits.length > 10 &&
-    digits.startsWith(
-      "1"
-    )
+    digits.startsWith("1")
   ) {
-
     digits =
       digits.slice(
         1,
         11
       );
-
   }
   else {
-
     digits =
       digits.slice(
         0,
         10
       );
-
   }
-
 
   if (
     digits.length <= 3
   ) {
-
     return digits;
-
   }
-
 
   if (
     digits.length <= 6
   ) {
-
     return (
-      `(${digits.slice(0,3)}) ` +
-      digits.slice(
-        3
-      )
+      `(${digits.slice(0, 3)}) ` +
+      digits.slice(3)
     );
-
   }
 
-
   return (
-    `(${digits.slice(0,3)}) ` +
-    `${digits.slice(3,6)}-` +
-    digits.slice(
-      6
-    )
+    `(${digits.slice(0, 3)}) ` +
+    `${digits.slice(3, 6)}-` +
+    digits.slice(6)
   );
-
 }
 
 
-function normalizeUSPhone(
-  value
-){
-
+function normalizeUSPhone(value) {
   let digits =
-    digitsOnly(
-      value
-    );
-
+    digitsOnly(value);
 
   if (
     digits.length === 11 &&
-    digits.startsWith(
-      "1"
-    )
+    digits.startsWith("1")
   ) {
-
     digits =
-      digits.slice(
-        1
-      );
-
+      digits.slice(1);
   }
-
 
   if (
     digits.length !== 10
   ) {
-
     return "";
-
   }
 
-
-  return (
-    `+1${digits}`
-  );
-
+  return `+1${digits}`;
 }
 
 
 // ==========================================================
-// LOGIN MODE
+// AUTH MODE
 // ==========================================================
 
 let authMode =
   "email";
 
 
-function setAuthMode(
-  mode
-){
-
+function setAuthMode(mode) {
   authMode =
-    mode ===
-      "phone"
+    mode === "phone"
       ? "phone"
       : "email";
 
-
   const emailMode =
-    authMode ===
-    "email";
+    authMode === "email";
 
-
-  if (
-    els.emailForm
-  ) {
-
+  if (els.emailForm) {
     els.emailForm.style.display =
       emailMode
         ? "grid"
         : "none";
-
   }
 
-
-  if (
-    els.phoneForm
-  ) {
-
+  if (els.phoneForm) {
     els.phoneForm.style.display =
       emailMode
         ? "none"
         : "grid";
-
   }
-
 
   els.emailTab?.classList.toggle(
     "active",
     emailMode
   );
 
-
   els.phoneTab?.classList.toggle(
     "active",
     !emailMode
   );
-
 
   els.emailTab?.setAttribute(
     "aria-selected",
@@ -492,7 +304,6 @@ function setAuthMode(
       : "false"
   );
 
-
   els.phoneTab?.setAttribute(
     "aria-selected",
     emailMode
@@ -500,321 +311,292 @@ function setAuthMode(
       : "true"
   );
 
-
-  showErr(
-    ""
-  );
-
-  showPhoneErr(
-    ""
-  );
-
-  showPhoneVerifyErr(
-    ""
-  );
-
+  showErr("");
+  showPhoneErr("");
+  showPhoneVerifyErr("");
 
   try {
-
-    if (
-      emailMode
-    ) {
-
-      els.email?.focus(
-        {
-          preventScroll:true
-        }
-      );
-
+    if (emailMode) {
+      els.email?.focus({
+        preventScroll:
+          true
+      });
     }
     else {
-
-      els.phone?.focus(
-        {
-          preventScroll:true
-        }
-      );
-
+      els.phone?.focus({
+        preventScroll:
+          true
+      });
     }
-
   }
   catch {}
-
 }
 
 
 // ==========================================================
-// PHONE STATE
+// PHONE AUTH STATE
 // ==========================================================
 
 let confirmationResult =
   null;
 
-
 let recaptchaVerifier =
   null;
-
 
 let recaptchaWidgetId =
   null;
 
-
 let lastPhoneE164 =
   "";
-
 
 let lastPhoneDisplay =
   "";
 
 
-function showPhoneRequestStep(){
-
+function showPhoneRequestStep() {
   confirmationResult =
     null;
 
-
-  if (
-    els.phoneRequestStep
-  ) {
-
+  if (els.phoneRequestStep) {
     els.phoneRequestStep.style.display =
       "grid";
-
   }
 
-
-  if (
-    els.phoneVerifyStep
-  ) {
-
+  if (els.phoneVerifyStep) {
     els.phoneVerifyStep.style.display =
       "none";
-
   }
 
-
-  if (
-    els.verificationCode
-  ) {
-
+  if (els.verificationCode) {
     els.verificationCode.value =
       "";
-
   }
 
-
-  showPhoneErr(
-    ""
-  );
-
-  showPhoneVerifyErr(
-    ""
-  );
-
+  showPhoneErr("");
+  showPhoneVerifyErr("");
 }
 
 
-function showPhoneVerifyStep(){
-
-  if (
-    els.phoneRequestStep
-  ) {
-
+function showPhoneVerifyStep() {
+  if (els.phoneRequestStep) {
     els.phoneRequestStep.style.display =
       "none";
-
   }
 
-
-  if (
-    els.phoneVerifyStep
-  ) {
-
+  if (els.phoneVerifyStep) {
     els.phoneVerifyStep.style.display =
       "grid";
-
   }
 
-
-  if (
-    els.phoneStatus
-  ) {
-
+  if (els.phoneStatus) {
     els.phoneStatus.textContent =
       `Verification code sent to ${lastPhoneDisplay}.`;
-
   }
-
 
   try {
-
-    els.verificationCode?.focus(
-      {
-        preventScroll:true
-      }
-    );
-
+    els.verificationCode?.focus({
+      preventScroll:
+        true
+    });
   }
   catch {}
-
 }
 
 
 // ==========================================================
-// PHONE AUTH ERRORS
+// FIREBASE ERROR DETECTION
 // ==========================================================
 
-function phoneSendErrorMessage(
-  error
-){
+function isEmployeeAccessDenied(error) {
+  const code =
+    String(
+      error?.code ||
+      ""
+    ).toLowerCase();
+
+  const message =
+    String(
+      error?.message ||
+      ""
+    ).toLowerCase();
+
+  return (
+    code.includes(
+      "permission-denied"
+    ) ||
+
+    code.includes(
+      "blocking-function"
+    ) ||
+
+    message.includes(
+      "farmvista access denied"
+    ) ||
+
+    message.includes(
+      "not an active farmvista employee"
+    ) ||
+
+    message.includes(
+      "phone number is not authorized"
+    )
+  );
+}
+
+
+function phoneSendErrorMessage(error) {
+  if (
+    isEmployeeAccessDenied(error)
+  ) {
+    return (
+      "Access denied. This phone number is not linked " +
+      "to an active FarmVista employee account."
+    );
+  }
 
   const code =
-    (
-      error &&
-      error.code
-    ) ||
+    error?.code ||
     "";
-
 
   if (
     code ===
     "auth/invalid-phone-number"
   ) {
-
-    return "Enter a valid 10-digit mobile phone number.";
-
+    return (
+      "Enter a valid 10-digit mobile phone number."
+    );
   }
-
 
   if (
     code ===
     "auth/missing-phone-number"
   ) {
-
-    return "Enter your mobile phone number.";
-
+    return (
+      "Enter your mobile phone number."
+    );
   }
-
 
   if (
     code ===
     "auth/quota-exceeded"
   ) {
-
-    return "The SMS sending limit has been reached. Please try again later.";
-
+    return (
+      "The SMS sending limit has been reached. " +
+      "Please try again later."
+    );
   }
-
 
   if (
     code ===
     "auth/too-many-requests"
   ) {
-
-    return "Too many verification attempts. Please try again later.";
-
+    return (
+      "Too many verification attempts. " +
+      "Please try again later."
+    );
   }
-
 
   if (
     code ===
     "auth/captcha-check-failed"
   ) {
-
-    return "Phone verification could not be completed. Please try again.";
-
+    return (
+      "Phone verification could not be completed. " +
+      "Please try again."
+    );
   }
-
 
   if (
     code ===
     "auth/operation-not-allowed"
   ) {
-
-    return "Phone sign-in is not enabled for this FarmVista account.";
-
+    return (
+      "Phone sign-in is not enabled for this FarmVista account."
+    );
   }
-
 
   if (
     code ===
     "auth/unauthorized-domain"
   ) {
-
-    return "This FarmVista web address is not authorized for phone sign-in.";
-
+    return (
+      "This FarmVista web address is not authorized for phone sign-in."
+    );
   }
 
-
-  return "Could not send the verification code. Please try again.";
-
+  return (
+    "Could not send the verification code. " +
+    "Please try again."
+  );
 }
 
 
-function phoneVerifyErrorMessage(
-  error
-){
+function phoneVerifyErrorMessage(error) {
+  if (
+    isEmployeeAccessDenied(error)
+  ) {
+    return (
+      "Access denied. This phone number is no longer " +
+      "linked to an active FarmVista employee account."
+    );
+  }
 
   const code =
-    (
-      error &&
-      error.code
-    ) ||
+    error?.code ||
     "";
-
 
   if (
     code ===
     "auth/invalid-verification-code"
   ) {
-
-    return "That verification code is incorrect.";
-
+    return (
+      "That verification code is incorrect."
+    );
   }
-
 
   if (
     code ===
     "auth/code-expired"
   ) {
-
-    return "That verification code has expired. Please resend a new code.";
-
+    return (
+      "That verification code has expired. " +
+      "Please resend a new code."
+    );
   }
-
 
   if (
     code ===
     "auth/missing-verification-code"
   ) {
-
-    return "Enter the verification code from the text message.";
-
+    return (
+      "Enter the verification code from the text message."
+    );
   }
-
 
   if (
     code ===
     "auth/session-expired"
   ) {
-
-    return "The verification session expired. Please resend a new code.";
-
+    return (
+      "The verification session expired. " +
+      "Please resend a new code."
+    );
   }
-
 
   if (
     code ===
     "auth/too-many-requests"
   ) {
-
-    return "Too many verification attempts. Please try again later.";
-
+    return (
+      "Too many verification attempts. " +
+      "Please try again later."
+    );
   }
 
-
-  return "Phone verification failed. Please check the code and try again.";
-
+  return (
+    "Phone verification failed. " +
+    "Please check the code and try again."
+  );
 }
 
 
@@ -822,18 +604,10 @@ function phoneVerifyErrorMessage(
 // RECAPTCHA
 // ==========================================================
 
-async function getRecaptchaVerifier(
-  auth
-){
-
-  if (
-    recaptchaVerifier
-  ) {
-
+async function getRecaptchaVerifier(auth) {
+  if (recaptchaVerifier) {
     return recaptchaVerifier;
-
   }
-
 
   recaptchaVerifier =
     createRecaptchaVerifier(
@@ -845,60 +619,30 @@ async function getRecaptchaVerifier(
       }
     );
 
-
-  try {
-
-    recaptchaWidgetId =
-      await recaptchaVerifier.render();
-
-  }
-  catch (
-    error
-  ) {
-
-    console.warn(
-      "[Login] reCAPTCHA render error:",
-      error
-    );
-
-    throw error;
-
-  }
-
+  recaptchaWidgetId =
+    await recaptchaVerifier.render();
 
   return recaptchaVerifier;
-
 }
 
 
-async function resetRecaptcha(){
-
+async function resetRecaptcha() {
   try {
-
     if (
       window.grecaptcha &&
-      recaptchaWidgetId !==
-        null
+      recaptchaWidgetId !== null
     ) {
-
       window.grecaptcha.reset(
         recaptchaWidgetId
       );
-
     }
-
   }
-  catch (
-    error
-  ) {
-
+  catch (error) {
     console.warn(
       "[Login] reCAPTCHA reset failed:",
       error
     );
-
   }
-
 }
 
 
@@ -906,101 +650,75 @@ async function resetRecaptcha(){
 // BOOT
 // ==========================================================
 
-(async function boot(){
-
+(async function boot() {
   let ctx;
   let auth;
 
-
   try {
-
     await import(
       "../firebase-init.js"
     );
 
-
     ctx =
       await ready;
 
-
     auth =
-      ctx &&
-      ctx.auth
-        ? ctx.auth
-        : getAuth(
-            ctx &&
-            ctx.app
-          );
-
+      ctx?.auth ||
+      getAuth(
+        ctx?.app
+      );
   }
-  catch (
-    error
-  ) {
-
+  catch (error) {
     console.warn(
-      "[Login] firebase-init load failed:",
+      "[Login] Firebase initialization failed:",
       error
     );
-
 
     showErr(
       "Unable to initialize authentication."
     );
 
-
     showPhoneErr(
       "Unable to initialize authentication."
     );
 
-
     return;
-
   }
 
 
   // ========================================================
-  // TABS
+  // AUTH METHOD TABS
   // ========================================================
 
   els.emailTab?.addEventListener(
     "click",
     () => {
-
       setAuthMode(
         "email"
       );
-
     }
   );
-
 
   els.phoneTab?.addEventListener(
     "click",
     () => {
-
       setAuthMode(
         "phone"
       );
-
     }
   );
 
 
   // ========================================================
-  // EMAIL + PASSWORD LOGIN
+  // EMAIL LOGIN
   // ========================================================
 
   els.emailForm?.addEventListener(
     "submit",
     async event => {
-
       event.preventDefault();
 
-
-      showErr(
-        ""
-      );
-
+      showErr("");
 
       const email =
         (
@@ -1008,51 +726,40 @@ async function resetRecaptcha(){
           ""
         ).trim();
 
-
-      const pass =
+      const password =
         els.password?.value ||
         "";
 
-
       if (
         !email ||
-        !pass
+        !password
       ) {
-
         showErr(
           "Enter your email and password."
         );
 
         return;
-
       }
 
-
       try {
-
         localStorage.setItem(
           "fv_last_email",
           email
         );
-
       }
       catch {}
-
 
       if (
         ctx &&
         isStub &&
         isStub()
       ) {
-
         location.replace(
           nextUrl()
         );
 
         return;
-
       }
-
 
       setButtonBusy(
         els.signIn,
@@ -1061,89 +768,64 @@ async function resetRecaptcha(){
         "Sign In"
       );
 
-
       try {
-
         await signInWithEmailAndPassword(
           auth,
           email,
-          pass
+          password
         );
-
 
         location.replace(
           nextUrl()
         );
-
       }
-      catch (
-        error
-      ) {
-
+      catch (error) {
         console.warn(
-          "[Login] sign-in error:",
+          "[Login] email sign-in error:",
           error
         );
 
-
         const code =
-          (
-            error &&
-            error.code
-          ) ||
+          error?.code ||
           "";
-
 
         let message =
           "Sign in failed. Please check your email and password.";
-
 
         if (
           code ===
           "auth/invalid-email"
         ) {
-
           message =
             "That email address looks invalid.";
-
         }
         else if (
           code ===
           "auth/user-disabled"
         ) {
-
           message =
             "This account has been disabled.";
-
         }
         else if (
           code ===
-            "auth/user-not-found" ||
+          "auth/user-not-found" ||
           code ===
-            "auth/wrong-password" ||
+          "auth/wrong-password" ||
           code ===
-            "auth/invalid-credential"
+          "auth/invalid-credential"
         ) {
-
           message =
             "Incorrect email or password.";
-
         }
         else if (
           code ===
           "auth/too-many-requests"
         ) {
-
           message =
             "Too many attempts. Please try again later.";
-
         }
 
-
-        showErr(
-          message
-        );
-
+        showErr(message);
 
         setButtonBusy(
           els.signIn,
@@ -1151,28 +833,21 @@ async function resetRecaptcha(){
           "Signing In…",
           "Sign In"
         );
-
       }
-
     }
   );
 
 
   // ========================================================
-  // FORGOT PASSWORD
+  // PASSWORD RESET
   // ========================================================
 
   els.forgot?.addEventListener(
     "click",
     async event => {
-
       event.preventDefault();
 
-
-      showErr(
-        ""
-      );
-
+      showErr("");
 
       const email =
         (
@@ -1180,189 +855,147 @@ async function resetRecaptcha(){
           ""
         ).trim();
 
-
-      if (
-        !email
-      ) {
-
+      if (!email) {
         showErr(
           "Enter your email above, then tap “Forgot password?”."
         );
 
         return;
-
       }
-
 
       if (
         ctx &&
         isStub &&
         isStub()
       ) {
-
         showErr(
           "Password reset is unavailable in offline mode."
         );
 
         return;
-
       }
 
-
       try {
-
         await sendPasswordResetEmail(
           auth,
           email
         );
 
-
         showErr(
           "Reset link sent if the email exists."
         );
-
       }
-      catch (
-        error
-      ) {
-
+      catch (error) {
         console.warn(
           "[Login] reset error:",
           error
         );
 
-
         showErr(
           "Could not send reset link. Please try again later."
         );
-
       }
-
     }
   );
 
 
   // ========================================================
-  // FORMAT PHONE WHILE TYPING
+  // PHONE FORMAT
   // ========================================================
 
   els.phone?.addEventListener(
     "input",
     () => {
-
       const current =
         els.phone.value;
-
 
       const formatted =
         formatUSPhoneDisplay(
           current
         );
 
-
       if (
-        current !==
-        formatted
+        current !== formatted
       ) {
-
         els.phone.value =
           formatted;
-
       }
-
     }
   );
 
 
   // ========================================================
-  // SEND PHONE CODE
+  // SEND SMS CODE
   // ========================================================
 
-  async function sendVerificationCode(){
-
-    showPhoneErr(
-      ""
-    );
-
-    showPhoneVerifyErr(
-      ""
-    );
-
+  async function sendVerificationCode() {
+    showPhoneErr("");
+    showPhoneVerifyErr("");
 
     if (
       ctx &&
       isStub &&
       isStub()
     ) {
-
       showPhoneErr(
         "Phone sign-in is unavailable in offline mode."
       );
 
       return;
-
     }
-
 
     const rawPhone =
       els.phone?.value ||
       "";
-
 
     const phoneE164 =
       normalizeUSPhone(
         rawPhone
       );
 
-
-    if (
-      !phoneE164
-    ) {
-
+    if (!phoneE164) {
       showPhoneErr(
         "Enter a valid 10-digit mobile phone number."
       );
 
       return;
-
     }
-
 
     lastPhoneE164 =
       phoneE164;
-
 
     lastPhoneDisplay =
       formatUSPhoneDisplay(
         rawPhone
       );
 
-
     setButtonBusy(
       els.sendCode,
       true,
-      "Sending Code…",
+      "Checking Access…",
       "Send Verification Code"
     );
 
-
-    if (
-      els.resendCode
-    ) {
-
+    if (els.resendCode) {
       els.resendCode.disabled =
         true;
-
     }
 
-
     try {
-
       const verifier =
         await getRecaptchaVerifier(
           auth
         );
 
+      /*
+        IMPORTANT:
+
+        Firebase's BEFORE SMS blocking function checks this
+        phone number against /employees BEFORE Firebase sends
+        the text message.
+
+        An unauthorized number will fail right here.
+      */
 
       confirmationResult =
         await signInWithPhoneNumber(
@@ -1371,102 +1004,70 @@ async function resetRecaptcha(){
           verifier
         );
 
-
       showPhoneVerifyStep();
-
     }
-    catch (
-      error
-    ) {
-
+    catch (error) {
       console.warn(
         "[Login] phone send error:",
         error
       );
 
-
       await resetRecaptcha();
-
 
       showPhoneErr(
         phoneSendErrorMessage(
           error
         )
       );
-
     }
     finally {
-
       setButtonBusy(
         els.sendCode,
         false,
-        "Sending Code…",
+        "Checking Access…",
         "Send Verification Code"
       );
 
-
-      if (
-        els.resendCode
-      ) {
-
+      if (els.resendCode) {
         els.resendCode.disabled =
           false;
-
       }
-
     }
-
   }
 
 
   els.phoneForm?.addEventListener(
     "submit",
     async event => {
-
       event.preventDefault();
-
 
       if (
         els.phoneRequestStep?.style.display !==
         "none"
       ) {
-
         await sendVerificationCode();
-
       }
       else {
-
         await verifyPhoneCode();
-
       }
-
     }
   );
 
 
   // ========================================================
-  // VERIFY PHONE CODE
+  // VERIFY SMS CODE
   // ========================================================
 
-  async function verifyPhoneCode(){
+  async function verifyPhoneCode() {
+    showPhoneVerifyErr("");
 
-    showPhoneVerifyErr(
-      ""
-    );
-
-
-    if (
-      !confirmationResult
-    ) {
-
+    if (!confirmationResult) {
       showPhoneVerifyErr(
         "Please resend a verification code."
       );
 
       return;
-
     }
-
 
     const code =
       digitsOnly(
@@ -1476,20 +1077,15 @@ async function resetRecaptcha(){
         6
       );
 
-
     if (
-      code.length !==
-      6
+      code.length !== 6
     ) {
-
       showPhoneVerifyErr(
         "Enter the 6-digit verification code."
       );
 
       return;
-
     }
-
 
     setButtonBusy(
       els.verifyCode,
@@ -1498,28 +1094,30 @@ async function resetRecaptcha(){
       "Verify & Sign In"
     );
 
-
     try {
+      /*
+        Firebase verifies the code.
+
+        The BEFORE SIGN-IN blocking function checks the
+        employee record AGAIN before Firebase returns the
+        authenticated session.
+
+        It also links the Firebase UID back to the employee.
+      */
 
       await confirmationResult.confirm(
         code
       );
 
-
       location.replace(
         nextUrl()
       );
-
     }
-    catch (
-      error
-    ) {
-
+    catch (error) {
       console.warn(
         "[Login] phone verify error:",
         error
       );
-
 
       showPhoneVerifyErr(
         phoneVerifyErrorMessage(
@@ -1527,16 +1125,13 @@ async function resetRecaptcha(){
         )
       );
 
-
       setButtonBusy(
         els.verifyCode,
         false,
         "Verifying…",
         "Verify & Sign In"
       );
-
     }
-
   }
 
 
@@ -1549,7 +1144,6 @@ async function resetRecaptcha(){
   els.verificationCode?.addEventListener(
     "input",
     () => {
-
       els.verificationCode.value =
         digitsOnly(
           els.verificationCode.value
@@ -1557,7 +1151,6 @@ async function resetRecaptcha(){
           0,
           6
         );
-
     }
   );
 
@@ -1565,18 +1158,13 @@ async function resetRecaptcha(){
   els.verificationCode?.addEventListener(
     "keydown",
     event => {
-
       if (
-        event.key ===
-        "Enter"
+        event.key === "Enter"
       ) {
-
         event.preventDefault();
 
         verifyPhoneCode();
-
       }
-
     }
   );
 
@@ -1588,48 +1176,33 @@ async function resetRecaptcha(){
   els.changePhone?.addEventListener(
     "click",
     () => {
-
       showPhoneRequestStep();
 
-
       try {
-
-        els.phone?.focus(
-          {
-            preventScroll:true
-          }
-        );
-
+        els.phone?.focus({
+          preventScroll:
+            true
+        });
       }
       catch {}
-
     }
   );
 
 
   // ========================================================
-  // RESEND PHONE CODE
+  // RESEND
   // ========================================================
 
   els.resendCode?.addEventListener(
     "click",
     async () => {
+      showPhoneVerifyErr("");
 
-      showPhoneVerifyErr(
-        ""
-      );
-
-
-      if (
-        !lastPhoneE164
-      ) {
-
+      if (!lastPhoneE164) {
         showPhoneRequestStep();
 
         return;
-
       }
-
 
       setButtonBusy(
         els.resendCode,
@@ -1638,14 +1211,16 @@ async function resetRecaptcha(){
         "Resend verification code"
       );
 
-
       try {
-
         const verifier =
           await getRecaptchaVerifier(
             auth
           );
 
+        /*
+          The allowlist blocking function is run again here,
+          so disabling an employee immediately stops resends.
+        */
 
         confirmationResult =
           await signInWithPhoneNumber(
@@ -1654,55 +1229,36 @@ async function resetRecaptcha(){
             verifier
           );
 
-
-        if (
-          els.phoneStatus
-        ) {
-
+        if (els.phoneStatus) {
           els.phoneStatus.textContent =
             `A new verification code was sent to ${lastPhoneDisplay}.`;
-
         }
-
       }
-      catch (
-        error
-      ) {
-
+      catch (error) {
         console.warn(
-          "[Login] resend code error:",
+          "[Login] resend error:",
           error
         );
 
-
         await resetRecaptcha();
-
 
         showPhoneVerifyErr(
           phoneSendErrorMessage(
             error
           )
         );
-
       }
       finally {
-
         setButtonBusy(
           els.resendCode,
           false,
           "Resending…",
           "Resend verification code"
         );
-
       }
-
     }
   );
 
-
-  // ========================================================
-  // INITIAL MODE
-  // ========================================================
 
   setAuthMode(
     authMode
