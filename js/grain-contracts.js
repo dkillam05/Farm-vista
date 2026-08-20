@@ -4992,7 +4992,7 @@ function renderTicketCards(
         </div>
 
         <div class="empty-sub">
-          Everything for this buyer and customer is allocated.
+          Everything matching these filters is allocated.
         </div>
       </div>
     `;
@@ -5056,17 +5056,34 @@ function renderTicketCards(
 
           <div class="ticket-top">
 
-            <div class="ticket-number">
-              Ticket ${escapeHtml(ticket.ticketNumber || "—")}
-              ${
-                partial
-                  ? `
-                    <span style="color:#9a6700;font-weight:900;">
-                      • PARTIAL
-                    </span>
-                  `
-                  : ""
-              }
+            <div>
+
+              <div class="ticket-number">
+                Ticket ${escapeHtml(ticket.ticketNumber || "—")}
+                ${
+                  partial
+                    ? `
+                      <span style="color:#9a6700;font-weight:900;">
+                        • PARTIAL
+                      </span>
+                    `
+                    : ""
+                }
+              </div>
+
+              <div
+                style="
+                  margin-top:4px;
+                  font-size:.9rem;
+                  font-weight:700;
+                  line-height:1.35;
+                "
+              >
+                ${escapeHtml(ticket.buyerName || "Unknown Buyer")}
+                <span style="opacity:.55;"> • </span>
+                ${escapeHtml(ticket.customerName || "Unknown Customer")}
+              </div>
+
             </div>
 
             <div class="ticket-bushels">
@@ -5074,6 +5091,7 @@ function renderTicketCards(
             </div>
 
           </div>
+
 
           <div class="ticket-meta">
 
