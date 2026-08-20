@@ -1166,6 +1166,22 @@ const ALIAS_COLLECTION =
   "grain_ocr_aliases";
 
 
+/*
+  OCR MEMORY
+
+  Every successfully saved grain ticket creates a memory record.
+
+  IMPORTANT:
+  fvOcr does NOT read this collection yet.
+
+  For now we are simply accumulating high-quality history so
+  FarmVista can later learn elevator layouts and corrections.
+*/
+
+const OCR_MEMORY_COLLECTION =
+  "grain_ocr_memory";
+
+
 
       // ==========================================================
       // ELEMENTS
@@ -4804,6 +4820,675 @@ async function uploadGrainTicketImage(
 }
 
 
+// ==========================================================
+// OCR MEMORY
+// ==========================================================
+
+function buildOcrMemoryProfileKey(
+  grainTicket
+) {
+
+  /*
+    This groups similar tickets together later.
+
+    Examples:
+
+      green_plains | green plains grain company llc | madison | il
+
+      cahokia | cahokia grain | cahokia | il
+
+    The key is NOT used to make matching decisions yet.
+    It is simply stored so the future learning system has
+    an easy way to group thousands of tickets.
+  */
+
+  const parts =
+    [
+      grainTicket?.parserProfile,
+      grainTicket?.elevatorName,
+      grainTicket?.deliveryCity,
+      grainTicket?.deliveryState
+    ]
+      .map(
+        value =>
+          normalizeAliasText(
+            value
+          )
+      )
+      .filter(
+        Boolean
+      );
+
+
+  return parts.length
+    ? parts.join(
+        " | "
+      )
+    : "unknown";
+
+}
+
+
+async function saveOcrMemoryRecord({
+  savedTicketId,
+  grainTicket,
+  ocrResult,
+  matching,
+  image,
+  employee,
+  driverName
+}) {
+
+  if (
+    !savedTicketId ||
+    !grainTicket
+  ) {
+
+    return null;
+
+  }
+
+
+  const customer =
+    matching?.customerMatch
+      ?.customer ||
+    null;
+
+
+  const location =
+    matching?.locationMatch
+      ?.location ||
+    null;
+
+
+  const buyer =
+    matching?.buyerMatch
+      ?.buyer ||
+    null;
+
+
+  const manualCrop =
+    ocrResult
+      ?.manualCorrections
+      ?.crop ||
+    null;
+
+
+  const rawText =
+    String(
+      grainTicket.rawText ||
+      ocrResult?.document?.text ||
+      ""
+    );
+
+
+  const profileKey =
+    buildOcrMemoryProfileKey(
+      grainTicket
+    );
+
+
+  /*
+    MEMORY RECORD DESIGN
+
+    We intentionally keep THREE separate versions of reality:
+
+      1. ocr
+         What fvOcr actually returned.
+
+      2. farmVistaMatch
+         What FarmVista matched that OCR to.
+
+      3. savedValues
+         What was ultimately written to grain_tickets.
+
+    Later, when the office corrects a ticket, we will add a
+    FOURTH section:
+
+      verifiedValues
+
+    That distinction is what prevents FarmVista from learning
+    its own mistakes.
+  */
+
+  const memoryPayload = {
+
+    // ----------------------------------------------------------
+    // MEMORY METADATA
+    // ----------------------------------------------------------
+
+    memoryVersion:
+      1,
+
+    memoryType:
+      "grain_ticket",
+
+    source:
+      "grain_ticket_scan",
+
+    status:
+      "observed",
+
+    /*
+      FALSE FOR NOW.
+
+      We do not let fvOcr learn from this record until a future
+      verification/correction workflow tells us the values are
+      actually trustworthy.
+    */
+
+    verified:
+      false,
+
+    eligibleForLearning:
+      false,
+
+
+    // ----------------------------------------------------------
+    // RELATION TO NORMAL GRAIN TICKET
+    // ----------------------------------------------------------
+
+    ticketId:
+      savedTicketId,
+
+    ticketNumber:
+      grainTicket.ticketNumber ||
+      null,
+
+    ticketDate:
+      grainTicket.ticketDate ||
+      null,
+
+    ticketImagePath:
+      image?.imagePath ||
+      null,
+
+    ticketImageUrl:
+      image?.imageUrl ||
+      null,
+
+
+    // ----------------------------------------------------------
+    // OCR PROFILE / ELEVATOR FAMILY
+    // ----------------------------------------------------------
+
+    parserProfile:
+      grainTicket.parserProfile ||
+      null,
+
+    profileKey:
+      profileKey,
+
+    elevatorFingerprint:
+      normalizeAliasText(
+        grainTicket.elevatorName
+      ) ||
+      null,
+
+    cityFingerprint:
+      normalizeAliasText(
+        grainTicket.deliveryCity
+      ) ||
+      null,
+
+    stateFingerprint:
+      normalizeAliasText(
+        grainTicket.deliveryState
+      ) ||
+      null,
+
+
+    // ----------------------------------------------------------
+    // RAW OCR RESULT
+    //
+    // This is what fvOcr actually thought it saw.
+    // ----------------------------------------------------------
+
+    ocr: {
+
+      elevatorName:
+        grainTicket.elevatorName ||
+        null,
+
+      deliveryStreet:
+        grainTicket.deliveryStreet ||
+        null,
+
+      deliveryCity:
+        grainTicket.deliveryCity ||
+        null,
+
+      deliveryState:
+        grainTicket.deliveryState ||
+        null,
+
+      deliveryZip:
+        grainTicket.deliveryZip ||
+        null,
+
+
+      customerText:
+        grainTicket.customerText ||
+        null,
+
+      customerAccountText:
+        grainTicket.customerAccountText ||
+        null,
+
+
+      ticketNumber:
+        grainTicket.ticketNumber ||
+        null,
+
+      ticketDate:
+        grainTicket.ticketDate ||
+        null,
+
+      crop:
+        grainTicket.crop ||
+        null,
+
+
+      grossWeight:
+        grainTicket.grossWeight ??
+        null,
+
+      tareWeight:
+        grainTicket.tareWeight ??
+        null,
+
+      netWeight:
+        grainTicket.netWeight ??
+        null,
+
+
+      testWeight:
+        grainTicket.testWeight ??
+        null,
+
+      moisture:
+        grainTicket.moisture ??
+        null,
+
+      damage:
+        grainTicket.damage ??
+        null,
+
+      foreignMaterial:
+        grainTicket.foreignMaterial ??
+        null,
+
+
+      grossBushels:
+        grainTicket.grossBushels ??
+        null,
+
+      shrinkBushels:
+        grainTicket.shrinkBushels ??
+        null,
+
+      netBushels:
+        grainTicket.netBushels ??
+        null,
+
+
+      vehicleId:
+        grainTicket.vehicleId ||
+        null,
+
+
+      scanValid:
+        ocrResult?.scanValid ===
+        true,
+
+      scanErrors:
+        Array.isArray(
+          ocrResult?.scanErrors
+        )
+          ? ocrResult.scanErrors
+          : [],
+
+      reviewWarnings:
+        Array.isArray(
+          ocrResult?.reviewWarnings
+        )
+          ? ocrResult.reviewWarnings
+          : [],
+
+
+      /*
+        Keep the raw OCR text.
+
+        This is extremely important because later we can compare:
+
+          raw OCR
+          parser result
+          human verified result
+      */
+
+      rawText:
+        rawText
+
+    },
+
+
+    // ----------------------------------------------------------
+    // FARMVISTA MATCHING RESULT
+    // ----------------------------------------------------------
+
+    farmVistaMatch: {
+
+      buyerId:
+        buyer?.id ||
+        null,
+
+      buyerName:
+        buyer
+          ? getBuyerName(
+              buyer
+            )
+          : null,
+
+      buyerMatchType:
+        matching?.buyerMatch
+          ?.matchType ||
+        null,
+
+
+      deliveryLocationId:
+        location?.id ||
+        null,
+
+      deliveryLocationName:
+        location
+          ? getLocationName(
+              location
+            )
+          : null,
+
+      deliveryLocationMatchType:
+        matching?.locationMatch
+          ?.matchType ||
+        null,
+
+
+      customerId:
+        customer?.id ||
+        null,
+
+      customerName:
+        customer
+          ? getCustomerName(
+              customer
+            )
+          : null,
+
+      customerMatchType:
+        matching?.customerMatch
+          ?.matchType ||
+        null,
+
+
+      validationStatus:
+        matching?.validationStatus ||
+        null,
+
+      reviewReasons:
+        Array.isArray(
+          matching?.reviewReasons
+        )
+          ? matching.reviewReasons
+          : []
+
+    },
+
+
+    // ----------------------------------------------------------
+    // VALUES SAVED AT SCAN TIME
+    //
+    // These are NOT considered verified training truth yet.
+    // ----------------------------------------------------------
+
+    savedValues: {
+
+      buyerId:
+        buyer?.id ||
+        null,
+
+      buyerName:
+        buyer
+          ? getBuyerName(
+              buyer
+            )
+          : null,
+
+
+      deliveryLocationId:
+        location?.id ||
+        null,
+
+      deliveryLocationName:
+        location
+          ? getLocationName(
+              location
+            )
+          : null,
+
+      deliveryStreet:
+        location
+          ? getLocationStreet(
+              location
+            ) || null
+          : grainTicket.deliveryStreet ||
+            null,
+
+      deliveryCity:
+        location
+          ? getLocationCity(
+              location
+            ) || null
+          : grainTicket.deliveryCity ||
+            null,
+
+      deliveryState:
+        location
+          ? getLocationState(
+              location
+            ) || null
+          : grainTicket.deliveryState ||
+            null,
+
+      deliveryZip:
+        location
+          ? getLocationZip(
+              location
+            ) || null
+          : grainTicket.deliveryZip ||
+            null,
+
+
+      customerId:
+        customer?.id ||
+        null,
+
+      customerName:
+        customer
+          ? getCustomerName(
+              customer
+            )
+          : grainTicket.customerText ||
+            null,
+
+
+      crop:
+        grainTicket.crop ||
+        null,
+
+
+      grossWeight:
+        grainTicket.grossWeight ??
+        null,
+
+      tareWeight:
+        grainTicket.tareWeight ??
+        null,
+
+      netWeight:
+        grainTicket.netWeight ??
+        null,
+
+
+      testWeight:
+        grainTicket.testWeight ??
+        null,
+
+      moisture:
+        grainTicket.moisture ??
+        null,
+
+      damage:
+        grainTicket.damage ??
+        null,
+
+      foreignMaterial:
+        grainTicket.foreignMaterial ??
+        null,
+
+
+      grossBushels:
+        grainTicket.grossBushels ??
+        null,
+
+      shrinkBushels:
+        grainTicket.shrinkBushels ??
+        null,
+
+      netBushels:
+        grainTicket.netBushels ??
+        null
+
+    },
+
+
+    // ----------------------------------------------------------
+    // HUMAN INPUT DURING SCAN
+    //
+    // Crop chooser is the first example.
+    // ----------------------------------------------------------
+
+    humanInput: {
+
+      crop: {
+
+        used:
+          Boolean(
+            manualCrop
+          ),
+
+        source:
+          manualCrop
+            ? "driver_selection"
+            : null,
+
+        originalValue:
+          manualCrop
+            ?.originalValue ??
+          null,
+
+        selectedValue:
+          manualCrop
+            ?.selectedValue ??
+          null
+
+      }
+
+    },
+
+
+    // ----------------------------------------------------------
+    // FUTURE VERIFIED RESULT
+    //
+    // The office correction/review workflow will eventually
+    // populate this.
+    // ----------------------------------------------------------
+
+    verifiedValues:
+      null,
+
+    verificationSource:
+      null,
+
+    verifiedByUid:
+      null,
+
+    verifiedAt:
+      null,
+
+
+    // ----------------------------------------------------------
+    // WHO CREATED THIS MEMORY
+    // ----------------------------------------------------------
+
+    createdByUid:
+      signedInUser?.uid ||
+      null,
+
+    createdByEmployeeId:
+      employee?.id ||
+      null,
+
+    createdByName:
+      driverName ||
+      null,
+
+
+    // ----------------------------------------------------------
+    // TIMESTAMPS
+    // ----------------------------------------------------------
+
+    createdAt:
+      serverTimestamp(),
+
+    updatedAt:
+      serverTimestamp()
+
+  };
+
+
+  const memoryDoc =
+    await addDoc(
+      collection(
+        db,
+        OCR_MEMORY_COLLECTION
+      ),
+      memoryPayload
+    );
+
+
+  console.log(
+    "[Grain Ticket] OCR memory saved:",
+    {
+      memoryId:
+        memoryDoc.id,
+
+      ticketId:
+        savedTicketId,
+
+      profileKey
+    }
+  );
+
+
+  return {
+    id:
+      memoryDoc.id,
+
+    profileKey
+  };
+
+}
+
+
 async function saveScannedTicket(
   file,
   ocrResult
@@ -5341,6 +6026,63 @@ reconciliationStatus:
   );
 
 
+  /*
+    ----------------------------------------------------------
+    BUILD OCR MEMORY
+    ----------------------------------------------------------
+
+    The normal grain ticket is already safely saved.
+
+    Memory creation is intentionally BEST-EFFORT.
+
+    If Firestore rules have not yet been opened for
+    grain_ocr_memory, we do NOT make the driver's successful
+    grain-ticket scan fail. We log the memory error instead.
+  */
+
+  let memory =
+    null;
+
+
+  try {
+
+    processingText.textContent =
+      "Building OCR memory…";
+
+
+    memory =
+      await saveOcrMemoryRecord({
+
+        savedTicketId:
+          savedTicket.id,
+
+        grainTicket,
+
+        ocrResult,
+
+        matching,
+
+        image,
+
+        employee,
+
+        driverName
+
+      });
+
+  }
+  catch (
+    memoryError
+  ) {
+
+    console.error(
+      "[Grain Ticket] OCR memory could not be saved:",
+      memoryError
+    );
+
+  }
+
+
   return {
     id:
       savedTicket.id,
@@ -5355,7 +6097,15 @@ reconciliationStatus:
       image.imagePath,
 
     imageUrl:
-      image.imageUrl
+      image.imageUrl,
+
+    memoryId:
+      memory?.id ||
+      null,
+
+    memoryProfileKey:
+      memory?.profileKey ||
+      null
   };
 
 }
@@ -6738,10 +7488,35 @@ if (
   ask the driver to select it before saving.
 */
 
+/*
+  CROP
+
+  Preserve exactly what OCR originally returned.
+
+  If OCR cannot determine crop, ask the driver.
+
+  IMPORTANT:
+  fvOcr already calculated scanValid + scanErrors BEFORE
+  the driver answered this question.
+
+  Therefore, after a driver supplies a valid crop we remove
+  ONLY the crop-related validation error and recalculate
+  scanValid. All other OCR errors remain untouched.
+*/
+
+const originalOcrCrop =
+  result.grainTicket?.crop ??
+  null;
+
+
 let scannedCrop =
   normalizeScannedCrop(
-    result.grainTicket?.crop
+    originalOcrCrop
   );
+
+
+let cropSelectedByDriver =
+  false;
 
 
 if (
@@ -6757,6 +7532,10 @@ if (
     await askDriverForCrop();
 
 
+  cropSelectedByDriver =
+    true;
+
+
   showProcessing(
     "Finishing grain ticket…"
   );
@@ -6764,8 +7543,148 @@ if (
 }
 
 
+/*
+  Put the final crop onto the structured grain ticket.
+*/
+
 result.grainTicket.crop =
   scannedCrop;
+
+
+/*
+  Record the HUMAN correction separately.
+
+  The OCR memory writer will preserve this so later we know:
+
+    OCR said:
+      null
+
+    Driver said:
+      Corn
+
+  That is real learning information.
+*/
+
+if (
+  cropSelectedByDriver
+) {
+
+  result.manualCorrections = {
+
+    ...(
+      result.manualCorrections ||
+      {}
+    ),
+
+    crop: {
+
+      originalValue:
+        originalOcrCrop,
+
+      selectedValue:
+        scannedCrop,
+
+      source:
+        "driver_selection"
+
+    }
+
+  };
+
+
+  /*
+    Remove ONLY crop-related validation errors.
+
+    Never clear a weight error, ticket-number error,
+    grade-factor error, etc.
+  */
+
+  if (
+    Array.isArray(
+      result.scanErrors
+    )
+  ) {
+
+    result.scanErrors =
+      result.scanErrors.filter(
+        error => {
+
+          const text =
+            String(
+              error ||
+              ""
+            )
+              .trim()
+              .toLowerCase();
+
+
+          if (
+            !text.includes(
+              "crop"
+            )
+          ) {
+
+            return true;
+
+          }
+
+
+          const cropError =
+            (
+              text.includes(
+                "could not be read"
+              ) ||
+              text.includes(
+                "could not determine"
+              ) ||
+              text.includes(
+                "must be selected"
+              ) ||
+              text.includes(
+                "not identified"
+              )
+            );
+
+
+          return !cropError;
+
+        }
+      );
+
+  }
+
+
+  /*
+    OCR validation has now been repaired with the
+    driver's answer.
+
+    If another problem remains, scanValid stays false.
+  */
+
+  result.scanValid =
+    !Array.isArray(
+      result.scanErrors
+    ) ||
+    result.scanErrors.length ===
+      0;
+
+
+  console.log(
+    "[Grain Ticket] Driver supplied missing crop:",
+    {
+      originalOcrCrop,
+      selectedCrop:
+        scannedCrop,
+
+      remainingScanErrors:
+        result.scanErrors,
+
+      scanValid:
+        result.scanValid
+    }
+  );
+
+}
 
 /*
   HARD OCR VALIDATION
