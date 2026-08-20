@@ -1647,9 +1647,33 @@ customers =
           id:
             docSnapshot.id,
 
+          /*
+            KEEP THE COMPLETE CUSTOMER RECORD.
+
+            OCR matching may need more than the FarmVista
+            display name, including:
+
+              - account/customer number
+              - street/address
+              - city
+              - state
+              - ZIP
+              - legal/company name
+              - external IDs
+
+            Previously we discarded all of those fields here,
+            which prevented the matcher from using them.
+          */
+
+          ...data,
+
           name:
             String(
               data.name ||
+              data.customerName ||
+              data.displayName ||
+              data.legalName ||
+              data.companyName ||
               ""
             ).trim()
 
@@ -1659,7 +1683,9 @@ customers =
     )
     .filter(
       customer =>
-        customer.name
+        getCustomerName(
+          customer
+        )
     );
 
 
@@ -2015,6 +2041,83 @@ function getCustomerAccount(
 }
 
 
+function getCustomerStreet(
+  customer
+) {
+
+  return String(
+    firstExistingValue(
+      customer,
+      [
+        "street",
+        "streetAddress",
+        "address",
+        "address1",
+        "mailingStreet"
+      ]
+    ) || ""
+  )
+    .trim();
+
+}
+
+
+function getCustomerCity(
+  customer
+) {
+
+  return String(
+    firstExistingValue(
+      customer,
+      [
+        "city",
+        "mailingCity"
+      ]
+    ) || ""
+  )
+    .trim();
+
+}
+
+
+function getCustomerState(
+  customer
+) {
+
+  return String(
+    firstExistingValue(
+      customer,
+      [
+        "state",
+        "mailingState"
+      ]
+    ) || ""
+  )
+    .trim();
+
+}
+
+
+function getCustomerZip(
+  customer
+) {
+
+  return String(
+    firstExistingValue(
+      customer,
+      [
+        "zip",
+        "zipCode",
+        "postalCode",
+        "mailingZip"
+      ]
+    ) || ""
+  )
+    .trim();
+
+}
+
+
 function getBuyerName(
   buyer
 ) {
@@ -2132,284 +2235,350 @@ function getLocationZip(
 }
 
 
-function findCustomerMatch(
-  grainTicket
+// ==========================================================
+// SMART MATCH NORMALIZATION
+// ==========================================================
+
+function normalizeSmartWords(
+  value
 ) {
 
-  const ocrName =
-    String(
-      grainTicket?.customerText ||
-      ""
-    )
-      .trim();
+  const ignoredWords =
+    new Set([
+      "inc",
+      "incorporated",
+      "llc",
+      "ltd",
+      "limited",
+      "corp",
+      "corporation",
+      "company",
+      "co",
+      "the"
+    ]);
 
 
-const ocrAccount =
-  String(
-    grainTicket?.customerAccountText ||
-    ""
+  return String(
+    value ?? ""
   )
-    .trim();
-
-
-/*
-  LEARNED MATCH:
-
-  If the office previously told FarmVista what this exact
-  OCR customer wording means, use that relationship first.
-*/
-
-if (
-  ocrName
-) {
-
-  const alias =
-    findLearnedAlias(
-      "customer",
-      ocrName
+    .toLowerCase()
+    .replace(
+      /[^a-z0-9\s]/g,
+      " "
+    )
+    .split(
+      /\s+/
+    )
+    .map(
+      word =>
+        word.trim()
+    )
+    .filter(
+      word =>
+        word &&
+        !ignoredWords.has(
+          word
+        )
     );
-
-
-  if (
-    alias?.targetId
-  ) {
-
-    const customer =
-      customers.find(
-        item =>
-          item.id ===
-          alias.targetId
-      );
-
-
-    if (
-      customer
-    ) {
-
-      return {
-        matched:
-          true,
-
-        matchType:
-          "learned_alias",
-
-        customer
-      };
-
-    }
-
-  }
 
 }
 
 
-/*
-  BEST AUTOMATIC MATCH:
-  Account/customer number.
+function smartNameSimilarity(
+  firstValue,
+  secondValue
+) {
 
-    If OCR gave us an account number and FarmVista has
-    the same account number, that is stronger than name text.
-  */
+  const firstWords =
+    normalizeSmartWords(
+      firstValue
+    );
+
+
+  const secondWords =
+    normalizeSmartWords(
+      secondValue
+    );
+
 
   if (
-    ocrAccount
+    !firstWords.length ||
+    !secondWords.length
   ) {
 
-    const accountNormalized =
-      normalizeMatchText(
-        ocrAccount
-      );
+    return 0;
+
+  }
 
 
-    const accountMatch =
-      customers.find(
-        customer =>
-          normalizeMatchText(
-            getCustomerAccount(
-              customer
-            )
-          ) ===
-          accountNormalized
-      );
+  const firstSet =
+    new Set(
+      firstWords
+    );
 
+
+  const secondSet =
+    new Set(
+      secondWords
+    );
+
+
+  let matches =
+    0;
+
+
+  for (
+    const word of
+    firstSet
+  ) {
 
     if (
-      accountMatch
+      secondSet.has(
+        word
+      )
     ) {
 
-      return {
-        matched:
-          true,
-
-        matchType:
-          "account",
-
-        customer:
-          accountMatch
-      };
+      matches++;
 
     }
 
   }
 
 
+  return (
+    matches /
+    Math.max(
+      firstSet.size,
+      secondSet.size
+    )
+  );
+
+}
+
+
+function normalizeStreetForMatch(
+  value
+) {
+
+  return String(
+    value ||
+    ""
+  )
+    .toLowerCase()
+    .replace(
+      /\bstreet\b/g,
+      "st"
+    )
+    .replace(
+      /\broad\b/g,
+      "rd"
+    )
+    .replace(
+      /\bavenue\b/g,
+      "ave"
+    )
+    .replace(
+      /\bboulevard\b/g,
+      "blvd"
+    )
+    .replace(
+      /\bdrive\b/g,
+      "dr"
+    )
+    .replace(
+      /\blane\b/g,
+      "ln"
+    )
+    .replace(
+      /\bhighway\b/g,
+      "hwy"
+    )
+    .replace(
+      /\broute\b/g,
+      "rt"
+    )
+    .replace(
+      /\bexpressway\b/g,
+      "expy"
+    )
+    .replace(
+      /[^a-z0-9]/g,
+      ""
+    );
+
+}
+
+
+function normalizeZipForMatch(
+  value
+) {
+
+  return String(
+    value ||
+    ""
+  )
+    .replace(
+      /\D/g,
+      ""
+    )
+    .slice(
+      0,
+      5
+    );
+
+}
+
+
+// ==========================================================
+// OCR HEADER HELPERS
+// ==========================================================
+
+function getOcrLines(
+  grainTicket
+) {
+
+  return String(
+    grainTicket?.rawText ||
+    ""
+  )
+    .split(
+      /\r?\n/
+    )
+    .map(
+      line =>
+        String(
+          line ||
+          ""
+        ).trim()
+    )
+    .filter(
+      Boolean
+    );
+
+}
+
+
+function getTicketHeaderText(
+  grainTicket
+) {
+
   /*
-    SECOND MATCH:
-    Exact normalized customer name.
+    Only use the TOP of the ticket to identify the elevator.
+
+    This prevents later lines such as:
+
+      JOHN C DOWSON
+      DIVERNON IL
+      CHS Elevators Sycamore IL
+
+    from being mistaken for the destination.
   */
 
-  if (
-    ocrName
-  ) {
+  return getOcrLines(
+    grainTicket
+  )
+    .slice(
+      0,
+      8
+    )
+    .join(
+      " "
+    );
 
-    const normalizedName =
-      normalizeMatchText(
-        ocrName
+}
+
+
+function findCityStateInTicketHeader(
+  grainTicket
+) {
+
+  const lines =
+    getOcrLines(
+      grainTicket
+    )
+      .slice(
+        0,
+        8
       );
 
 
-    const exactMatch =
-      customers.find(
-        customer =>
-          normalizeMatchText(
-            getCustomerName(
-              customer
-            )
-          ) ===
-          normalizedName
+  for (
+    const line of
+    lines
+  ) {
+
+    const match =
+      line.match(
+        /^([A-Za-z][A-Za-z .'-]*?),?\s+([A-Z]{2})(?:\s+(\d{5}(?:-\d{4})?))?$/i
       );
 
 
     if (
-      exactMatch
+      !match
     ) {
 
-      return {
-        matched:
-          true,
-
-        matchType:
-          "name",
-
-        customer:
-          exactMatch
-      };
+      continue;
 
     }
 
-  }
 
+    return {
 
-  /*
-    THIRD MATCH:
-    Same words in a different order.
+      city:
+        String(
+          match[1] ||
+          ""
+        ).trim(),
 
-    Example:
+      state:
+        String(
+          match[2] ||
+          ""
+        ).trim(),
 
-    Dowson, John C
-    JOHN C DOWSON
-  */
+      zip:
+        String(
+          match[3] ||
+          ""
+        ).trim()
 
-  if (
-    ocrName
-  ) {
-
-    const wordName =
-      normalizeNameWords(
-        ocrName
-      );
-
-
-    const reorderedMatch =
-      customers.find(
-        customer =>
-          normalizeNameWords(
-            getCustomerName(
-              customer
-            )
-          ) ===
-          wordName
-      );
-
-
-    if (
-      reorderedMatch
-    ) {
-
-      return {
-        matched:
-          true,
-
-        matchType:
-          "name_reordered",
-
-        customer:
-          reorderedMatch
-      };
-
-    }
+    };
 
   }
 
 
   return {
-    matched:
-      false,
+    city:
+      "",
 
-    matchType:
-      null,
+    state:
+      "",
 
-    customer:
-      null
+    zip:
+      ""
   };
 
 }
 
+
+// ==========================================================
+// DESTINATION / DELIVERY LOCATION
+// ==========================================================
 
 function findDeliveryLocationMatch(
   grainTicket
 ) {
 
   /*
-    ==========================================================
-    FARMVISTA SMART DELIVERY LOCATION MATCHING
+    DESTINATION MATCHING RULE:
 
-    Match using as many independent clues as possible:
+    Destination evidence must come primarily from the
+    TOP / HEADER of the scale ticket.
 
-      - learned alias
-      - buyer / elevator company
-      - street
-      - city
-      - state
-      - ZIP
-      - location name
-
-    IMPORTANT:
-    We do NOT guess when two locations have an equally
-    believable score.
-
-    Example ADM ticket:
-
-      elevatorName:
-        ADM QUINCY, IL
-
-      deliveryStreet:
-        2100 GARDNER EXPRESSWAY
-
-      structured city/state/zip may be null
-
-    FarmVista should still recognize:
-
-      ADM
-      Quincy
-      2100 Gardner Expressway
-      Quincy, IL 62305
+    This keeps customer addresses and "Weigher" information
+    from contaminating destination matching.
   */
 
-
-  // ==========================================================
-  // LEARNED LOCATION MATCH FIRST
-  // ==========================================================
 
   const locationAliasText =
     buildLocationAliasText(
@@ -2455,111 +2624,12 @@ function findDeliveryLocationMatch(
   }
 
 
-  // ==========================================================
-  // NORMALIZATION HELPERS
-  // ==========================================================
-
-  function normalized(
-    value
-  ) {
-
-    return normalizeMatchText(
-      value
-    );
-
-  }
-
-
-  function normalizeStreet(
-    value
-  ) {
-
-    return String(
-      value ||
-      ""
-    )
-      .toLowerCase()
-
-      .replace(
-        /\bstreet\b/g,
-        "st"
-      )
-
-      .replace(
-        /\broad\b/g,
-        "rd"
-      )
-
-      .replace(
-        /\bavenue\b/g,
-        "ave"
-      )
-
-      .replace(
-        /\bboulevard\b/g,
-        "blvd"
-      )
-
-      .replace(
-        /\bdrive\b/g,
-        "dr"
-      )
-
-      .replace(
-        /\blane\b/g,
-        "ln"
-      )
-
-      .replace(
-        /\bhighway\b/g,
-        "hwy"
-      )
-
-      .replace(
-        /\broute\b/g,
-        "rt"
-      )
-
-      .replace(
-        /\bexpressway\b/g,
-        "expy"
-      )
-
-      .replace(
-        /[^a-z0-9]/g,
-        ""
+  const normalized =
+    value =>
+      normalizeMatchText(
+        value
       );
 
-  }
-
-
-  function normalizeZip(
-    value
-  ) {
-
-    const digits =
-      String(
-        value ||
-        ""
-      )
-        .replace(
-          /\D/g,
-          ""
-        );
-
-
-    return digits
-      .slice(
-        0,
-        5
-      );
-
-  }
-
-
-  // ==========================================================
-  // OCR VALUES
-  // ==========================================================
 
   const elevatorText =
     String(
@@ -2568,34 +2638,9 @@ function findDeliveryLocationMatch(
     ).trim();
 
 
-  const rawText =
-    String(
-      grainTicket?.rawText ||
-      ""
-    );
-
-
-  const ocrStreet =
-    normalizeStreet(
-      grainTicket?.deliveryStreet
-    );
-
-
-  let ocrCity =
-    normalized(
-      grainTicket?.deliveryCity
-    );
-
-
-  let ocrState =
-    normalized(
-      grainTicket?.deliveryState
-    );
-
-
-  let ocrZip =
-    normalizeZip(
-      grainTicket?.deliveryZip
+  const headerText =
+    getTicketHeaderText(
+      grainTicket
     );
 
 
@@ -2605,213 +2650,67 @@ function findDeliveryLocationMatch(
     );
 
 
-  // ==========================================================
-  // RECOVER CITY / STATE FROM ELEVATOR NAME
-  //
-  // Example:
-  //
-  // ADM QUINCY, IL
-  // ==========================================================
-
-  if (
-    !ocrCity ||
-    !ocrState
-  ) {
-
-    const elevatorCityState =
-      elevatorText.match(
-        /\b([A-Za-z][A-Za-z .'-]+?),?\s+([A-Z]{2})\b/
-      );
+  const normalizedHeader =
+    normalized(
+      headerText
+    );
 
 
-    if (
-      elevatorCityState
-    ) {
-
-      let possibleCity =
-        String(
-          elevatorCityState[1] ||
-          ""
-        )
-          .trim();
+  const headerCityState =
+    findCityStateInTicketHeader(
+      grainTicket
+    );
 
 
-      /*
-        Remove known buyer name from the beginning.
-
-        ADM QUINCY
-        becomes
-        QUINCY
-      */
-
-      for (
-        const buyer of
-        buyers
-      ) {
-
-        const buyerName =
-          getBuyerName(
-            buyer
-          );
+  const ocrStreet =
+    normalizeStreetForMatch(
+      grainTicket?.deliveryStreet
+    );
 
 
-        if (
-          !buyerName
-        ) {
-
-          continue;
-
-        }
+  const ocrCity =
+    normalized(
+      grainTicket?.deliveryCity ||
+      headerCityState.city
+    );
 
 
-        const buyerPattern =
-          new RegExp(
-            `^${buyerName.replace(
-              /[.*+?^${}()|[\]\\]/g,
-              "\\$&"
-            )}\\s+`,
-            "i"
-          );
+  const ocrState =
+    normalized(
+      grainTicket?.deliveryState ||
+      headerCityState.state
+    );
 
 
-        possibleCity =
-          possibleCity.replace(
-            buyerPattern,
-            ""
-          );
-
-      }
+  const ocrZip =
+    normalizeZipForMatch(
+      grainTicket?.deliveryZip ||
+      headerCityState.zip
+    );
 
 
-      if (
-        !ocrCity
-      ) {
+  console.log(
+    "[Grain Ticket] Destination OCR clues:",
+    {
+      elevatorText,
+      headerText,
+      city:
+        grainTicket?.deliveryCity ||
+        headerCityState.city ||
+        null,
 
-        ocrCity =
-          normalized(
-            possibleCity
-          );
+      state:
+        grainTicket?.deliveryState ||
+        headerCityState.state ||
+        null,
 
-      }
-
-
-      if (
-        !ocrState
-      ) {
-
-        ocrState =
-          normalized(
-            elevatorCityState[2]
-          );
-
-      }
-
+      zip:
+        grainTicket?.deliveryZip ||
+        headerCityState.zip ||
+        null
     }
+  );
 
-  }
-
-
-  // ==========================================================
-  // RECOVER ZIP FROM RAW OCR
-  //
-  // Prefer ZIP close to the OCR street.
-  // ==========================================================
-
-  if (
-    !ocrZip &&
-    grainTicket?.deliveryStreet
-  ) {
-
-    const rawLines =
-      rawText
-        .split(
-          /\r?\n/
-        )
-        .map(
-          line =>
-            String(
-              line ||
-              ""
-            ).trim()
-        )
-        .filter(
-          Boolean
-        );
-
-
-    const streetNormalized =
-      normalizeStreet(
-        grainTicket.deliveryStreet
-      );
-
-
-    for (
-      let i = 0;
-      i < rawLines.length;
-      i++
-    ) {
-
-      if (
-        normalizeStreet(
-          rawLines[i]
-        ) !==
-        streetNormalized
-      ) {
-
-        continue;
-
-      }
-
-
-      for (
-        let offset = -2;
-        offset <= 3;
-        offset++
-      ) {
-
-        const candidate =
-          rawLines[
-            i + offset
-          ] ||
-          "";
-
-
-        const zipMatch =
-          candidate.match(
-            /\b(\d{5})(?:-\d{4})?\b/
-          );
-
-
-        if (
-          zipMatch
-        ) {
-
-          ocrZip =
-            zipMatch[1];
-
-          break;
-
-        }
-
-      }
-
-
-      if (
-        ocrZip
-      ) {
-
-        break;
-
-      }
-
-    }
-
-  }
-
-
-  // ==========================================================
-  // SCORE ALL FARMVISTA LOCATIONS
-  // ==========================================================
 
   const scored =
     deliveryLocations
@@ -2819,7 +2718,7 @@ function findDeliveryLocationMatch(
         location => {
 
           const locationStreet =
-            normalizeStreet(
+            normalizeStreetForMatch(
               getLocationStreet(
                 location
               )
@@ -2843,7 +2742,7 @@ function findDeliveryLocationMatch(
 
 
           const locationZip =
-            normalizeZip(
+            normalizeZipForMatch(
               getLocationZip(
                 location
               )
@@ -2858,7 +2757,7 @@ function findDeliveryLocationMatch(
             );
 
 
-          const locationBuyer =
+          const buyerName =
             normalized(
               location.buyerName ||
               ""
@@ -2874,10 +2773,7 @@ function findDeliveryLocationMatch(
 
 
           /*
-            STREET
-
-            Exact normalized street is one of our strongest
-            destination identifiers.
+            Exact destination street.
           */
 
           if (
@@ -2888,7 +2784,7 @@ function findDeliveryLocationMatch(
           ) {
 
             score +=
-              60;
+              70;
 
 
             reasons.push(
@@ -2899,7 +2795,7 @@ function findDeliveryLocationMatch(
 
 
           /*
-            ZIP
+            ZIP.
           */
 
           if (
@@ -2910,7 +2806,7 @@ function findDeliveryLocationMatch(
           ) {
 
             score +=
-              40;
+              50;
 
 
             reasons.push(
@@ -2921,7 +2817,7 @@ function findDeliveryLocationMatch(
 
 
           /*
-            CITY
+            City and state from the ticket HEADER.
           */
 
           if (
@@ -2932,7 +2828,7 @@ function findDeliveryLocationMatch(
           ) {
 
             score +=
-              30;
+              45;
 
 
             reasons.push(
@@ -2942,10 +2838,6 @@ function findDeliveryLocationMatch(
           }
 
 
-          /*
-            STATE
-          */
-
           if (
             ocrState &&
             locationState &&
@@ -2954,7 +2846,7 @@ function findDeliveryLocationMatch(
           ) {
 
             score +=
-              10;
+              15;
 
 
             reasons.push(
@@ -2965,32 +2857,54 @@ function findDeliveryLocationMatch(
 
 
           /*
-            BUYER / COMPANY
+            FarmVista location name appears in the OCR elevator
+            name or header.
 
-            Examples:
+            Example:
 
-              OCR:
-                ADM QUINCY IL
-
-              FarmVista buyer:
-                ADM
+              Cahokia Grain
+              Cahokia, IL
           */
 
           if (
-            normalizedElevator &&
-            locationBuyer &&
+            locationName &&
             (
               normalizedElevator.includes(
-                locationBuyer
+                locationName
               ) ||
-              locationBuyer.includes(
-                normalizedElevator
+              normalizedHeader.includes(
+                locationName
               )
             )
           ) {
 
             score +=
-              30;
+              35;
+
+
+            reasons.push(
+              "location_name"
+            );
+
+          }
+
+
+          /*
+            Buyer/company appears in the HEADER.
+
+            We deliberately use only header text here rather
+            than the entire OCR document.
+          */
+
+          if (
+            buyerName &&
+            normalizedHeader.includes(
+              buyerName
+            )
+          ) {
+
+            score +=
+              35;
 
 
             reasons.push(
@@ -3001,26 +2915,39 @@ function findDeliveryLocationMatch(
 
 
           /*
-            LOCATION NAME
+            Partial location-name similarity.
 
-            Quincy may appear directly in:
-              ADM QUINCY IL
+            This helps with names such as:
+
+              Cahokia Grain
+
+            versus an internal FarmVista location whose
+            descriptive name contains "Cahokia".
           */
 
+          const nameSimilarity =
+            smartNameSimilarity(
+              elevatorText,
+              getLocationName(
+                location
+              )
+            );
+
+
           if (
-            normalizedElevator &&
-            locationName &&
-            normalizedElevator.includes(
-              locationName
-            )
+            nameSimilarity >=
+            0.5
           ) {
 
             score +=
-              20;
+              Math.round(
+                nameSimilarity *
+                30
+              );
 
 
             reasons.push(
-              "location_name"
+              "name_similarity"
             );
 
           }
@@ -3049,14 +2976,44 @@ function findDeliveryLocationMatch(
       );
 
 
+  console.log(
+    "[Grain Ticket] Delivery location scoring:",
+    scored.map(
+      item => ({
+        id:
+          item.location.id,
+
+        buyer:
+          item.location.buyerName,
+
+        location:
+          getLocationName(
+            item.location
+          ),
+
+        city:
+          getLocationCity(
+            item.location
+          ),
+
+        state:
+          getLocationState(
+            item.location
+          ),
+
+        score:
+          item.score,
+
+        reasons:
+          item.reasons
+      })
+    )
+  );
+
+
   if (
     !scored.length
   ) {
-
-    console.log(
-      "[Grain Ticket] No delivery location candidates."
-    );
-
 
     return {
       matched:
@@ -3081,112 +3038,45 @@ function findDeliveryLocationMatch(
     null;
 
 
-  console.log(
-    "[Grain Ticket] Delivery location scoring:",
-    scored.map(
-      item => ({
-        id:
-          item.location.id,
-
-        buyer:
-          item.location.buyerName,
-
-        location:
-          getLocationName(
-            item.location
-          ),
-
-        street:
-          getLocationStreet(
-            item.location
-          ),
-
-        city:
-          getLocationCity(
-            item.location
-          ),
-
-        state:
-          getLocationState(
-            item.location
-          ),
-
-        zip:
-          getLocationZip(
-            item.location
-          ),
-
-        score:
-          item.score,
-
-        reasons:
-          item.reasons
-      })
-    )
-  );
-
-
-  // ==========================================================
-  // SAFE AUTO-MATCH RULES
-  // ==========================================================
-
-  /*
-    An exact street match is very strong when it also has
-    another supporting clue such as buyer/city/zip/location.
-  */
-
-  const hasStreet =
-    best.reasons.includes(
-      "street"
-    );
-
-
-  const supportingClues =
+  const strongIdentityClues =
     best.reasons.filter(
       reason =>
-        reason !==
-        "street"
+        [
+          "street",
+          "zip",
+          "city",
+          "location_name",
+          "buyer"
+        ].includes(
+          reason
+        )
     ).length;
 
 
   /*
-    Require a meaningful score.
+    Examples we WANT to accept:
 
-    Examples:
+      Cahokia + IL + location-name clue
+      city + buyer
+      exact street + another clue
+      ZIP + another clue
 
-      street + buyer
-        90
-
-      street + city
-        90
-
-      street + ZIP
-        100
-
-      buyer + city + state
-        70
-
-      buyer + city + location name
-        80
+    We still require the winner to be clearly better than
+    another possible destination.
   */
 
   const meetsThreshold =
     (
-      hasStreet &&
-      supportingClues >= 1 &&
-      best.score >= 80
+      best.score >=
+        75 &&
+      strongIdentityClues >=
+        2
     ) ||
-    best.score >=
-      90;
+    (
+      best.score >=
+        95
+    );
 
-
-  /*
-    Do not auto-select if another location scored almost
-    exactly the same.
-
-    This protects us when a buyer has multiple similar
-    elevators.
-  */
 
   const clearlyBetter =
     !secondBest ||
@@ -3201,29 +3091,6 @@ function findDeliveryLocationMatch(
     meetsThreshold &&
     clearlyBetter
   ) {
-
-    console.log(
-      "[Grain Ticket] Smart delivery location matched:",
-      {
-        id:
-          best.location.id,
-
-        buyer:
-          best.location.buyerName,
-
-        location:
-          getLocationName(
-            best.location
-          ),
-
-        score:
-          best.score,
-
-        reasons:
-          best.reasons
-      }
-    );
-
 
     return {
       matched:
@@ -3240,12 +3107,7 @@ function findDeliveryLocationMatch(
 
 
   /*
-    UNIQUE EXACT STREET FALLBACK
-
-    If OCR got an exact street address and only ONE saved
-    FarmVista location has that street, accept it.
-
-    Street addresses are far stronger than a city-only guess.
+    Unique exact street remains safe enough to accept.
   */
 
   if (
@@ -3255,7 +3117,7 @@ function findDeliveryLocationMatch(
     const streetMatches =
       deliveryLocations.filter(
         location =>
-          normalizeStreet(
+          normalizeStreetForMatch(
             getLocationStreet(
               location
             )
@@ -3268,28 +3130,6 @@ function findDeliveryLocationMatch(
       streetMatches.length ===
       1
     ) {
-
-      console.log(
-        "[Grain Ticket] Unique street location matched:",
-        {
-          id:
-            streetMatches[0].id,
-
-          buyer:
-            streetMatches[0].buyerName,
-
-          location:
-            getLocationName(
-              streetMatches[0]
-            ),
-
-          street:
-            getLocationStreet(
-              streetMatches[0]
-            )
-        }
-      );
-
 
       return {
         matched:
@@ -3310,15 +3150,43 @@ function findDeliveryLocationMatch(
   console.warn(
     "[Grain Ticket] Delivery location not confidently matched:",
     {
-      bestScore:
-        best.score,
+      best:
+        best
+          ? {
+              id:
+                best.location.id,
 
-      bestReasons:
-        best.reasons,
+              name:
+                getLocationName(
+                  best.location
+                ),
 
-      secondBestScore:
-        secondBest?.score ??
-        null
+              score:
+                best.score,
+
+              reasons:
+                best.reasons
+            }
+          : null,
+
+      secondBest:
+        secondBest
+          ? {
+              id:
+                secondBest.location.id,
+
+              name:
+                getLocationName(
+                  secondBest.location
+                ),
+
+              score:
+                secondBest.score,
+
+              reasons:
+                secondBest.reasons
+            }
+          : null
     }
   );
 
@@ -3331,6 +3199,870 @@ function findDeliveryLocationMatch(
       null,
 
     location:
+      null
+  };
+
+}
+
+
+// ==========================================================
+// CUSTOMER / SOLD UNDER
+// ==========================================================
+
+function getCustomerCandidateIds(
+  grainTicket,
+  locationMatch,
+  buyerMatch
+) {
+
+  const crop =
+    normalizeMatchText(
+      grainTicket?.crop
+    );
+
+
+  const locationId =
+    String(
+      locationMatch?.location?.id ||
+      ""
+    );
+
+
+  const buyerId =
+    String(
+      buyerMatch?.buyer?.id ||
+      locationMatch?.location?.buyerId ||
+      ""
+    );
+
+
+  const ids =
+    new Set();
+
+
+  /*
+    IMPORTANT:
+
+    We are NOT assigning a contract here.
+
+    Contracts are only being used to determine which FarmVista
+    customers are realistically capable of being "Sold Under"
+    for this crop / destination / buyer.
+  */
+
+  for (
+    const contract of
+    contracts
+  ) {
+
+    if (
+      contract?.voided ===
+      true
+    ) {
+
+      continue;
+
+    }
+
+
+    const contractCrop =
+      normalizeMatchText(
+        firstExistingValue(
+          contract,
+          [
+            "crop",
+            "commodity"
+          ]
+        )
+      );
+
+
+    if (
+      crop &&
+      contractCrop &&
+      crop !==
+        contractCrop
+    ) {
+
+      continue;
+
+    }
+
+
+    const contractLocationId =
+      String(
+        firstExistingValue(
+          contract,
+          [
+            "deliveryLocationId",
+            "locationId"
+          ]
+        ) || ""
+      );
+
+
+    const contractBuyerId =
+      String(
+        firstExistingValue(
+          contract,
+          [
+            "buyerId",
+            "grainBuyerId"
+          ]
+        ) || ""
+      );
+
+
+    /*
+      If the contract has a specific location, respect it.
+
+      If older contracts only contain buyerId, they may still
+      be useful as candidates.
+    */
+
+    if (
+      locationId &&
+      contractLocationId &&
+      contractLocationId !==
+        locationId
+    ) {
+
+      continue;
+
+    }
+
+
+    if (
+      buyerId &&
+      contractBuyerId &&
+      contractBuyerId !==
+        buyerId
+    ) {
+
+      continue;
+
+    }
+
+
+    const customerId =
+      String(
+        firstExistingValue(
+          contract,
+          [
+            "customerId",
+            "grainCustomerId"
+          ]
+        ) || ""
+      );
+
+
+    if (
+      customerId
+    ) {
+
+      ids.add(
+        customerId
+      );
+
+    }
+
+  }
+
+
+  return ids;
+
+}
+
+
+function findCustomerBlockClues(
+  grainTicket
+) {
+
+  const lines =
+    getOcrLines(
+      grainTicket
+    );
+
+
+  const result = {
+    account:
+      String(
+        grainTicket?.customerAccountText ||
+        ""
+      ).trim(),
+
+    name:
+      String(
+        grainTicket?.customerText ||
+        ""
+      ).trim(),
+
+    nearbyText:
+      ""
+  };
+
+
+  /*
+    Find the part of the OCR document around:
+
+      Cust ID
+      Customer
+      Customer ID
+      Account
+
+    Then use only a small nearby block. This avoids accidentally
+    treating Weight/Bu., Weigher, or other distant labels as the
+    customer.
+  */
+
+  let anchorIndex =
+    -1;
+
+
+  for (
+    let i = 0;
+    i < lines.length;
+    i++
+  ) {
+
+    const normalizedLine =
+      normalizeAliasText(
+        lines[i]
+      );
+
+
+    if (
+      normalizedLine ===
+        "cust id" ||
+      normalizedLine ===
+        "customer id" ||
+      normalizedLine ===
+        "customer" ||
+      normalizedLine ===
+        "account" ||
+      normalizedLine ===
+        "account id"
+    ) {
+
+      anchorIndex =
+        i;
+
+      break;
+
+    }
+
+  }
+
+
+  if (
+    anchorIndex >=
+    0
+  ) {
+
+    result.nearbyText =
+      lines
+        .slice(
+          anchorIndex,
+          Math.min(
+            lines.length,
+            anchorIndex + 7
+          )
+        )
+        .join(
+          " "
+        );
+
+  }
+
+
+  return result;
+
+}
+
+
+function findCustomerMatch(
+  grainTicket,
+  locationMatch,
+  buyerMatch
+) {
+
+  const clues =
+    findCustomerBlockClues(
+      grainTicket
+    );
+
+
+  const ocrName =
+    String(
+      clues.name ||
+      ""
+    ).trim();
+
+
+  const ocrAccount =
+    String(
+      clues.account ||
+      ""
+    ).trim();
+
+
+  /*
+    Build the SAFE candidate list first.
+
+    If destination/buyer/crop tells us that only a few
+    FarmVista customers are possible, do not compare against
+    every customer in the database.
+  */
+
+  const candidateIds =
+    getCustomerCandidateIds(
+      grainTicket,
+      locationMatch,
+      buyerMatch
+    );
+
+
+  let candidates =
+    customers;
+
+
+  if (
+    candidateIds.size
+  ) {
+
+    candidates =
+      customers.filter(
+        customer =>
+          candidateIds.has(
+            String(
+              customer.id
+            )
+          )
+      );
+
+  }
+
+
+  console.log(
+    "[Grain Ticket] Customer candidate scope:",
+    {
+      candidateCount:
+        candidates.length,
+
+      narrowedByContracts:
+        candidateIds.size >
+        0,
+
+      candidates:
+        candidates.map(
+          customer => ({
+            id:
+              customer.id,
+
+            name:
+              getCustomerName(
+                customer
+              )
+          })
+        )
+    }
+  );
+
+
+  /*
+    Learned customer aliases are still supported, but only
+    when the learned target is also valid for this destination
+    context.
+  */
+
+  if (
+    ocrName
+  ) {
+
+    const alias =
+      findLearnedAlias(
+        "customer",
+        ocrName
+      );
+
+
+    if (
+      alias?.targetId
+    ) {
+
+      const customer =
+        candidates.find(
+          item =>
+            item.id ===
+            alias.targetId
+        );
+
+
+      if (
+        customer
+      ) {
+
+        return {
+          matched:
+            true,
+
+          matchType:
+            "learned_alias",
+
+          customer
+        };
+
+      }
+
+    }
+
+  }
+
+
+  /*
+    ACCOUNT NUMBER.
+
+    Strong when FarmVista actually stores the same account ID.
+  */
+
+  if (
+    ocrAccount
+  ) {
+
+    const accountNormalized =
+      normalizeMatchText(
+        ocrAccount
+      );
+
+
+    const accountMatches =
+      candidates.filter(
+        customer => {
+
+          const customerAccount =
+            normalizeMatchText(
+              getCustomerAccount(
+                customer
+              )
+            );
+
+
+          return (
+            customerAccount &&
+            customerAccount ===
+              accountNormalized
+          );
+
+        }
+      );
+
+
+    if (
+      accountMatches.length ===
+      1
+    ) {
+
+      return {
+        matched:
+          true,
+
+        matchType:
+          "account",
+
+        customer:
+          accountMatches[0]
+      };
+
+    }
+
+  }
+
+
+  /*
+    SCORE NAME + CUSTOMER BLOCK INFORMATION.
+
+    This handles:
+
+      OCR:
+        JOHN C DOWSON
+
+      FarmVista:
+        John C Dowson Inc.
+
+    without requiring a global alias.
+  */
+
+  const customerBlockNormalized =
+    normalizeMatchText(
+      clues.nearbyText
+    );
+
+
+  const scored =
+    candidates
+      .map(
+        customer => {
+
+          const customerName =
+            getCustomerName(
+              customer
+            );
+
+
+          const similarity =
+            smartNameSimilarity(
+              ocrName,
+              customerName
+            );
+
+
+          let score =
+            0;
+
+
+          const reasons =
+            [];
+
+
+          if (
+            ocrName &&
+            normalizeMatchText(
+              ocrName
+            ) ===
+              normalizeMatchText(
+                customerName
+              )
+          ) {
+
+            score +=
+              100;
+
+
+            reasons.push(
+              "exact_name"
+            );
+
+          }
+          else if (
+            similarity ===
+            1
+          ) {
+
+            /*
+              Same meaningful name words after removing things
+              such as Inc., LLC, Company, punctuation, etc.
+            */
+
+            score +=
+              90;
+
+
+            reasons.push(
+              "normalized_name"
+            );
+
+          }
+          else if (
+            similarity >=
+            0.75
+          ) {
+
+            score +=
+              70;
+
+
+            reasons.push(
+              "strong_name"
+            );
+
+          }
+          else if (
+            similarity >=
+            0.5
+          ) {
+
+            score +=
+              45;
+
+
+            reasons.push(
+              "partial_name"
+            );
+
+          }
+
+
+          /*
+            Address clues found near the Cust ID block can add
+            confidence, but cannot create a match by themselves.
+          */
+
+          const customerStreet =
+            normalizeStreetForMatch(
+              getCustomerStreet(
+                customer
+              )
+            );
+
+
+          const customerCity =
+            normalizeMatchText(
+              getCustomerCity(
+                customer
+              )
+            );
+
+
+          const customerState =
+            normalizeMatchText(
+              getCustomerState(
+                customer
+              )
+            );
+
+
+          const customerZip =
+            normalizeZipForMatch(
+              getCustomerZip(
+                customer
+              )
+            );
+
+
+          if (
+            customerStreet &&
+            customerBlockNormalized.includes(
+              customerStreet
+            )
+          ) {
+
+            score +=
+              25;
+
+
+            reasons.push(
+              "customer_street"
+            );
+
+          }
+
+
+          if (
+            customerCity &&
+            customerBlockNormalized.includes(
+              customerCity
+            )
+          ) {
+
+            score +=
+              15;
+
+
+            reasons.push(
+              "customer_city"
+            );
+
+          }
+
+
+          if (
+            customerState &&
+            customerBlockNormalized.includes(
+              customerState
+            )
+          ) {
+
+            score +=
+              5;
+
+
+            reasons.push(
+              "customer_state"
+            );
+
+          }
+
+
+          if (
+            customerZip &&
+            customerBlockNormalized.includes(
+              customerZip
+            )
+          ) {
+
+            score +=
+              15;
+
+
+            reasons.push(
+              "customer_zip"
+            );
+
+          }
+
+
+          return {
+            customer,
+            score,
+            similarity,
+            reasons
+          };
+
+        }
+      )
+      .filter(
+        item =>
+          item.score >
+          0
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          b.score -
+          a.score
+      );
+
+
+  console.log(
+    "[Grain Ticket] Customer scoring:",
+    scored.map(
+      item => ({
+        id:
+          item.customer.id,
+
+        name:
+          getCustomerName(
+            item.customer
+          ),
+
+        score:
+          item.score,
+
+        similarity:
+          item.similarity,
+
+        reasons:
+          item.reasons
+      })
+    )
+  );
+
+
+  if (
+    scored.length
+  ) {
+
+    const best =
+      scored[0];
+
+
+    const secondBest =
+      scored[1] ||
+      null;
+
+
+    const clearlyBetter =
+      !secondBest ||
+      (
+        best.score -
+        secondBest.score
+      ) >=
+        20;
+
+
+    /*
+      A strong name match is required.
+
+      Address/city information only supports the identity;
+      it cannot independently choose a customer.
+    */
+
+    const hasStrongName =
+      best.reasons.includes(
+        "exact_name"
+      ) ||
+      best.reasons.includes(
+        "normalized_name"
+      ) ||
+      best.reasons.includes(
+        "strong_name"
+      );
+
+
+    if (
+      hasStrongName &&
+      best.score >=
+        70 &&
+      clearlyBetter
+    ) {
+
+      return {
+        matched:
+          true,
+
+        matchType:
+          candidateIds.size
+            ? "context_customer"
+            : "smart_customer",
+
+        customer:
+          best.customer
+      };
+
+    }
+
+  }
+
+
+  /*
+    FINAL SAFE FALLBACK:
+
+    If destination/crop/buyer narrowed FarmVista to exactly
+    ONE possible customer AND OCR gave us a meaningful name,
+    allow a moderate name similarity.
+
+    We still do NOT blindly choose the only contract customer
+    when OCR customer text is garbage such as Weight/Bu.
+  */
+
+  if (
+    candidateIds.size &&
+    candidates.length ===
+      1 &&
+    ocrName &&
+    smartNameSimilarity(
+      ocrName,
+      getCustomerName(
+        candidates[0]
+      )
+    ) >=
+      0.5
+  ) {
+
+    return {
+      matched:
+        true,
+
+      matchType:
+        "unique_context_customer",
+
+      customer:
+        candidates[0]
+    };
+
+  }
+
+
+  return {
+    matched:
+      false,
+
+    matchType:
+      null,
+
+    customer:
       null
   };
 
@@ -3586,10 +4318,17 @@ function matchScannedTicket(
   grainTicket
 ) {
 
-  const customerMatch =
-    findCustomerMatch(
-      grainTicket
-    );
+  /*
+    MATCH IN DEPENDENCY ORDER.
+
+    1. Destination / delivery location
+    2. Buyer tied to that destination
+    3. Customer / Sold Under narrowed by
+       destination + buyer + crop + contracts
+
+    This is intentionally different from the old logic,
+    where all three identities were guessed independently.
+  */
 
 
   const locationMatch =
@@ -3605,38 +4344,30 @@ function matchScannedTicket(
     );
 
 
-/*
-  CONTRACTS ARE NOT MATCHED DURING SCANNING.
+  const customerMatch =
+    findCustomerMatch(
+      grainTicket,
+      locationMatch,
+      buyerMatch
+    );
 
-  Contract assignment happens later during
-  the grain-ticket reconciliation process.
-*/
-const contractMatches =
-  [];
+
+  /*
+    CONTRACTS ARE NOT ASSIGNED DURING SCANNING.
+
+    Contracts are used above only as matching evidence
+    to narrow the possible customer / Sold Under choices.
+
+    Actual contract assignment still happens later during
+    grain-ticket reconciliation.
+  */
+
+  const contractMatches =
+    [];
 
 
   const reviewReasons =
     [];
-
-
-  /*
-    IMPORTANT:
-
-    OCR already required customer TEXT to be readable.
-
-    This section only determines whether that readable customer
-    can be matched to FarmVista.
-  */
-
-  if (
-    !customerMatch.matched
-  ) {
-
-    reviewReasons.push(
-      "customer_not_matched"
-    );
-
-  }
 
 
   if (
@@ -3661,6 +4392,15 @@ const contractMatches =
   }
 
 
+  if (
+    !customerMatch.matched
+  ) {
+
+    reviewReasons.push(
+      "customer_not_matched"
+    );
+
+  }
 
 
   const validationStatus =
@@ -3671,11 +4411,11 @@ const contractMatches =
 
   const result = {
 
-    customerMatch,
-
     locationMatch,
 
     buyerMatch,
+
+    customerMatch,
 
     contractMatches,
 
@@ -3687,8 +4427,74 @@ const contractMatches =
 
 
   console.log(
-    "[Grain Ticket] FarmVista matching:",
-    result
+    "[Grain Ticket] FarmVista hierarchical matching:",
+    {
+      destination: {
+        matched:
+          locationMatch.matched,
+
+        matchType:
+          locationMatch.matchType,
+
+        id:
+          locationMatch.location?.id ||
+          null,
+
+        name:
+          locationMatch.location
+            ? getLocationName(
+                locationMatch.location
+              )
+            : null
+      },
+
+      buyer: {
+        matched:
+          buyerMatch.matched,
+
+        matchType:
+          buyerMatch.matchType,
+
+        id:
+          buyerMatch.buyer?.id ||
+          null,
+
+        name:
+          buyerMatch.buyer
+            ? getBuyerName(
+                buyerMatch.buyer
+              )
+            : null
+      },
+
+      customer: {
+        matched:
+          customerMatch.matched,
+
+        matchType:
+          customerMatch.matchType,
+
+        id:
+          customerMatch.customer?.id ||
+          null,
+
+        name:
+          customerMatch.customer
+            ? getCustomerName(
+                customerMatch.customer
+              )
+            : null
+      },
+
+      crop:
+        grainTicket?.crop ||
+        null,
+
+      validationStatus,
+
+      reviewReasons
+
+    }
   );
 
 
