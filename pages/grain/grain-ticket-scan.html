@@ -1092,8 +1092,20 @@ if (
       // SETTINGS
       // ==========================================================
 
-      const OCR_URL =
-        "https://fv-ocr-300398089669.us-central1.run.app/fvOcr";
+const OCR_URL =
+  "https://fv-ocr-300398089669.us-central1.run.app/fvOcr";
+
+
+/*
+  SECURE GUEST / SMS GRAIN-TICKET SAVE
+
+  IMPORTANT:
+  Replace the URL below with the actual URL shown by Google
+  after deploying the farmvista-guest-grain-ticket service.
+*/
+
+const GUEST_GRAIN_TICKET_URL =
+  "PASTE_YOUR_SAVE_GUEST_GRAIN_TICKET_URL_HERE";
 
 
 const HOME_URL =
@@ -5489,6 +5501,217 @@ async function saveOcrMemoryRecord({
 }
 
 
+      // ==========================================================
+// SECURE GUEST / SMS GRAIN-TICKET SAVE
+// ==========================================================
+
+async function saveGuestScannedTicket(
+  file,
+  ocrResult
+) {
+
+  if (
+    !guestToken
+  ) {
+
+    throw new Error(
+      "The guest grain-ticket link is missing."
+    );
+
+  }
+
+
+  if (
+    !file
+  ) {
+
+    throw new Error(
+      "The grain-ticket image is missing."
+    );
+
+  }
+
+
+  if (
+    !ocrResult?.grainTicket
+  ) {
+
+    throw new Error(
+      "FarmVista did not receive grain-ticket OCR data."
+    );
+
+  }
+
+
+  if (
+    !GUEST_GRAIN_TICKET_URL ||
+    GUEST_GRAIN_TICKET_URL.includes(
+      "PASTE_YOUR"
+    )
+  ) {
+
+    throw new Error(
+      "The FarmVista guest grain-ticket service URL has not been configured."
+    );
+
+  }
+
+
+  processingText.textContent =
+    "Submitting grain ticket…";
+
+
+  /*
+    Guest drivers are not authenticated FarmVista users.
+
+    Do NOT attempt to upload directly to Firebase Storage.
+
+    Send the prepared image to the secure backend and let the
+    Cloud Function upload it using Firebase Admin permissions.
+  */
+
+  const imageBase64 =
+    await fileToBase64(
+      file
+    );
+
+
+  if (
+    !imageBase64
+  ) {
+
+    throw new Error(
+      "FarmVista could not prepare the grain-ticket image."
+    );
+
+  }
+
+
+  const response =
+    await fetch(
+      GUEST_GRAIN_TICKET_URL,
+      {
+
+        method:
+          "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json"
+        },
+
+        body:
+          JSON.stringify({
+
+            token:
+              guestToken,
+
+            image: {
+
+              content:
+                imageBase64,
+
+              mimeType:
+                file.type ||
+                "image/jpeg"
+
+            },
+
+            ocrResult:
+              ocrResult
+
+          })
+
+      }
+    );
+
+
+  let result =
+    null;
+
+
+  try {
+
+    result =
+      await response.json();
+
+  }
+  catch (_) {
+
+    result =
+      null;
+
+  }
+
+
+  if (
+    !response.ok ||
+    result?.ok !==
+      true
+  ) {
+
+    const message =
+
+      result?.error ||
+
+      (
+        Array.isArray(
+          result?.errors
+        )
+          ? result.errors.join(
+              " "
+            )
+          : ""
+      ) ||
+
+      `FarmVista could not submit this grain ticket (${response.status}).`;
+
+
+    throw new Error(
+      message
+    );
+
+  }
+
+
+  console.log(
+    "[Grain Ticket] Guest ticket saved:",
+    result
+  );
+
+
+  return {
+
+    id:
+      result.ticketId ||
+      null,
+
+    loadId:
+      result.loadId ||
+      null,
+
+    loadNumber:
+      result.loadNumber ||
+      null,
+
+    validationStatus:
+      result.validationStatus ||
+      null,
+
+    reconciliationStatus:
+      result.reconciliationStatus ||
+      null
+
+  };
+
+}
+
+
+async function saveScannedTicket(
+  file,
+  ocrResult
+) {
+
 async function saveScannedTicket(
   file,
   ocrResult
@@ -7520,8 +7743,15 @@ let cropSelectedByDriver =
 
 
 if (
-  !scannedCrop
+  !scannedCrop &&
+  !isGuestScan
 ) {
+
+  /*
+    NORMAL FARMVISTA SCAN
+
+    No crop was readable, so ask the driver.
+  */
 
   processingScreen.classList.remove(
     "show"
@@ -7543,12 +7773,44 @@ if (
 }
 
 
+if (
+  !scannedCrop &&
+  isGuestScan
+) {
+
+  /*
+    SMS / LOAD-OUT SCAN
+
+    DO NOT ask the driver.
+
+    The secure saveGuestGrainTicket backend knows the assigned
+    load and will use the load's authoritative crop.
+
+    Preserve null here so we never create a false OCR-learning
+    relationship such as:
+
+      null -> Corn
+  */
+
+  console.log(
+    "[Grain Ticket] Guest OCR did not identify crop. Load-out crop will be used."
+  );
+
+}
+
+
 /*
   Put the final crop onto the structured grain ticket.
 */
 
-result.grainTicket.crop =
-  scannedCrop;
+if (
+  scannedCrop
+) {
+
+  result.grainTicket.crop =
+    scannedCrop;
+
+}
 
 
 /*
