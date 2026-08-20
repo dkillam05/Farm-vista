@@ -257,6 +257,24 @@
       background:#b43c3c;
     }
 
+    .sms-disclosure {
+      margin:0 12px 14px;
+      padding:12px;
+      border:1px solid var(--border,#d9ddd9);
+      border-radius:10px;
+      background:var(--surface,#fff);
+      color:var(--text,#111);
+      font-size:13px;
+      line-height:1.5;
+    }
+
+    .sms-disclosure a {
+      color:var(--green,#3B7E46);
+      font-weight:700;
+      text-decoration:underline;
+      text-underline-offset:2px;
+    }
+
     .legal-links {
       display:grid;
       gap:10px;
@@ -570,6 +588,94 @@
       </div>
 
 
+      <!-- SMS MESSAGING CONSENT -->
+
+      <div
+        id="fv-sms-card"
+        class="card"
+        style="
+          max-width:780px;
+          margin:0 auto 18px;
+        "
+      >
+
+        <h2 class="card-title">
+          SMS Messaging
+        </h2>
+
+        <div
+          class="setting"
+          id="fv-sms-setting"
+        >
+
+          <div class="left">
+
+            <div class="txt">
+              FarmVista Text Messages
+            </div>
+
+            <div class="sub">
+              Receive work-related SMS messages from FarmVista
+            </div>
+
+          </div>
+
+          <label class="switch">
+
+            <input
+              type="checkbox"
+              id="fv-toggle-sms"
+              disabled
+              aria-describedby="fv-sms-disclosure fv-sms-status-text"
+            />
+
+            <span class="slider"></span>
+
+          </label>
+
+        </div>
+
+
+        <div
+          id="fv-sms-status"
+          class="notify-status off"
+        >
+
+          <span
+            class="notify-status-dot"
+            aria-hidden="true"
+          ></span>
+
+          <span id="fv-sms-status-text">
+            Checking SMS consent status…
+          </span>
+
+        </div>
+
+
+        <div
+          id="fv-sms-disclosure"
+          class="sms-disclosure"
+        >
+          By turning this on, I agree to receive work-related SMS
+          messages from FarmVista, including grain load dispatch
+          notifications, grain ticket scan links, and authentication
+          messages. Message frequency varies. Message and data rates
+          may apply. Reply STOP to opt out or HELP for help.
+          Consent is not a condition of purchasing goods or services.
+          See the
+          <a href="/Farm-vista/pages/user-details/terms-and-conditions.html">
+            Terms and Conditions
+          </a>
+          and
+          <a href="/Farm-vista/pages/user-details/privacy-policy.html">
+            Privacy Policy
+          </a>.
+        </div>
+
+      </div>
+
+
       <!-- PRIVACY + LEGAL -->
 
       <div
@@ -789,7 +895,7 @@
   </script>
 
 
-  <!-- USER DETAILS + PUSH NOTIFICATIONS -->
+  <!-- USER DETAILS + PUSH NOTIFICATIONS + SMS CONSENT -->
 
   <script type="module">
 
@@ -832,6 +938,14 @@
 
     let NOTIFICATION_BUSY =
       false;
+
+
+    let SMS_BUSY =
+      false;
+
+
+    const SMS_CONSENT_VERSION =
+      '2026-08-19';
 
 
     const $ =
@@ -1004,6 +1118,69 @@
     }
 
 
+    function setSmsStatus(
+      type,
+      text
+    ){
+
+      const box =
+        $('fv-sms-status');
+
+
+      const label =
+        $('fv-sms-status-text');
+
+
+      if(
+        box
+      ){
+
+        box.className =
+          `notify-status ${type || 'off'}`;
+
+      }
+
+
+      if(
+        label
+      ){
+
+        label.textContent =
+          text || '';
+
+      }
+
+    }
+
+
+    function setSmsToggle(
+      checked,
+      disabled = false
+    ){
+
+      const toggle =
+        $('fv-toggle-sms');
+
+
+      if(
+        !toggle
+      ){
+
+        return;
+
+      }
+
+
+      toggle.checked =
+        checked === true;
+
+
+      toggle.disabled =
+        disabled === true;
+
+    }
+
+
     /* =========================================================
        EMPLOYEE LOOKUP
     ========================================================== */
@@ -1020,14 +1197,6 @@
 
       }
 
-
-      /*
-        Use FarmVista UserContext first.
-
-        This is the same identity resolver used by the rest of
-        FarmVista and supports email login, phone login, UID links,
-        legacy phone records, and employee document IDs.
-      */
 
       try {
 
@@ -2886,6 +3055,477 @@
     }
 
 
+    /* =========================================================
+       SMS MESSAGING CONSENT
+    ========================================================== */
+
+    async function enableSmsConsent(){
+
+      if(
+        SMS_BUSY
+      ){
+
+        return;
+
+      }
+
+
+      SMS_BUSY =
+        true;
+
+
+      setSmsToggle(
+        true,
+        true
+      );
+
+
+      setSmsStatus(
+        'off',
+        'Saving your FarmVista SMS consent…'
+      );
+
+
+      try {
+
+        if(
+          !CURRENT_USER
+        ){
+
+          throw new Error(
+            'You must be signed in.'
+          );
+
+        }
+
+
+        if(
+          !CURRENT_EMPLOYEE
+        ){
+
+          throw new Error(
+            'FarmVista could not find your employee record.'
+          );
+
+        }
+
+
+        const phone =
+          normalizeUSPhone(
+            $('ud-phone')?.value ||
+            CURRENT_EMPLOYEE.data?.phoneE164 ||
+            CURRENT_EMPLOYEE.data?.phone ||
+            CURRENT_USER.phoneNumber ||
+            ''
+          );
+
+
+        if(
+          !/^\+1\d{10}$/.test(
+            phone
+          )
+        ){
+
+          throw new Error(
+            'Add a valid US mobile number to your profile before enabling FarmVista text messages.'
+          );
+
+        }
+
+
+        const disclosure =
+          'I agree to receive work-related SMS messages from FarmVista, including grain load dispatch notifications, grain ticket scan links, and authentication messages. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. Consent is not a condition of purchasing goods or services.';
+
+
+        await setDoc(
+
+          CURRENT_EMPLOYEE.ref,
+
+          {
+
+            smsConsent:
+              true,
+
+            smsMessagingConsent:
+              true,
+
+            smsConsentStatus:
+              'opted_in',
+
+            smsConsentPhone:
+              phone,
+
+            smsConsentSource:
+              'user_details_toggle',
+
+            smsConsentVersion:
+              SMS_CONSENT_VERSION,
+
+            smsConsentDisclosure:
+              disclosure,
+
+            smsConsentAt:
+              serverTimestamp(),
+
+            smsConsentRevokedAt:
+              null,
+
+            smsConsentUpdatedAt:
+              serverTimestamp(),
+
+            updatedAt:
+              serverTimestamp()
+
+          },
+
+          {
+            merge:
+              true
+          }
+
+        );
+
+
+        CURRENT_EMPLOYEE.data = {
+          ...CURRENT_EMPLOYEE.data,
+          smsConsent:true,
+          smsMessagingConsent:true,
+          smsConsentStatus:'opted_in',
+          smsConsentPhone:phone,
+          smsConsentSource:'user_details_toggle',
+          smsConsentVersion:SMS_CONSENT_VERSION,
+          smsConsentDisclosure:disclosure,
+          smsConsentRevokedAt:null
+        };
+
+
+        setSmsToggle(
+          true,
+          false
+        );
+
+
+        setSmsStatus(
+          'on',
+          'SMS messaging is ON. You have consented to receive work-related FarmVista text messages.'
+        );
+
+      }
+      catch(
+        err
+      ){
+
+        console.error(
+          '[FV] Enable SMS consent failed:',
+          err
+        );
+
+
+        setSmsToggle(
+          false,
+          false
+        );
+
+
+        setSmsStatus(
+          'error',
+          err?.message ||
+          'FarmVista could not save your SMS consent.'
+        );
+
+
+        alert(
+          err?.message ||
+          'FarmVista could not save your SMS consent.'
+        );
+
+      }
+      finally {
+
+        SMS_BUSY =
+          false;
+
+      }
+
+    }
+
+
+    async function disableSmsConsent(){
+
+      if(
+        SMS_BUSY
+      ){
+
+        return;
+
+      }
+
+
+      SMS_BUSY =
+        true;
+
+
+      setSmsToggle(
+        false,
+        true
+      );
+
+
+      setSmsStatus(
+        'off',
+        'Saving your SMS opt-out…'
+      );
+
+
+      try {
+
+        if(
+          !CURRENT_USER
+        ){
+
+          throw new Error(
+            'You must be signed in.'
+          );
+
+        }
+
+
+        if(
+          !CURRENT_EMPLOYEE
+        ){
+
+          throw new Error(
+            'FarmVista could not find your employee record.'
+          );
+
+        }
+
+
+        await setDoc(
+
+          CURRENT_EMPLOYEE.ref,
+
+          {
+
+            smsConsent:
+              false,
+
+            smsMessagingConsent:
+              false,
+
+            smsConsentStatus:
+              'opted_out',
+
+            smsConsentSource:
+              'user_details_toggle',
+
+            smsConsentVersion:
+              SMS_CONSENT_VERSION,
+
+            smsConsentRevokedAt:
+              serverTimestamp(),
+
+            smsConsentUpdatedAt:
+              serverTimestamp(),
+
+            updatedAt:
+              serverTimestamp()
+
+          },
+
+          {
+            merge:
+              true
+          }
+
+        );
+
+
+        CURRENT_EMPLOYEE.data = {
+          ...CURRENT_EMPLOYEE.data,
+          smsConsent:false,
+          smsMessagingConsent:false,
+          smsConsentStatus:'opted_out',
+          smsConsentSource:'user_details_toggle',
+          smsConsentVersion:SMS_CONSENT_VERSION
+        };
+
+
+        setSmsToggle(
+          false,
+          false
+        );
+
+
+        setSmsStatus(
+          'off',
+          'SMS messaging is OFF. FarmVista will not send work-related text messages to this number.'
+        );
+
+      }
+      catch(
+        err
+      ){
+
+        console.error(
+          '[FV] Disable SMS consent failed:',
+          err
+        );
+
+
+        const wasEnabled =
+          CURRENT_EMPLOYEE?.data?.smsConsent === true ||
+          CURRENT_EMPLOYEE?.data?.smsMessagingConsent === true;
+
+
+        setSmsToggle(
+          wasEnabled,
+          false
+        );
+
+
+        setSmsStatus(
+          'error',
+          err?.message ||
+          'FarmVista could not save your SMS opt-out.'
+        );
+
+
+        alert(
+          err?.message ||
+          'FarmVista could not save your SMS opt-out.'
+        );
+
+      }
+      finally {
+
+        SMS_BUSY =
+          false;
+
+      }
+
+    }
+
+
+    function restoreSmsConsentState(){
+
+      const toggle =
+        $('fv-toggle-sms');
+
+
+      if(
+        !toggle
+      ){
+
+        return;
+
+      }
+
+
+      if(
+        !CURRENT_USER ||
+        !CURRENT_EMPLOYEE
+      ){
+
+        setSmsToggle(
+          false,
+          true
+        );
+
+
+        setSmsStatus(
+          'off',
+          'Sign in to manage FarmVista SMS messaging.'
+        );
+
+
+        return;
+
+      }
+
+
+      const data =
+        CURRENT_EMPLOYEE.data ||
+        {};
+
+
+      const enabled =
+        data.smsConsent === true ||
+        data.smsMessagingConsent === true ||
+        data.smsConsentStatus === 'opted_in';
+
+
+      setSmsToggle(
+        enabled,
+        false
+      );
+
+
+      if(
+        enabled
+      ){
+
+        setSmsStatus(
+          'on',
+          'SMS messaging is ON. You have consented to receive work-related FarmVista text messages.'
+        );
+
+      }
+      else {
+
+        setSmsStatus(
+          'off',
+          'SMS messaging is OFF. Turn the switch on to consent to work-related FarmVista text messages.'
+        );
+
+      }
+
+    }
+
+
+    function wireSmsToggle(){
+
+      const toggle =
+        $('fv-toggle-sms');
+
+
+      if(
+        !toggle ||
+        toggle._fvWired
+      ){
+
+        return;
+
+      }
+
+
+      toggle._fvWired =
+        true;
+
+
+      toggle.addEventListener(
+        'change',
+        async () => {
+
+          if(
+            toggle.checked
+          ){
+
+            await enableSmsConsent();
+
+          }
+          else {
+
+            await disableSmsConsent();
+
+          }
+
+        }
+      );
+
+    }
+
+
     const profileForm =
       $('user-details-form');
 
@@ -2912,11 +3552,6 @@
 
       await ready;
 
-
-      /*
-        fv-shell loads UserContext, but wait briefly if this module
-        starts before that script has finished attaching to window.
-      */
 
       const ctxDeadline =
         Date.now() +
@@ -2945,6 +3580,8 @@
 
 
       wireNotificationToggle();
+
+      wireSmsToggle();
 
 
       onAuthStateChanged(
@@ -2977,6 +3614,18 @@
             setNotificationStatus(
               'off',
               'Sign in to manage FarmVista notifications.'
+            );
+
+
+            setSmsToggle(
+              false,
+              true
+            );
+
+
+            setSmsStatus(
+              'off',
+              'Sign in to manage FarmVista SMS messaging.'
             );
 
 
@@ -3029,6 +3678,8 @@
 
 
           await restoreNotificationState();
+
+          restoreSmsConsentState();
 
         }
       );
