@@ -5330,18 +5330,47 @@ function renderDestinationOptions(
     contractsForSelectedCrop();
 
 
-  const eligibleLocations =
-    state.locations
-      .filter(
-        location =>
+const savedLocationId =
+  clean(
+    elements.locationSelect.value ||
+    state.ticket?.deliveryLocationId ||
+    state.loadout?.destinationId ||
+    state.loadout?.deliveryLocationId
+  );
+
+
+const eligibleLocations =
+  state.locations
+    .filter(
+      location =>
+        (
           cropContracts.some(
             contract =>
               contractMatchesLocation(
                 contract,
                 location
               )
+          ) ||
+
+          /*
+            IMPORTANT:
+
+            A destination already saved on the grain ticket is
+            historical ticket truth.
+
+            Keep it visible even if there is no CURRENT open contract
+            for that destination.
+
+            Contract availability determines what can be assigned
+            below. It must never erase the ticket's saved destination.
+          */
+          (
+            savedLocationId &&
+            location.id ===
+              savedLocationId
           )
-      );
+        )
+    );
 
 
   const filtered =
@@ -5381,28 +5410,6 @@ function renderDestinationOptions(
     );
 
 
-  if (
-    elements.locationSelect.value &&
-    !eligibleLocations.some(
-      location =>
-        location.id ===
-        elements.locationSelect.value
-    )
-  ) {
-
-    elements.locationSelect.value =
-      "";
-
-    elements.buyerSelect.value =
-      "";
-
-    state.selectedLocation =
-      null;
-
-    state.selectedBuyer =
-      null;
-
-  }
 
 
   let lastBuyer =
@@ -5811,29 +5818,40 @@ function renderCustomerOptions(
     );
 
 
-  const eligibleCustomers =
-    state.customers.filter(
-      customer =>
+const savedCustomerId =
+  clean(
+    elements.customerSelect.value ||
+    state.ticket?.customerId ||
+    state.loadout?.customerId
+  );
+
+
+const eligibleCustomers =
+  state.customers.filter(
+    customer =>
+      (
         eligibleCustomerIds.has(
           customer.id
+        ) ||
+
+        /*
+          Same rule as Destination:
+
+          A customer already saved on the ticket is historical
+          ticket truth.
+
+          Keep it visible even if there is no CURRENT open contract
+          for that customer at this destination.
+        */
+        (
+          savedCustomerId &&
+          customer.id ===
+            savedCustomerId
         )
-    );
+      )
+  );
 
 
-  if (
-    elements.customerSelect.value &&
-    !eligibleCustomerIds.has(
-      elements.customerSelect.value
-    )
-  ) {
-
-    elements.customerSelect.value =
-      "";
-
-    state.selectedCustomer =
-      null;
-
-  }
 
 
   const filtered =
