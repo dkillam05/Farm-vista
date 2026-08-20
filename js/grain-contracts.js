@@ -40,6 +40,7 @@ const numberValue = value => {
 };
 
 const EPSILON = 0.005;
+const RECONCILIATION_ALL = "__all__";
 
 const roundBushels = value =>
   Number(numberValue(value).toFixed(2));
@@ -56,8 +57,8 @@ const state = {
   activeContract: null,
   activeTicket: null,
 
-  reconcileBuyerId: "",
-  reconcileCustomerId: "",
+  reconcileBuyerId: RECONCILIATION_ALL,
+  reconcileCustomerId: RECONCILIATION_ALL,
 
   selectedTicketIds: new Set(),
 
@@ -473,30 +474,6 @@ function populateSimpleFilter(
 
 /* ============================================================
    TICKET ALLOCATION MODEL
-
-   NEW MODEL:
-
-   contractAllocations: [
-     {
-       contractId,
-       contractNumber,
-       bushels
-     }
-   ]
-
-   spotBushels: number
-
-   unassignedBushels is calculated from:
-
-   ticket.netBushels
-   - contract allocations
-   - spot bushels
-
-   This allows ONE grain ticket to be split between:
-   - Contract A
-   - Contract B
-   - Spot
-   - Unassigned
 ============================================================ */
 
 function getTicketAllocations(
@@ -540,14 +517,6 @@ function getTicketAllocations(
           EPSILON
       );
   }
-
-  /*
-    LEGACY SUPPORT
-
-    Old tickets only had contractId.
-    Until migrated, treat the entire
-    ticket as assigned to that contract.
-  */
 
   if (
     clean(
@@ -727,17 +696,6 @@ function setLocalAllocations(
       ticket
     );
 
-  /*
-    Keep legacy contractId populated
-    ONLY when the entire ticket belongs
-    to one contract.
-
-    Split tickets intentionally clear
-    contractId so old code cannot mistake
-    the ticket as being 100% assigned to
-    one contract.
-  */
-
   const onlyAllocation =
     ticket.contractAllocations
       .length === 1
@@ -859,7 +817,7 @@ function buildAllocationPatch(
     remaining <= EPSILON &&
     spot <= EPSILON;
 
- return {
+  return {
     contractAllocations:
       normalizedAllocations,
 
@@ -872,19 +830,6 @@ function buildAllocationPatch(
     allocationModelVersion:
       2,
 
-    /*
-      Legacy contract fields only stay populated when
-      100% of the ticket belongs to ONE contract.
-
-      If the ticket is:
-      - unassigned
-      - partially assigned
-      - split between contracts
-      - partly Spot
-
-      these legacy fields must not pretend the whole
-      ticket belongs to one contract.
-    */
     contractId:
       legacyWholeTicket
         ? onlyAllocation.contractId
@@ -899,13 +844,6 @@ function buildAllocationPatch(
           )
         : null,
 
-    /*
-      Contract allocation status is separate from
-      validationStatus.
-
-      The ticket can remain "verified" while still
-      needing its remaining bushels assigned.
-    */
     reconciliationStatus:
       remaining >
       EPSILON
@@ -1012,18 +950,6 @@ function allocationSummary(
 
 /* ============================================================
    LEGACY ASSIGNMENT MIGRATION
-
-   Important:
-   Old FarmVista tickets could overfill a contract because
-   the entire final ticket was attached to contractId.
-
-   This migration walks old tickets and caps each contract
-   exactly at contractBushels.
-
-   Any excess from the final ticket automatically becomes
-   UNASSIGNED.
-
-   Nothing is automatically made Spot.
 ============================================================ */
 
 async function migrateLegacyAssignments() {
@@ -1043,11 +969,6 @@ async function migrateLegacyAssignments() {
         ]
       )
     );
-
-  /*
-    First subtract tickets that already
-    use the new allocation model.
-  */
 
   state.tickets.forEach(
     ticket => {
@@ -1118,11 +1039,6 @@ async function migrateLegacyAssignments() {
           clean(item.id) ===
           contractId
       );
-
-    /*
-      If contract is missing, do not
-      manufacture an allocation.
-    */
 
     if (!contract) {
       await persistTicketAllocations(
@@ -1271,11 +1187,6 @@ function calculateContractTotals(
         )
       ),
 
-    /*
-      With the split system contracts
-      never intentionally overhaul.
-    */
-
     overhaulBushels:
       0,
 
@@ -1381,10 +1292,6 @@ function getContractStatus(
     total -
     delivered;
 
-
-  /*
-    A filled contract is Completed.
-  */
   if (
     open <= EPSILON &&
     total > 0
@@ -1392,23 +1299,16 @@ function getContractStatus(
     return "complete";
   }
 
-
-  /*
-    A contract does not become Open until
-    its Delivery Start date arrives.
-  */
   const deliveryStart =
     clean(
       contract.deliveryStart
     );
-
 
   if (
     deliveryStart
   ) {
     const now =
       new Date();
-
 
     const today =
       `${
@@ -1429,7 +1329,6 @@ function getContractStatus(
         )
       }`;
 
-
     if (
       deliveryStart >
       today
@@ -1437,7 +1336,6 @@ function getContractStatus(
       return "pending";
     }
   }
-
 
   if (
     total > 0 &&
@@ -1451,9 +1349,9 @@ function getContractStatus(
     return "near";
   }
 
-
   return "open";
 }
+
 
 function getStatusLabel(
   contract
@@ -1741,43 +1639,20 @@ function onReady(fn) {
 onReady(
   async () => {
     setupFilters();
-
     setupReconciliationControls();
-
     setupModal();
-
     setupTicketDetailModal();
-
     setupEditBushels();
-
     setupEditPrice();
-
     setupEditDates();
-
     setupVoidControls();
 
     try {
       await loadAllData();
 
-      /*
-        Upgrade any old whole-ticket
-        assignments into the new split
-        allocation model.
-      */
-
-      const migratedContracts =
-        await migrateLegacyAssignments();
+      await migrateLegacyAssignments();
 
       rebuildContractTotalsFromTickets();
-
-      /*
-        ALWAYS synchronize every contract from the
-        actual active grain-ticket allocations.
-
-        This makes tickets / contractAllocations the
-        source of truth and repairs stale Firestore values
-        if a ticket was unlinked somewhere else.
-      */
 
       await syncContractTotalsForIds(
         state.contracts.map(
@@ -2442,10 +2317,6 @@ async function voidActiveContract() {
           return;
         }
 
-        /*
-          Allocation-aware check.
-        */
-
         const activeAssigned =
           state.tickets.filter(
             ticket =>
@@ -2853,8 +2724,6 @@ async function voidTicketWithStorageReversal(
         null;
 
 
-      /* ---------------- BIN ---------------- */
-
       if (
         hasBinPosting
       ) {
@@ -2998,9 +2867,6 @@ async function voidTicketWithStorageReversal(
             who.email
         };
       }
-
-
-      /* ---------------- BAG ---------------- */
 
       else if (
         hasBagPosting
@@ -3159,7 +3025,6 @@ async function voidTicketWithStorageReversal(
             serverTimestamp()
         };
       }
-
 
       else if (
         ticket.inventoryPosted ===
@@ -3598,18 +3463,6 @@ function applyContractFilters() {
             );
 
 
-          /*
-            OPEN VIEW
-
-            Show:
-            - Open
-            - Near Full
-            - Pending
-
-            Hide:
-            - Completed
-            - Voided unless Show Voided is checked
-          */
           if (
             status ===
             "open"
@@ -3624,13 +3477,6 @@ function applyContractFilters() {
           }
 
 
-          /*
-            All Contracts still keeps completed
-            hidden by default.
-
-            Completed can be viewed by choosing
-            Completed from the Status dropdown.
-          */
           if (
             status ===
             "all"
@@ -3675,10 +3521,6 @@ function applyContractFilters() {
             );
 
 
-          /*
-            Current contracts first.
-            Upcoming/Pending contracts second.
-          */
           const statusOrder = {
             open: 0,
             near: 0,
@@ -3709,10 +3551,6 @@ function applyContractFilters() {
           }
 
 
-          /*
-            Pending contracts:
-            nearest Delivery Start first.
-          */
           if (
             aStatus ===
               "pending" &&
@@ -3855,11 +3693,6 @@ function renderContractSummary() {
         );
   }
 
-  /*
-    Split system means contracts themselves
-    should no longer carry overhaul.
-  */
-
   if (
     $("summary-over")
   ) {
@@ -3941,15 +3774,15 @@ function renderContractTable() {
             ${escapeHtml(contract.crop || "—")}
           </td>
 
-<td>
-  <span class="contract-type-pill ${
-    ["Basis", "Futures"].includes(contract.contractType)
-      ? "contract-type-needs-price"
-      : "contract-type-complete"
-  }">
-    ${escapeHtml(contract.contractType || "—")}
-  </span>
-</td>
+          <td>
+            <span class="contract-type-pill ${
+              ["Basis", "Futures"].includes(contract.contractType)
+                ? "contract-type-needs-price"
+                : "contract-type-complete"
+            }">
+              ${escapeHtml(contract.contractType || "—")}
+            </span>
+          </td>
 
           <td class="number-cell">
             ${formatBushels(contract.contractBushels)}
@@ -3966,7 +3799,6 @@ function renderContractTable() {
           <td class="center-cell">
             ${numberValue(contract.loadCount).toLocaleString("en-US")}
           </td>
-
 
           <td>
             ${escapeHtml(formatDeliveryWindow(contract))}
@@ -4010,10 +3842,72 @@ function renderContractTable() {
 /* ============================================================
    RECONCILIATION BUYER / CUSTOMER FILTERS
 
-   IMPORTANT CHANGE:
-   Buyer dropdown ONLY shows buyers that
-   currently have an ACTIVE contract.
+   Buyer and Customer both support an ALL filter.
+   Drag & Drop opens with BOTH set to All.
+
+   IMPORTANT:
+   The filters only control what is visible.
+   validateTicketAgainstContract() still enforces the
+   actual Buyer + Customer + Crop match before assignment.
 ============================================================ */
+
+function populateReconciliationSelect(
+  select,
+  items,
+  allLabel,
+  selected
+) {
+  if (!select) {
+    return;
+  }
+
+  select.innerHTML = "";
+
+  const allOption =
+    document.createElement(
+      "option"
+    );
+
+  allOption.value =
+    RECONCILIATION_ALL;
+
+  allOption.textContent =
+    allLabel;
+
+  select.appendChild(
+    allOption
+  );
+
+  items.forEach(
+    item => {
+      const option =
+        document.createElement(
+          "option"
+        );
+
+      option.value =
+        item.id;
+
+      option.textContent =
+        item.name;
+
+      select.appendChild(
+        option
+      );
+    }
+  );
+
+  if (
+    !setSelectValue(
+      select,
+      selected
+    )
+  ) {
+    select.value =
+      RECONCILIATION_ALL;
+  }
+}
+
 
 function getBuyersWithActiveContracts() {
   const openContracts =
@@ -4080,22 +3974,44 @@ function getBuyersWithActiveContracts() {
 function getCustomersForBuyer(
   buyerId
 ) {
-  const buyer =
-    state.buyers.find(
-      item =>
-        clean(item.id) ===
-        clean(buyerId)
-    );
+  const allBuyers =
+    clean(buyerId) ===
+    RECONCILIATION_ALL;
 
-  if (!buyer) {
+  const buyer =
+    allBuyers
+      ? null
+      : state.buyers.find(
+          item =>
+            clean(item.id) ===
+            clean(buyerId)
+        );
+
+  if (
+    !allBuyers &&
+    !buyer
+  ) {
     return [];
   }
 
   const contracts =
     state.contracts.filter(
-      contract =>
-        !contract.voided &&
-        (
+      contract => {
+        if (
+          contract.voided ||
+          numberValue(
+            contract.openBushels
+          ) <=
+          EPSILON
+        ) {
+          return false;
+        }
+
+        if (allBuyers) {
+          return true;
+        }
+
+        return (
           (
             clean(
               contract.buyerId
@@ -4118,7 +4034,8 @@ function getCustomersForBuyer(
               buyer.name
             )
           )
-        )
+        );
+      }
     );
 
   const customerIds =
@@ -4176,8 +4093,10 @@ function populateReconciliationPickers() {
   const buyers =
     getBuyersWithActiveContracts();
 
-  if (
-    !buyers.some(
+  const buyerIsValid =
+    state.reconcileBuyerId ===
+      RECONCILIATION_ALL ||
+    buyers.some(
       buyer =>
         clean(
           buyer.id
@@ -4185,18 +4104,20 @@ function populateReconciliationPickers() {
         clean(
           state.reconcileBuyerId
         )
-    )
-  ) {
-    state.reconcileBuyerId = "";
-    state.reconcileCustomerId = "";
+    );
+
+  if (!buyerIsValid) {
+    state.reconcileBuyerId =
+      RECONCILIATION_ALL;
+
+    state.reconcileCustomerId =
+      RECONCILIATION_ALL;
   }
 
-  populateObjectSelect(
+  populateReconciliationSelect(
     $("reconcile-buyer"),
     buyers,
-    buyers.length
-      ? "Select Buyer"
-      : "No Buyers With Contracts",
+    "All Buyers",
     state.reconcileBuyerId
   );
 
@@ -4212,30 +4133,15 @@ function populateReconciliationCustomerPicker() {
     return;
   }
 
-  if (
-    !state.reconcileBuyerId
-  ) {
-    state.reconcileCustomerId =
-      "";
-
-    populateObjectSelect(
-      select,
-      [],
-      "Select Buyer first"
-    );
-
-    select.disabled = true;
-
-    return;
-  }
-
   const customers =
     getCustomersForBuyer(
       state.reconcileBuyerId
     );
 
-  if (
-    !customers.some(
+  const customerIsValid =
+    state.reconcileCustomerId ===
+      RECONCILIATION_ALL ||
+    customers.some(
       customer =>
         clean(
           customer.id
@@ -4243,25 +4149,17 @@ function populateReconciliationCustomerPicker() {
         clean(
           state.reconcileCustomerId
         )
-    )
-  ) {
+    );
+
+  if (!customerIsValid) {
     state.reconcileCustomerId =
-      "";
+      RECONCILIATION_ALL;
   }
 
-  if (
-    customers.length === 1
-  ) {
-    state.reconcileCustomerId =
-      customers[0].id;
-  }
-
-  populateObjectSelect(
+  populateReconciliationSelect(
     select,
     customers,
-    customers.length
-      ? "Select Customer"
-      : "No Customers With Contracts",
+    "All Customers",
     state.reconcileCustomerId
   );
 
@@ -4281,76 +4179,94 @@ function reconciliationReady() {
 function ticketMatchesCurrent(
   ticket
 ) {
+  const allBuyers =
+    state.reconcileBuyerId ===
+    RECONCILIATION_ALL;
+
+  const allCustomers =
+    state.reconcileCustomerId ===
+    RECONCILIATION_ALL;
+
   const buyer =
-    state.buyers.find(
-      item =>
-        clean(item.id) ===
-        clean(
-          state.reconcileBuyerId
-        )
-    );
+    allBuyers
+      ? null
+      : state.buyers.find(
+          item =>
+            clean(item.id) ===
+            clean(
+              state.reconcileBuyerId
+            )
+        );
 
   const customer =
-    state.customers.find(
-      item =>
-        clean(item.id) ===
-        clean(
-          state.reconcileCustomerId
-        )
-    );
+    allCustomers
+      ? null
+      : state.customers.find(
+          item =>
+            clean(item.id) ===
+            clean(
+              state.reconcileCustomerId
+            )
+        );
 
   if (
-    !buyer ||
-    !customer
+    (!allBuyers && !buyer) ||
+    (!allCustomers && !customer)
   ) {
     return false;
   }
 
   const buyerMatches =
+    allBuyers ||
     (
-      clean(
-        ticket.buyerId
-      ) &&
-      clean(
-        ticket.buyerId
-      ) ===
-      clean(
-        buyer.id
-      )
-    ) ||
-    (
-      normalized(
-        ticket.buyerName
-      ) &&
-      normalized(
-        ticket.buyerName
-      ) ===
-      normalized(
-        buyer.name
+      (
+        clean(
+          ticket.buyerId
+        ) &&
+        clean(
+          ticket.buyerId
+        ) ===
+        clean(
+          buyer.id
+        )
+      ) ||
+      (
+        normalized(
+          ticket.buyerName
+        ) &&
+        normalized(
+          ticket.buyerName
+        ) ===
+        normalized(
+          buyer.name
+        )
       )
     );
 
   const customerMatches =
+    allCustomers ||
     (
-      clean(
-        ticket.customerId
-      ) &&
-      clean(
-        ticket.customerId
-      ) ===
-      clean(
-        customer.id
-      )
-    ) ||
-    (
-      normalized(
-        ticket.customerName
-      ) &&
-      normalized(
-        ticket.customerName
-      ) ===
-      normalized(
-        customer.name
+      (
+        clean(
+          ticket.customerId
+        ) &&
+        clean(
+          ticket.customerId
+        ) ===
+        clean(
+          customer.id
+        )
+      ) ||
+      (
+        normalized(
+          ticket.customerName
+        ) &&
+        normalized(
+          ticket.customerName
+        ) ===
+        normalized(
+          customer.name
+        )
       )
     );
 
@@ -4413,27 +4329,39 @@ function getAvailableContracts() {
     return [];
   }
 
+  const allBuyers =
+    state.reconcileBuyerId ===
+    RECONCILIATION_ALL;
+
+  const allCustomers =
+    state.reconcileCustomerId ===
+    RECONCILIATION_ALL;
+
   const buyer =
-    state.buyers.find(
-      item =>
-        clean(item.id) ===
-        clean(
-          state.reconcileBuyerId
-        )
-    );
+    allBuyers
+      ? null
+      : state.buyers.find(
+          item =>
+            clean(item.id) ===
+            clean(
+              state.reconcileBuyerId
+            )
+        );
 
   const customer =
-    state.customers.find(
-      item =>
-        clean(item.id) ===
-        clean(
-          state.reconcileCustomerId
-        )
-    );
+    allCustomers
+      ? null
+      : state.customers.find(
+          item =>
+            clean(item.id) ===
+            clean(
+              state.reconcileCustomerId
+            )
+        );
 
   if (
-    !buyer ||
-    !customer
+    (!allBuyers && !buyer) ||
+    (!allCustomers && !customer)
   ) {
     return [];
   }
@@ -4441,15 +4369,6 @@ function getAvailableContracts() {
   return state.contracts
     .filter(
       contract => {
-        /*
-          DND may only use contracts that are
-          currently assignable.
-
-          This automatically excludes:
-          - Pending
-          - Completed
-          - Voided
-        */
         const status =
           getContractStatus(
             contract
@@ -4463,44 +4382,50 @@ function getAvailableContracts() {
         }
 
         const buyerMatches =
+          allBuyers ||
           (
-            clean(
-              contract.buyerId
-            ) &&
-            clean(
-              contract.buyerId
-            ) ===
-            clean(
-              buyer.id
-            )
-          ) ||
-          (
-            normalized(
-              contract.buyerName
-            ) ===
-            normalized(
-              buyer.name
+            (
+              clean(
+                contract.buyerId
+              ) &&
+              clean(
+                contract.buyerId
+              ) ===
+              clean(
+                buyer.id
+              )
+            ) ||
+            (
+              normalized(
+                contract.buyerName
+              ) ===
+              normalized(
+                buyer.name
+              )
             )
           );
 
         const customerMatches =
+          allCustomers ||
           (
-            clean(
-              contract.customerId
-            ) &&
-            clean(
-              contract.customerId
-            ) ===
-            clean(
-              customer.id
-            )
-          ) ||
-          (
-            normalized(
-              contract.customerName
-            ) ===
-            normalized(
-              customer.name
+            (
+              clean(
+                contract.customerId
+              ) &&
+              clean(
+                contract.customerId
+              ) ===
+              clean(
+                customer.id
+              )
+            ) ||
+            (
+              normalized(
+                contract.customerName
+              ) ===
+              normalized(
+                customer.name
+              )
             )
           );
 
@@ -4528,10 +4453,11 @@ function setupReconciliationControls() {
         state.reconcileBuyerId =
           clean(
             this.value
-          );
+          ) ||
+          RECONCILIATION_ALL;
 
         state.reconcileCustomerId =
-          "";
+          RECONCILIATION_ALL;
 
         state.selectedTicketIds
           .clear();
@@ -4548,11 +4474,10 @@ function setupReconciliationControls() {
       "change",
       function () {
         state.reconcileCustomerId =
-          state.reconcileBuyerId
-            ? clean(
-                this.value
-              )
-            : "";
+          clean(
+            this.value
+          ) ||
+          RECONCILIATION_ALL;
 
         state.selectedTicketIds
           .clear();
@@ -4816,12 +4741,6 @@ function renderReconciliation() {
   const message =
     $("reconcile-filter-message");
 
-
-  /*
-    Keep this header message intentionally short
-    and consistent so the Buyer / Customer row
-    never grows or shifts when selections change.
-  */
 
   if (message) {
     message.innerHTML = `
@@ -5401,9 +5320,6 @@ function assignedTicketMarkup(
 
 /* ============================================================
    CONTRACT GRADE AVERAGES
-
-   Split tickets are weighted only by the
-   bushels assigned to THIS contract.
 ============================================================ */
 
 function calculateContractGradeAverages(
@@ -5521,6 +5437,13 @@ function renderContractDropCards(
           contract
         );
 
+      /*
+        IMPORTANT WITH "ALL" FILTERS:
+
+        Do not match only by crop here.
+        A visible ticket must actually pass Buyer,
+        Customer AND Crop validation for this contract.
+      */
       const matchingTickets =
         visibleTickets.filter(
           ticket =>
@@ -5529,11 +5452,9 @@ function renderContractDropCards(
               ticket
             ) >
             EPSILON &&
-            normalized(
-              ticket.crop
-            ) ===
-            normalized(
-              contract.crop
+            !validateTicketAgainstContract(
+              ticket,
+              contract
             )
         );
 
@@ -5939,10 +5860,6 @@ function renderContractDropCards(
   );
 
 
-  /*
-    Spot is treated as its own destination.
-  */
-
   renderSpotCard(
     container
   );
@@ -6336,16 +6253,6 @@ function validateTicketAgainstContract(
 
 /* ============================================================
    MOVE TICKET BUSHELS TO CONTRACT
-
-   This works for:
-   - Unassigned → Contract
-   - Contract A → Contract B
-   - Spot → Contract
-
-   If target contract only has 200 bu left,
-   only 200 bu moves.
-
-   The remainder stays where it came from.
 ============================================================ */
 
 async function moveTicketToContract(
@@ -6522,10 +6429,6 @@ async function moveTicketToContract(
     ]);
 
 
-  /*
-    Remove bushels from source contract.
-  */
-
   if (
     sourceType ===
     "contract"
@@ -6571,11 +6474,6 @@ async function moveTicketToContract(
     );
   }
 
-
-  /*
-    Remove bushels from Spot.
-  */
-
   else if (
     sourceType ===
     "spot"
@@ -6587,10 +6485,6 @@ async function moveTicketToContract(
       );
   }
 
-
-  /*
-    Add to target contract.
-  */
 
   const targetIndex =
     allocations.findIndex(
@@ -7020,20 +6914,6 @@ async function moveTicketBushelsToSpot(
 
 /* ============================================================
    ASSIGN SELECTED / ASSIGN ALL
-
-   CRITICAL SPLIT LOGIC:
-
-   FarmVista fills tickets in date/ticket order.
-
-   Example:
-   Contract has 200 bu remaining.
-   Ticket has 950 bu available.
-
-   Result:
-   200 → Contract
-   750 → Unassigned
-
-   Contract stops EXACTLY at contractBushels.
 ============================================================ */
 
 async function assignTicketsToContract(
@@ -7658,21 +7538,9 @@ async function refreshData() {
   try {
     await loadAllData();
 
-    const migrated =
-      await migrateLegacyAssignments();
+    await migrateLegacyAssignments();
 
     rebuildContractTotalsFromTickets();
-
-    /*
-      Recalculate AND write every contract total back
-      to Firestore on refresh.
-
-      Example:
-      25,000 bu contract with no assigned tickets becomes:
-
-      deliveredBushels: 0
-      openBushels: 25000
-    */
 
     await syncContractTotalsForIds(
       state.contracts.map(
@@ -8415,17 +8283,6 @@ function setupEditPrice() {
   }
 
 
-  /*
-    IMPORTANT:
-
-    On EDIT, changing contract type does NOT
-    erase existing Futures or Basis.
-
-    Example:
-    Basis → Cash keeps the saved Basis and
-    simply enables Futures.
-  */
-
   typeInput.addEventListener(
     "change",
     function () {
@@ -8505,11 +8362,6 @@ function setupEditPrice() {
   cashInput.addEventListener(
     "input",
     function () {
-      /*
-        Cash can only be manually entered
-        on Program contracts.
-      */
-
       if (
         $("edit-contract-type")
           ?.value !==
@@ -8547,7 +8399,6 @@ function setupEditPrice() {
 }
 
 
-
 function nullablePrice(
   value
 ) {
@@ -8568,7 +8419,6 @@ function nullablePrice(
 }
 
 
-
 function setEditPricing(
   contract
 ) {
@@ -8586,19 +8436,6 @@ function setEditPricing(
     nullablePrice(
       contract?.pricePerBushel
     );
-
-
-  /*
-    LEGACY CONTRACT SUPPORT
-
-    Older FarmVista contracts only have
-    pricePerBushel.
-
-    We preserve that price so no old data
-    disappears when the edit modal opens.
-
-    We do NOT invent Futures or Basis values.
-  */
 
 
   const futuresInput =
@@ -8648,7 +8485,6 @@ function setEditPricing(
 
   calculateEditCashPrice();
 }
-
 
 
 function updateEditPriceFields() {
@@ -8768,7 +8604,6 @@ function updateEditPriceFields() {
 }
 
 
-
 function calculateEditCashPrice() {
   const type =
     $("edit-contract-type")
@@ -8818,14 +8653,6 @@ function calculateEditCashPrice() {
   }
 
 
-  /*
-    Basis and Futures contracts do not
-    have a final cash price.
-
-    Program keeps the manually entered
-    cash price.
-  */
-
   if (
     type === "Basis" ||
     type === "Futures"
@@ -8837,7 +8664,6 @@ function calculateEditCashPrice() {
       "";
   }
 }
-
 
 
 function parseEditDollarPrice(
@@ -8866,7 +8692,6 @@ function parseEditDollarPrice(
 
   return roundEditPrice(number);
 }
-
 
 
 function parseEditBasisPrice(
@@ -8907,7 +8732,6 @@ function parseEditBasisPrice(
 }
 
 
-
 function roundEditPrice(
   value
 ) {
@@ -8919,7 +8743,6 @@ function roundEditPrice(
     10000
   );
 }
-
 
 
 function formatEditDollarPrice(
@@ -8953,7 +8776,6 @@ function formatEditDollarPrice(
       }
     );
 }
-
 
 
 function formatEditBasisPrice(
@@ -8999,7 +8821,6 @@ function formatEditBasisPrice(
 
   return "$0.00";
 }
-
 
 
 function validateEditPrice() {
@@ -9317,10 +9138,6 @@ async function saveContractChanges(
     );
 
 
-  /*
-    Allocation-aware delivered bushels.
-  */
-
   const deliveredBushels =
     calculateContractTotals(
       state.activeContract
@@ -9452,9 +9269,6 @@ async function saveContractChanges(
 
     openBushels,
 
-
-    /* Pricing */
-
     futuresPrice:
       (
         $("edit-contract-type")
@@ -9560,11 +9374,6 @@ async function saveContractChanges(
 
     populateContractFilters();
 
-
-    /*
-      Buyer list may change when
-      contract buyer changes.
-    */
 
     populateReconciliationPickers();
 
