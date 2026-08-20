@@ -2261,6 +2261,40 @@ const limitImpl =
             "limit",
           args
         };
+        
+    const runTransactionImpl =
+  async (
+    firestoreInstance,
+    updateFunction
+  ) => {
+
+    if (
+      storeModule &&
+      typeof storeModule.runTransaction ===
+        "function"
+    ) {
+
+      return storeModule.runTransaction(
+        firestoreInstance ||
+        firestore,
+        updateFunction
+      );
+
+    }
+
+
+    /*
+      Stub mode does not emulate true Firestore transactions.
+
+      We intentionally fail here rather than pretending the
+      inventory transaction was atomic.
+    */
+
+    throw new Error(
+      "Firestore transactions are unavailable in stub mode."
+    );
+
+  };
 
 
 // ==========================================================
@@ -3345,6 +3379,17 @@ export const limit =
   (...args) =>
     limitImpl(
       ...args
+    );
+    
+    export const runTransaction =
+  (
+    firestoreInstance,
+    updateFunction
+  ) =>
+    runTransactionImpl(
+      firestoreInstance ||
+      firestore,
+      updateFunction
     );
 
 
