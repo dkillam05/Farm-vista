@@ -27,17 +27,13 @@ import {
   serverTimestamp
 } from "/Farm-vista/js/firebase-init.js";
 
-
 await ready;
-
 
 const db =
   getFirestore();
 
-
 const auth =
   getAuth();
-
 
 const $ =
   id =>
@@ -45,13 +41,7 @@ const $ =
       id
     );
 
-
-/* ============================================================
-   STATE
-============================================================ */
-
 const state = {
-
   user:
     null,
 
@@ -99,16 +89,9 @@ const state = {
 
   saving:
     false
-
 };
 
-
-/* ============================================================
-   ELEMENTS
-============================================================ */
-
 const el = {
-
   form:
     $("ticketForm"),
 
@@ -124,10 +107,8 @@ const el = {
   message:
     $("message"),
 
-
   crop:
     $("ticketCrop"),
-
 
   sourcePicker:
     $("grainSourcePicker"),
@@ -143,7 +124,6 @@ const el = {
 
   sourceValue:
     $("grainSourceValue"),
-
 
   destinationPicker:
     $("destinationPicker"),
@@ -163,7 +143,6 @@ const el = {
   buyerSelect:
     $("buyerSelect"),
 
-
   customerPicker:
     $("customerPicker"),
 
@@ -179,20 +158,17 @@ const el = {
   customerSelect:
     $("customerSelect"),
 
-
   contractSelect:
     $("contractSelect"),
 
   contractStatus:
     $("contractStatus"),
 
-
   ticketNumber:
     $("ticketNumber"),
 
   ticketDate:
     $("ticketDate"),
-
 
   grossBushels:
     $("grossBushels"),
@@ -206,7 +182,6 @@ const el = {
   bushelCheck:
     $("bushelCheck"),
 
-
   grossWeight:
     $("grossWeight"),
 
@@ -218,7 +193,6 @@ const el = {
 
   weightCheck:
     $("weightCheck"),
-
 
   testWeight:
     $("testWeight"),
@@ -232,15 +206,29 @@ const el = {
   foreignMaterial:
     $("foreignMaterial"),
 
+  driverPicker:
+    $("driverPicker"),
 
-  driverCompany:
-    $("driverCompany"),
+  driverButton:
+    $("driverButton"),
 
-  driverSelect:
-    $("driverSelect"),
+  driverButtonText:
+    $("driverButtonText"),
 
-  addDriverBtn:
-    $("addDriverBtn"),
+  driverMenu:
+    $("driverMenu"),
+
+  driverValue:
+    $("driverValue"),
+
+  subdriverWrap:
+    $("subdriverWrap"),
+
+  subdriver:
+    $("subdriver"),
+
+  addSubdriverBtn:
+    $("addSubdriverBtn"),
 
   addDriverPanel:
     $("addDriverPanel"),
@@ -259,13 +247,8 @@ const el = {
 
   driverAddSave:
     $("driverAddSave")
-
 };
 
-
-/* ============================================================
-   BASIC HELPERS
-============================================================ */
 
 function clean(
   value
@@ -522,10 +505,6 @@ function setCheck(
 
 }
 
-
-/* ============================================================
-   PICKER HELPERS
-============================================================ */
 
 function addSearch(
   menu,
@@ -891,10 +870,6 @@ function refocus(
 
 }
 
-
-/* ============================================================
-   CONTRACT RULES
-============================================================ */
 
 function contractIsOpen(
   contract
@@ -1290,10 +1265,6 @@ function contractLabel(
 }
 
 
-/* ============================================================
-   GRAIN SOURCE
-============================================================ */
-
 function allSources() {
 
   return [
@@ -1654,10 +1625,6 @@ function chooseSource(
 
 }
 
-
-/* ============================================================
-   DESTINATION
-============================================================ */
 
 function clearBelowSource() {
 
@@ -2083,10 +2050,6 @@ function chooseDestination(
 }
 
 
-/* ============================================================
-   CUSTOMER
-============================================================ */
-
 function syncCustomer() {
 
   state.selectedCustomer =
@@ -2294,10 +2257,6 @@ function chooseCustomer(
 }
 
 
-/* ============================================================
-   CONTRACT SELECT
-============================================================ */
-
 function renderContract() {
 
   const matches =
@@ -2478,32 +2437,18 @@ function renderContract() {
 }
 
 
-/* ============================================================
-   SUBCONTRACTOR DRIVER
-============================================================ */
-
 function selectedSubcontractor() {
 
-  return state.subcontractors.find(
-    subcontractor =>
-      subcontractor.id ===
-      clean(
-        el.driverCompany?.value
-      )
-  ) || null;
-
-}
-
-
-function selectedSubcontractorDriver() {
-
-  const subcontractor =
-    selectedSubcontractor();
+  const value =
+    clean(
+      el.driverValue?.value
+    );
 
 
   if (
-    !subcontractor ||
-    !el.driverSelect?.value
+    !value.startsWith(
+      "sub:"
+    )
   ) {
 
     return null;
@@ -2511,103 +2456,311 @@ function selectedSubcontractorDriver() {
   }
 
 
-  return (
-    Array.isArray(
-      subcontractor.drivers
-    )
-      ? subcontractor.drivers
-      : []
-  )
-    .find(
-      driver =>
-        clean(
-          driver.id
-        ) ===
-        clean(
-          el.driverSelect.value
-        )
-    ) ||
-    null;
+  const subcontractorId =
+    value.slice(
+      4
+    );
+
+
+  return state.subcontractors.find(
+    subcontractor =>
+      subcontractor.id ===
+      subcontractorId
+  ) || null;
 
 }
 
 
-function syncDriverSelection() {
+function selectedDriver() {
+
+  const value =
+    clean(
+      el.driverValue?.value
+    );
+
+
+  if (
+    value.startsWith(
+      "emp:"
+    )
+  ) {
+
+    const employeeId =
+      value.slice(
+        4
+      );
+
+
+    const employee =
+      state.employeeDrivers.find(
+        driver =>
+          driver.id ===
+          employeeId
+      ) ||
+      null;
+
+
+    if (
+      !employee
+    ) {
+
+      return null;
+
+    }
+
+
+    return {
+
+      ...employee,
+
+      type:
+        "employee",
+
+      value:
+        `emp:${employee.id}`,
+
+      subcontractorId:
+        null,
+
+      subcontractorName:
+        null
+
+    };
+
+  }
+
+
+  if (
+    value.startsWith(
+      "sub:"
+    )
+  ) {
+
+    const subcontractor =
+      selectedSubcontractor();
+
+
+    const subdriverId =
+      clean(
+        el.subdriver?.value
+      );
+
+
+    if (
+      !subcontractor ||
+      !subdriverId
+    ) {
+
+      return null;
+
+    }
+
+
+    const driver =
+      (
+        Array.isArray(
+          subcontractor.drivers
+        )
+          ? subcontractor.drivers
+          : []
+      )
+        .find(
+          item =>
+            clean(
+              item.id
+            ) ===
+            subdriverId
+        ) ||
+        null;
+
+
+    if (
+      !driver
+    ) {
+
+      return null;
+
+    }
+
+
+    return {
+
+      ...driver,
+
+      type:
+        "subcontractor",
+
+      value:
+        `sub:${subcontractor.id}:${driver.id}`,
+
+      uid:
+        null,
+
+      email:
+        "",
+
+      subcontractorId:
+        subcontractor.id,
+
+      subcontractorName:
+        subcontractor.company
+
+    };
+
+  }
+
+
+  return null;
+
+}
+
+
+function closeDriverMenu() {
+
+  el.driverMenu
+    ?.classList.remove(
+      "open"
+    );
+
+
+  el.driverButton
+    ?.setAttribute(
+      "aria-expanded",
+      "false"
+    );
+
+}
+
+
+function syncDriverButton() {
+
+  if (
+    !el.driverButtonText ||
+    !el.driverValue
+  ) {
+
+    return;
+
+  }
+
+
+  const value =
+    clean(
+      el.driverValue.value
+    );
+
+
+  let label =
+    "Select driver or trucking subcontractor";
+
+
+  if (
+    value.startsWith(
+      "emp:"
+    )
+  ) {
+
+    const employeeId =
+      value.slice(
+        4
+      );
+
+
+    const employee =
+      state.employeeDrivers.find(
+        driver =>
+          driver.id ===
+          employeeId
+      );
+
+
+    if (
+      employee
+    ) {
+
+      label =
+        employee.name;
+
+    }
+
+  }
+  else if (
+    value.startsWith(
+      "sub:"
+    )
+  ) {
+
+    const subcontractorId =
+      value.slice(
+        4
+      );
+
+
+    const subcontractor =
+      state.subcontractors.find(
+        item =>
+          item.id ===
+          subcontractorId
+      );
+
+
+    if (
+      subcontractor
+    ) {
+
+      label =
+        subcontractor.company;
+
+    }
+
+  }
+
+
+  el.driverButtonText.textContent =
+    label;
+
+
+  el.driverMenu
+    ?.querySelectorAll(
+      ".driver-choice"
+    )
+    .forEach(
+      button => {
+
+        button.classList.toggle(
+          "selected",
+          button.dataset.driverValue ===
+            value
+        );
+
+      }
+    );
+
+}
+
+
+function renderSubdriverSelect() {
+
+  if (
+    !el.subdriver
+  ) {
+
+    return;
+
+  }
+
 
   const subcontractor =
     selectedSubcontractor();
 
 
-  const driver =
-    selectedSubcontractorDriver();
-
-
-  if (
-    !subcontractor ||
-    !driver
-  ) {
-
-    state.selectedDriver =
-      null;
-
-    return;
-
-  }
-
-
-  state.selectedDriver = {
-
-    type:
-      "subcontractor",
-
-    value:
-      `sub:${subcontractor.id}:${driver.id}`,
-
-    id:
-      driver.id,
-
-    uid:
-      null,
-
-    name:
-      driver.name,
-
-    email:
-      "",
-
-    phone:
-      driver.phone ||
-      "",
-
-    subcontractorId:
-      subcontractor.id,
-
-    subcontractorName:
-      subcontractor.company
-
-  };
-
-}
-
-
-function renderDriverCompanies() {
-
-  if (
-    !el.driverCompany
-  ) {
-
-    return;
-
-  }
-
-
-  const current =
+  const previous =
     clean(
-      el.driverCompany.value
+      el.subdriver.value
     );
 
 
-  el.driverCompany.innerHTML =
+  el.subdriver.innerHTML =
     "";
 
 
@@ -2622,116 +2775,24 @@ function renderDriverCompanies() {
 
 
   blank.textContent =
-    state.subcontractors.length
-      ? "Select trucking company"
-      : "No active trucking companies";
+    subcontractor
+      ? "Select subcontractor driver"
+      : "Select subcontractor first";
 
 
-  el.driverCompany.appendChild(
+  el.subdriver.appendChild(
     blank
   );
-
-
-  state.subcontractors.forEach(
-    subcontractor => {
-
-      const option =
-        document.createElement(
-          "option"
-        );
-
-
-      option.value =
-        subcontractor.id;
-
-
-      option.textContent =
-        subcontractor.company;
-
-
-      el.driverCompany.appendChild(
-        option
-      );
-
-    }
-  );
-
-
-  if (
-    current &&
-    state.subcontractors.some(
-      subcontractor =>
-        subcontractor.id ===
-        current
-    )
-  ) {
-
-    el.driverCompany.value =
-      current;
-
-  }
-
-
-  renderSubcontractorDrivers();
-
-}
-
-
-function renderSubcontractorDrivers() {
-
-  if (
-    !el.driverSelect
-  ) {
-
-    return;
-
-  }
-
-
-  const subcontractor =
-    selectedSubcontractor();
-
-
-  const current =
-    clean(
-      el.driverSelect.value
-    );
-
-
-  el.driverSelect.innerHTML =
-    "";
-
-
-  const blank =
-    document.createElement(
-      "option"
-    );
-
-
-  blank.value =
-    "";
 
 
   if (
     !subcontractor
   ) {
 
-    blank.textContent =
-      "Select trucking company first";
-
-
-    el.driverSelect.disabled =
-      true;
-
-
-    if (
-      el.addDriverBtn
-    ) {
-
-      el.addDriverBtn.disabled =
-        true;
-
-    }
+    el.subdriverWrap
+      ?.classList.remove(
+        "show"
+      );
 
 
     el.addDriverPanel
@@ -2740,18 +2801,19 @@ function renderSubcontractorDrivers() {
       );
 
 
-    el.driverSelect.appendChild(
-      blank
-    );
-
-
     state.selectedDriver =
-      null;
+      selectedDriver();
 
 
     return;
 
   }
+
+
+  el.subdriverWrap
+    ?.classList.add(
+      "show"
+    );
 
 
   const drivers =
@@ -2796,17 +2858,6 @@ function renderSubcontractorDrivers() {
       );
 
 
-  blank.textContent =
-    drivers.length
-      ? "Select driver"
-      : "No drivers saved — add one";
-
-
-  el.driverSelect.appendChild(
-    blank
-  );
-
-
   drivers.forEach(
     driver => {
 
@@ -2820,18 +2871,11 @@ function renderSubcontractorDrivers() {
         driver.id;
 
 
-      /*
-        Name only.
-
-        No employee email.
-        No subcontractor email.
-        No driver email.
-      */
       option.textContent =
         driver.name;
 
 
-      el.driverSelect.appendChild(
+      el.subdriver.appendChild(
         option
       );
 
@@ -2839,36 +2883,298 @@ function renderSubcontractorDrivers() {
   );
 
 
-  el.driverSelect.disabled =
-    false;
-
-
   if (
-    el.addDriverBtn
+    !drivers.length
   ) {
 
-    el.addDriverBtn.disabled =
-      false;
+    blank.textContent =
+      "No drivers saved — add one below";
 
   }
 
 
   if (
-    current &&
+    previous &&
     drivers.some(
       driver =>
         driver.id ===
-        current
+        previous
     )
   ) {
 
-    el.driverSelect.value =
-      current;
+    el.subdriver.value =
+      previous;
 
   }
 
 
-  syncDriverSelection();
+  state.selectedDriver =
+    selectedDriver();
+
+}
+
+
+function chooseDriverValue(
+  value
+) {
+
+  if (
+    !el.driverValue
+  ) {
+
+    return;
+
+  }
+
+
+  el.driverValue.value =
+    value ||
+    "";
+
+
+  if (
+    el.subdriver
+  ) {
+
+    el.subdriver.value =
+      "";
+
+  }
+
+
+  resetAddDriverPanel();
+
+
+  syncDriverButton();
+
+
+  renderSubdriverSelect();
+
+
+  state.selectedDriver =
+    selectedDriver();
+
+
+  closeDriverMenu();
+
+
+  clearMessage();
+
+}
+
+
+function renderDriverSelector() {
+
+  if (
+    !el.driverValue ||
+    !el.driverMenu
+  ) {
+
+    return;
+
+  }
+
+
+  const currentValue =
+    clean(
+      el.driverValue.value
+    );
+
+
+  const currentIsEmployee =
+    currentValue.startsWith(
+      "emp:"
+    ) &&
+    state.employeeDrivers.some(
+      driver =>
+        `emp:${driver.id}` ===
+        currentValue
+    );
+
+
+  const currentIsSubcontractor =
+    currentValue.startsWith(
+      "sub:"
+    ) &&
+    state.subcontractors.some(
+      subcontractor =>
+        `sub:${subcontractor.id}` ===
+        currentValue
+    );
+
+
+  if (
+    !currentIsEmployee &&
+    !currentIsSubcontractor
+  ) {
+
+    el.driverValue.value =
+      "";
+
+  }
+
+
+  el.driverMenu.innerHTML =
+    "";
+
+
+  if (
+    state.employeeDrivers.length
+  ) {
+
+    const employeeHeader =
+      document.createElement(
+        "div"
+      );
+
+
+    employeeHeader.className =
+      "driver-group";
+
+
+    employeeHeader.textContent =
+      "Employee Drivers";
+
+
+    el.driverMenu.appendChild(
+      employeeHeader
+    );
+
+
+    state.employeeDrivers.forEach(
+      driver => {
+
+        const button =
+          document.createElement(
+            "button"
+          );
+
+
+        button.type =
+          "button";
+
+
+        button.className =
+          "driver-choice";
+
+
+        button.dataset.driverValue =
+          `emp:${driver.id}`;
+
+
+        button.textContent =
+          driver.name;
+
+
+        button.addEventListener(
+          "click",
+          () => {
+
+            chooseDriverValue(
+              button.dataset.driverValue
+            );
+
+          }
+        );
+
+
+        el.driverMenu.appendChild(
+          button
+        );
+
+      }
+    );
+
+  }
+
+
+  if (
+    state.subcontractors.length
+  ) {
+
+    const subHeader =
+      document.createElement(
+        "div"
+      );
+
+
+    subHeader.className =
+      "driver-group";
+
+
+    subHeader.textContent =
+      "Trucking Subcontractors";
+
+
+    el.driverMenu.appendChild(
+      subHeader
+    );
+
+
+    state.subcontractors.forEach(
+      subcontractor => {
+
+        const button =
+          document.createElement(
+            "button"
+          );
+
+
+        button.type =
+          "button";
+
+
+        button.className =
+          "driver-choice";
+
+
+        button.dataset.driverValue =
+          `sub:${subcontractor.id}`;
+
+
+        button.textContent =
+          subcontractor.company;
+
+
+        button.addEventListener(
+          "click",
+          () => {
+
+            chooseDriverValue(
+              button.dataset.driverValue
+            );
+
+          }
+        );
+
+
+        el.driverMenu.appendChild(
+          button
+        );
+
+      }
+    );
+
+  }
+
+
+  if (
+    !state.employeeDrivers.length &&
+    !state.subcontractors.length
+  ) {
+
+    addEmpty(
+      el.driverMenu,
+      "No active Semi Drivers or trucking subcontractors were found."
+    );
+
+  }
+
+
+  syncDriverButton();
+
+
+  renderSubdriverSelect();
 
 }
 
@@ -2969,7 +3275,7 @@ function openAddDriverPanel() {
   ) {
 
     showMessage(
-      "Select a trucking company first."
+      "Select a trucking subcontractor first."
     );
 
 
@@ -3011,7 +3317,7 @@ async function saveSubcontractorDriver() {
   ) {
 
     showMessage(
-      "Select a trucking company first."
+      "Select a trucking subcontractor first."
     );
 
 
@@ -3045,7 +3351,7 @@ async function saveSubcontractorDriver() {
   ) {
 
     showMessage(
-      "Enter the driver's first name, last name, and a valid 10-digit cell number."
+      "Enter the subcontractor driver's first name, last name, and a valid 10-digit cell number."
     );
 
 
@@ -3082,11 +3388,18 @@ async function saveSubcontractorDriver() {
     );
 
 
-    el.driverSelect.value =
-      existingDriver.id;
+    if (
+      el.subdriver
+    ) {
+
+      el.subdriver.value =
+        existingDriver.id;
+
+    }
 
 
-    syncDriverSelection();
+    state.selectedDriver =
+      selectedDriver();
 
 
     return;
@@ -3095,16 +3408,10 @@ async function saveSubcontractorDriver() {
 
 
   const driverId =
-    globalThis.crypto
-      ?.randomUUID?.() ||
     (
-      `${Date.now()}-` +
-      Math.random()
-        .toString(36)
-        .slice(
-          2,
-          10
-        )
+      globalThis.crypto
+        ?.randomUUID?.() ||
+      `${Date.now()}-${Math.random().toString(36).slice(2,10)}`
     );
 
 
@@ -3188,14 +3495,21 @@ async function saveSubcontractorDriver() {
       nextDrivers;
 
 
-    renderSubcontractorDrivers();
+    renderSubdriverSelect();
 
 
-    el.driverSelect.value =
-      driverId;
+    if (
+      el.subdriver
+    ) {
+
+      el.subdriver.value =
+        driverId;
+
+    }
 
 
-    syncDriverSelection();
+    state.selectedDriver =
+      selectedDriver();
 
 
     resetAddDriverPanel();
@@ -3241,9 +3555,6 @@ async function saveSubcontractorDriver() {
 
 }
 
-/* ============================================================
-   VALIDATION
-============================================================ */
 
 function validateWeights() {
 
@@ -3605,10 +3916,6 @@ function validateGrade(
 }
 
 
-/* ============================================================
-   LOAD FIRESTORE REFERENCE DATA
-============================================================ */
-
 async function loadReferenceData() {
 
   const [
@@ -3682,10 +3989,6 @@ async function loadReferenceData() {
     ]);
 
 
-  /* ========================================================
-     BUYERS
-  ======================================================== */
-
   state.buyers =
     buyerSnap.docs
       .map(
@@ -3727,10 +4030,6 @@ async function loadReferenceData() {
     );
 
 
-  /* ========================================================
-     CUSTOMERS
-  ======================================================== */
-
   state.customers =
     customerSnap.docs
       .map(
@@ -3760,10 +4059,6 @@ async function loadReferenceData() {
           )
       );
 
-
-  /* ========================================================
-     DELIVERY LOCATIONS
-  ======================================================== */
 
   state.locations =
     locationSnap.docs
@@ -3863,10 +4158,6 @@ async function loadReferenceData() {
         })
       );
 
-
-  /* ========================================================
-     BIN SOURCES
-  ======================================================== */
 
   state.binSources =
     [];
@@ -4034,10 +4325,6 @@ async function loadReferenceData() {
       )
   );
 
-
-  /* ========================================================
-     GRAIN BAG SOURCES
-  ======================================================== */
 
   state.bagSources =
     bagSnap.docs
@@ -4299,10 +4586,6 @@ async function loadReferenceData() {
       );
 
 
-  /* ========================================================
-     EMPLOYEE DRIVERS
-  ======================================================== */
-
   state.employeeDrivers =
     employeeSnap.docs
       .map(
@@ -4408,10 +4691,6 @@ async function loadReferenceData() {
           )
       );
 
-
-  /* ========================================================
-     TRUCKING SUBCONTRACTORS
-  ======================================================== */
 
   state.subcontractors =
     subSnap.docs
@@ -4536,10 +4815,6 @@ async function loadReferenceData() {
 }
 
 
-/* ============================================================
-   DUPLICATE CHECK
-============================================================ */
-
 async function duplicateExists() {
 
   const buyerId =
@@ -4599,10 +4874,6 @@ async function duplicateExists() {
 }
 
 
-/* ============================================================
-   CURRENT SELECTIONS
-============================================================ */
-
 function updateSelected() {
 
   state.selectedSource =
@@ -4657,7 +4928,8 @@ function updateSelected() {
     null;
 
 
-  syncDriverSelection();
+  state.selectedDriver =
+    selectedDriver();
 
 }
 
@@ -4769,10 +5041,6 @@ function validateRequiredLoadDetails() {
 
 }
 
-
-/* ============================================================
-   SAVE
-============================================================ */
 
 async function saveTicket(
   event
@@ -4941,7 +5209,6 @@ async function saveTicket(
         location?.buyerName ||
         null,
 
-
       deliveryLocationId:
         location?.id ||
         null,
@@ -4966,7 +5233,6 @@ async function saveTicket(
         location?.zip ||
         null,
 
-
       customerId:
         customer?.id ||
         null,
@@ -4974,7 +5240,6 @@ async function saveTicket(
       customerName:
         customer?.name ||
         null,
-
 
       ticketNumber:
         clean(
@@ -4991,7 +5256,6 @@ async function saveTicket(
           el.crop.value
         ),
 
-
       grossWeight:
         numberOrNull(
           el.grossWeight.value
@@ -5006,7 +5270,6 @@ async function saveTicket(
         numberOrNull(
           el.netWeight.value
         ),
-
 
       testWeight:
         numberOrNull(
@@ -5028,7 +5291,6 @@ async function saveTicket(
           el.foreignMaterial.value
         ),
 
-
       grossBushels:
         numberOrNull(
           el.grossBushels.value
@@ -5044,7 +5306,6 @@ async function saveTicket(
         numberOrNull(
           el.netBushels.value
         ),
-
 
       grainSourceType:
         source?.type ||
@@ -5090,7 +5351,6 @@ async function saveTicket(
         source?.cropYear ||
         null,
 
-
       contractId:
         contract?.id ||
         null,
@@ -5109,7 +5369,6 @@ async function saveTicket(
         [
           contract.id
         ],
-
 
       driverType:
         driver.type,
@@ -5134,7 +5393,6 @@ async function saveTicket(
         driver.phone ||
         null,
 
-
       subcontractorId:
         driver.subcontractorId ||
         null,
@@ -5142,7 +5400,6 @@ async function saveTicket(
       subcontractorName:
         driver.subcontractorName ||
         null,
-
 
       entryMethod:
         "manual_entry",
@@ -5159,7 +5416,6 @@ async function saveTicket(
       reviewReasons:
         [],
 
-
       createdByUid:
         state.user?.uid ||
         null,
@@ -5173,7 +5429,6 @@ async function saveTicket(
         state.user?.email ||
         null,
 
-
       reviewedByUid:
         state.user?.uid ||
         null,
@@ -5186,7 +5441,6 @@ async function saveTicket(
       reviewedByEmail:
         state.user?.email ||
         null,
-
 
       createdAt:
         serverTimestamp(),
@@ -5253,10 +5507,6 @@ async function saveTicket(
 }
 
 
-/* ============================================================
-   RESET AFTER CROP CHANGE
-============================================================ */
-
 function clearAfterCrop() {
 
   el.sourceValue.value =
@@ -5322,19 +5572,7 @@ function clearAfterCrop() {
 }
 
 
-/* ============================================================
-   EVENTS
-============================================================ */
-
 function setupEvents() {
-
-  /*
-    IMPORTANT:
-    Back and Cancel are wired FIRST.
-
-    Even if Firebase loading fails later,
-    these buttons still work.
-  */
 
   const goBack =
     () => {
@@ -5408,41 +5646,59 @@ function setupEvents() {
   );
 
 
-  el.driverCompany?.addEventListener(
-    "change",
-    () => {
+  el.driverButton?.addEventListener(
+    "click",
+    event => {
+
+      event.stopPropagation();
+
 
       if (
-        el.driverSelect
+        el.driverMenu?.classList.contains(
+          "open"
+        )
       ) {
 
-        el.driverSelect.value =
-          "";
+        closeDriverMenu();
+
+      }
+      else {
+
+        closeMenus(
+          el.driverMenu
+        );
+
+
+        renderDriverSelector();
+
+
+        el.driverMenu
+          ?.classList.add(
+            "open"
+          );
+
+
+        el.driverButton
+          ?.setAttribute(
+            "aria-expanded",
+            "true"
+          );
 
       }
 
-
-      state.selectedDriver =
-        null;
-
-
-      resetAddDriverPanel();
-
-
-      renderSubcontractorDrivers();
-
-
-      clearMessage();
-
     }
   );
 
 
-  el.driverSelect?.addEventListener(
+  el.driverValue?.addEventListener(
     "change",
     () => {
 
-      syncDriverSelection();
+      renderSubdriverSelect();
+
+
+      state.selectedDriver =
+        selectedDriver();
 
 
       clearMessage();
@@ -5451,7 +5707,21 @@ function setupEvents() {
   );
 
 
-  el.addDriverBtn?.addEventListener(
+  el.subdriver?.addEventListener(
+    "change",
+    () => {
+
+      state.selectedDriver =
+        selectedDriver();
+
+
+      clearMessage();
+
+    }
+  );
+
+
+  el.addSubdriverBtn?.addEventListener(
     "click",
     openAddDriverPanel
   );
@@ -5477,7 +5747,8 @@ function setupEvents() {
         [
           el.sourcePicker,
           el.destinationPicker,
-          el.customerPicker
+          el.customerPicker,
+          el.driverPicker
         ]
           .some(
             picker =>
@@ -5611,17 +5882,7 @@ function setupEvents() {
 }
 
 
-/* ============================================================
-   WAIT FOR AUTH
-============================================================ */
-
 async function waitForSignedInUser() {
-
-  /*
-    Firebase auth can take a moment to restore the signed-in user.
-
-    Do NOT immediately treat auth.currentUser === null as logged out.
-  */
 
   for (
     let attempt =
@@ -5661,16 +5922,7 @@ async function waitForSignedInUser() {
 }
 
 
-/* ============================================================
-   START
-============================================================ */
-
 async function start() {
-
-  /*
-    Wire controls immediately.
-    This fixes Back / Cancel even if Firestore fails.
-  */
 
   setupEvents();
 
@@ -5699,30 +5951,35 @@ async function start() {
 
   syncSource();
 
+
   syncDestination();
+
 
   syncCustomer();
 
+
   renderSource();
+
 
   renderDestination();
 
+
   renderCustomer();
+
 
   renderContract();
 
-  renderDriverCompanies();
+
+  renderDriverSelector();
+
 
   validateWeights();
+
 
   validateBushels();
 
 }
 
-
-/* ============================================================
-   START PAGE
-============================================================ */
 
 start()
   .catch(
