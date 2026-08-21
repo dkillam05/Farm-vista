@@ -120,13 +120,6 @@ const SUBCONTRACTOR_COLLECTION =
   "subcontractors";
 
 
-// ============================================================
-// SETTINGS PAGE
-// ============================================================
-
-const SETTINGS_URL =
-  "/Farm-vista/pages/grain-transfer-settings.html";
-
 
 // ============================================================
 // FIREBASE
@@ -2405,6 +2398,7 @@ function injectStyles() {
 ============================================================ */
 
 .grain-transfer-card{
+  display:block !important;
   width:100%;
   max-width:none !important;
   margin:0 !important;
@@ -2413,8 +2407,9 @@ function injectStyles() {
 }
 
 .grain-transfer-head{
+  width:100%;
   display:grid;
-  grid-template-columns:auto minmax(0,1fr) auto;
+  grid-template-columns:26px minmax(0,1fr) auto;
   gap:10px;
   align-items:center;
   padding:13px 15px;
@@ -2428,20 +2423,33 @@ function injectStyles() {
 
 .grain-transfer-settings-btn{
   appearance:none;
-  width:36px;
-  height:36px;
+  width:26px;
+  height:26px;
   display:grid;
   place-items:center;
-  border:1px solid var(--border);
-  border-radius:10px;
-  background:var(--surface);
+  padding:0;
+  border:0;
+  border-radius:999px;
+  background:transparent;
   color:var(--text);
-  font-size:18px;
   cursor:pointer;
 }
 
-.grain-transfer-settings-btn:hover{
-  background:var(--surface-2,rgba(59,126,70,.08));
+.grain-transfer-settings-btn svg{
+  width:17px;
+  height:17px;
+  display:block;
+  stroke:currentColor;
+}
+
+.grain-transfer-settings-btn:hover,
+.grain-transfer-settings-btn:focus{
+  background:var(--surface-2,rgba(59,126,70,.09));
+  outline:none;
+}
+
+.grain-transfer-settings-btn:focus-visible{
+  box-shadow:0 0 0 3px rgba(59,126,70,.16);
 }
 
 .grain-transfer-title-wrap{
@@ -2831,15 +2839,30 @@ function injectSection() {
 
     <header class="grain-transfer-head">
 
-      <button
-        id="grain-transfer-settings-btn"
-        type="button"
-        class="grain-transfer-settings-btn"
-        aria-label="Grain Transfer Settings"
-        title="Grain Transfer Settings"
-      >
-        ⚙️
-      </button>
+<button
+  id="grain-transfer-settings-btn"
+  type="button"
+  class="grain-transfer-settings-btn"
+  aria-label="Grain Transfer Settings"
+  title="Grain Transfer Settings"
+>
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    aria-hidden="true"
+  >
+    <path
+      d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"
+      stroke-width="1.8"
+    />
+    <path
+      d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 8.92 4a1.65 1.65 0 0 0 1-1.51V2a2 2 0 1 1 4 0v.09A1.65 1.65 0 0 0 15 3.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.12.61.65 1.05 1.27 1.05H21a2 2 0 1 1 0 4h-.09c-.62 0-1.15.44-1.27 1.05Z"
+      stroke-width="1.5"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </svg>
+</button>
 
       <div class="grain-transfer-title-wrap">
 
@@ -3106,9 +3129,119 @@ function injectModal() {
   `;
 
 
-  document.body.appendChild(
-    backdrop
+document.body.appendChild(
+  backdrop
+);
+
+
+// ============================================================
+// TRANSFER SETTINGS MODAL
+// ============================================================
+
+const settingsBackdrop =
+  document.createElement(
+    "div"
   );
+
+
+settingsBackdrop.id =
+  "grain-transfer-settings-backdrop";
+
+settingsBackdrop.className =
+  "grain-transfer-backdrop";
+
+settingsBackdrop.setAttribute(
+  "role",
+  "dialog"
+);
+
+settingsBackdrop.setAttribute(
+  "aria-modal",
+  "true"
+);
+
+
+settingsBackdrop.innerHTML = `
+
+  <div class="grain-transfer-modal">
+
+    <div class="grain-transfer-modal-head">
+
+      <div>
+
+        <h2 class="grain-transfer-modal-title">
+          Grain Transfer Settings
+        </h2>
+
+        <div class="grain-transfer-modal-sub">
+          Set the estimated bushels for one truckload of each crop.
+        </div>
+
+      </div>
+
+      <button
+        id="grain-transfer-settings-x"
+        type="button"
+        class="grain-transfer-close"
+        aria-label="Close"
+      >
+        ×
+      </button>
+
+    </div>
+
+
+    <form
+      id="grain-transfer-settings-form"
+      class="grain-transfer-form"
+    >
+
+      <div
+        id="grain-transfer-settings-fields"
+      ></div>
+
+
+      <div class="grain-transfer-help">
+        These estimates are used behind the scenes when an offsite grain transfer is recorded.
+      </div>
+
+
+      <div
+        id="grain-transfer-settings-message"
+        class="grain-transfer-message"
+      ></div>
+
+
+      <div class="grain-transfer-actions">
+
+        <button
+          id="grain-transfer-settings-cancel"
+          type="button"
+          class="grain-transfer-btn"
+        >
+          Cancel
+        </button>
+
+        <button
+          id="grain-transfer-settings-save"
+          type="submit"
+          class="grain-transfer-btn primary"
+        >
+          Save Settings
+        </button>
+
+      </div>
+
+    </form>
+
+  </div>
+
+`;
+
+
+document.body.appendChild(
+  settingsBackdrop
+);
 }
 
 
@@ -3187,6 +3320,41 @@ function cacheElements() {
     document.getElementById(
       "grain-transfer-save"
     );
+
+  els.settingsBackdrop =
+  document.getElementById(
+    "grain-transfer-settings-backdrop"
+  );
+
+els.settingsClose =
+  document.getElementById(
+    "grain-transfer-settings-x"
+  );
+
+els.settingsForm =
+  document.getElementById(
+    "grain-transfer-settings-form"
+  );
+
+els.settingsFields =
+  document.getElementById(
+    "grain-transfer-settings-fields"
+  );
+
+els.settingsMessage =
+  document.getElementById(
+    "grain-transfer-settings-message"
+  );
+
+els.settingsCancel =
+  document.getElementById(
+    "grain-transfer-settings-cancel"
+  );
+
+els.settingsSave =
+  document.getElementById(
+    "grain-transfer-settings-save"
+  );
 }
 
 
@@ -5567,14 +5735,294 @@ async function recordTransfer(
 
 function bindEvents() {
 
-  els.settings.addEventListener(
-    "click",
-    () => {
+// ============================================================
+// TRANSFER SETTINGS POPUP
+// ============================================================
 
-      window.location.href =
-        SETTINGS_URL;
-    }
+function renderTransferSettings() {
+
+  const crops =
+    inventoryCrops();
+
+
+  if (
+    !crops.length
+  ) {
+
+    els.settingsFields.innerHTML = `
+
+      <div class="grain-transfer-help">
+        No crops are currently in inventory.
+      </div>
+
+    `;
+
+    return;
+  }
+
+
+  els.settingsFields.innerHTML =
+    crops.map(
+      crop => {
+
+        const current =
+          estimatedBushelsForCrop(
+            crop
+          );
+
+
+        return `
+
+          <div class="grain-transfer-field">
+
+            <label
+              class="grain-transfer-label"
+              for="grain-transfer-setting-${escapeHtml(
+                norm(crop)
+                  .replace(/[^a-z0-9]+/g,"-")
+              )}"
+            >
+              ${escapeHtml(crop)} — Estimated Bushels Per Load
+            </label>
+
+            <input
+              id="grain-transfer-setting-${escapeHtml(
+                norm(crop)
+                  .replace(/[^a-z0-9]+/g,"-")
+              )}"
+              class="grain-transfer-select"
+              type="number"
+              inputmode="decimal"
+              min="1"
+              step="0.01"
+              data-transfer-setting-crop="${escapeHtml(crop)}"
+              value="${
+                current > 0
+                  ? escapeHtml(current)
+                  : ""
+              }"
+              placeholder="Enter estimated bushels"
+              required
+            >
+
+          </div>
+
+        `;
+      }
+    )
+    .join("");
+}
+
+
+function openTransferSettings() {
+
+  renderTransferSettings();
+
+
+  els.settingsMessage.className =
+    "grain-transfer-message";
+
+  els.settingsMessage.textContent =
+    "";
+
+
+  els.settingsBackdrop.classList.add(
+    "open"
   );
+
+
+  document.body.style.overflow =
+    "hidden";
+}
+
+
+function closeTransferSettings() {
+
+  els.settingsBackdrop.classList.remove(
+    "open"
+  );
+
+
+  document.body.style.overflow =
+    "";
+}
+
+
+async function saveTransferSettings(
+  event
+) {
+
+  event.preventDefault();
+
+
+  const inputs =
+    Array.from(
+      els.settingsFields.querySelectorAll(
+        "[data-transfer-setting-crop]"
+      )
+    );
+
+
+  const estimatedBushelsByCrop =
+    {};
+
+
+  for (
+    const input of inputs
+  ) {
+
+    const crop =
+      clean(
+        input.dataset.transferSettingCrop
+      );
+
+
+    const bushels =
+      roundBushels(
+        input.value
+      );
+
+
+    if (
+      !crop ||
+      bushels <= 0
+    ) {
+
+      els.settingsMessage.className =
+        "grain-transfer-message show error";
+
+      els.settingsMessage.textContent =
+        `Enter estimated bushels for ${crop || "each crop"}.`;
+
+      return;
+    }
+
+
+    estimatedBushelsByCrop[
+      crop
+    ] =
+      bushels;
+  }
+
+
+  els.settingsSave.disabled =
+    true;
+
+  els.settingsSave.textContent =
+    "Saving…";
+
+
+  try {
+
+    await setDoc(
+      doc(
+        db,
+        SETTINGS_COLLECTION,
+        SETTINGS_DOCUMENT
+      ),
+      {
+        estimatedBushelsByCrop,
+
+        updatedAt:
+          serverTimestamp(),
+
+        updatedByUid:
+          currentUser().uid,
+
+        updatedByName:
+          currentUser().name
+      },
+      {
+        merge:
+          true
+      }
+    );
+
+
+    state.settings =
+      estimatedBushelsByCrop;
+
+
+    els.settingsMessage.className =
+      "grain-transfer-message show good";
+
+    els.settingsMessage.textContent =
+      "Grain transfer settings saved.";
+
+
+    window.setTimeout(
+      closeTransferSettings,
+      450
+    );
+
+  }
+  catch (
+    error
+  ) {
+
+    console.error(
+      "[grain transfers] Settings save failed:",
+      error
+    );
+
+
+    els.settingsMessage.className =
+      "grain-transfer-message show error";
+
+    els.settingsMessage.textContent =
+      clean(
+        error?.message
+      ) ||
+      "FarmVista could not save the transfer settings.";
+  }
+  finally {
+
+    els.settingsSave.disabled =
+      false;
+
+    els.settingsSave.textContent =
+      "Save Settings";
+  }
+}
+
+
+els.settings.addEventListener(
+  "click",
+  openTransferSettings
+);
+
+
+els.settingsClose.addEventListener(
+  "click",
+  closeTransferSettings
+);
+
+
+els.settingsCancel.addEventListener(
+  "click",
+  closeTransferSettings
+);
+
+
+els.settingsForm.addEventListener(
+  "submit",
+  saveTransferSettings
+);
+
+
+els.settingsBackdrop.addEventListener(
+  "click",
+  event => {
+
+    if (
+      event.target ===
+      els.settingsBackdrop
+    ) {
+
+      closeTransferSettings();
+    }
+  }
+);
 
 
   els.add.addEventListener(
