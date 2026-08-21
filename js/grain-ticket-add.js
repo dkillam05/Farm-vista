@@ -22,6 +22,8 @@ import {
   collection,
   getDocs,
   addDoc,
+  doc,
+  updateDoc,
   serverTimestamp
 } from "/Farm-vista/js/firebase-init.js";
 
@@ -231,20 +233,32 @@ const el = {
     $("foreignMaterial"),
 
 
-  driverPicker:
-    $("driverPicker"),
+  driverCompany:
+    $("driverCompany"),
 
-  driverButton:
-    $("driverButton"),
+  driverSelect:
+    $("driverSelect"),
 
-  driverButtonText:
-    $("driverButtonText"),
+  addDriverBtn:
+    $("addDriverBtn"),
 
-  driverMenu:
-    $("driverMenu"),
+  addDriverPanel:
+    $("addDriverPanel"),
 
-  driverValue:
-    $("driverValue")
+  driverFirstName:
+    $("driverFirstName"),
+
+  driverLastName:
+    $("driverLastName"),
+
+  driverCell:
+    $("driverCell"),
+
+  driverAddCancel:
+    $("driverAddCancel"),
+
+  driverAddSave:
+    $("driverAddSave")
 
 };
 
@@ -2465,225 +2479,178 @@ function renderContract() {
 
 
 /* ============================================================
-   DRIVER
+   SUBCONTRACTOR DRIVER
 ============================================================ */
 
-function allDriverRows() {
+function selectedSubcontractor() {
 
-  const rows =
-    [];
-
-
-  state.employeeDrivers.forEach(
-    driver => {
-
-      rows.push({
-        ...driver,
-
-        group:
-          "FarmVista Drivers"
-      });
-
-    }
-  );
-
-
-  state.subcontractors.forEach(
-    subcontractor => {
-
-      subcontractor.drivers.forEach(
-        driver => {
-
-          rows.push({
-
-            type:
-              "subcontractor",
-
-            value:
-              `sub:${subcontractor.id}:${driver.id}`,
-
-            id:
-              driver.id,
-
-            uid:
-              null,
-
-            name:
-              driver.name,
-
-            email:
-              "",
-
-            phone:
-              driver.phone ||
-              "",
-
-            subcontractorId:
-              subcontractor.id,
-
-            subcontractorName:
-              subcontractor.company,
-
-            group:
-              `Subcontractor — ${subcontractor.company}`
-
-          });
-
-        }
-      );
-
-    }
-  );
-
-
-  return rows;
+  return state.subcontractors.find(
+    subcontractor =>
+      subcontractor.id ===
+      clean(
+        el.driverCompany?.value
+      )
+  ) || null;
 
 }
 
 
-function driverFromValue(
-  value
-) {
+function selectedSubcontractorDriver() {
 
-  return allDriverRows()
+  const subcontractor =
+    selectedSubcontractor();
+
+
+  if (
+    !subcontractor ||
+    !el.driverSelect?.value
+  ) {
+
+    return null;
+
+  }
+
+
+  return (
+    Array.isArray(
+      subcontractor.drivers
+    )
+      ? subcontractor.drivers
+      : []
+  )
     .find(
       driver =>
-        driver.value ===
-        value
+        clean(
+          driver.id
+        ) ===
+        clean(
+          el.driverSelect.value
+        )
     ) ||
     null;
 
 }
 
 
-function syncDriver() {
+function syncDriverSelection() {
 
-  state.selectedDriver =
-    driverFromValue(
-      el.driverValue.value
-    );
+  const subcontractor =
+    selectedSubcontractor();
 
 
-  el.driverButtonText.textContent =
-    state.selectedDriver?.name ||
-    "Select driver";
+  const driver =
+    selectedSubcontractorDriver();
+
+
+  if (
+    !subcontractor ||
+    !driver
+  ) {
+
+    state.selectedDriver =
+      null;
+
+    return;
+
+  }
+
+
+  state.selectedDriver = {
+
+    type:
+      "subcontractor",
+
+    value:
+      `sub:${subcontractor.id}:${driver.id}`,
+
+    id:
+      driver.id,
+
+    uid:
+      null,
+
+    name:
+      driver.name,
+
+    email:
+      "",
+
+    phone:
+      driver.phone ||
+      "",
+
+    subcontractorId:
+      subcontractor.id,
+
+    subcontractorName:
+      subcontractor.company
+
+  };
 
 }
 
 
-function renderDriver(
-  searchText =
-    ""
-) {
+function renderDriverCompanies() {
 
-  const search =
-    normalize(
-      searchText
+  if (
+    !el.driverCompany
+  ) {
+
+    return;
+
+  }
+
+
+  const current =
+    clean(
+      el.driverCompany.value
     );
 
 
-  el.driverMenu.innerHTML =
+  el.driverCompany.innerHTML =
     "";
 
 
-  addSearch(
-    el.driverMenu,
-    "Search driver…",
-    searchText,
-    value => {
-
-      renderDriver(
-        value
-      );
+  const blank =
+    document.createElement(
+      "option"
+    );
 
 
-      refocus(
-        el.driverMenu,
-        value
-      );
+  blank.value =
+    "";
 
-    }
+
+  blank.textContent =
+    state.subcontractors.length
+      ? "Select trucking company"
+      : "No active trucking companies";
+
+
+  el.driverCompany.appendChild(
+    blank
   );
 
 
-  const rows =
-    allDriverRows()
-      .filter(
-        driver =>
-          !search ||
-          normalize(
-            `${driver.name} ${driver.email || ""} ${driver.subcontractorName || ""}`
-          )
-            .includes(
-              search
-            )
-      );
+  state.subcontractors.forEach(
+    subcontractor => {
 
-
-  let lastGroup =
-    "";
-
-
-  rows.forEach(
-    driver => {
-
-      if (
-        driver.group !==
-        lastGroup
-      ) {
-
-        addGroup(
-          el.driverMenu,
-          driver.group
+      const option =
+        document.createElement(
+          "option"
         );
 
 
-        lastGroup =
-          driver.group;
-
-      }
+      option.value =
+        subcontractor.id;
 
 
-      addChoice(
-        el.driverMenu,
-        {
-          title:
-            driver.name,
-
-          sub:
-            driver.type ===
-              "subcontractor"
-                ? (
-                    driver.subcontractorName ||
-                    ""
-                  )
-                : "",
-
-          selected:
-            driver.value ===
-            el.driverValue.value,
-
-          onClick:
-            () => {
-
-              el.driverValue.value =
-                driver.value;
+      option.textContent =
+        subcontractor.company;
 
 
-              state.selectedDriver =
-                driver;
-
-
-              syncDriver();
-
-
-              closeMenus();
-
-
-              clearMessage();
-
-            }
-        }
+      el.driverCompany.appendChild(
+        option
       );
 
     }
@@ -2691,21 +2658,588 @@ function renderDriver(
 
 
   if (
-    !rows.length
+    current &&
+    state.subcontractors.some(
+      subcontractor =>
+        subcontractor.id ===
+        current
+    )
   ) {
 
-    addEmpty(
-      el.driverMenu,
-      "No matching active Semi Driver or trucking subcontractor driver."
-    );
+    el.driverCompany.value =
+      current;
 
   }
 
 
-  syncDriver();
+  renderSubcontractorDrivers();
 
 }
 
+
+function renderSubcontractorDrivers() {
+
+  if (
+    !el.driverSelect
+  ) {
+
+    return;
+
+  }
+
+
+  const subcontractor =
+    selectedSubcontractor();
+
+
+  const current =
+    clean(
+      el.driverSelect.value
+    );
+
+
+  el.driverSelect.innerHTML =
+    "";
+
+
+  const blank =
+    document.createElement(
+      "option"
+    );
+
+
+  blank.value =
+    "";
+
+
+  if (
+    !subcontractor
+  ) {
+
+    blank.textContent =
+      "Select trucking company first";
+
+
+    el.driverSelect.disabled =
+      true;
+
+
+    if (
+      el.addDriverBtn
+    ) {
+
+      el.addDriverBtn.disabled =
+        true;
+
+    }
+
+
+    el.addDriverPanel
+      ?.classList.remove(
+        "show"
+      );
+
+
+    el.driverSelect.appendChild(
+      blank
+    );
+
+
+    state.selectedDriver =
+      null;
+
+
+    return;
+
+  }
+
+
+  const drivers =
+    (
+      Array.isArray(
+        subcontractor.drivers
+      )
+        ? subcontractor.drivers
+        : []
+    )
+      .filter(
+        driver =>
+          driver &&
+          driver.active !==
+            false &&
+          clean(
+            driver.name
+          )
+      )
+      .slice()
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          clean(
+            a.name
+          )
+            .localeCompare(
+              clean(
+                b.name
+              ),
+              undefined,
+              {
+                numeric:
+                  true,
+
+                sensitivity:
+                  "base"
+              }
+            )
+      );
+
+
+  blank.textContent =
+    drivers.length
+      ? "Select driver"
+      : "No drivers saved — add one";
+
+
+  el.driverSelect.appendChild(
+    blank
+  );
+
+
+  drivers.forEach(
+    driver => {
+
+      const option =
+        document.createElement(
+          "option"
+        );
+
+
+      option.value =
+        driver.id;
+
+
+      /*
+        Name only.
+
+        No employee email.
+        No subcontractor email.
+        No driver email.
+      */
+      option.textContent =
+        driver.name;
+
+
+      el.driverSelect.appendChild(
+        option
+      );
+
+    }
+  );
+
+
+  el.driverSelect.disabled =
+    false;
+
+
+  if (
+    el.addDriverBtn
+  ) {
+
+    el.addDriverBtn.disabled =
+      false;
+
+  }
+
+
+  if (
+    current &&
+    drivers.some(
+      driver =>
+        driver.id ===
+        current
+    )
+  ) {
+
+    el.driverSelect.value =
+      current;
+
+  }
+
+
+  syncDriverSelection();
+
+}
+
+
+function formatUSCell(
+  value
+) {
+
+  const digits =
+    clean(
+      value
+    )
+      .replace(
+        /\D/g,
+        ""
+      )
+      .replace(
+        /^1(?=\d{10}$)/,
+        ""
+      );
+
+
+  if (
+    digits.length !==
+    10
+  ) {
+
+    return "";
+
+  }
+
+
+  return (
+    `(${digits.slice(
+      0,
+      3
+    )}) ` +
+    `${digits.slice(
+      3,
+      6
+    )}-` +
+    digits.slice(
+      6
+    )
+  );
+
+}
+
+
+function resetAddDriverPanel() {
+
+  if (
+    el.driverFirstName
+  ) {
+
+    el.driverFirstName.value =
+      "";
+
+  }
+
+
+  if (
+    el.driverLastName
+  ) {
+
+    el.driverLastName.value =
+      "";
+
+  }
+
+
+  if (
+    el.driverCell
+  ) {
+
+    el.driverCell.value =
+      "";
+
+  }
+
+
+  el.addDriverPanel
+    ?.classList.remove(
+      "show"
+    );
+
+}
+
+
+function openAddDriverPanel() {
+
+  const subcontractor =
+    selectedSubcontractor();
+
+
+  if (
+    !subcontractor
+  ) {
+
+    showMessage(
+      "Select a trucking company first."
+    );
+
+
+    return;
+
+  }
+
+
+  clearMessage();
+
+
+  el.addDriverPanel
+    ?.classList.add(
+      "show"
+    );
+
+
+  setTimeout(
+    () => {
+
+      el.driverFirstName
+        ?.focus();
+
+    },
+    0
+  );
+
+}
+
+
+async function saveSubcontractorDriver() {
+
+  const subcontractor =
+    selectedSubcontractor();
+
+
+  if (
+    !subcontractor
+  ) {
+
+    showMessage(
+      "Select a trucking company first."
+    );
+
+
+    return;
+
+  }
+
+
+  const firstName =
+    clean(
+      el.driverFirstName?.value
+    );
+
+
+  const lastName =
+    clean(
+      el.driverLastName?.value
+    );
+
+
+  const phone =
+    formatUSCell(
+      el.driverCell?.value
+    );
+
+
+  if (
+    !firstName ||
+    !lastName ||
+    !phone
+  ) {
+
+    showMessage(
+      "Enter the driver's first name, last name, and a valid 10-digit cell number."
+    );
+
+
+    return;
+
+  }
+
+
+  const existingDriver =
+    (
+      Array.isArray(
+        subcontractor.drivers
+      )
+        ? subcontractor.drivers
+        : []
+    )
+      .find(
+        driver =>
+          normalize(
+            driver.name
+          ) ===
+          normalize(
+            `${firstName} ${lastName}`
+          )
+      );
+
+
+  if (
+    existingDriver
+  ) {
+
+    showMessage(
+      `${existingDriver.name} is already saved under ${subcontractor.company}.`
+    );
+
+
+    el.driverSelect.value =
+      existingDriver.id;
+
+
+    syncDriverSelection();
+
+
+    return;
+
+  }
+
+
+  const driverId =
+    globalThis.crypto
+      ?.randomUUID?.() ||
+    (
+      `${Date.now()}-` +
+      Math.random()
+        .toString(36)
+        .slice(
+          2,
+          10
+        )
+    );
+
+
+  const newDriver = {
+
+    id:
+      driverId,
+
+    firstName,
+
+    lastName,
+
+    name:
+      `${firstName} ${lastName}`,
+
+    phone,
+
+    active:
+      true,
+
+    createdAtISO:
+      new Date()
+        .toISOString()
+
+  };
+
+
+  const nextDrivers = [
+
+    ...(
+      Array.isArray(
+        subcontractor.drivers
+      )
+        ? subcontractor.drivers
+        : []
+    ),
+
+    newDriver
+
+  ];
+
+
+  if (
+    el.driverAddSave
+  ) {
+
+    el.driverAddSave.disabled =
+      true;
+
+
+    el.driverAddSave.textContent =
+      "Saving…";
+
+  }
+
+
+  try {
+
+    await updateDoc(
+
+      doc(
+        db,
+        "subcontractors",
+        subcontractor.id
+      ),
+
+      {
+
+        drivers:
+          nextDrivers,
+
+        updatedAt:
+          serverTimestamp()
+
+      }
+
+    );
+
+
+    subcontractor.drivers =
+      nextDrivers;
+
+
+    renderSubcontractorDrivers();
+
+
+    el.driverSelect.value =
+      driverId;
+
+
+    syncDriverSelection();
+
+
+    resetAddDriverPanel();
+
+
+    showMessage(
+      `${newDriver.name} added to ${subcontractor.company}.`,
+      "success"
+    );
+
+  }
+  catch (
+    error
+  ) {
+
+    console.error(
+      "[Grain Ticket Add] subcontractor driver save failed:",
+      error
+    );
+
+
+    showMessage(
+      "Driver could not be saved. Check Firestore permissions for subcontractors."
+    );
+
+  }
+  finally {
+
+    if (
+      el.driverAddSave
+    ) {
+
+      el.driverAddSave.disabled =
+        false;
+
+
+      el.driverAddSave.textContent =
+        "Save Driver";
+
+    }
+
+  }
+
+}
 
 /* ============================================================
    VALIDATION
@@ -4123,10 +4657,7 @@ function updateSelected() {
     null;
 
 
-  state.selectedDriver =
-    driverFromValue(
-      el.driverValue.value
-    );
+  syncDriverSelection();
 
 }
 
@@ -4877,20 +5408,64 @@ function setupEvents() {
   );
 
 
-  el.driverButton?.addEventListener(
-    "click",
-    event => {
+  el.driverCompany?.addEventListener(
+    "change",
+    () => {
 
-      event.stopPropagation();
+      if (
+        el.driverSelect
+      ) {
+
+        el.driverSelect.value =
+          "";
+
+      }
 
 
-      openMenu(
-        el.driverButton,
-        el.driverMenu,
-        renderDriver
-      );
+      state.selectedDriver =
+        null;
+
+
+      resetAddDriverPanel();
+
+
+      renderSubcontractorDrivers();
+
+
+      clearMessage();
 
     }
+  );
+
+
+  el.driverSelect?.addEventListener(
+    "change",
+    () => {
+
+      syncDriverSelection();
+
+
+      clearMessage();
+
+    }
+  );
+
+
+  el.addDriverBtn?.addEventListener(
+    "click",
+    openAddDriverPanel
+  );
+
+
+  el.driverAddCancel?.addEventListener(
+    "click",
+    resetAddDriverPanel
+  );
+
+
+  el.driverAddSave?.addEventListener(
+    "click",
+    saveSubcontractorDriver
   );
 
 
@@ -4902,8 +5477,7 @@ function setupEvents() {
         [
           el.sourcePicker,
           el.destinationPicker,
-          el.customerPicker,
-          el.driverPicker
+          el.customerPicker
         ]
           .some(
             picker =>
@@ -5125,33 +5699,21 @@ async function start() {
 
   syncSource();
 
-
   syncDestination();
-
 
   syncCustomer();
 
-
-  syncDriver();
-
-
   renderSource();
-
 
   renderDestination();
 
-
   renderCustomer();
-
 
   renderContract();
 
-
-  renderDriver();
-
+  renderDriverCompanies();
 
   validateWeights();
-
 
   validateBushels();
 
