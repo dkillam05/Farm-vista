@@ -7547,201 +7547,162 @@ async function runDriverAssistQuestions(
   }
 
 
-  /*
-    Sold Under: re-run the EXISTING smart customer matcher after a
-    driver-selected destination before asking another question.
-  */
+/*
+  Sold Under: re-run the EXISTING smart customer matcher after a
+  driver-selected destination before asking another question.
+*/
 
-  if (
-    location &&
-    buyer &&
-    !customer
-  ) {
+if (
+  location &&
+  buyer &&
+  !customer
+) {
 
-    const refreshedCustomerMatch =
-      findCustomerMatch(
-        grainTicket,
-        {
-          matched:
-            true,
+  const refreshedCustomerMatch =
+    findCustomerMatch(
+      grainTicket,
+      {
+        matched:
+          true,
 
-          matchType:
-            "driver_selected",
+        matchType:
+          "driver_selected",
 
-          location
-        },
-        {
-          matched:
-            true,
+        location
+      },
+      {
+        matched:
+          true,
 
-          matchType:
-            "location_buyer",
+        matchType:
+          "location_buyer",
 
-          buyer
-        }
-      );
-
-
-    customer =
-      refreshedCustomerMatch.customer ||
-      null;
-
-  }
-
-
-  if (
-    !customer &&
-    location &&
-    grainTicket?.crop
-  ) {
-
-    const eligibleCustomers =
-      getDriverAssistCustomers(
-        grainTicket,
-        location,
         buyer
-      );
+      }
+    );
 
 
-    let selectedCustomer =
-      null;
+  customer =
+    refreshedCustomerMatch.customer ||
+    null;
+
+}
 
 
-selectedCustomer =
-  await askDriverSearchList({
-    step:
-      "Sold Under",
+if (
+  !customer &&
+  location &&
+  grainTicket?.crop
+) {
 
-    title:
-      "Who is this load sold under?",
+  const eligibleCustomers =
+    getDriverAssistCustomers(
+      grainTicket,
+      location,
+      buyer
+    );
 
-    text:
-      `Only customers with an open ${grainTicket.crop} contract for ${getLocationName(location)} are shown.`,
 
-    placeholder:
-      "Search Sold Under…",
+  let selectedCustomer =
+    null;
 
-    items:
-      eligibleCustomers.map(
-        item => ({
-          label:
-            getCustomerName(
+
+  selectedCustomer =
+    await askDriverSearchList({
+      step:
+        "Sold Under",
+
+      title:
+        "Who is this load sold under?",
+
+      text:
+        `Only customers with an open ${grainTicket.crop} contract for ${getLocationName(location)} are shown.`,
+
+      placeholder:
+        "Search Sold Under…",
+
+      items:
+        eligibleCustomers.map(
+          item => ({
+            label:
+              getCustomerName(
+                item
+              ),
+
+            searchText:
+              getCustomerName(
+                item
+              ),
+
+            value:
               item
-            ),
-
-          searchText:
-            getCustomerName(
-              item
-            ),
-
-          value:
-            item
-        })
-      ),
-
-    allowSkip:
-      true
-  });
-    else {
-
-      selectedCustomer =
-        await askDriverSearchList({
-          step:
-            "Sold Under",
-
-          title:
-            "Who is this load sold under?",
-
-          text:
-            `Only customers with an open ${grainTicket.crop} contract for ${getLocationName(location)} are shown.`,
-
-          placeholder:
-            "Search Sold Under…",
-
-          items:
-            eligibleCustomers.map(
-              item => ({
-                label:
-                  getCustomerName(
-                    item
-                  ),
-
-                searchText:
-                  getCustomerName(
-                    item
-                  ),
-
-                value:
-                  item
-              })
-            ),
-
-          allowSkip:
-            true
-        });
-
-    }
-
-
-    if (
-      selectedCustomer
-    ) {
-
-      customer =
-        selectedCustomer;
-
-
-      const originalEvidence =
-        String(
-          grainTicket.customerText ||
-          ""
-        ).trim();
-
-
-      ocrResult.manualCorrections = {
-        ...(
-          ocrResult.manualCorrections ||
-          {}
+          })
         ),
 
-        customer: {
-          originalValue:
-            originalEvidence ||
-            null,
+      allowSkip:
+        true
+    });
 
-          selectedId:
-            selectedCustomer.id,
 
-          selectedValue:
-            getCustomerName(
-              selectedCustomer
-            ),
+  if (
+    selectedCustomer
+  ) {
 
-          source:
-            "driver_selection",
+    customer =
+      selectedCustomer;
 
-          learningEligible:
-            Boolean(
-              originalEvidence
-            ),
 
-          learningReason:
+    const originalEvidence =
+      String(
+        grainTicket.customerText ||
+        ""
+      ).trim();
+
+
+    ocrResult.manualCorrections = {
+      ...(
+        ocrResult.manualCorrections ||
+        {}
+      ),
+
+      customer: {
+        originalValue:
+          originalEvidence ||
+          null,
+
+        selectedId:
+          selectedCustomer.id,
+
+        selectedValue:
+          getCustomerName(
+            selectedCustomer
+          ),
+
+        source:
+          "driver_selection",
+
+        learningEligible:
+          Boolean(
             originalEvidence
-              ? "ocr_evidence_confirmed"
-              : "driver_supplied_missing_value"
-        }
-      };
+          ),
 
-    }
-    else {
-
-      skippedReasons.push(
-        "customer_not_selected"
-      );
-
-    }
+        learningReason:
+          originalEvidence
+            ? "ocr_evidence_confirmed"
+            : "driver_supplied_missing_value"
+      }
+    };
 
   }
+  else {
+
+    skippedReasons.push(
+      "customer_not_selected"
+    );
+
+  }
+
+}
 
 
   if (
