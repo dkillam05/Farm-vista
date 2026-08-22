@@ -266,6 +266,37 @@
       border-bottom:1px solid var(--border,#d4d4d4);
     }
 
+    /* ==========================================================
+   SORTABLE TABLE HEADERS
+========================================================== */
+
+.data-table th.sortable{
+  cursor:pointer;
+  user-select:none;
+}
+
+.data-table th.sortable:hover{
+  background:rgba(59,126,70,.10);
+}
+
+.data-table th.sortable::after{
+  content:"↕";
+  display:inline-block;
+  margin-left:6px;
+  font-size:.72rem;
+  opacity:.35;
+}
+
+.data-table th.sortable.sort-asc::after{
+  content:"▲";
+  opacity:.75;
+}
+
+.data-table th.sortable.sort-desc::after{
+  content:"▼";
+  opacity:.75;
+}
+
     .data-table td{
       padding:11px 12px;
       font-size:.88rem;
@@ -1199,21 +1230,63 @@
 
             <div class="table-wrap">
               <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>Status</th>
-                    <th>Contract #</th>
-                    <th>Buyer</th>
-                    <th>Customer</th>
-                    <th>Crop</th>
-                    <th>Type</th>
-                    <th class="number-cell">Contract Bu.</th>
-                    <th class="number-cell">Assigned Bu.</th>
-                    <th class="number-cell">Remaining</th>
-<th class="center-cell">Loads</th>
-<th>Delivery</th>
-                  </tr>
-                </thead>
+<thead id="contracts-table-head">
+  <tr>
+    <th class="sortable" data-sort-type="status">Status</th>
+
+    <th class="sortable" data-sort-type="natural">
+      Contract #
+    </th>
+
+    <th class="sortable" data-sort-type="text">
+      Buyer
+    </th>
+
+    <th class="sortable" data-sort-type="text">
+      Customer
+    </th>
+
+    <th class="sortable" data-sort-type="text">
+      Crop
+    </th>
+
+    <th class="sortable" data-sort-type="text">
+      Type
+    </th>
+
+    <th
+      class="number-cell sortable"
+      data-sort-type="number"
+    >
+      Contract Bu.
+    </th>
+
+    <th
+      class="number-cell sortable"
+      data-sort-type="number"
+    >
+      Assigned Bu.
+    </th>
+
+    <th
+      class="number-cell sortable"
+      data-sort-type="number"
+    >
+      Remaining
+    </th>
+
+    <th
+      class="center-cell sortable"
+      data-sort-type="number"
+    >
+      Loads
+    </th>
+
+    <th class="sortable" data-sort-type="date">
+      Delivery
+    </th>
+  </tr>
+</thead>
 
                 <tbody id="contracts-table-body">
                   <tr>
@@ -1857,5 +1930,278 @@
     </div>
   </noscript>
 
+<script>
+  (() => {
+
+    const tableHead =
+      document.getElementById("contracts-table-head");
+
+    const tableBody =
+      document.getElementById("contracts-table-body");
+
+
+    if (!tableHead || !tableBody) {
+      return;
+    }
+
+
+    let activeColumn = -1;
+    let activeDirection = "asc";
+
+
+    const cleanText =
+      value =>
+        String(value ?? "")
+          .trim()
+          .replace(/\s+/g, " ");
+
+
+    const numberValue =
+      value => {
+
+        const number =
+          Number(
+            cleanText(value)
+              .replace(/,/g, "")
+              .replace(/[^\d.-]/g, "")
+          );
+
+        return Number.isFinite(number)
+          ? number
+          : 0;
+
+      };
+
+
+    const dateValue =
+      value => {
+
+        const text =
+          cleanText(value);
+
+        /*
+          Delivery cell example:
+          8/19/2026 – 9/11/2026
+
+          Sort by the DELIVERY START date.
+        */
+
+        const firstDate =
+          text.split(/[–—-]/)[0]?.trim();
+
+        const timestamp =
+          Date.parse(firstDate);
+
+        return Number.isFinite(timestamp)
+          ? timestamp
+          : 0;
+
+      };
+
+
+    const statusValue =
+      value => {
+
+        const status =
+          cleanText(value)
+            .toLowerCase();
+
+        const order = {
+          pending: 1,
+          open: 2,
+          "near full": 3,
+          completed: 4,
+          overhauled: 5,
+          voided: 6
+        };
+
+        return order[status] ?? 99;
+
+      };
+
+
+    const naturalCompare =
+      (a, b) =>
+        cleanText(a).localeCompare(
+          cleanText(b),
+          undefined,
+          {
+            numeric: true,
+            sensitivity: "base"
+          }
+        );
+
+
+    const compareValues =
+      (a, b, type) => {
+
+        if (type === "number") {
+
+          return (
+            numberValue(a) -
+            numberValue(b)
+          );
+
+        }
+
+
+        if (type === "date") {
+
+          return (
+            dateValue(a) -
+            dateValue(b)
+          );
+
+        }
+
+
+        if (type === "status") {
+
+          return (
+            statusValue(a) -
+            statusValue(b)
+          );
+
+        }
+
+
+        return naturalCompare(a, b);
+
+      };
+
+
+    tableHead.addEventListener(
+      "click",
+      event => {
+
+        const header =
+          event.target.closest(
+            "th.sortable"
+          );
+
+
+        if (!header) {
+          return;
+        }
+
+
+        const headers =
+          Array.from(
+            tableHead.querySelectorAll("th")
+          );
+
+
+        const columnIndex =
+          headers.indexOf(header);
+
+
+        if (columnIndex < 0) {
+          return;
+        }
+
+
+        /*
+          Same column = reverse direction.
+
+          New column = start ascending.
+        */
+
+        if (activeColumn === columnIndex) {
+
+          activeDirection =
+            activeDirection === "asc"
+              ? "desc"
+              : "asc";
+
+        } else {
+
+          activeColumn =
+            columnIndex;
+
+          activeDirection =
+            "asc";
+
+        }
+
+
+        headers.forEach(
+          item => {
+
+            item.classList.remove(
+              "sort-asc",
+              "sort-desc"
+            );
+
+          }
+        );
+
+
+        header.classList.add(
+          activeDirection === "asc"
+            ? "sort-asc"
+            : "sort-desc"
+        );
+
+
+        const sortType =
+          header.dataset.sortType ||
+          "text";
+
+
+        const rows =
+          Array.from(
+            tableBody.querySelectorAll(
+              "tr"
+            )
+          )
+          .filter(
+            row =>
+              row.cells.length ===
+              headers.length
+          );
+
+
+        rows.sort(
+          (rowA, rowB) => {
+
+            const valueA =
+              rowA.cells[
+                columnIndex
+              ]?.textContent || "";
+
+            const valueB =
+              rowB.cells[
+                columnIndex
+              ]?.textContent || "";
+
+
+            const result =
+              compareValues(
+                valueA,
+                valueB,
+                sortType
+              );
+
+
+            return activeDirection ===
+              "asc"
+              ? result
+              : -result;
+
+          }
+        );
+
+
+        rows.forEach(
+          row =>
+            tableBody.appendChild(row)
+        );
+
+      }
+    );
+
+  })();
+</script>
+  
 </body>
 </html>
