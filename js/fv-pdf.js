@@ -1,4 +1,4 @@
-// /Farm-vista/js/fv-pdf.js
+// /js/fv-pdf.js
 // Shared helper for sending reports to the Cloud Run PDF service
 // and opening the generated PDF (mainly for mobile).
 //

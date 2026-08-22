@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/dash-markets-series.js  (FULL FILE)
+/js/dash-markets-series.js  (FULL FILE)
 Rev: 2026-01-29f
 Purpose:
 ✅ Time-range + series shaping helper for FarmVista Markets charts (standalone)

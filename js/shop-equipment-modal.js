@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/shop-equipment-modal.js  (FULL FILE)
+/js/shop-equipment-modal.js  (FULL FILE)
 Rev: 2026-03-05b
 Updates (per Dane):
 ✅ FIX: Unit ID now hydrates/saves correctly (canonical extras.unitId, mirrored to root unitId for compatibility)
@@ -30,7 +30,7 @@ import {
   orderBy,
   limit,
   serverTimestamp
-} from "/Farm-vista/js/firebase-init.js";
+} from "/js/firebase-init.js";
 
 (function(){
   const $ = (sel) => document.querySelector(sel);
@@ -573,7 +573,7 @@ import {
 
     state.woModuleLoading = (async ()=>{
       try{
-        const mod = await import("/Farm-vista/js/shop-equipment-wo-modal.js");
+        const mod = await import("/js/shop-equipment-wo-modal.js");
         state.woModule = mod || {};
         return state.woModule;
       }catch(e){
@@ -1281,7 +1281,7 @@ import {
 
     ensureEquipmentFormsLoaded._loading = new Promise((resolve)=>{
       const s = document.createElement("script");
-      s.src = "/Farm-vista/js/equipment-forms.js";
+      s.src = "/js/equipment-forms.js";
       s.defer = true;
       s.onload = ()=> resolve();
       s.onerror = ()=> resolve();

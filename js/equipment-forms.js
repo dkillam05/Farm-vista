@@ -1,5 +1,5 @@
 /* =======================================================================
-/Farm-vista/js/equipment-forms.js  (FULL FILE)
+/js/equipment-forms.js  (FULL FILE)
 Rev: 2026-02-04a  ✅ StarFire toggle now shows for IMPLEMENTS → TILLAGE
 
 Purpose:

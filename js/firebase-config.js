@@ -1,4 +1,4 @@
-// /Farm-vista/js/firebase-config.js
+// /js/firebase-config.js
 // Global Firebase config used by /js/firebase-init.js
 
 window.FV_FIREBASE_CONFIG = {

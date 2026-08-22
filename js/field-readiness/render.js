@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/field-readiness/render.js
+/js/field-readiness/render.js
 Rev: 2026-05-15-backend-eta-days-tiles
 
 PURPOSE:

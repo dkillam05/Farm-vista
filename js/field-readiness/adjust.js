@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/field-readiness/adjust.js  (FULL FILE)
+/js/field-readiness/adjust.js  (FULL FILE)
 Rev: 2025-12-29a
 
 Change (per Dane):

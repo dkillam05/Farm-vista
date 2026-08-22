@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/rainfallmap/renderers.js   (FULL FILE)
+/js/rainfallmap/renderers.js   (FULL FILE)
 Rev: 2026-03-15b-label-and-reset-tap-targets
 
 PURPOSE

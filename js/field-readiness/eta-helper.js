@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/field-readiness/eta-helper.js  (FULL FILE)
+/js/field-readiness/eta-helper.js  (FULL FILE)
 Rev: 2026-05-15-backend-eta-days-source
 
 Field ETA Helper
@@ -101,7 +101,7 @@ async function getFirebaseMod(){
 
   __fbModPromise = (async()=>{
     try{
-      const mod = await import('/Farm-vista/js/firebase-init.js');
+      const mod = await import('/js/firebase-init.js');
       if (mod && mod.ready) await mod.ready;
       return mod;
     }catch(e){

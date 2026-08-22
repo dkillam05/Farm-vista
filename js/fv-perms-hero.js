@@ -1,10 +1,10 @@
-// /Farm-vista/js/fv-perms-hero.js
+// /js/fv-perms-hero.js
 // Shared Permissions Panel (Hero + Nested Matrix) for:
 //  • Account Roles
 //  • Employee Overrides
 //
 // Usage (example):
-//   import '/Farm-vista/js/fv-perms-hero.js';
+//   import '/js/fv-perms-hero.js';
 //
 //   const panel = document.querySelector('fv-perms-hero');
 //   panel.config = {
@@ -41,7 +41,7 @@
 //      - Camera Pop-up -> when Expenditures OR Grain Tickets (OCR) has Add enabled
 //  • The toggle button is disabled (locked) because these are dependency-driven.
 
-import NAV_MENU from '/Farm-vista/js/menu.js';
+import NAV_MENU from '/js/menu.js';
 
 /* -------------------- Extra Feature (Capability) List -------------------- */
 

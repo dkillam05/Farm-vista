@@ -4,14 +4,14 @@
 (() => {
   if (customElements.get('fv-hero-card')) return;
 
-  // Detect base so @font-face works both locally and on /Farm-vista/
+  // Detect base so @font-face works both locally and on /
   const BASE = (() => {
     try {
       const src = (document.currentScript && document.currentScript.src) || '';
       const u = new URL(src, location.href);
       return u.pathname.replace(/\/js\/[^\/?#]+$/, '/'); // strip "/js/<file>"
     } catch {
-      return location.pathname.startsWith('/Farm-vista/') ? '/Farm-vista/' : '/';
+      return location.pathname.startsWith('/') ? '/' : '/';
     }
   })();
   const TTMOONS_URL = BASE + 'assets/fonts/ttmoons/TTMoons-Bold.woff2';

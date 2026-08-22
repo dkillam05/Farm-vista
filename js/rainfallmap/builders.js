@@ -1,5 +1,5 @@
 /* ======================================================================
-/Farm-vista/js/rainfallmap/builders.js   (FULL FILE)
+/js/rainfallmap/builders.js   (FULL FILE)
 Rev: 2026-05-11-field-conditions-current-cache-v2
 
 GOAL
@@ -50,11 +50,11 @@ import {
   loadFields as loadFrFields,
   loadFarmsOptional,
   fetchAndHydrateFieldParams
-} from '/Farm-vista/js/field-readiness/data.js';
+} from '/js/field-readiness/data.js';
 
-import { ensureFRModules } from '/Farm-vista/js/field-readiness/formula.js';
+import { ensureFRModules } from '/js/field-readiness/formula.js';
 
-import { getCurrentOp } from '/Farm-vista/js/field-readiness/thresholds.js';
+import { getCurrentOp } from '/js/field-readiness/thresholds.js';
 
 /* =====================================================================
    Centralized readiness collection

@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/shop-equipment-wo-modal.js  (NEW FILE)
+/js/shop-equipment-wo-modal.js  (NEW FILE)
 Rev: 2026-01-23c
 Purpose:
 ✅ Standalone "Add New Work Order" modal (multi-task, attachments)
@@ -31,7 +31,7 @@ import {
   ref,
   uploadBytes,
   getDownloadURL
-} from "/Farm-vista/js/firebase-init.js";
+} from "/js/firebase-init.js";
 
 (function(){
   const $id = (id)=> document.getElementById(id);

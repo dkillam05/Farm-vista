@@ -1,4 +1,4 @@
-// /Farm-vista/js/grain-contract-list.js
+// /js/grain-contract-list.js
 // Rev: 2026-08-17-grain-contract-list-v3-void-support
 //
 // PURPOSE:
@@ -37,7 +37,7 @@ import {
   doc,
   updateDoc,
   serverTimestamp
-} from "/Farm-vista/js/firebase-init.js";
+} from "/js/firebase-init.js";
 
 
 await ready;
@@ -460,7 +460,7 @@ function setupNavigation() {
       function() {
 
         window.location.href =
-          "/Farm-vista/pages/grain/grain-contracts.html";
+          "/pages/grain/grain-contracts.html";
 
       }
     );
@@ -472,7 +472,7 @@ function setupNavigation() {
       function() {
 
         window.location.href =
-          "/Farm-vista/pages/grain/grain-contract-add.html";
+          "/pages/grain/grain-contract-add.html";
 
       }
     );

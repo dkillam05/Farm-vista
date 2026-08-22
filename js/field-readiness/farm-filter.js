@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/field-readiness/farm-filter.js  (FULL FILE)
+/js/field-readiness/farm-filter.js  (FULL FILE)
 Rev: 2025-12-26a
 
 Builds the Farm filter dropdown based on the farms present in Field Readiness fields.

@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/dash-markets-chart.js  (FULL FILE)
+/js/dash-markets-chart.js  (FULL FILE)
 Rev: 2026-01-29c
 Purpose:
 ✅ Canvas chart renderer for FarmVista Markets modal (standalone helper)

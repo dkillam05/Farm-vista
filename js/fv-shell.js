@@ -1,7 +1,7 @@
-/* /Farm-vista/js/fv-shell.js */
+/* /js/fv-shell.js */
 /* FarmVista Shell — v5.10.23  (Mobile Quick Camera – Side Rail • Camera Popup with Close • Strong PTR Contract)
    - Mobile-only right-edge handle with “QR Scanner” and “Camera”.
-   - QR Scanner => /Farm-vista/pages/qr-scan.html (override via <html data-scan-url>).
+   - QR Scanner => /pages/qr-scan.html (override via <html data-scan-url>).
    - Camera => FarmVista popup with:
        • Receipt Scan → if already on Expenditures Add, it triggers that page’s “Take Photo” button.
                        otherwise, navigates to Expenditures Add (quick-camera mode).
@@ -31,10 +31,10 @@
   const CAP_CAMERA = 'cap-camera-popup';
   const QC_TEST_PARAM = 'qctest'; // 1 show, 0 hide
 
-  // Figure out whether we're in beta (/Farm-vista/beta/...) or live (/Farm-vista/...)
-  const FV_ROOT = location.pathname.startsWith('/Farm-vista/beta/')
-    ? '/Farm-vista/beta'
-    : '/Farm-vista';
+  // Figure out whether we're in beta (/beta/...) or live (/...)
+  const FV_ROOT = location.pathname.startsWith('/beta/')
+    ? '/beta'
+    : '';
 
   const tpl = document.createElement('template');
   tpl.innerHTML = `
@@ -362,7 +362,7 @@
   <aside class="drawer" part="drawer" aria-label="Main menu">
     <header>
       <div class="org">
-        <img src="/Farm-vista/assets/icons/icon-192.png" alt="" />
+        <img src="/assets/icons/icon-192.png" alt="" />
         <div class="org-text">
           <div class="org-name">Dowson Farms</div>
           <div class="org-loc">Divernon, Illinois</div>
@@ -378,7 +378,7 @@
 
   <section class="topdrawer js-top" role="dialog" aria-label="Account & settings">
     <div class="topwrap">
-      <div class="brandrow"><img src="/Farm-vista/assets/icons/icon-192.png" alt="" /><div class="brandname">FarmVista</div></div>
+      <div class="brandrow"><img src="/assets/icons/icon-192.png" alt="" /><div class="brandname">FarmVista</div></div>
 
       <div class="section-h">THEME</div>
       <div class="chips">
@@ -388,8 +388,8 @@
       </div>
 
       <div class="section-h">PROFILE</div>
-      <a class="row" id="userDetailsLink" href="/Farm-vista/pages/user-details/index.html"><div class="left"><div class="ico">🧾</div><div class="txt">User Details</div></div><div class="chev">›</div></a>
-      <a class="row" id="feedbackLink" href="/Farm-vista/pages/feedback/index.html"><div class="left"><div class="ico">💬</div><div class="txt">Feedback</div></div><div class="chev">›</div></a>
+      <a class="row" id="userDetailsLink" href="/pages/user-details/index.html"><div class="left"><div class="ico">🧾</div><div class="txt">User Details</div></div><div class="chev">›</div></a>
+      <a class="row" id="feedbackLink" href="/pages/feedback/index.html"><div class="left"><div class="ico">💬</div><div class="txt">Feedback</div></div><div class="chev">›</div></a>
 
       <div class="section-h">MAINTENANCE</div>
       <a class="row js-conn" href="#" tabindex="-1" aria-disabled="true" title="Shows Online only when network and cloud are both ready"><div class="left"><div class="ico">🌐</div><div class="txt">Connection: <span class="js-conn-text">Checking…</span></div></div><div class="chev">•</div></a>
@@ -477,7 +477,7 @@
       this._lastLogoutName = '';
       this._lastUID = '';
       this._lastRoleHash = '';
-      this.LOGIN_URL = '/Farm-vista/pages/login/index.html';
+      this.LOGIN_URL = '/pages/login/index.html';
 
       this._scrollLocked = false;
       this._scrollY = 0;
@@ -531,8 +531,8 @@
       this._cameraGrainBtn   = r.querySelector('.js-camera-grain');
       this._cameraCloseBtn   = r.querySelector('.js-camera-close');
 
-      // Beta detection: show badge only when running under /Farm-vista/beta/...
-      const isBeta = (FV_ROOT === '/Farm-vista/beta');
+      // Beta detection: show badge only when running under /beta/...
+      const isBeta = (FV_ROOT === '/beta');
       if (isBeta && this._betaBadge) {
         this._betaBadge.hidden = false;
       }
@@ -585,7 +585,7 @@
           }
 
           // Otherwise, navigate to Expenditures Add in quick-camera mode.
-          const target = '/Farm-vista/pages/expenses/expenditures/expenditures-add.html?src=quick-camera';
+          const target = '/pages/expenses/expenditures/expenditures-add.html?src=quick-camera';
           location.href = target;
         });
       }
@@ -598,7 +598,7 @@ if (this._cameraGrainBtn) {
     this._closeCameraModal();
 
     location.href =
-      '/Farm-vista/pages/grain/grain-ticket-scan.html';
+      '/pages/grain/grain-ticket-scan.html';
   });
 }
 
@@ -791,21 +791,21 @@ _hideBootOverlayWithOptionalHold(){
     /* =============================== */
 
     async _bootSequence(){
-      await this._loadScriptOnce('/Farm-vista/js/version.js').catch(()=>{});
+      await this._loadScriptOnce('/js/version.js').catch(()=>{});
       this._applyVersionToUI();
 
-      await this._loadScriptOnce('/Farm-vista/js/firebase-config.js').catch(()=>{});
+      await this._loadScriptOnce('/js/firebase-config.js').catch(()=>{});
       await this._ensureFirebaseInit();
 
-      await this._loadScriptOnce('/Farm-vista/js/app/user-context.js').catch(()=>{});
-      await this._loadScriptOnce('/Farm-vista/js/menu-acl.js').catch(()=>{});
+      await this._loadScriptOnce('/js/app/user-context.js').catch(()=>{});
+      await this._loadScriptOnce('/js/menu-acl.js').catch(()=>{});
 
 // Phase A (hard): auth only
 // Public legal/compliance pages are allowed without login.
 const publicPaths = new Set([
-  '/Farm-vista/pages/user-details/privacy-policy.html',
-  '/Farm-vista/pages/user-details/terms-and-conditions.html',
-  '/Farm-vista/pages/user-details/sms-messaging.html'
+  '/pages/user-details/privacy-policy.html',
+  '/pages/user-details/terms-and-conditions.html',
+  '/pages/user-details/sms-messaging.html'
 ]);
 
 const isPublicPage =
@@ -955,14 +955,14 @@ this._watchUserContextForSwaps();
       try {
         if (!window.__FV_FIREBASE_INIT_LOADED__) {
           window.__FV_FIREBASE_INIT_LOADED__ = true;
-          await this._loadScriptOnce('/Farm-vista/js/firebase-init.js', { type:'module' });
+          await this._loadScriptOnce('/js/firebase-init.js', { type:'module' });
         }
       } catch {}
     }
 
     async _isAuthed(){
       try{
-        const mod = await import('/Farm-vista/js/firebase-init.js');
+        const mod = await import('/js/firebase-init.js');
         const ctx = await mod.ready;
         const auth = (ctx && ctx.auth) || window.firebaseAuth || null;
         return !!(auth && auth.currentUser);
@@ -1110,7 +1110,7 @@ this._watchUserContextForSwaps();
     async _loadMenu(){
       // ✅ stable import (no Date.now cache bust). Beta/live aware.
       const primary = `${FV_ROOT}/js/menu.js`;
-      const fallback = `/Farm-vista/js/menu.js`;
+      const fallback = `/js/menu.js`;
 
       try{
         const mod = await import(primary);
@@ -1164,7 +1164,7 @@ this._watchUserContextForSwaps();
       const p = href ? new URL(href, location.href).pathname : '';
       if (id.includes('home') || id.includes('dashboard')) return true;
       if (lbl.includes('home') || lbl.includes('dashboard')) return true;
-      return (p === '/Farm-vista/' || p === '/Farm-vista/index.html');
+      return (p === '/' || p === '/index.html');
     }
 
     /* ============================================================
@@ -1320,9 +1320,9 @@ this._watchUserContextForSwaps();
       const mkLink = (item, depth=0) => {
         const a = document.createElement('a');
 
-        // Normalize href: if it starts with /Farm-vista/, remap it to FV_ROOT
+        // Normalize href: if it starts with /, remap it to FV_ROOT
         let href = item.href || '#';
-        if (href.startsWith('/Farm-vista/')) {
+        if (href.startsWith('/')) {
           href = FV_ROOT + href.substring('/Farm-vista'.length);
         }
         a.href = href;
@@ -1724,7 +1724,7 @@ this._watchUserContextForSwaps();
 
       const readTargetVersion = async ()=>{
         try{
-          const resp = await fetch('/Farm-vista/js/version.js?ts=' + Date.now(), { cache:'reload' });
+          const resp = await fetch('/js/version.js?ts=' + Date.now(), { cache:'reload' });
           const txt = await resp.text();
           const m =
             txt.match(/number\s*:\s*["']([\d.]+)["']/) ||
@@ -1774,7 +1774,7 @@ this._watchUserContextForSwaps();
         if (navigator.serviceWorker) {
           try {
             const reg = await navigator.serviceWorker.register(
-              '/Farm-vista/serviceworker.js?ts=' + Date.now()
+              '/serviceworker.js?ts=' + Date.now()
             );
             if (reg?.waiting && reg.waiting.postMessage) {
               reg.waiting.postMessage('SKIP_WAITING');
@@ -1825,7 +1825,7 @@ this._watchUserContextForSwaps();
 
       // Open actions
       const html = document.documentElement;
-      const scanURL   = html.getAttribute('data-scan-url')   || '/Farm-vista/pages/qr-scan.html';
+      const scanURL   = html.getAttribute('data-scan-url')   || '/pages/qr-scan.html';
 
       if (this._qcScan) this._qcScan.addEventListener('click', (e)=>{
         e.preventDefault();
@@ -1892,7 +1892,7 @@ this._watchUserContextForSwaps();
 
   // Optional global fallbacks (kept for compatibility with older pages)
   document.addEventListener('fv:open:qr', () => {
-    location.href = '/Farm-vista/pages/qr-scan.html';
+    location.href = '/pages/qr-scan.html';
   });
   document.addEventListener('fv:open:camera', () => {
     try {

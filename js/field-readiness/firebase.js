@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/field-readiness/firebase.js  (FULL FILE)
+/js/field-readiness/firebase.js  (FULL FILE)
 Rev: 2025-12-26a
 Wrapper around firebase-init.js.
 ===================================================================== */

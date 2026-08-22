@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/field-readiness/range.js  (FULL FILE)
+/js/field-readiness/range.js  (FULL FILE)
 Rev: 2025-12-26d
 
 Fix:

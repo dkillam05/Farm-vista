@@ -6,7 +6,7 @@
   const MSG_CARD_ID = 'msg-board-card';
   const LS_KEY = 'df_message_board';
 
-  // Detect the app base from this script’s path, e.g. "/Farm-vista/"
+  // Detect the app base from this script’s path, e.g. "/"
   const BASE = (() => {
     try {
       const src = (document.currentScript && document.currentScript.src) || '';
@@ -14,8 +14,8 @@
       // strip trailing "/js/<file>"
       return u.pathname.replace(/\/js\/[^\/?#]+$/, '/');
     } catch {
-      // Fallback: if path contains "/Farm-vista/", use it; else root
-      return location.pathname.startsWith('/Farm-vista/') ? '/Farm-vista/' : '/';
+      // Fallback: if path contains "/", use it; else root
+      return location.pathname.startsWith('/') ? '/' : '/';
     }
   })();
 

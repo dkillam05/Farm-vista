@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/field-readiness/swipe.js  (FULL FILE)
+/js/field-readiness/swipe.js  (FULL FILE)
 Rev: 2025-12-26b
 
 Swipe is MOBILE ONLY:
@@ -10,7 +10,7 @@ Swipe is MOBILE ONLY:
 
 import { canEdit } from './perm.js';
 
-const SWIPE_CSS_HREF = '/Farm-vista/assets/css/swipe-list.css';
+const SWIPE_CSS_HREF = '/assets/css/swipe-list.css';
 
 function isTouchLike(){
   try{
@@ -47,7 +47,7 @@ export async function initSwipeOnTiles(state, { onDetails }){
 
   let swipe = null;
   try{
-    swipe = await import('/Farm-vista/js/fv-swipe-list.js');
+    swipe = await import('/js/fv-swipe-list.js');
   }catch(e){
     console.warn('[FieldReadiness] swipe import failed:', e);
     return;

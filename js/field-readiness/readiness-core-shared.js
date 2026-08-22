@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/field-readiness/readiness-core-shared.js  (FULL FILE)
+/js/field-readiness/readiness-core-shared.js  (FULL FILE)
 Rev: 2026-03-15b-parity-core-rain-precedence-and-avg-loss-fix
 
 PURPOSE

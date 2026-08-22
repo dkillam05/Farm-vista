@@ -1,5 +1,5 @@
 /* ====================================================================
-// /Farm-vista/js/trials-mh-yield-helper.js
+// /js/trials-mh-yield-helper.js
 Reusable Multi-Hybrid Yield helper engine.
 Now:
  • Drives the modal UI (setup + blocks)
@@ -25,7 +25,7 @@ import {
   collection,
   getDocs,
   serverTimestamp
-} from '/Farm-vista/js/firebase-init.js';
+} from '/js/firebase-init.js';
 
 export function initMhYieldHelper(options = {}) {
   const PASS_WIDTH_OPTIONS = [15,20,25,30,35,40,45,50,60];

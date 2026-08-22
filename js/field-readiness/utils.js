@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/field-readiness/utils.js  (FULL FILE)
+/js/field-readiness/utils.js  (FULL FILE)
 Rev: 2025-12-26a
 Shared tiny helpers only.
 ===================================================================== */
