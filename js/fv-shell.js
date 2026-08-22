@@ -1320,12 +1320,14 @@ this._watchUserContextForSwaps();
       const mkLink = (item, depth=0) => {
         const a = document.createElement('a');
 
-        // Normalize href: if it starts with /, remap it to FV_ROOT
-        let href = item.href || '#';
-        if (href.startsWith('/')) {
-          href = FV_ROOT + href.substring('/Farm-vista'.length);
-        }
-        a.href = href;
+// Normalize root-absolute menu href for live or beta
+let href = item.href || '#';
+
+if (href.startsWith('/')) {
+  href = FV_ROOT + href;
+}
+
+a.href = href;
 
         a.innerHTML = `<span>${item.icon||''}</span> ${item.label}`;
         a.style.paddingLeft = pad(depth);
