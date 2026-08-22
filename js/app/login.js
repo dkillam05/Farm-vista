@@ -1,4 +1,4 @@
-// /Farm-vista/js/app/login.js
+// /js/app/login.js
 // FarmVista Login
 // Email/password + employee-authorized phone authentication.
 //

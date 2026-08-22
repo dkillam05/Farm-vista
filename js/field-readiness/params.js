@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/field-readiness/params.js  (FULL FILE)
+/js/field-readiness/params.js  (FULL FILE)
 Rev: 2026-03-13b-harden-perfieldparams-init-no-trim
 
 Per-field sliders cache + LIVE update while sliding.

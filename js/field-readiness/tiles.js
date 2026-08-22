@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/field-readiness/tiles.js  (FULL FILE)
+/js/field-readiness/tiles.js  (FULL FILE)
 Rev: 2025-12-26a
 
 This is currently a minimal renderer placeholder.

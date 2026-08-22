@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/field-readiness/rain.js  (FULL FILE)
+/js/field-readiness/rain.js  (FULL FILE)
 Rev: 2026-03-12a-default-72h
 
 Changes (per Dane):

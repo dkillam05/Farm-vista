@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/dash-markets-style.js  (FULL FILE)
+/js/dash-markets-style.js  (FULL FILE)
 Rev: 2026-01-28b
 Purpose:
 ✅ Restores Markets modal styling after UI split

@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/field-readiness/quickview.js  (FULL FILE)
+/js/field-readiness/quickview.js  (FULL FILE)
 Rev: 2026-05-14-cloud-run-preview-full-file-fixed
 
 GOAL:

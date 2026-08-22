@@ -1,5 +1,5 @@
 /* =======================================================================
-   /Farm-vista/js/boundary-drive-open.js   (FULL FILE)
+   /js/boundary-drive-open.js   (FULL FILE)
    Rev: 2026-01-21i-report-clone-drive-only-perfect
 
    ✅ COPY OF reports-boundary-requests.html UI/behavior for SCREEN (tiles + details + photo viewer)
@@ -26,7 +26,7 @@ import {
   updateDoc,
   query, where, orderBy,
   serverTimestamp
-} from '/Farm-vista/js/firebase-init.js';
+} from '/js/firebase-init.js';
 
 /* ===========================
    CONFIG (copied)

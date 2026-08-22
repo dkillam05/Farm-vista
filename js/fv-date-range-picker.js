@@ -1,5 +1,5 @@
 /* ======================================================================
-/Farm-vista/js/fv-date-range-picker.js   (FULL FILE)
+/js/fv-date-range-picker.js   (FULL FILE)
 Rev: 2026-03-15b-fix-single-day-apply-and-range-commit
 
 PURPOSE

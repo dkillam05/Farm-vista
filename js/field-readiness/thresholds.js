@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/field-readiness/thresholds.js  (FULL FILE)
+/js/field-readiness/thresholds.js  (FULL FILE)
 Rev: 2025-12-26a
 
 Restores full thresholds system:

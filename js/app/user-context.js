@@ -1,4 +1,4 @@
-/* /Farm-vista/js/app/user-context.js
+/* /js/app/user-context.js
    FarmVista — UserContext (Session Locker)
 
    PHONE AUTH UPDATE — 2026-08-19
@@ -28,8 +28,8 @@
 
 
   const HOME_PATHS = [
-    '/Farm-vista/index.html',
-    '/Farm-vista/',
+    '/index.html',
+    '/',
   ];
 
 
@@ -306,7 +306,7 @@
   async function importFirebase(){
 
     return await import(
-      '/Farm-vista/js/firebase-init.js'
+      '/js/firebase-init.js'
     );
 
   }
@@ -316,7 +316,7 @@
 
     const module =
       await import(
-        '/Farm-vista/js/menu.js'
+        '/js/menu.js'
       );
 
 

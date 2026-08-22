@@ -1,5 +1,5 @@
 /* =======================================================================
-/Farm-vista/js/fv-yield-math.js
+/js/fv-yield-math.js
 Rev: 2025-11-26c
 
 Shared yield-math helpers for FarmVista.
@@ -22,7 +22,7 @@ Usage example (trials page):
     calcAcresFromDimensions,
     getDefaultHeaderWidthFt,
     HEADER_WIDTH_OPTIONS_FT
-  } from '/Farm-vista/js/fv-yield-math.js';
+  } from '/js/fv-yield-math.js';
 
   const headerWidthFt = getDefaultHeaderWidthFt('corn'); // e.g. 30
   const acres = calcAcresFromDimensions({

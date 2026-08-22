@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/field-readiness.ui.js  (FULL FILE)
+/js/field-readiness.ui.js  (FULL FILE)
 Rev: 2025-12-23j
 
 FIXES (per Dane):
@@ -15,7 +15,7 @@ import {
   fetchWeatherForField,
   warmWeatherForFields,
   getWeatherSeriesForFieldId
-} from '/Farm-vista/js/field-readiness.weather.js';
+} from '/js/field-readiness.weather.js';
 
 import {
   runField,
@@ -23,7 +23,7 @@ import {
   readinessColor,
   markerLeftCSS,
   modelClassFromRun
-} from '/Farm-vista/js/field-readiness.model.js';
+} from '/js/field-readiness.model.js';
 
 /* ---------- helpers ---------- */
 const $ = id => document.getElementById(id);
@@ -210,7 +210,7 @@ function debounceRender(){
 /* ---------- firebase-init ---------- */
 async function importFirebaseInit(){
   try{
-    const mod = await import('/Farm-vista/js/firebase-init.js');
+    const mod = await import('/js/firebase-init.js');
     state.fb = mod;
     if (mod && mod.ready) await mod.ready;
     return true;

@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/crop-planning/crop-planning-data.js  (FULL FILE)
+/js/crop-planning/crop-planning-data.js  (FULL FILE)
 Rev: 2025-12-31a
 
 Changes:
@@ -16,7 +16,7 @@ import {
   collection, getDocs,
   doc, setDoc, deleteDoc,
   serverTimestamp
-} from '/Farm-vista/js/firebase-init.js';
+} from '/js/firebase-init.js';
 
 const norm = (s) => String(s || '').trim().toLowerCase();
 

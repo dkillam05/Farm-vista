@@ -1,4 +1,4 @@
-// /Farm-vista/js/grain-ticket-add.js
+// /js/grain-ticket-add.js
 // FarmVista — Manual Grain Ticket Entry
 //
 // Matches the CURRENT grain-ticket-add.html IDs.
@@ -25,7 +25,7 @@ import {
   doc,
   updateDoc,
   serverTimestamp
-} from "/Farm-vista/js/firebase-init.js";
+} from "/js/firebase-init.js";
 
 await ready;
 
@@ -5470,7 +5470,7 @@ async function saveTicket(
 
 
     window.location.href =
-      "/Farm-vista/pages/grain/grain-ticket.html";
+      "/pages/grain/grain-ticket.html";
 
   }
   catch (
@@ -5578,7 +5578,7 @@ function setupEvents() {
     () => {
 
       window.location.href =
-        "/Farm-vista/pages/grain/grain-ticket.html";
+        "/pages/grain/grain-ticket.html";
 
     };
 

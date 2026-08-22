@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/rainfallmap/render-flow.js   (FULL FILE)
+/js/rainfallmap/render-flow.js   (FULL FILE)
 Rev: 2026-03-17a-force-map-mode-select-sync
 
 PURPOSE

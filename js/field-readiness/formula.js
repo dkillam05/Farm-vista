@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/field-readiness/formula.js  (FULL FILE)
+/js/field-readiness/formula.js  (FULL FILE)
 Rev: 2026-03-30b-fix-eta-forecast-fallback-from-latest-doc
 
 PURPOSE:
@@ -65,8 +65,8 @@ import { mrmsBackfillReady } from './rain.js';
 /* =====================================================================
    Module loading (same approach as render.js)
 ===================================================================== */
-const WEATHER_URL = '/Farm-vista/js/field-readiness.weather.js';
-const MODEL_URL   = '/Farm-vista/js/field-readiness.model.js';
+const WEATHER_URL = '/js/field-readiness.weather.js';
+const MODEL_URL   = '/js/field-readiness.model.js';
 const MRMS_COLLECTION = 'field_mrms_weather';
 const MRMS_DOC_TTL_MS = 5 * 60 * 1000;
 

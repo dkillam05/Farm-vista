@@ -1,5 +1,5 @@
 /* =====================================================================
-/Farm-vista/js/field-readiness/global-calibration.js  (FULL FILE)
+/js/field-readiness/global-calibration.js  (FULL FILE)
 Rev: 2026-05-15-field-conditions-current-fix
 ===================================================================== */
 

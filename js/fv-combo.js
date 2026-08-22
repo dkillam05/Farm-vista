@@ -1,4 +1,4 @@
-/* /Farm-vista/js/fv-combo.js
+/* /js/fv-combo.js
    FarmVista Combo Upgrader — v1.4.1
    - Rounded, tight “buttonish + combo panel”.
    - Portals to <body> so parents can’t clip it.

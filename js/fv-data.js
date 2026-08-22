@@ -26,7 +26,7 @@
 
     // Prefer modular init
     try {
-      const mod = await import('/Farm-vista/js/firebase-init.js');
+      const mod = await import('/js/firebase-init.js');
       const ctx = mod.ready ? await mod.ready : null;
       const app = (ctx && ctx.app) || (mod.getApp && mod.getApp()) || null;
       const auth = (ctx && ctx.auth) || (mod.getAuth && mod.getAuth()) || null;
@@ -74,7 +74,7 @@
       return bind;
     }
 
-    throw new Error('[FVData] Firebase not initialized. Ensure theme-boot.js ran and /Farm-vista/js/firebase-init.js is reachable.');
+    throw new Error('[FVData] Firebase not initialized. Ensure theme-boot.js ran and /js/firebase-init.js is reachable.');
   }
 
   const now = async () => (await bindFirebase()).fns.serverTimestamp();
