@@ -1,0 +1,2514 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+
+  <title>FarmVista • Grain Ticket Alerts</title>
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, viewport-fit=cover"
+  />
+
+  <meta
+    name="theme-color"
+    content="#3B7E46"
+  />
+
+  <script src="/js/theme-boot.js"></script>
+
+  <link
+    rel="manifest"
+    href="/manifest.webmanifest"
+  />
+
+  <link
+    rel="apple-touch-icon"
+    href="/assets/icons/apple-touch-icon.png"
+  />
+
+  <link
+    rel="icon"
+    href="/assets/icons/icon-192.png"
+  />
+
+  <link
+    rel="stylesheet"
+    href="/assets/css/theme.css"
+  />
+
+  <link
+    rel="stylesheet"
+    href="/assets/css/app.css"
+  />
+
+  <style>
+
+    :root{
+      --fv-green:#2F6C3C;
+      --fv-green-soft:#EAF4EC;
+      --fv-amber:#B86A00;
+      --fv-amber-soft:#FFF3DD;
+      --fv-red:#B3261E;
+      --fv-red-soft:#FDECEB;
+    }
+
+    .page{
+      max-width:1100px;
+      margin:0 auto;
+      padding:clamp(14px,3vw,22px);
+      padding-bottom:
+        calc(
+          env(safe-area-inset-bottom,0px) +
+          var(--ftr-h,42px) +
+          96px
+        ) !important;
+    }
+
+    .page-title{
+      margin:0 0 8px;
+    }
+
+    .page-sub{
+      margin:0 0 18px;
+      color:var(--muted,#67706B);
+      line-height:1.45;
+    }
+
+    .section{
+      border:1px solid var(--border);
+      border-radius:16px;
+      background:var(--surface);
+      box-shadow:
+        var(
+          --shadow,
+          0 8px 20px rgba(0,0,0,.08)
+        );
+      overflow:hidden;
+      margin-bottom:16px;
+    }
+
+    .section-head{
+      display:flex;
+      gap:12px;
+      align-items:flex-start;
+      padding:15px 16px;
+      border-bottom:1px solid var(--border);
+      background:
+        linear-gradient(
+          90deg,
+          rgba(47,108,60,.12),
+          transparent
+        );
+    }
+
+    .section-icon{
+      width:28px;
+      height:28px;
+      display:grid;
+      place-items:center;
+      flex:0 0 auto;
+      font-size:21px;
+    }
+
+    .section-title{
+      margin:0;
+      font-size:1.04rem;
+      font-weight:850;
+    }
+
+    .section-help{
+      margin:3px 0 0;
+      color:var(--muted,#67706B);
+      font-size:.91rem;
+      line-height:1.4;
+    }
+
+    .section-body{
+      padding:16px;
+    }
+
+    .master-row{
+      display:flex;
+      gap:14px;
+      align-items:center;
+      justify-content:space-between;
+    }
+
+    .master-copy{
+      min-width:0;
+    }
+
+    .master-copy strong{
+      display:block;
+      margin-bottom:3px;
+    }
+
+    .master-copy span{
+      display:block;
+      color:var(--muted,#67706B);
+      font-size:.9rem;
+      line-height:1.4;
+    }
+
+    .switch{
+      position:relative;
+      width:52px;
+      height:30px;
+      flex:0 0 auto;
+    }
+
+    .switch input{
+      position:absolute;
+      opacity:0;
+      pointer-events:none;
+    }
+
+    .switch-track{
+      position:absolute;
+      inset:0;
+      border-radius:999px;
+      background:#B8BDBA;
+      cursor:pointer;
+      transition:.18s ease;
+    }
+
+    .switch-track::after{
+      content:"";
+      position:absolute;
+      width:24px;
+      height:24px;
+      left:3px;
+      top:3px;
+      border-radius:50%;
+      background:#fff;
+      box-shadow:0 1px 5px rgba(0,0,0,.28);
+      transition:.18s ease;
+    }
+
+    .switch input:checked + .switch-track{
+      background:var(--fv-green);
+    }
+
+    .switch input:checked + .switch-track::after{
+      transform:translateX(22px);
+    }
+
+    .crop-grid{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:16px;
+    }
+
+    @media(max-width:850px){
+      .crop-grid{
+        grid-template-columns:1fr;
+      }
+    }
+
+    .crop-card{
+      border:1px solid var(--border);
+      border-radius:15px;
+      overflow:hidden;
+      background:
+        var(
+          --card-surface,
+          var(--surface)
+        );
+    }
+
+    .crop-head{
+      padding:15px 16px;
+      border-bottom:1px solid var(--border);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+    }
+
+    .crop-name{
+      font-size:1.15rem;
+      font-weight:900;
+    }
+
+    .crop-tag{
+      font-size:.78rem;
+      font-weight:800;
+      padding:5px 9px;
+      border-radius:999px;
+      background:var(--fv-green-soft);
+      color:var(--fv-green);
+    }
+
+    .metric{
+      padding:16px;
+      border-bottom:1px solid var(--border);
+    }
+
+    .metric:last-child{
+      border-bottom:0;
+    }
+
+    .metric-title{
+      margin:0 0 4px;
+      font-weight:900;
+      font-size:1rem;
+    }
+
+    .metric-help{
+      margin:0 0 14px;
+      color:var(--muted,#67706B);
+      font-size:.86rem;
+      line-height:1.4;
+    }
+
+    .rule{
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:12px;
+      margin-top:10px;
+    }
+
+    .rule.severe{
+      border-color:
+        color-mix(
+          in srgb,
+          var(--fv-red) 42%,
+          var(--border)
+        );
+      background:
+        color-mix(
+          in srgb,
+          var(--fv-red-soft) 68%,
+          var(--surface)
+        );
+    }
+
+    .rule.trend{
+      border-color:
+        color-mix(
+          in srgb,
+          var(--fv-amber) 42%,
+          var(--border)
+        );
+      background:
+        color-mix(
+          in srgb,
+          var(--fv-amber-soft) 68%,
+          var(--surface)
+        );
+    }
+
+    .rule-head{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:12px;
+      margin-bottom:10px;
+    }
+
+    .rule-title{
+      font-weight:900;
+      font-size:.93rem;
+    }
+
+    .rule-note{
+      display:block;
+      margin-top:2px;
+      color:var(--muted,#67706B);
+      font-size:.8rem;
+      line-height:1.3;
+    }
+
+    .rule-fields{
+      display:grid;
+      grid-template-columns:1fr;
+      gap:10px;
+    }
+
+    .rule-fields.two{
+      grid-template-columns:1fr 1fr;
+    }
+
+    @media(max-width:520px){
+      .rule-fields.two{
+        grid-template-columns:1fr;
+      }
+    }
+
+    .field label{
+      display:block;
+      font-size:.8rem;
+      font-weight:800;
+      margin:0 0 5px;
+      color:var(--muted,#67706B);
+    }
+
+    .threshold-wrap{
+      display:grid;
+      grid-template-columns:46px 1fr 40px;
+      gap:7px;
+      align-items:center;
+    }
+
+    .threshold-sign{
+      height:44px;
+      border:1px solid var(--border);
+      border-radius:10px;
+      display:grid;
+      place-items:center;
+      font-weight:950;
+      font-size:1.2rem;
+      background:var(--surface);
+    }
+
+    .threshold-unit{
+      font-weight:850;
+      text-align:center;
+      color:var(--muted,#67706B);
+    }
+
+    .input{
+      width:100%;
+      min-width:0;
+      height:44px;
+      padding:10px 12px;
+      border:1px solid var(--border);
+      border-radius:10px;
+      background:var(--surface);
+      color:var(--text);
+      font:inherit;
+      font-size:16px;
+      outline:none;
+    }
+
+    .input:focus{
+      border-color:var(--fv-green);
+      box-shadow:0 0 0 3px rgba(47,108,60,.12);
+    }
+
+    .count-wrap{
+      display:grid;
+      grid-template-columns:1fr auto;
+      gap:7px;
+      align-items:center;
+    }
+
+    .count-unit{
+      font-size:.85rem;
+      font-weight:800;
+      color:var(--muted,#67706B);
+      white-space:nowrap;
+    }
+
+    .recipient-list{
+      display:grid;
+      gap:9px;
+    }
+
+    .recipient{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:12px;
+      padding:10px 12px;
+      border:1px solid var(--border);
+      border-radius:11px;
+      background:
+        var(
+          --card-surface,
+          var(--surface)
+        );
+    }
+
+    .recipient-name{
+      font-weight:850;
+    }
+
+    .recipient-phone{
+      font-size:.84rem;
+      color:var(--muted,#67706B);
+      margin-top:2px;
+    }
+
+    .recipient-status{
+      font-size:.78rem;
+      font-weight:850;
+      padding:5px 8px;
+      border-radius:999px;
+      background:var(--fv-green-soft);
+      color:var(--fv-green);
+      white-space:nowrap;
+    }
+
+    .empty{
+      color:var(--muted,#67706B);
+      font-size:.9rem;
+      line-height:1.45;
+      padding:4px 0;
+    }
+
+    .summary{
+      display:grid;
+      gap:8px;
+    }
+
+    .summary-row{
+      display:flex;
+      align-items:flex-start;
+      gap:10px;
+      font-size:.9rem;
+      line-height:1.4;
+    }
+
+    .summary-dot{
+      width:9px;
+      height:9px;
+      border-radius:50%;
+      margin-top:5px;
+      flex:0 0 auto;
+    }
+
+    .summary-dot.severe{
+      background:var(--fv-red);
+    }
+
+    .summary-dot.trend{
+      background:var(--fv-amber);
+    }
+
+    .actions{
+      display:flex;
+      gap:12px;
+      justify-content:center;
+      flex-wrap:wrap;
+      margin-top:18px;
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:150px;
+      min-height:46px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background:
+        var(
+          --card-surface,
+          var(--surface)
+        );
+      color:var(--text);
+      font:inherit;
+      font-weight:850;
+      cursor:pointer;
+      padding:11px 16px;
+    }
+
+    .btn-primary{
+      background:var(--fv-green);
+      border-color:var(--fv-green);
+      color:#fff;
+    }
+
+    .btn:disabled{
+      opacity:.55;
+      pointer-events:none;
+    }
+
+    .toast{
+      position:fixed;
+      left:50%;
+      bottom:
+        calc(
+          env(safe-area-inset-bottom,0px) +
+          72px
+        );
+      transform:translateX(-50%);
+      z-index:99999;
+      display:none;
+      padding:10px 14px;
+      border-radius:10px;
+      background:var(--fv-green);
+      color:#fff;
+      box-shadow:0 6px 20px rgba(0,0,0,.25);
+      font-weight:750;
+    }
+
+    .toast.show{
+      display:block;
+      animation:toastOut 2.8s forwards;
+    }
+
+    @keyframes toastOut{
+      0%{opacity:1}
+      85%{opacity:1}
+      100%{opacity:0}
+    }
+
+    .disabled-area{
+      opacity:.5;
+      pointer-events:none;
+    }
+
+    html[data-theme="dark"] .crop-tag,
+    body[data-theme="dark"] .crop-tag,
+    body.theme-dark .crop-tag,
+    html[data-theme="dark"] .recipient-status,
+    body[data-theme="dark"] .recipient-status,
+    body.theme-dark .recipient-status{
+      background:#2F6C3C;
+      color:#fff;
+    }
+
+  </style>
+
+  <script>
+    (function(){
+
+      if(
+        !customElements.get(
+          "fv-shell"
+        )
+      ){
+
+        const script =
+          document.createElement(
+            "script"
+          );
+
+        script.src =
+          "/js/fv-shell.js";
+
+        script.defer =
+          true;
+
+        document.head.appendChild(
+          script
+        );
+
+      }
+
+    })();
+  </script>
+
+  <script src="/js/firebase-config.js"></script>
+
+</head>
+
+<body>
+
+  <fv-shell>
+
+    <main class="page container">
+
+      <h1 class="page-title">
+        Grain Ticket Alerts
+      </h1>
+
+      <p class="page-sub">
+        Set the grain-quality levels that should notify employees enrolled in Grain Ticket Alerts.
+        Severe limits can alert from a single ticket. Repeated elevated limits are for catching a pattern
+        across several tickets even when no single ticket is severe.
+      </p>
+
+
+      <section class="section">
+
+        <header class="section-head">
+
+          <div class="section-icon">
+            🔔
+          </div>
+
+          <div>
+            <h2 class="section-title">
+              Alert Status
+            </h2>
+
+            <p class="section-help">
+              Turn all grain ticket quality alerts on or off without changing your saved limits.
+            </p>
+          </div>
+
+        </header>
+
+        <div class="section-body">
+
+          <div class="master-row">
+
+            <div class="master-copy">
+              <strong>
+                Grain Ticket Alerts
+              </strong>
+
+              <span>
+                When enabled, saved grain tickets can be checked against the rules below.
+              </span>
+            </div>
+
+            <label
+              class="switch"
+              aria-label="Enable Grain Ticket Alerts"
+            >
+              <input
+                id="alertsEnabled"
+                type="checkbox"
+                checked
+              />
+
+              <span class="switch-track"></span>
+            </label>
+
+          </div>
+
+        </div>
+
+      </section>
+
+
+      <section
+        id="rulesArea"
+        class="section"
+      >
+
+        <header class="section-head">
+
+          <div class="section-icon">
+            🌽
+          </div>
+
+          <div>
+            <h2 class="section-title">
+              Quality Rules
+            </h2>
+
+            <p class="section-help">
+              Corn and Soybeans have separate Damage and Foreign Material limits.
+            </p>
+          </div>
+
+        </header>
+
+
+        <div class="section-body">
+
+          <div class="crop-grid">
+
+
+            <!-- ===================================================
+                 CORN
+            ==================================================== -->
+
+            <article class="crop-card">
+
+              <header class="crop-head">
+
+                <div class="crop-name">
+                  Corn
+                </div>
+
+                <div class="crop-tag">
+                  CORN
+                </div>
+
+              </header>
+
+
+              <!-- Damage -->
+              <div class="metric">
+
+                <h3 class="metric-title">
+                  Damage
+                </h3>
+
+                <p class="metric-help">
+                  Alert when Damage reaches or exceeds the limits below.
+                </p>
+
+
+                <div class="rule severe">
+
+                  <div class="rule-head">
+
+                    <div>
+                      <div class="rule-title">
+                        Severe
+                      </div>
+
+                      <span class="rule-note">
+                        One ticket can trigger an immediate alert.
+                      </span>
+                    </div>
+
+                    <label class="switch">
+                      <input
+                        id="cornDamageSevereEnabled"
+                        type="checkbox"
+                        checked
+                      />
+                      <span class="switch-track"></span>
+                    </label>
+
+                  </div>
+
+                  <div class="rule-fields">
+
+                    <div class="field">
+                      <label for="cornDamageSevere">
+                        Severe Damage
+                      </label>
+
+                      <div class="threshold-wrap">
+                        <div class="threshold-sign">≥</div>
+
+                        <input
+                          id="cornDamageSevere"
+                          class="input"
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.1"
+                          value="8.0"
+                        />
+
+                        <div class="threshold-unit">
+                          %
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+
+                </div>
+
+
+                <div class="rule trend">
+
+                  <div class="rule-head">
+
+                    <div>
+                      <div class="rule-title">
+                        Repeated Elevated
+                      </div>
+
+                      <span class="rule-note">
+                        Alert when several consecutive tickets are running high.
+                      </span>
+                    </div>
+
+                    <label class="switch">
+                      <input
+                        id="cornDamageTrendEnabled"
+                        type="checkbox"
+                        checked
+                      />
+                      <span class="switch-track"></span>
+                    </label>
+
+                  </div>
+
+                  <div class="rule-fields two">
+
+                    <div class="field">
+                      <label for="cornDamageTrend">
+                        Elevated Damage
+                      </label>
+
+                      <div class="threshold-wrap">
+                        <div class="threshold-sign">≥</div>
+
+                        <input
+                          id="cornDamageTrend"
+                          class="input"
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.1"
+                          value="5.0"
+                        />
+
+                        <div class="threshold-unit">
+                          %
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="field">
+                      <label for="cornDamageTrendCount">
+                        Consecutive Tickets
+                      </label>
+
+                      <div class="count-wrap">
+                        <input
+                          id="cornDamageTrendCount"
+                          class="input"
+                          type="number"
+                          min="2"
+                          max="25"
+                          step="1"
+                          value="3"
+                        />
+
+                        <span class="count-unit">
+                          tickets
+                        </span>
+                      </div>
+                    </div>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+
+              <!-- Foreign Material -->
+              <div class="metric">
+
+                <h3 class="metric-title">
+                  Foreign Material
+                </h3>
+
+                <p class="metric-help">
+                  Alert when FM reaches or exceeds the limits below.
+                </p>
+
+
+                <div class="rule severe">
+
+                  <div class="rule-head">
+
+                    <div>
+                      <div class="rule-title">
+                        Severe
+                      </div>
+
+                      <span class="rule-note">
+                        One ticket can trigger an immediate alert.
+                      </span>
+                    </div>
+
+                    <label class="switch">
+                      <input
+                        id="cornFmSevereEnabled"
+                        type="checkbox"
+                        checked
+                      />
+                      <span class="switch-track"></span>
+                    </label>
+
+                  </div>
+
+                  <div class="field">
+                    <label for="cornFmSevere">
+                      Severe FM
+                    </label>
+
+                    <div class="threshold-wrap">
+                      <div class="threshold-sign">≥</div>
+
+                      <input
+                        id="cornFmSevere"
+                        class="input"
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        value="5.0"
+                      />
+
+                      <div class="threshold-unit">
+                        %
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+
+
+                <div class="rule trend">
+
+                  <div class="rule-head">
+
+                    <div>
+                      <div class="rule-title">
+                        Repeated Elevated
+                      </div>
+
+                      <span class="rule-note">
+                        Alert when several consecutive tickets are running high.
+                      </span>
+                    </div>
+
+                    <label class="switch">
+                      <input
+                        id="cornFmTrendEnabled"
+                        type="checkbox"
+                        checked
+                      />
+                      <span class="switch-track"></span>
+                    </label>
+
+                  </div>
+
+                  <div class="rule-fields two">
+
+                    <div class="field">
+                      <label for="cornFmTrend">
+                        Elevated FM
+                      </label>
+
+                      <div class="threshold-wrap">
+                        <div class="threshold-sign">≥</div>
+
+                        <input
+                          id="cornFmTrend"
+                          class="input"
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.1"
+                          value="3.0"
+                        />
+
+                        <div class="threshold-unit">
+                          %
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="field">
+                      <label for="cornFmTrendCount">
+                        Consecutive Tickets
+                      </label>
+
+                      <div class="count-wrap">
+                        <input
+                          id="cornFmTrendCount"
+                          class="input"
+                          type="number"
+                          min="2"
+                          max="25"
+                          step="1"
+                          value="3"
+                        />
+
+                        <span class="count-unit">
+                          tickets
+                        </span>
+                      </div>
+                    </div>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+            </article>
+
+
+            <!-- ===================================================
+                 SOYBEANS
+            ==================================================== -->
+
+            <article class="crop-card">
+
+              <header class="crop-head">
+
+                <div class="crop-name">
+                  Soybeans
+                </div>
+
+                <div class="crop-tag">
+                  SOYBEANS
+                </div>
+
+              </header>
+
+
+              <!-- Damage -->
+              <div class="metric">
+
+                <h3 class="metric-title">
+                  Damage
+                </h3>
+
+                <p class="metric-help">
+                  Alert when Damage reaches or exceeds the limits below.
+                </p>
+
+
+                <div class="rule severe">
+
+                  <div class="rule-head">
+
+                    <div>
+                      <div class="rule-title">
+                        Severe
+                      </div>
+
+                      <span class="rule-note">
+                        One ticket can trigger an immediate alert.
+                      </span>
+                    </div>
+
+                    <label class="switch">
+                      <input
+                        id="soyDamageSevereEnabled"
+                        type="checkbox"
+                        checked
+                      />
+                      <span class="switch-track"></span>
+                    </label>
+
+                  </div>
+
+                  <div class="field">
+                    <label for="soyDamageSevere">
+                      Severe Damage
+                    </label>
+
+                    <div class="threshold-wrap">
+                      <div class="threshold-sign">≥</div>
+
+                      <input
+                        id="soyDamageSevere"
+                        class="input"
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        value="5.0"
+                      />
+
+                      <div class="threshold-unit">
+                        %
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+
+
+                <div class="rule trend">
+
+                  <div class="rule-head">
+
+                    <div>
+                      <div class="rule-title">
+                        Repeated Elevated
+                      </div>
+
+                      <span class="rule-note">
+                        Alert when several consecutive tickets are running high.
+                      </span>
+                    </div>
+
+                    <label class="switch">
+                      <input
+                        id="soyDamageTrendEnabled"
+                        type="checkbox"
+                        checked
+                      />
+                      <span class="switch-track"></span>
+                    </label>
+
+                  </div>
+
+                  <div class="rule-fields two">
+
+                    <div class="field">
+                      <label for="soyDamageTrend">
+                        Elevated Damage
+                      </label>
+
+                      <div class="threshold-wrap">
+                        <div class="threshold-sign">≥</div>
+
+                        <input
+                          id="soyDamageTrend"
+                          class="input"
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.1"
+                          value="3.0"
+                        />
+
+                        <div class="threshold-unit">
+                          %
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="field">
+                      <label for="soyDamageTrendCount">
+                        Consecutive Tickets
+                      </label>
+
+                      <div class="count-wrap">
+                        <input
+                          id="soyDamageTrendCount"
+                          class="input"
+                          type="number"
+                          min="2"
+                          max="25"
+                          step="1"
+                          value="3"
+                        />
+
+                        <span class="count-unit">
+                          tickets
+                        </span>
+                      </div>
+                    </div>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+
+              <!-- Foreign Material -->
+              <div class="metric">
+
+                <h3 class="metric-title">
+                  Foreign Material
+                </h3>
+
+                <p class="metric-help">
+                  Alert when FM reaches or exceeds the limits below.
+                </p>
+
+
+                <div class="rule severe">
+
+                  <div class="rule-head">
+
+                    <div>
+                      <div class="rule-title">
+                        Severe
+                      </div>
+
+                      <span class="rule-note">
+                        One ticket can trigger an immediate alert.
+                      </span>
+                    </div>
+
+                    <label class="switch">
+                      <input
+                        id="soyFmSevereEnabled"
+                        type="checkbox"
+                        checked
+                      />
+                      <span class="switch-track"></span>
+                    </label>
+
+                  </div>
+
+                  <div class="field">
+                    <label for="soyFmSevere">
+                      Severe FM
+                    </label>
+
+                    <div class="threshold-wrap">
+                      <div class="threshold-sign">≥</div>
+
+                      <input
+                        id="soyFmSevere"
+                        class="input"
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        value="3.0"
+                      />
+
+                      <div class="threshold-unit">
+                        %
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+
+
+                <div class="rule trend">
+
+                  <div class="rule-head">
+
+                    <div>
+                      <div class="rule-title">
+                        Repeated Elevated
+                      </div>
+
+                      <span class="rule-note">
+                        Alert when several consecutive tickets are running high.
+                      </span>
+                    </div>
+
+                    <label class="switch">
+                      <input
+                        id="soyFmTrendEnabled"
+                        type="checkbox"
+                        checked
+                      />
+                      <span class="switch-track"></span>
+                    </label>
+
+                  </div>
+
+                  <div class="rule-fields two">
+
+                    <div class="field">
+                      <label for="soyFmTrend">
+                        Elevated FM
+                      </label>
+
+                      <div class="threshold-wrap">
+                        <div class="threshold-sign">≥</div>
+
+                        <input
+                          id="soyFmTrend"
+                          class="input"
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.1"
+                          value="2.0"
+                        />
+
+                        <div class="threshold-unit">
+                          %
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="field">
+                      <label for="soyFmTrendCount">
+                        Consecutive Tickets
+                      </label>
+
+                      <div class="count-wrap">
+                        <input
+                          id="soyFmTrendCount"
+                          class="input"
+                          type="number"
+                          min="2"
+                          max="25"
+                          step="1"
+                          value="3"
+                        />
+
+                        <span class="count-unit">
+                          tickets
+                        </span>
+                      </div>
+                    </div>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+            </article>
+
+          </div>
+
+        </div>
+
+      </section>
+
+
+      <section class="section">
+
+        <header class="section-head">
+
+          <div class="section-icon">
+            👥
+          </div>
+
+          <div>
+            <h2 class="section-title">
+              Enrolled Recipients
+            </h2>
+
+            <p class="section-help">
+              These active employees are currently enrolled in Grain Ticket Alerts and have a mobile number.
+              Enrollment is managed from Add/Edit Employee.
+            </p>
+          </div>
+
+        </header>
+
+        <div class="section-body">
+
+          <div
+            id="recipientList"
+            class="recipient-list"
+          >
+            <div class="empty">
+              Loading enrolled employees…
+            </div>
+          </div>
+
+        </div>
+
+      </section>
+
+
+      <section class="section">
+
+        <header class="section-head">
+
+          <div class="section-icon">
+            ℹ️
+          </div>
+
+          <div>
+            <h2 class="section-title">
+              How These Alerts Work
+            </h2>
+          </div>
+
+        </header>
+
+        <div class="section-body">
+
+          <div class="summary">
+
+            <div class="summary-row">
+              <span class="summary-dot severe"></span>
+              <span>
+                <strong>Severe:</strong>
+                a single ticket at or above the severe limit can trigger an alert.
+              </span>
+            </div>
+
+            <div class="summary-row">
+              <span class="summary-dot trend"></span>
+              <span>
+                <strong>Repeated Elevated:</strong>
+                several consecutive tickets at or above the elevated limit can trigger a pattern alert,
+                even if none of those tickets reaches the severe limit.
+              </span>
+            </div>
+
+            <div class="summary-row">
+              <span class="summary-dot trend"></span>
+              <span>
+                A backend alert function will use these saved settings when we connect SMS delivery.
+              </span>
+            </div>
+
+          </div>
+
+        </div>
+
+      </section>
+
+
+      <div class="actions">
+
+        <button
+          id="reset"
+          class="btn"
+          type="button"
+        >
+          Reset Changes
+        </button>
+
+        <button
+          id="save"
+          class="btn btn-primary"
+          type="button"
+        >
+          Save Alert Settings
+        </button>
+
+      </div>
+
+    </main>
+
+  </fv-shell>
+
+
+  <div
+    id="toast"
+    class="toast"
+    role="status"
+    aria-live="polite"
+  >
+    Alert settings saved.
+  </div>
+
+
+  <script type="module">
+
+    import {
+      ready,
+      getFirestore,
+      doc,
+      getDoc,
+      setDoc,
+      collection,
+      getDocs,
+      serverTimestamp
+    } from "/js/firebase-init.js";
+
+
+    const $ =
+      id =>
+        document.getElementById(
+          id
+        );
+
+
+    const SETTINGS_COLLECTION =
+      "settings";
+
+
+    const SETTINGS_DOC =
+      "grainTicketAlerts";
+
+
+    let lastLoadedSettings =
+      null;
+
+
+    const numberValue =
+      (
+        id,
+        fallback = 0
+      ) => {
+
+        const value =
+          Number(
+            $(id)?.value
+          );
+
+
+        return Number.isFinite(
+          value
+        )
+          ? value
+          : fallback;
+
+      };
+
+
+    const checked =
+      id =>
+        !!$(id)?.checked;
+
+
+    const setChecked =
+      (
+        id,
+        value
+      ) => {
+
+        const element =
+          $(id);
+
+        if(
+          element
+        ){
+
+          element.checked =
+            !!value;
+
+        }
+
+      };
+
+
+    const setValue =
+      (
+        id,
+        value
+      ) => {
+
+        const element =
+          $(id);
+
+        if(
+          element &&
+          value !==
+            undefined &&
+          value !==
+            null
+        ){
+
+          element.value =
+            value;
+
+        }
+
+      };
+
+
+    function showToast(
+      message =
+        "Alert settings saved."
+    ){
+
+      const toast =
+        $("toast");
+
+
+      toast.textContent =
+        message;
+
+
+      toast.classList.remove(
+        "show"
+      );
+
+
+      void toast.offsetWidth;
+
+
+      toast.classList.add(
+        "show"
+      );
+
+    }
+
+
+    function setBusy(
+      on
+    ){
+
+      [
+        "save",
+        "reset"
+      ].forEach(
+        id => {
+
+          const button =
+            $(id);
+
+          if(
+            button
+          ){
+
+            button.disabled =
+              !!on;
+
+          }
+
+        }
+      );
+
+    }
+
+
+    function updateMasterState(){
+
+      $("rulesArea")
+        .classList.toggle(
+          "disabled-area",
+          !checked(
+            "alertsEnabled"
+          )
+        );
+
+    }
+
+
+    function getFormSettings(){
+
+      return {
+
+        enabled:
+          checked(
+            "alertsEnabled"
+          ),
+
+        crops: {
+
+          corn: {
+
+            damage: {
+
+              severe: {
+                enabled:
+                  checked(
+                    "cornDamageSevereEnabled"
+                  ),
+
+                threshold:
+                  numberValue(
+                    "cornDamageSevere",
+                    8
+                  )
+              },
+
+              trend: {
+                enabled:
+                  checked(
+                    "cornDamageTrendEnabled"
+                  ),
+
+                threshold:
+                  numberValue(
+                    "cornDamageTrend",
+                    5
+                  ),
+
+                consecutiveTickets:
+                  Math.max(
+                    2,
+                    Math.round(
+                      numberValue(
+                        "cornDamageTrendCount",
+                        3
+                      )
+                    )
+                  )
+              }
+
+            },
+
+            foreignMaterial: {
+
+              severe: {
+                enabled:
+                  checked(
+                    "cornFmSevereEnabled"
+                  ),
+
+                threshold:
+                  numberValue(
+                    "cornFmSevere",
+                    5
+                  )
+              },
+
+              trend: {
+                enabled:
+                  checked(
+                    "cornFmTrendEnabled"
+                  ),
+
+                threshold:
+                  numberValue(
+                    "cornFmTrend",
+                    3
+                  ),
+
+                consecutiveTickets:
+                  Math.max(
+                    2,
+                    Math.round(
+                      numberValue(
+                        "cornFmTrendCount",
+                        3
+                      )
+                    )
+                  )
+              }
+
+            }
+
+          },
+
+
+          soybeans: {
+
+            damage: {
+
+              severe: {
+                enabled:
+                  checked(
+                    "soyDamageSevereEnabled"
+                  ),
+
+                threshold:
+                  numberValue(
+                    "soyDamageSevere",
+                    5
+                  )
+              },
+
+              trend: {
+                enabled:
+                  checked(
+                    "soyDamageTrendEnabled"
+                  ),
+
+                threshold:
+                  numberValue(
+                    "soyDamageTrend",
+                    3
+                  ),
+
+                consecutiveTickets:
+                  Math.max(
+                    2,
+                    Math.round(
+                      numberValue(
+                        "soyDamageTrendCount",
+                        3
+                      )
+                    )
+                  )
+              }
+
+            },
+
+            foreignMaterial: {
+
+              severe: {
+                enabled:
+                  checked(
+                    "soyFmSevereEnabled"
+                  ),
+
+                threshold:
+                  numberValue(
+                    "soyFmSevere",
+                    3
+                  )
+              },
+
+              trend: {
+                enabled:
+                  checked(
+                    "soyFmTrendEnabled"
+                  ),
+
+                threshold:
+                  numberValue(
+                    "soyFmTrend",
+                    2
+                  ),
+
+                consecutiveTickets:
+                  Math.max(
+                    2,
+                    Math.round(
+                      numberValue(
+                        "soyFmTrendCount",
+                        3
+                      )
+                    )
+                  )
+              }
+
+            }
+
+          }
+
+        }
+
+      };
+
+    }
+
+
+    function validateSettings(
+      settings
+    ){
+
+      const checks = [
+
+        [
+          "Corn Damage",
+          settings.crops.corn.damage
+        ],
+
+        [
+          "Corn Foreign Material",
+          settings.crops.corn.foreignMaterial
+        ],
+
+        [
+          "Soybean Damage",
+          settings.crops.soybeans.damage
+        ],
+
+        [
+          "Soybean Foreign Material",
+          settings.crops.soybeans.foreignMaterial
+        ]
+
+      ];
+
+
+      for(
+        const [
+          label,
+          rules
+        ]
+        of checks
+      ){
+
+        if(
+          rules.severe.enabled &&
+          (
+            rules.severe.threshold <
+              0 ||
+            rules.severe.threshold >
+              100
+          )
+        ){
+
+          throw new Error(
+            `${label} severe threshold must be between 0 and 100%.`
+          );
+
+        }
+
+
+        if(
+          rules.trend.enabled &&
+          (
+            rules.trend.threshold <
+              0 ||
+            rules.trend.threshold >
+              100
+          )
+        ){
+
+          throw new Error(
+            `${label} elevated threshold must be between 0 and 100%.`
+          );
+
+        }
+
+
+        if(
+          rules.trend.enabled &&
+          rules.trend.consecutiveTickets <
+            2
+        ){
+
+          throw new Error(
+            `${label} repeated elevated alert must use at least 2 consecutive tickets.`
+          );
+
+        }
+
+
+        if(
+          rules.severe.enabled &&
+          rules.trend.enabled &&
+          rules.trend.threshold >=
+            rules.severe.threshold
+        ){
+
+          throw new Error(
+            `${label}: the repeated elevated threshold should be lower than the severe threshold.`
+          );
+
+        }
+
+      }
+
+    }
+
+
+    function applySettings(
+      settings
+    ){
+
+      const safe =
+        settings ||
+        {};
+
+
+      const crops =
+        safe.crops ||
+        {};
+
+
+      const corn =
+        crops.corn ||
+        {};
+
+
+      const soy =
+        crops.soybeans ||
+        {};
+
+
+      const cornDamage =
+        corn.damage ||
+        {};
+
+
+      const cornFm =
+        corn.foreignMaterial ||
+        {};
+
+
+      const soyDamage =
+        soy.damage ||
+        {};
+
+
+      const soyFm =
+        soy.foreignMaterial ||
+        {};
+
+
+      setChecked(
+        "alertsEnabled",
+        safe.enabled !==
+          false
+      );
+
+
+      setChecked(
+        "cornDamageSevereEnabled",
+        cornDamage.severe?.enabled !==
+          false
+      );
+
+      setValue(
+        "cornDamageSevere",
+        cornDamage.severe?.threshold ??
+          8
+      );
+
+
+      setChecked(
+        "cornDamageTrendEnabled",
+        cornDamage.trend?.enabled !==
+          false
+      );
+
+      setValue(
+        "cornDamageTrend",
+        cornDamage.trend?.threshold ??
+          5
+      );
+
+      setValue(
+        "cornDamageTrendCount",
+        cornDamage.trend?.consecutiveTickets ??
+          3
+      );
+
+
+      setChecked(
+        "cornFmSevereEnabled",
+        cornFm.severe?.enabled !==
+          false
+      );
+
+      setValue(
+        "cornFmSevere",
+        cornFm.severe?.threshold ??
+          5
+      );
+
+
+      setChecked(
+        "cornFmTrendEnabled",
+        cornFm.trend?.enabled !==
+          false
+      );
+
+      setValue(
+        "cornFmTrend",
+        cornFm.trend?.threshold ??
+          3
+      );
+
+      setValue(
+        "cornFmTrendCount",
+        cornFm.trend?.consecutiveTickets ??
+          3
+      );
+
+
+      setChecked(
+        "soyDamageSevereEnabled",
+        soyDamage.severe?.enabled !==
+          false
+      );
+
+      setValue(
+        "soyDamageSevere",
+        soyDamage.severe?.threshold ??
+          5
+      );
+
+
+      setChecked(
+        "soyDamageTrendEnabled",
+        soyDamage.trend?.enabled !==
+          false
+      );
+
+      setValue(
+        "soyDamageTrend",
+        soyDamage.trend?.threshold ??
+          3
+      );
+
+      setValue(
+        "soyDamageTrendCount",
+        soyDamage.trend?.consecutiveTickets ??
+          3
+      );
+
+
+      setChecked(
+        "soyFmSevereEnabled",
+        soyFm.severe?.enabled !==
+          false
+      );
+
+      setValue(
+        "soyFmSevere",
+        soyFm.severe?.threshold ??
+          3
+      );
+
+
+      setChecked(
+        "soyFmTrendEnabled",
+        soyFm.trend?.enabled !==
+          false
+      );
+
+      setValue(
+        "soyFmTrend",
+        soyFm.trend?.threshold ??
+          2
+      );
+
+      setValue(
+        "soyFmTrendCount",
+        soyFm.trend?.consecutiveTickets ??
+          3
+      );
+
+
+      updateMasterState();
+
+    }
+
+
+    async function loadSettings(){
+
+      await ready;
+
+
+      const db =
+        getFirestore();
+
+
+      const ref =
+        doc(
+          db,
+          SETTINGS_COLLECTION,
+          SETTINGS_DOC
+        );
+
+
+      const snap =
+        await getDoc(
+          ref
+        );
+
+
+      if(
+        snap.exists()
+      ){
+
+        lastLoadedSettings =
+          snap.data() ||
+          {};
+
+      }
+      else{
+
+        lastLoadedSettings =
+          getFormSettings();
+
+      }
+
+
+      applySettings(
+        lastLoadedSettings
+      );
+
+    }
+
+
+    async function saveSettings(){
+
+      const settings =
+        getFormSettings();
+
+
+      validateSettings(
+        settings
+      );
+
+
+      const db =
+        getFirestore();
+
+
+      const ref =
+        doc(
+          db,
+          SETTINGS_COLLECTION,
+          SETTINGS_DOC
+        );
+
+
+      await setDoc(
+        ref,
+        {
+          ...settings,
+
+          updatedAt:
+            serverTimestamp(),
+
+          version:
+            1
+        },
+        {
+          merge:true
+        }
+      );
+
+
+      lastLoadedSettings =
+        JSON.parse(
+          JSON.stringify(
+            settings
+          )
+        );
+
+
+      showToast(
+        "Grain ticket alert settings saved."
+      );
+
+    }
+
+
+    async function loadRecipients(){
+
+      const container =
+        $("recipientList");
+
+
+      try{
+
+        await ready;
+
+
+        const db =
+          getFirestore();
+
+
+        const snap =
+          await getDocs(
+            collection(
+              db,
+              "employees"
+            )
+          );
+
+
+        const recipients =
+          snap.docs
+            .map(
+              employeeDoc => ({
+                id:
+                  employeeDoc.id,
+
+                data:
+                  employeeDoc.data() ||
+                  {}
+              })
+            )
+            .filter(
+              item => {
+
+                const data =
+                  item.data;
+
+
+                const enrolled =
+                  Array.isArray(
+                    data.enrolledAlerts
+                  )
+                    ? data.enrolledAlerts
+                    : [];
+
+
+                const isActive =
+                  data.active ===
+                    true ||
+                  data.status ===
+                    "Active";
+
+
+                const hasPhone =
+                  !!(
+                    data.phoneE164 ||
+                    data.phone
+                  );
+
+
+                return (
+                  isActive &&
+                  hasPhone &&
+                  enrolled.includes(
+                    "grain-ticket-alerts"
+                  )
+                );
+
+              }
+            )
+            .sort(
+              (
+                a,
+                b
+              ) =>
+                String(
+                  a.data.fullName ||
+                  ""
+                ).localeCompare(
+                  String(
+                    b.data.fullName ||
+                    ""
+                  )
+                )
+            );
+
+
+        if(
+          !recipients.length
+        ){
+
+          container.innerHTML =
+            `
+              <div class="empty">
+                No active employees with a mobile number are currently enrolled in Grain Ticket Alerts.
+                Use Add/Edit Employee to enroll recipients.
+              </div>
+            `;
+
+          return;
+
+        }
+
+
+        container.innerHTML =
+          recipients
+            .map(
+              item => {
+
+                const data =
+                  item.data;
+
+
+                const name =
+                  data.fullName ||
+                  [
+                    data.firstName,
+                    data.lastName
+                  ]
+                    .filter(
+                      Boolean
+                    )
+                    .join(
+                      " "
+                    ) ||
+                  "Employee";
+
+
+                const phone =
+                  data.phone ||
+                  data.phoneE164 ||
+                  "";
+
+
+                return `
+                  <div class="recipient">
+                    <div>
+                      <div class="recipient-name">
+                        ${escapeHtml(name)}
+                      </div>
+                      <div class="recipient-phone">
+                        ${escapeHtml(phone)}
+                      </div>
+                    </div>
+
+                    <div class="recipient-status">
+                      Enrolled
+                    </div>
+                  </div>
+                `;
+
+              }
+            )
+            .join(
+              ""
+            );
+
+      }
+      catch(
+        error
+      ){
+
+        console.error(
+          "Failed to load enrolled recipients:",
+          error
+        );
+
+
+        container.innerHTML =
+          `
+            <div class="empty">
+              Enrolled recipients could not be loaded.
+            </div>
+          `;
+
+      }
+
+    }
+
+
+    function escapeHtml(
+      value
+    ){
+
+      return String(
+        value ||
+        ""
+      )
+        .replaceAll(
+          "&",
+          "&amp;"
+        )
+        .replaceAll(
+          "<",
+          "&lt;"
+        )
+        .replaceAll(
+          ">",
+          "&gt;"
+        )
+        .replaceAll(
+          '"',
+          "&quot;"
+        )
+        .replaceAll(
+          "'",
+          "&#039;"
+        );
+
+    }
+
+
+    $("alertsEnabled")
+      .addEventListener(
+        "change",
+        updateMasterState
+      );
+
+
+    $("reset")
+      .addEventListener(
+        "click",
+        () => {
+
+          if(
+            lastLoadedSettings
+          ){
+
+            applySettings(
+              lastLoadedSettings
+            );
+
+
+            showToast(
+              "Changes reset."
+            );
+
+          }
+
+        }
+      );
+
+
+    $("save")
+      .addEventListener(
+        "click",
+        async () => {
+
+          try{
+
+            setBusy(
+              true
+            );
+
+
+            await saveSettings();
+
+          }
+          catch(
+            error
+          ){
+
+            console.error(
+              error
+            );
+
+
+            alert(
+              "Save failed.\n\n" +
+              (
+                error?.message ||
+                error
+              )
+            );
+
+          }
+          finally{
+
+            setBusy(
+              false
+            );
+
+          }
+
+        }
+      );
+
+
+    Promise.all([
+      loadSettings(),
+      loadRecipients()
+    ])
+      .catch(
+        error => {
+
+          console.error(
+            "Grain alert settings page failed to load:",
+            error
+          );
+
+        }
+      );
+
+  </script>
+
+</body>
+</html>
