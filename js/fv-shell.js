@@ -34,7 +34,7 @@
   // Figure out whether we're in beta (/beta/...) or live (/...)
   const FV_ROOT = location.pathname.startsWith('/beta/')
     ? '/beta'
-    : '/Farm-vista';
+    : '';
 
   const tpl = document.createElement('template');
   tpl.innerHTML = `
