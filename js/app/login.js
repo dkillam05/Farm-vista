@@ -3138,23 +3138,42 @@ async function sendVerificationCode() {
     );
 
 
-  setButtonBusy(
-    els.sendCode,
-    true,
-    "Sending Code…",
-    "Send Verification Code"
+// ========================================================
+// PHONE SEND BUSY STATE
+//
+// IMPORTANT:
+// Do NOT disable #sendCode here.
+//
+// Invisible Firebase reCAPTCHA is attached directly to this
+// button and must be able to use it during verification.
+// ========================================================
+
+if (
+  els.sendCode
+) {
+
+  els.sendCode.textContent =
+    "Sending Code…";
+
+  els.sendCode.setAttribute(
+    "aria-busy",
+    "true"
   );
 
+  els.sendCode.style.pointerEvents =
+    "none";
 
-  if (
-    els.resendCode
-  ) {
+}
 
-    els.resendCode.disabled =
-      true;
 
-  }
+if (
+  els.resendCode
+) {
 
+  els.resendCode.disabled =
+    true;
+
+}
 
   try {
 
