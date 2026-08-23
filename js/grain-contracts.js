@@ -71,6 +71,7 @@ const state = {
   editFuturesPrice: null,
   editBasisPrice: null,
   editCashPrice: null,
+  editBasisSign: 1,
 
   showVoided: false
 };
@@ -8301,6 +8302,59 @@ function setupEditPrice() {
   }
 
 
+  setupEditBankMoneyInput(
+    futuresInput,
+    function (value) {
+      state.editFuturesPrice =
+        value;
+
+      calculateEditCashPrice();
+    }
+  );
+
+
+  setupEditBankMoneyInput(
+    basisInput,
+    function (value) {
+      if (
+        value === null
+      ) {
+        state.editBasisPrice =
+          null;
+      }
+      else {
+        state.editBasisPrice =
+          roundEditPrice(
+            Math.abs(value) *
+            state.editBasisSign
+          );
+      }
+
+      calculateEditCashPrice();
+    }
+  );
+
+
+  setupEditBankMoneyInput(
+    cashInput,
+    function (value) {
+      if (
+        $("edit-contract-type")
+          ?.value !==
+        "Program"
+      ) {
+        return;
+      }
+
+      state.editCashPrice =
+        value;
+    }
+  );
+
+
+  setupEditBasisSignControl();
+
+
   typeInput.addEventListener(
     "change",
     function () {
@@ -8312,110 +8366,688 @@ function setupEditPrice() {
 
 
   futuresInput.addEventListener(
-    "input",
-    function () {
-      state.editFuturesPrice =
-        parseEditDollarPrice(
-          this.value
-        );
-
-      this.setCustomValidity("");
-
-      calculateEditCashPrice();
-    }
-  );
-
-
-  futuresInput.addEventListener(
     "blur",
-    function () {
-      if (
-        state.editFuturesPrice !==
-        null
-      ) {
-        this.value =
-          formatEditDollarPrice(
-            state.editFuturesPrice
-          );
-      }
-
-      validateEditPrice();
-    }
-  );
-
-
-  basisInput.addEventListener(
-    "input",
-    function () {
-      state.editBasisPrice =
-        parseEditBasisPrice(
-          this.value
-        );
-
-      this.setCustomValidity("");
-
-      calculateEditCashPrice();
-    }
+    validateEditPrice
   );
 
 
   basisInput.addEventListener(
     "blur",
-    function () {
-      if (
-        state.editBasisPrice !==
-        null
-      ) {
-        this.value =
-          formatEditBasisPrice(
-            state.editBasisPrice
-          );
-      }
-
-      validateEditPrice();
-    }
+    validateEditPrice
   );
 
 
   cashInput.addEventListener(
-    "input",
-    function () {
+    "blur",
+    validateEditPrice
+  );
+}
+
+
+/* ============================================================
+   EDIT BANK-STYLE MONEY INPUT
+============================================================ */
+
+function setupEditBankMoneyInput(
+  input,
+  onValueChange
+) {
+  if (!input) {
+    return;
+  }
+
+
+  input.type =
+    "text";
+
+  input.inputMode =
+    "numeric";
+
+  input.autocomplete =
+    "off";
+
+
+  input.dataset.bankDigits =
+    "";
+
+
+  function updateFromDigits() {
+    const digits =
+      String(
+        input.dataset.bankDigits ||
+        ""
+      )
+        .replace(
+          /\D/g,
+          ""
+        );
+
+
+    if (!digits) {
+      input.dataset.bankDigits =
+        "";
+
+      input.value =
+        "$0.00";
+
+      input.setCustomValidity(
+        ""
+      );
+
+      onValueChange(
+        null
+      );
+
+      return;
+    }
+
+
+    const cents =
+      Number(
+        digits
+      );
+
+
+    if (
+      !Number.isFinite(cents)
+    ) {
+      return;
+    }
+
+
+    const value =
+      roundEditPrice(
+        cents / 100
+      );
+
+
+    input.value =
+      formatEditBankDollarPrice(
+        value
+      );
+
+
+    input.setCustomValidity(
+      ""
+    );
+
+
+    onValueChange(
+      value
+    );
+  }
+
+
+  input.addEventListener(
+    "keydown",
+    function (event) {
       if (
-        $("edit-contract-type")
-          ?.value !==
-        "Program"
+        event.ctrlKey ||
+        event.metaKey ||
+        event.altKey
       ) {
         return;
       }
 
-      state.editCashPrice =
-        parseEditDollarPrice(
-          this.value
+
+      if (
+        /^\d$/.test(
+          event.key
+        )
+      ) {
+        event.preventDefault();
+
+
+        const allSelected =
+          input.selectionStart ===
+            0 &&
+          input.selectionEnd ===
+            input.value.length;
+
+
+        let digits =
+          allSelected
+            ? ""
+            : String(
+                input.dataset
+                  .bankDigits ||
+                ""
+              );
+
+
+        if (
+          digits.length >=
+          8
+        ) {
+          return;
+        }
+
+
+        digits +=
+          event.key;
+
+
+        digits =
+          digits.replace(
+            /^0+(?=\d)/,
+            ""
+          );
+
+
+        input.dataset.bankDigits =
+          digits;
+
+
+        updateFromDigits();
+
+
+        requestAnimationFrame(
+          function () {
+            input.setSelectionRange(
+              input.value.length,
+              input.value.length
+            );
+          }
         );
 
-      this.setCustomValidity("");
+
+        return;
+      }
+
+
+      if (
+        event.key ===
+        "Backspace"
+      ) {
+        event.preventDefault();
+
+
+        let digits =
+          String(
+            input.dataset
+              .bankDigits ||
+            ""
+          );
+
+
+        digits =
+          digits.slice(
+            0,
+            -1
+          );
+
+
+        input.dataset.bankDigits =
+          digits;
+
+
+        updateFromDigits();
+
+
+        requestAnimationFrame(
+          function () {
+            input.setSelectionRange(
+              input.value.length,
+              input.value.length
+            );
+          }
+        );
+
+
+        return;
+      }
+
+
+      if (
+        event.key ===
+        "Delete"
+      ) {
+        event.preventDefault();
+
+
+        input.dataset.bankDigits =
+          "";
+
+
+        updateFromDigits();
+
+        return;
+      }
+
+
+      if (
+        [
+          "Tab",
+          "Enter",
+          "Escape",
+          "ArrowLeft",
+          "ArrowRight",
+          "Home",
+          "End"
+        ].includes(
+          event.key
+        )
+      ) {
+        return;
+      }
+
+
+      event.preventDefault();
     }
   );
 
 
-  cashInput.addEventListener(
-    "blur",
-    function () {
-      if (
-        state.editCashPrice !==
-        null
-      ) {
-        this.value =
-          formatEditDollarPrice(
-            state.editCashPrice
+  input.addEventListener(
+    "paste",
+    function (event) {
+      event.preventDefault();
+
+
+      const pasted =
+        event.clipboardData
+          ?.getData(
+            "text"
+          ) ||
+        "";
+
+
+      let digits =
+        String(
+          pasted
+        )
+          .replace(
+            /\D/g,
+            ""
           );
+
+
+      if (!digits) {
+        input.dataset.bankDigits =
+          "";
+
+        updateFromDigits();
+
+        return;
       }
 
-      validateEditPrice();
+
+      digits =
+        digits
+          .slice(
+            0,
+            8
+          )
+          .replace(
+            /^0+(?=\d)/,
+            ""
+          );
+
+
+      input.dataset.bankDigits =
+        digits;
+
+
+      updateFromDigits();
+    }
+  );
+
+
+  input.addEventListener(
+    "input",
+    function () {
+      const digits =
+        String(
+          input.dataset.bankDigits ||
+          ""
+        );
+
+
+      if (!digits) {
+        input.value =
+          "$0.00";
+
+        return;
+      }
+
+
+      input.value =
+        formatEditBankDollarPrice(
+          Number(digits) /
+          100
+        );
+    }
+  );
+
+
+  input.addEventListener(
+    "focus",
+    function () {
+      if (
+        !input.value
+      ) {
+        input.value =
+          "$0.00";
+      }
+
+
+      requestAnimationFrame(
+        function () {
+          input.setSelectionRange(
+            input.value.length,
+            input.value.length
+          );
+        }
+      );
     }
   );
 }
 
+
+/* ============================================================
+   EDIT BASIS +/- CONTROL
+============================================================ */
+
+function setupEditBasisSignControl() {
+  const basisInput =
+    $("edit-basis-price");
+
+
+  if (!basisInput) {
+    return;
+  }
+
+
+  if (
+    $("edit-basis-sign-control")
+  ) {
+    return;
+  }
+
+
+  const parent =
+    basisInput.parentElement;
+
+
+  if (!parent) {
+    return;
+  }
+
+
+  const row =
+    document.createElement(
+      "div"
+    );
+
+
+  row.id =
+    "edit-basis-price-row";
+
+  row.style.display =
+    "flex";
+
+  row.style.alignItems =
+    "stretch";
+
+  row.style.gap =
+    "8px";
+
+  row.style.width =
+    "100%";
+
+
+  const control =
+    document.createElement(
+      "div"
+    );
+
+
+  control.id =
+    "edit-basis-sign-control";
+
+  control.style.display =
+    "flex";
+
+  control.style.flex =
+    "0 0 auto";
+
+  control.style.border =
+    "1px solid rgba(0,0,0,.18)";
+
+  control.style.borderRadius =
+    "10px";
+
+  control.style.overflow =
+    "hidden";
+
+  control.style.background =
+    "#fff";
+
+
+  const plusButton =
+    document.createElement(
+      "button"
+    );
+
+
+  plusButton.type =
+    "button";
+
+  plusButton.id =
+    "edit-basis-sign-plus";
+
+  plusButton.textContent =
+    "+";
+
+  plusButton.setAttribute(
+    "aria-label",
+    "Positive basis"
+  );
+
+
+  const minusButton =
+    document.createElement(
+      "button"
+    );
+
+
+  minusButton.type =
+    "button";
+
+  minusButton.id =
+    "edit-basis-sign-minus";
+
+  minusButton.textContent =
+    "−";
+
+  minusButton.setAttribute(
+    "aria-label",
+    "Negative basis"
+  );
+
+
+  [
+    plusButton,
+    minusButton
+  ].forEach(
+    function (button) {
+      button.style.width =
+        "42px";
+
+      button.style.minWidth =
+        "42px";
+
+      button.style.border =
+        "0";
+
+      button.style.borderRadius =
+        "0";
+
+      button.style.fontSize =
+        "18px";
+
+      button.style.fontWeight =
+        "700";
+
+      button.style.cursor =
+        "pointer";
+
+      button.style.transition =
+        "background .15s ease, color .15s ease";
+    }
+  );
+
+
+  plusButton.style.borderRight =
+    "1px solid rgba(0,0,0,.12)";
+
+
+  control.appendChild(
+    plusButton
+  );
+
+
+  control.appendChild(
+    minusButton
+  );
+
+
+  parent.insertBefore(
+    row,
+    basisInput
+  );
+
+
+  row.appendChild(
+    control
+  );
+
+
+  row.appendChild(
+    basisInput
+  );
+
+
+  basisInput.style.flex =
+    "1 1 auto";
+
+  basisInput.style.minWidth =
+    "0";
+
+
+  plusButton.addEventListener(
+    "click",
+    function () {
+      applyEditBasisSign(
+        1
+      );
+    }
+  );
+
+
+  minusButton.addEventListener(
+    "click",
+    function () {
+      applyEditBasisSign(
+        -1
+      );
+    }
+  );
+
+
+  updateEditBasisSignButtons();
+}
+
+
+function applyEditBasisSign(
+  sign
+) {
+  state.editBasisSign =
+    sign;
+
+
+  if (
+    state.editBasisPrice !==
+    null
+  ) {
+    state.editBasisPrice =
+      roundEditPrice(
+        Math.abs(
+          state.editBasisPrice
+        ) *
+        state.editBasisSign
+      );
+  }
+
+
+  updateEditBasisSignButtons();
+
+  calculateEditCashPrice();
+}
+
+
+function updateEditBasisSignButtons() {
+  const plusButton =
+    $("edit-basis-sign-plus");
+
+  const minusButton =
+    $("edit-basis-sign-minus");
+
+
+  if (
+    !plusButton ||
+    !minusButton
+  ) {
+    return;
+  }
+
+
+  const positive =
+    state.editBasisSign >=
+    0;
+
+
+  plusButton.style.background =
+    positive
+      ? "#347841"
+      : "#f3f4f6";
+
+  plusButton.style.color =
+    positive
+      ? "#fff"
+      : "#333";
+
+
+  minusButton.style.background =
+    positive
+      ? "#f3f4f6"
+      : "#347841";
+
+  minusButton.style.color =
+    positive
+      ? "#333"
+      : "#fff";
+
+
+  plusButton.setAttribute(
+    "aria-pressed",
+    positive
+      ? "true"
+      : "false"
+  );
+
+
+  minusButton.setAttribute(
+    "aria-pressed",
+    positive
+      ? "false"
+      : "true"
+  );
+}
+
+
+/* ============================================================
+   EDIT NULLABLE PRICE
+============================================================ */
 
 function nullablePrice(
   value
@@ -8428,14 +9060,26 @@ function nullablePrice(
     return null;
   }
 
-  const number =
-    Number(value);
 
-  return Number.isFinite(number)
-    ? roundEditPrice(number)
+  const number =
+    Number(
+      value
+    );
+
+
+  return Number.isFinite(
+    number
+  )
+    ? roundEditPrice(
+        number
+      )
     : null;
 }
 
+
+/* ============================================================
+   SET EDIT PRICING
+============================================================ */
 
 function setEditPricing(
   contract
@@ -8445,10 +9089,12 @@ function setEditPricing(
       contract?.futuresPrice
     );
 
+
   state.editBasisPrice =
     nullablePrice(
       contract?.basisPrice
     );
+
 
   state.editCashPrice =
     nullablePrice(
@@ -8456,6 +9102,14 @@ function setEditPricing(
     );
 
 
+  state.editBasisSign =
+    state.editBasisPrice !==
+      null &&
+    state.editBasisPrice < 0
+      ? -1
+      : 1;
+
+
   const futuresInput =
     $("edit-futures-price");
 
@@ -8466,38 +9120,30 @@ function setEditPricing(
     $("edit-price");
 
 
-  if (futuresInput) {
-    futuresInput.value =
-      state.editFuturesPrice ===
+  setEditBankMoneyValue(
+    futuresInput,
+    state.editFuturesPrice
+  );
+
+
+  setEditBankMoneyValue(
+    basisInput,
+    state.editBasisPrice ===
       null
-        ? ""
-        : formatEditDollarPrice(
-            state.editFuturesPrice
-          );
-  }
+      ? null
+      : Math.abs(
+          state.editBasisPrice
+        )
+  );
 
 
-  if (basisInput) {
-    basisInput.value =
-      state.editBasisPrice ===
-      null
-        ? ""
-        : formatEditBasisPrice(
-            state.editBasisPrice
-          );
-  }
+  setEditBankMoneyValue(
+    cashInput,
+    state.editCashPrice
+  );
 
 
-  if (cashInput) {
-    cashInput.value =
-      state.editCashPrice ===
-      null
-        ? ""
-        : formatEditDollarPrice(
-            state.editCashPrice
-          );
-  }
-
+  updateEditBasisSignButtons();
 
   updateEditPriceFields();
 
@@ -8505,10 +9151,64 @@ function setEditPricing(
 }
 
 
+function setEditBankMoneyValue(
+  input,
+  value
+) {
+  if (!input) {
+    return;
+  }
+
+
+  if (
+    value === null ||
+    !Number.isFinite(
+      Number(value)
+    )
+  ) {
+    input.dataset.bankDigits =
+      "";
+
+    input.value =
+      "";
+
+    return;
+  }
+
+
+  const cents =
+    Math.round(
+      Math.abs(
+        Number(value)
+      ) *
+      100
+    );
+
+
+  input.dataset.bankDigits =
+    String(
+      cents
+    );
+
+
+  input.value =
+    formatEditBankDollarPrice(
+      Math.abs(
+        Number(value)
+      )
+    );
+}
+
+
+/* ============================================================
+   EDIT PRICE FIELD STATE
+============================================================ */
+
 function updateEditPriceFields() {
   const type =
     $("edit-contract-type")
       ?.value || "";
+
 
   const futuresInput =
     $("edit-futures-price");
@@ -8518,6 +9218,12 @@ function updateEditPriceFields() {
 
   const cashInput =
     $("edit-price");
+
+  const plusButton =
+    $("edit-basis-sign-plus");
+
+  const minusButton =
+    $("edit-basis-sign-minus");
 
 
   if (
@@ -8549,6 +9255,24 @@ function updateEditPriceFields() {
     false;
 
 
+  if (plusButton) {
+    plusButton.disabled =
+      true;
+
+    plusButton.style.opacity =
+      ".5";
+  }
+
+
+  if (minusButton) {
+    minusButton.disabled =
+      true;
+
+    minusButton.style.opacity =
+      ".5";
+  }
+
+
   cashInput.placeholder =
     "Not set";
 
@@ -8562,11 +9286,41 @@ function updateEditPriceFields() {
     basisInput.disabled =
       false;
 
+
     futuresInput.required =
       true;
 
     basisInput.required =
       true;
+
+
+    if (plusButton) {
+      plusButton.disabled =
+        false;
+
+      plusButton.style.opacity =
+        "1";
+    }
+
+
+    if (minusButton) {
+      minusButton.disabled =
+        false;
+
+      minusButton.style.opacity =
+        "1";
+    }
+
+
+    showEditEmptyBankValue(
+      futuresInput
+    );
+
+
+    showEditEmptyBankValue(
+      basisInput
+    );
+
 
     cashInput.placeholder =
       "Calculated automatically";
@@ -8582,6 +9336,30 @@ function updateEditPriceFields() {
     basisInput.required =
       true;
 
+
+    if (plusButton) {
+      plusButton.disabled =
+        false;
+
+      plusButton.style.opacity =
+        "1";
+    }
+
+
+    if (minusButton) {
+      minusButton.disabled =
+        false;
+
+      minusButton.style.opacity =
+        "1";
+    }
+
+
+    showEditEmptyBankValue(
+      basisInput
+    );
+
+
     cashInput.placeholder =
       "Not set until contract becomes Cash";
   }
@@ -8595,6 +9373,12 @@ function updateEditPriceFields() {
 
     futuresInput.required =
       true;
+
+
+    showEditEmptyBankValue(
+      futuresInput
+    );
+
 
     cashInput.placeholder =
       "Not set until contract becomes Cash";
@@ -8610,8 +9394,10 @@ function updateEditPriceFields() {
     cashInput.required =
       true;
 
-    cashInput.placeholder =
-      "$0.00";
+
+    showEditEmptyBankValue(
+      cashInput
+    );
   }
 
 
@@ -8622,10 +9408,32 @@ function updateEditPriceFields() {
 }
 
 
+function showEditEmptyBankValue(
+  input
+) {
+  if (!input) {
+    return;
+  }
+
+
+  if (
+    !input.dataset.bankDigits
+  ) {
+    input.value =
+      "$0.00";
+  }
+}
+
+
+/* ============================================================
+   CALCULATE EDIT CASH PRICE
+============================================================ */
+
 function calculateEditCashPrice() {
   const type =
     $("edit-contract-type")
       ?.value || "";
+
 
   const cashInput =
     $("edit-price");
@@ -8651,6 +9459,9 @@ function calculateEditCashPrice() {
       cashInput.value =
         "";
 
+      cashInput.dataset.bankDigits =
+        "";
+
       return;
     }
 
@@ -8663,9 +9474,21 @@ function calculateEditCashPrice() {
 
 
     cashInput.value =
-      formatEditDollarPrice(
+      formatEditBankDollarPrice(
         state.editCashPrice
       );
+
+
+    cashInput.dataset.bankDigits =
+      String(
+        Math.round(
+          Math.abs(
+            state.editCashPrice
+          ) *
+          100
+        )
+      );
+
 
     return;
   }
@@ -8680,75 +9503,16 @@ function calculateEditCashPrice() {
 
     cashInput.value =
       "";
+
+    cashInput.dataset.bankDigits =
+      "";
   }
 }
 
 
-function parseEditDollarPrice(
-  value
-) {
-  const cleaned =
-    String(value || "")
-      .trim()
-      .replace(/\$/g, "")
-      .replace(/,/g, "");
-
-
-  if (!cleaned) {
-    return null;
-  }
-
-
-  const number =
-    Number(cleaned);
-
-
-  if (!Number.isFinite(number)) {
-    return null;
-  }
-
-
-  return roundEditPrice(number);
-}
-
-
-function parseEditBasisPrice(
-  value
-) {
-  const cleaned =
-    String(value || "")
-      .trim()
-      .replace(/\$/g, "")
-      .replace(/,/g, "")
-      .replace(/\s/g, "");
-
-
-  if (!cleaned) {
-    return null;
-  }
-
-
-  if (
-    !/^[+-]?\d*(?:\.\d*)?$/.test(
-      cleaned
-    )
-  ) {
-    return null;
-  }
-
-
-  const number =
-    Number(cleaned);
-
-
-  if (!Number.isFinite(number)) {
-    return null;
-  }
-
-
-  return roundEditPrice(number);
-}
-
+/* ============================================================
+   EDIT PRICE HELPERS
+============================================================ */
 
 function roundEditPrice(
   value
@@ -8760,6 +9524,39 @@ function roundEditPrice(
     ) /
     10000
   );
+}
+
+
+function formatEditBankDollarPrice(
+  value
+) {
+  if (
+    value === null ||
+    !Number.isFinite(
+      Number(value)
+    )
+  ) {
+    return "$0.00";
+  }
+
+
+  return Number(value)
+    .toLocaleString(
+      "en-US",
+      {
+        style:
+          "currency",
+
+        currency:
+          "USD",
+
+        minimumFractionDigits:
+          2,
+
+        maximumFractionDigits:
+          2
+      }
+    );
 }
 
 
@@ -8790,7 +9587,7 @@ function formatEditDollarPrice(
           2,
 
         maximumFractionDigits:
-          4
+          2
       }
     );
 }
@@ -8810,29 +9607,36 @@ function formatEditBasisPrice(
 
 
   const number =
-    Number(value);
+    Number(
+      value
+    );
 
 
   const absolute =
-    Math.abs(number)
-      .toLocaleString(
-        "en-US",
-        {
-          minimumFractionDigits:
-            2,
+    Math.abs(
+      number
+    ).toLocaleString(
+      "en-US",
+      {
+        minimumFractionDigits:
+          2,
 
-          maximumFractionDigits:
-            4
-        }
-      );
+        maximumFractionDigits:
+          2
+      }
+    );
 
 
-  if (number > 0) {
+  if (
+    number > 0
+  ) {
     return `+$${absolute}`;
   }
 
 
-  if (number < 0) {
+  if (
+    number < 0
+  ) {
     return `-$${absolute}`;
   }
 
@@ -8841,10 +9645,15 @@ function formatEditBasisPrice(
 }
 
 
+/* ============================================================
+   EDIT PRICE VALIDATION
+============================================================ */
+
 function validateEditPrice() {
   const type =
     $("edit-contract-type")
       ?.value || "";
+
 
   const futuresInput =
     $("edit-futures-price");
@@ -8865,11 +9674,17 @@ function validateEditPrice() {
   }
 
 
-  futuresInput.setCustomValidity("");
+  futuresInput.setCustomValidity(
+    ""
+  );
 
-  basisInput.setCustomValidity("");
+  basisInput.setCustomValidity(
+    ""
+  );
 
-  cashInput.setCustomValidity("");
+  cashInput.setCustomValidity(
+    ""
+  );
 
 
   if (
