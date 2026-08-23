@@ -197,25 +197,25 @@ const loadStubUser =
     }
 
 
-    if (
-      window.FV_DEFAULT_USER
-    ) {
+if (
+  window.FV_DEFAULT_USER
+) {
 
-      return sanitizeUser(
-        window.FV_DEFAULT_USER
-      );
+  return sanitizeUser(
+    window.FV_DEFAULT_USER
+  );
 
-    }
+}
 
 
-    return sanitizeUser(
-      {
-        displayName:
-          "FarmVista User"
-      }
-    );
+/*
+  No saved/default stub user means signed out.
 
-  };
+  This prevents a fresh browser or an unselected farm
+  from being treated as an authenticated FarmVista user.
+*/
+
+return null;
 
 
 const saveStubUser =
