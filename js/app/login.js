@@ -2589,14 +2589,35 @@ function phoneVerifyErrorMessage(
 
 async function getRecaptchaVerifier() {
 
+  // ========================================================
+  // CLEAR ANY OLD VERIFIER
+  // ========================================================
+
   if (
     recaptchaVerifier
   ) {
 
-    return recaptchaVerifier;
+    try {
+
+      recaptchaVerifier.clear();
+
+    }
+    catch {}
+
+
+    recaptchaVerifier =
+      null;
 
   }
 
+
+  recaptchaWidgetId =
+    null;
+
+
+  // ========================================================
+  // REQUIRE CURRENT FARM AUTH
+  // ========================================================
 
   if (
     !auth
@@ -2609,6 +2630,49 @@ async function getRecaptchaVerifier() {
   }
 
 
+  // ========================================================
+  // MAKE SURE THE CONTAINER EXISTS
+  // ========================================================
+
+  let container =
+    document.getElementById(
+      "recaptcha-container"
+    );
+
+
+  if (
+    !container
+  ) {
+
+    container =
+      document.createElement(
+        "div"
+      );
+
+
+    container.id =
+      "recaptcha-container";
+
+
+    document.body.appendChild(
+      container
+    );
+
+  }
+
+
+  container.innerHTML =
+    "";
+
+
+  // ========================================================
+  // CREATE FRESH INVISIBLE RECAPTCHA
+  //
+  // IMPORTANT:
+  // Do NOT manually call .render() here.
+  // signInWithPhoneNumber() will use the verifier.
+  // ========================================================
+
   recaptchaVerifier =
     createRecaptchaVerifier(
       auth,
@@ -2620,8 +2684,10 @@ async function getRecaptchaVerifier() {
     );
 
 
-  recaptchaWidgetId =
-    await recaptchaVerifier.render();
+  console.info(
+    "[Login] reCAPTCHA prepared for:",
+    window.FV_FARM_KEY
+  );
 
 
   return recaptchaVerifier;
