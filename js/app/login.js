@@ -3292,22 +3292,34 @@ if (
   }
   finally {
 
-    setButtonBusy(
-      els.sendCode,
-      false,
-      "Sending Code…",
-      "Send Verification Code"
-    );
+if (
+  els.sendCode
+) {
+
+  els.sendCode.disabled =
+    false;
+
+  els.sendCode.textContent =
+    "Send Verification Code";
+
+  els.sendCode.removeAttribute(
+    "aria-busy"
+  );
+
+  els.sendCode.style.pointerEvents =
+    "";
+
+}
 
 
-    if (
-      els.resendCode
-    ) {
+if (
+  els.resendCode
+) {
 
-      els.resendCode.disabled =
-        false;
+  els.resendCode.disabled =
+    false;
 
-    }
+}
 
   }
 
