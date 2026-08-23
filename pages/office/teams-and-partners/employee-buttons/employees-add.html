@@ -756,6 +756,147 @@
         );
 
 
+    // ======================================================
+    // FARMVISTA PLATFORM MEMBERSHIP SYNC
+    // ======================================================
+
+    const MEMBERSHIP_SYNC_URL =
+      "https://farmvistamembershipsync-444836596195.us-central1.run.app";
+
+
+    async function syncPlatformMembership(
+      values
+    ){
+
+      let farmKey =
+        String(
+          window.FV_FARM_KEY ||
+          window.FV_FARM?.farmKey ||
+          ""
+        )
+          .trim()
+          .toLowerCase();
+
+
+      if (
+        !farmKey
+      ) {
+
+        try {
+
+          farmKey =
+            String(
+              localStorage.getItem(
+                "fv:farm-key"
+              ) ||
+              ""
+            )
+              .trim()
+              .toLowerCase();
+
+        }
+        catch {}
+
+      }
+
+
+      if (
+        !farmKey
+      ) {
+
+        throw new Error(
+          "FarmVista could not determine the current farm."
+        );
+
+      }
+
+
+      const response =
+        await fetch(
+          MEMBERSHIP_SYNC_URL,
+          {
+            method:
+              "POST",
+
+            headers:
+              {
+                "Content-Type":
+                  "application/json"
+              },
+
+            body:
+              JSON.stringify({
+                farmKey,
+
+                previous:
+                  {
+                    email:
+                      "",
+
+                    phone:
+                      ""
+                  },
+
+                current:
+                  {
+                    email:
+                      values.email ||
+                      "",
+
+                    phone:
+                      values.phoneE164 ||
+                      "",
+
+                    active:
+                      values.status ===
+                      "Active"
+                  }
+              }),
+
+            cache:
+              "no-store"
+          }
+        );
+
+
+      const result =
+        await response
+          .json()
+          .catch(
+            () => null
+          );
+
+
+      if (
+        !response.ok ||
+        result?.ok !==
+          true
+      ) {
+
+        throw new Error(
+          result?.error ||
+          "FarmVista Platform membership sync failed."
+        );
+
+      }
+
+
+      console.info(
+        "[Add Employee] Membership synced:",
+        {
+          farmKey,
+          email:
+            values.email ||
+            "",
+          phone:
+            values.phoneE164 ||
+            ""
+        }
+      );
+
+    }
+
+
     $("phone").addEventListener(
       "blur",
       event => {
@@ -2009,6 +2150,15 @@
         {
           merge:true
         }
+      );
+
+
+      // ====================================================
+      // UPDATE CENTRAL FARMVISTA LOGIN MEMBERSHIP
+      // ====================================================
+
+      await syncPlatformMembership(
+        values
       );
 
 
