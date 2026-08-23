@@ -24,6 +24,36 @@
     null;
 
 
+  /*
+    Hide the weather modal scrollbar while keeping
+    mouse-wheel, trackpad, and touch scrolling enabled.
+  */
+  const weatherModalStyle =
+    document.createElement(
+      "style"
+    );
+
+  weatherModalStyle.textContent =
+    `
+      #fv-weather-modal,
+      #fv-weather-modal-body {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
+
+      #fv-weather-modal::-webkit-scrollbar,
+      #fv-weather-modal-body::-webkit-scrollbar {
+        display: none;
+        width: 0;
+        height: 0;
+      }
+    `;
+
+  document.head.appendChild(
+    weatherModalStyle
+  );
+
+
   function onReady(
     fn
   ) {
