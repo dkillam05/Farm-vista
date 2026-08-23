@@ -942,14 +942,122 @@ this._watchUserContextForSwaps();
       return true;
     }
 
-    _kickToLogin(reason){
-      try{
-        const url = new URL(this.LOGIN_URL, location.origin);
-        url.searchParams.set('reason', reason || 'guard');
-        url.searchParams.set('next', location.pathname + location.search + location.hash);
-        location.replace(url.toString());
-      }catch{ location.replace(this.LOGIN_URL); }
+_kickToLogin(reason){
+  try {
+
+    const url =
+      new URL(
+        this.LOGIN_URL,
+        location.origin
+      );
+
+
+    // ========================================================
+    // PRESERVE CURRENT FARM
+    // ========================================================
+
+    let farmKey =
+      String(
+        window.FV_FARM_KEY ||
+        ""
+      )
+        .trim()
+        .toLowerCase();
+
+
+    // If Firebase config has not finished loading yet,
+    // try the current page URL.
+    if (!farmKey) {
+
+      try {
+
+        const current =
+          new URL(
+            location.href
+          );
+
+        farmKey =
+          String(
+            current.searchParams.get("farm") ||
+            ""
+          )
+            .trim()
+            .toLowerCase();
+
+      }
+      catch {}
+
     }
+
+
+    // Last fallback: use the farm saved by
+    // firebase-config.js.
+    if (!farmKey) {
+
+      try {
+
+        farmKey =
+          String(
+            localStorage.getItem(
+              "fv:farm-key"
+            ) ||
+            ""
+          )
+            .trim()
+            .toLowerCase();
+
+      }
+      catch {}
+
+    }
+
+
+    // Put the farm directly on the LOGIN URL.
+    //
+    // Example:
+    // /pages/login/index.html?farm=dowson
+    if (farmKey) {
+
+      url.searchParams.set(
+        "farm",
+        farmKey
+      );
+
+    }
+
+
+    // ========================================================
+    // NORMAL LOGIN REDIRECT DATA
+    // ========================================================
+
+    url.searchParams.set(
+      "reason",
+      reason ||
+      "guard"
+    );
+
+
+    url.searchParams.set(
+      "next",
+      location.pathname +
+      location.search +
+      location.hash
+    );
+
+
+    location.replace(
+      url.toString()
+    );
+
+  }
+  catch {
+
+    location.replace(
+      this.LOGIN_URL
+    );
+
+  }
+}
 
     async _ensureFirebaseInit(){
       try {
