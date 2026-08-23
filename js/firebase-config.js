@@ -1,16 +1,116 @@
 // /js/firebase-config.js
 // FarmVista multi-farm Firebase configuration loader.
 //
-// IMPORTANT:
-// There is NO default farm.
-// A farm must be explicitly identified before FarmVista
-// loads that farm's Firebase project.
+// No farm is hard-coded as the default.
+//
+// A farm can be selected with:
+//   ?farm=dowson
+//   ?farm=borrowman
+//
+// Once selected, the farm key is remembered in localStorage.
+//
+// If no farm has been selected yet, FarmVista stays in a
+// neutral "no farm selected" state and does NOT load Firebase.
 
-(async () => {
+(() => {
 
   const FARM_STORAGE_KEY =
     "fv:farm-key";
 
+
+  // ==========================================================
+  // RESET RUNTIME FARM STATE
+  // ==========================================================
+
+  window.FV_FARM =
+    null;
+
+  window.FV_FARM_KEY =
+    "";
+
+  window.FV_FIREBASE_CONFIG =
+    null;
+
+  window.__FV_NO_FARM_SELECTED =
+    false;
+
+  window.__FV_FARM_CONFIG_FAILED =
+    false;
+
+  window.__FV_FARM_CONFIG_LOADING =
+    true;
+
+
+  // ==========================================================
+  // FARM CONFIG READY PROMISE
+  //
+  // Other FarmVista files can await this later if needed.
+  // ==========================================================
+
+  let resolveFarmReady;
+
+
+  window.FV_FARM_READY =
+    new Promise(
+      resolve => {
+
+        resolveFarmReady =
+          resolve;
+
+      }
+    );
+
+
+  function finish(
+    result
+  ) {
+
+    window.__FV_FARM_CONFIG_LOADING =
+      false;
+
+
+    if (
+      typeof resolveFarmReady ===
+        "function"
+    ) {
+
+      resolveFarmReady(
+        result
+      );
+
+      resolveFarmReady =
+        null;
+
+    }
+
+  }
+
+
+  // ==========================================================
+  // NORMALIZE FARM KEY
+  // ==========================================================
+
+  function normalizeFarmKey(
+    value
+  ) {
+
+    return String(
+      value ||
+      ""
+    )
+      .trim()
+      .toLowerCase()
+      .replace(
+        /[^a-z0-9_-]/g,
+        ""
+      );
+
+  }
+
+
+  // ==========================================================
+  // READ FARM FROM URL
+  // ==========================================================
 
   const params =
     new URLSearchParams(
@@ -19,13 +119,16 @@
 
 
   const requestedFarm =
-    String(
-      params.get("farm") ||
-      ""
-    )
-      .trim()
-      .toLowerCase();
+    normalizeFarmKey(
+      params.get(
+        "farm"
+      )
+    );
 
+
+  // ==========================================================
+  // READ FARM SAVED ON THIS DEVICE
+  // ==========================================================
 
   let storedFarm =
     "";
@@ -34,18 +137,17 @@
   try {
 
     storedFarm =
-      String(
+      normalizeFarmKey(
         localStorage.getItem(
           FARM_STORAGE_KEY
-        ) ||
-        ""
-      )
-        .trim()
-        .toLowerCase();
+        )
+      );
 
   }
   catch {}
 
+
+  // Explicit URL choice always wins over saved choice.
 
   const farmKey =
     requestedFarm ||
@@ -60,11 +162,6 @@
     !farmKey
   ) {
 
-    console.info(
-      "[FarmVista] No farm selected. Showing generic FarmVista login."
-    );
-
-
     window.FV_FARM =
       null;
 
@@ -76,6 +173,34 @@
 
     window.__FV_NO_FARM_SELECTED =
       true;
+
+    window.__FV_FARM_CONFIG_FAILED =
+      false;
+
+
+    console.info(
+      "[FarmVista] No farm selected."
+    );
+
+
+    finish(
+      {
+        ok:
+          true,
+
+        selected:
+          false,
+
+        farm:
+          null,
+
+        farmKey:
+          "",
+
+        firebaseConfig:
+          null
+      }
+    );
 
 
     return;
@@ -84,110 +209,229 @@
 
 
   // ==========================================================
-  // LOAD FARM
+  // LOAD FARM CONFIGURATION
   // ==========================================================
 
-  try {
+  (
+    async () => {
 
-    const response =
-      await fetch(
-        `/farms/${encodeURIComponent(farmKey)}.json`,
-        {
-          cache:
-            "no-store"
+      try {
+
+        const response =
+          await fetch(
+            `/farms/${encodeURIComponent(farmKey)}.json`,
+            {
+              cache:
+                "no-store"
+            }
+          );
+
+
+        if (
+          !response.ok
+        ) {
+
+          throw new Error(
+            `Farm configuration not found: ${farmKey}`
+          );
+
         }
-      );
 
 
-    if (
-      !response.ok
-    ) {
+        const farm =
+          await response.json();
 
-      throw new Error(
-        `Farm configuration not found: ${farmKey}`
-      );
+
+        // ====================================================
+        // VALIDATE FARM FILE
+        // ====================================================
+
+        if (
+          !farm ||
+          typeof farm !==
+            "object"
+        ) {
+
+          throw new Error(
+            `Invalid farm configuration: ${farmKey}`
+          );
+
+        }
+
+
+        if (
+          farm.active ===
+            false
+        ) {
+
+          throw new Error(
+            `Farm is inactive: ${farmKey}`
+          );
+
+        }
+
+
+        if (
+          !farm.firebaseConfig ||
+          typeof farm.firebaseConfig !==
+            "object"
+        ) {
+
+          throw new Error(
+            `Firebase configuration missing for farm: ${farmKey}`
+          );
+
+        }
+
+
+        const resolvedFarmKey =
+          normalizeFarmKey(
+            farm.farmKey ||
+            farmKey
+          );
+
+
+        if (
+          !resolvedFarmKey
+        ) {
+
+          throw new Error(
+            `Farm key is invalid: ${farmKey}`
+          );
+
+        }
+
+
+        // ====================================================
+        // APPLY FARM
+        // ====================================================
+
+        window.FV_FARM =
+          farm;
+
+        window.FV_FARM_KEY =
+          resolvedFarmKey;
+
+        window.FV_FIREBASE_CONFIG =
+          farm.firebaseConfig;
+
+        window.__FV_NO_FARM_SELECTED =
+          false;
+
+        window.__FV_FARM_CONFIG_FAILED =
+          false;
+
+
+        // ====================================================
+        // REMEMBER FARM
+        // ====================================================
+
+        try {
+
+          localStorage.setItem(
+            FARM_STORAGE_KEY,
+            resolvedFarmKey
+          );
+
+        }
+        catch {}
+
+
+        console.info(
+          "[FarmVista] Farm loaded:",
+          farm.name ||
+          resolvedFarmKey
+        );
+
+
+        finish(
+          {
+            ok:
+              true,
+
+            selected:
+              true,
+
+            farm,
+
+            farmKey:
+              resolvedFarmKey,
+
+            firebaseConfig:
+              farm.firebaseConfig
+          }
+        );
+
+      }
+      catch (
+        error
+      ) {
+
+        console.error(
+          "[FarmVista] Unable to load farm configuration.",
+          error
+        );
+
+
+        // If the URL requested a bad farm, do not keep
+        // a previously saved tenant around.
+
+        if (
+          requestedFarm
+        ) {
+
+          try {
+
+            localStorage.removeItem(
+              FARM_STORAGE_KEY
+            );
+
+          }
+          catch {}
+
+        }
+
+
+        window.FV_FARM =
+          null;
+
+        window.FV_FARM_KEY =
+          "";
+
+        window.FV_FIREBASE_CONFIG =
+          null;
+
+        window.__FV_NO_FARM_SELECTED =
+          true;
+
+        window.__FV_FARM_CONFIG_FAILED =
+          true;
+
+
+        finish(
+          {
+            ok:
+              false,
+
+            selected:
+              false,
+
+            farm:
+              null,
+
+            farmKey:
+              "",
+
+            firebaseConfig:
+              null,
+
+            error
+          }
+        );
+
+      }
 
     }
-
-
-    const farm =
-      await response.json();
-
-
-    if (
-      !farm ||
-      farm.active === false ||
-      !farm.firebaseConfig
-    ) {
-
-      throw new Error(
-        `Invalid or inactive farm configuration: ${farmKey}`
-      );
-
-    }
-
-
-    window.FV_FARM =
-      farm;
-
-
-    window.FV_FARM_KEY =
-      String(
-        farm.farmKey ||
-        farmKey
-      )
-        .trim()
-        .toLowerCase();
-
-
-    window.FV_FIREBASE_CONFIG =
-      farm.firebaseConfig;
-
-
-    window.__FV_NO_FARM_SELECTED =
-      false;
-
-
-    try {
-
-      localStorage.setItem(
-        FARM_STORAGE_KEY,
-        window.FV_FARM_KEY
-      );
-
-    }
-    catch {}
-
-
-    console.info(
-      "[FarmVista] Farm loaded:",
-      farm.name ||
-      window.FV_FARM_KEY
-    );
-
-  }
-  catch (
-    error
-  ) {
-
-    console.error(
-      "[FarmVista] Unable to load farm configuration.",
-      error
-    );
-
-
-    window.FV_FARM =
-      null;
-
-    window.FV_FARM_KEY =
-      "";
-
-    window.FV_FIREBASE_CONFIG =
-      null;
-
-    window.__FV_FARM_CONFIG_FAILED =
-      true;
-
-  }
+  )();
 
 })();
