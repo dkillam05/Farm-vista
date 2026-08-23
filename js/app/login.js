@@ -2765,10 +2765,12 @@ async function handlePasswordReset(
 
 
   const email =
-    (
+    String(
       els.email?.value ||
       ""
-    ).trim();
+    )
+      .trim()
+      .toLowerCase();
 
 
   if (
@@ -2785,22 +2787,67 @@ async function handlePasswordReset(
   }
 
 
-  const ok =
-    await requireFirebase(
-      "email"
+  try {
+
+    // ======================================================
+    // STEP 1:
+    // Find which farm(s) this email belongs to.
+    // ======================================================
+
+    const farm =
+      await resolveFarmForEmail(
+        email
+      );
+
+
+    if (
+      !farm
+    ) {
+
+      showErr(
+        "No active FarmVista account was found for this email."
+      );
+
+
+      return;
+
+    }
+
+
+    // ======================================================
+    // STEP 2:
+    // Load that farm.
+    // ======================================================
+
+    await selectFarm(
+      farm
     );
 
 
-  if (
-    !ok
-  ) {
+    // ======================================================
+    // STEP 3:
+    // Initialize Firebase for that farm.
+    // ======================================================
 
-    return;
+    const ok =
+      await requireFirebase(
+        "email"
+      );
 
-  }
+
+    if (
+      !ok
+    ) {
+
+      return;
+
+    }
 
 
-  try {
+    // ======================================================
+    // STEP 4:
+    // Send reset from that farm's Firebase Auth.
+    // ======================================================
 
     await sendPasswordResetEmail(
       auth,
