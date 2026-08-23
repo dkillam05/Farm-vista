@@ -794,11 +794,114 @@ _hideBootOverlayWithOptionalHold(){
       await this._loadScriptOnce('/js/version.js').catch(()=>{});
       this._applyVersionToUI();
 
-      await this._loadScriptOnce('/js/firebase-config.js').catch(()=>{});
-      await this._ensureFirebaseInit();
+// ==========================================================
+// MULTI-FARM BOOT
+// ==========================================================
 
-      await this._loadScriptOnce('/js/app/user-context.js').catch(()=>{});
-      await this._loadScriptOnce('/js/menu-acl.js').catch(()=>{});
+// Load the farm configuration loader.
+await this
+  ._loadScriptOnce(
+    '/js/firebase-config.js'
+  )
+  .catch(() => {});
+
+
+// ----------------------------------------------------------
+// Wait for firebase-config.js to finish resolving the farm.
+//
+// IMPORTANT:
+// Loading the script does NOT mean its async work is done.
+// Do not initialize Firebase until FV_FIREBASE_CONFIG exists.
+// ----------------------------------------------------------
+
+const farmDeadline =
+  Date.now() + 5000;
+
+
+while (
+  Date.now() <
+  farmDeadline
+) {
+
+  if (
+    window.FV_FIREBASE_CONFIG &&
+    window.FV_FARM_KEY
+  ) {
+
+    break;
+
+  }
+
+
+  // Stop waiting if the config loader explicitly determined
+  // that there is no farm to load.
+  if (
+    window.__FV_NO_FARM_SELECTED ||
+    window.__FV_FARM_CONFIG_FAILED
+  ) {
+
+    break;
+
+  }
+
+
+  await this._sleep(
+    50
+  );
+
+}
+
+
+// ----------------------------------------------------------
+// No farm selected.
+//
+// Preserve any farm that may exist in the current URL or
+// localStorage and send the user to login.
+//
+// _kickToLogin() already knows how to copy that farm onto
+// the login URL.
+// ----------------------------------------------------------
+
+if (
+  !window.FV_FIREBASE_CONFIG ||
+  !window.FV_FARM_KEY
+) {
+
+  this._kickToLogin(
+    'farm-required'
+  );
+
+  return;
+
+}
+
+
+// ----------------------------------------------------------
+// We now KNOW which farm owns this browser session.
+// Firebase may safely initialize against that farm.
+// ----------------------------------------------------------
+
+console.info(
+  '[FarmVista] Shell starting farm:',
+  window.FV_FARM_KEY
+);
+
+
+await this._ensureFirebaseInit();
+
+
+await this
+  ._loadScriptOnce(
+    '/js/app/user-context.js'
+  )
+  .catch(() => {});
+
+
+await this
+  ._loadScriptOnce(
+    '/js/menu-acl.js'
+  )
+  .catch(() => {});
 
 // Phase A (hard): auth only
 // Public legal/compliance pages are allowed without login.
