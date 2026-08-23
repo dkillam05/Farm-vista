@@ -3241,12 +3241,55 @@ if (
       await getRecaptchaVerifier();
 
 
+    console.info(
+      "[Login] ABOUT TO call signInWithPhoneNumber",
+      {
+        farmKey:
+          window.FV_FARM_KEY,
+
+        projectId:
+          window.FV_FIREBASE_CONFIG?.projectId ||
+          "",
+
+        authProjectId:
+          auth?.app?.options?.projectId ||
+          "",
+
+        phone:
+          lastPhoneE164,
+
+        verifierExists:
+          Boolean(
+            verifier
+          )
+      }
+    );
+
+
     confirmationResult =
       await signInWithPhoneNumber(
         auth,
         lastPhoneE164,
         verifier
       );
+
+
+    console.info(
+      "[Login] signInWithPhoneNumber FINISHED",
+      {
+        farmKey:
+          window.FV_FARM_KEY,
+
+        projectId:
+          auth?.app?.options?.projectId ||
+          "",
+
+        confirmationResult:
+          Boolean(
+            confirmationResult
+          )
+      }
+    );
 
 
     showPhoneVerifyStep();
