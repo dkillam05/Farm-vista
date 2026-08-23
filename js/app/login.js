@@ -1733,20 +1733,40 @@ async function resetRecaptcha() {
       catch {}
 
 
-      if (
-        ctx &&
-        isStub &&
-        isStub()
-      ) {
+if (
+  isStub &&
+  isStub()
+) {
 
-        location.replace(
-          nextUrl()
-        );
+  showErr(
+    "FarmVista could not connect to this farm. Please refresh and try again."
+  );
 
 
-        return;
+  console.error(
+    "[Login] Sign-in blocked because Firebase is running in stub mode.",
+    {
+      farmKey:
+        window.FV_FARM_KEY,
 
-      }
+      farm:
+        window.FV_FARM,
+
+      firebaseConfig:
+        window.FV_FIREBASE_CONFIG,
+
+      configFailed:
+        window.__FV_FARM_CONFIG_FAILED,
+
+      noFarm:
+        window.__FV_NO_FARM_SELECTED
+    }
+  );
+
+
+  return;
+
+}
 
 
       setButtonBusy(
