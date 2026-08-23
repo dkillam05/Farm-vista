@@ -1242,7 +1242,20 @@ async function initWeather(){
   }
 
 
-  const company =
+  shell.innerHTML =
+    `
+      <div class="fv-weather-card">
+        Loading weather…
+      </div>
+    `;
+
+
+  /*
+    First use the company already loaded by FarmVista.
+    If it is not ready yet, read company/main directly.
+  */
+
+  let company =
     window.FV_COMPANY ||
     null;
 
@@ -1251,17 +1264,129 @@ async function initWeather(){
     !company
   ) {
 
-    shell.innerHTML =
-      `
-        <div class="fv-weather-card">
-          Weather location not configured.
-        </div>
-      `;
+    try {
+
+      let db =
+        null;
 
 
-    return;
+      if (
+        window.db &&
+        typeof window.db.collection ===
+          "function"
+      ) {
+
+        db =
+          window.db;
+
+      }
+      else if (
+        window.firebase &&
+        typeof window.firebase.firestore ===
+          "function"
+      ) {
+
+        db =
+          window.firebase.firestore();
+
+      }
+
+
+      if (
+        db
+      ) {
+
+        const companySnap =
+          await db
+            .collection(
+              "company"
+            )
+            .doc(
+              "main"
+            )
+            .get();
+
+
+        if (
+          companySnap.exists
+        ) {
+
+          company =
+            companySnap.data();
+
+        }
+
+      }
+
+    }
+    catch (
+      error
+    ) {
+
+      console.warn(
+        "[dashboard] company/main weather lookup failed:",
+        error
+      );
+
+    }
 
   }
+
+
+  /*
+    Final FarmVista default.
+
+    This prevents the dashboard from showing
+    "Weather location not configured" just because
+    the company record has not finished loading.
+  */
+
+  if (
+    !company
+  ) {
+
+    company = {
+      addressCity:
+        "Divernon",
+
+      addressState:
+        "IL",
+
+      addressZip:
+        "62530"
+    };
+
+  }
+
+
+  /*
+    ZIP is our required weather location.
+
+    If company/main exists but for some reason
+    addressZip is blank, use 62530.
+  */
+
+  company = {
+    ...company,
+
+    addressZip:
+      String(
+        company.addressZip ||
+        "62530"
+      ).trim(),
+
+    addressCity:
+      String(
+        company.addressCity ||
+        "Divernon"
+      ).trim(),
+
+    addressState:
+      String(
+        company.addressState ||
+        "IL"
+      ).trim()
+  };
 
 
   const weatherLocation =
@@ -1277,7 +1402,7 @@ async function initWeather(){
     shell.innerHTML =
       `
         <div class="fv-weather-card">
-          Weather location not configured.
+          Weather could not be loaded.
         </div>
       `;
 
@@ -1286,6 +1411,11 @@ async function initWeather(){
 
   }
 
+
+  /*
+    This is shared with dash-weather-modal.js,
+    so clicking the card uses the exact same location.
+  */
 
   window.FV_DASH_WEATHER_LOCATION =
     weatherLocation;
