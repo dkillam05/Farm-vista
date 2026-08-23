@@ -2523,10 +2523,45 @@ export const ready =
         };
 
 
-      const cfg =
-        await waitForConfig(
-          2500
-        );
+/*
+  Multi-farm startup:
+
+  firebase-config.js may need to fetch the selected farm's
+  configuration before Firebase can initialize.
+
+  Wait for that farm lookup to finish first.
+*/
+
+try {
+
+  if (
+    window.FV_FARM_READY &&
+    typeof window.FV_FARM_READY.then ===
+      "function"
+  ) {
+
+    await window.FV_FARM_READY;
+
+  }
+
+}
+catch (
+  error
+) {
+
+  console.warn(
+    "[FV] Farm configuration wait failed:",
+    error
+  );
+
+}
+
+
+const cfg =
+  window.FV_FIREBASE_CONFIG ||
+  await waitForConfig(
+    2500
+  );
 
 
       if (
