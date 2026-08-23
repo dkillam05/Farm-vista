@@ -31,22 +31,82 @@ document.body.style.overflow = "hidden";
 // Clear any previous modal render before rebuilding it
 modalBody.innerHTML = "";
 
-// Re-render weather inside modal
-if (window.FVWeather && typeof FVWeather.initWeatherModule === "function") {
-        FVWeather.initWeatherModule({
-          googleApiKey: "AIzaSyD5qLrXZch_rM4sVXmBrpGDH3Zp7RgfVHc",
-          lat: 39.5656,
-          lon: -89.6573,
-          unitsSystem: "IMPERIAL",
-          selector: "#fv-weather-modal-body",
-          showOpenMeteo: true,
-          mode: "modal",
-          locationLabel: "Divernon, Illinois"
-        });
-      } else {
-        // fallback: clone card HTML
-        modalBody.innerHTML = shell.innerHTML;
-      }
+if (
+  window.FVWeather &&
+  typeof FVWeather.initWeatherModule ===
+    "function"
+) {
+
+  const weatherLocation =
+    window.FV_DASH_WEATHER_LOCATION ||
+    null;
+
+
+  if (
+    weatherLocation &&
+    Number.isFinite(
+      Number(
+        weatherLocation.lat
+      )
+    ) &&
+    Number.isFinite(
+      Number(
+        weatherLocation.lon
+      )
+    )
+  ) {
+
+    FVWeather.initWeatherModule({
+      googleApiKey:
+        "AIzaSyD5qLrXZch_rM4sVXmBrpGDH3Zp7RgfVHc",
+
+      lat:
+        Number(
+          weatherLocation.lat
+        ),
+
+      lon:
+        Number(
+          weatherLocation.lon
+        ),
+
+      unitsSystem:
+        "IMPERIAL",
+
+      selector:
+        "#fv-weather-modal-body",
+
+      showOpenMeteo:
+        true,
+
+      mode:
+        "modal",
+
+      locationLabel:
+        weatherLocation.locationLabel ||
+        ""
+    });
+
+  }
+  else {
+
+    modalBody.innerHTML =
+      `
+        <div class="fv-weather-card">
+          Weather location not configured.
+        </div>
+      `;
+
+  }
+
+}
+else {
+
+  // fallback: clone card HTML
+  modalBody.innerHTML =
+    shell.innerHTML;
+
+}
     }
 
     function closeModal(){
