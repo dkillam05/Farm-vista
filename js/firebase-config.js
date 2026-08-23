@@ -1,10 +1,15 @@
 // /js/firebase-config.js
-// FarmVista multi-farm Firebase config loader
+// FarmVista multi-farm Firebase configuration loader.
+//
+// IMPORTANT:
+// There is NO default farm.
+// A farm must be explicitly identified before FarmVista
+// loads that farm's Firebase project.
 
 (async () => {
 
-  const DEFAULT_FARM =
-    "dowson";
+  const FARM_STORAGE_KEY =
+    "fv:farm-key";
 
 
   const params =
@@ -13,17 +18,74 @@
     );
 
 
-  const farmKey =
+  const requestedFarm =
     String(
       params.get("farm") ||
-      localStorage.getItem(
-        "fv:farm-key"
-      ) ||
-      DEFAULT_FARM
+      ""
     )
       .trim()
       .toLowerCase();
 
+
+  let storedFarm =
+    "";
+
+
+  try {
+
+    storedFarm =
+      String(
+        localStorage.getItem(
+          FARM_STORAGE_KEY
+        ) ||
+        ""
+      )
+        .trim()
+        .toLowerCase();
+
+  }
+  catch {}
+
+
+  const farmKey =
+    requestedFarm ||
+    storedFarm;
+
+
+  // ==========================================================
+  // NO FARM SELECTED
+  // ==========================================================
+
+  if (
+    !farmKey
+  ) {
+
+    console.info(
+      "[FarmVista] No farm selected. Showing generic FarmVista login."
+    );
+
+
+    window.FV_FARM =
+      null;
+
+    window.FV_FARM_KEY =
+      "";
+
+    window.FV_FIREBASE_CONFIG =
+      null;
+
+    window.__FV_NO_FARM_SELECTED =
+      true;
+
+
+    return;
+
+  }
+
+
+  // ==========================================================
+  // LOAD FARM
+  // ==========================================================
 
   try {
 
@@ -70,18 +132,31 @@
 
 
     window.FV_FARM_KEY =
-      farm.farmKey ||
-      farmKey;
+      String(
+        farm.farmKey ||
+        farmKey
+      )
+        .trim()
+        .toLowerCase();
 
 
     window.FV_FIREBASE_CONFIG =
       farm.firebaseConfig;
 
 
-    localStorage.setItem(
-      "fv:farm-key",
-      window.FV_FARM_KEY
-    );
+    window.__FV_NO_FARM_SELECTED =
+      false;
+
+
+    try {
+
+      localStorage.setItem(
+        FARM_STORAGE_KEY,
+        window.FV_FARM_KEY
+      );
+
+    }
+    catch {}
 
 
     console.info(
@@ -100,6 +175,15 @@
       error
     );
 
+
+    window.FV_FARM =
+      null;
+
+    window.FV_FARM_KEY =
+      "";
+
+    window.FV_FIREBASE_CONFIG =
+      null;
 
     window.__FV_FARM_CONFIG_FAILED =
       true;
