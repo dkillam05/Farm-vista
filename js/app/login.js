@@ -15,28 +15,114 @@
 // After verification, FarmVista only allows access when the
 // verified phone belongs to exactly one ACTIVE employee record.
 
-import {
-  ready,
-  getAuth,
+// ==========================================================
+// FIREBASE SDK
+// ==========================================================
+//
+// IMPORTANT:
+// Do NOT load firebase-init.js until FarmVista knows which
+// farm this login belongs to.
 
-  signInWithEmailAndPassword,
-  sendPasswordResetEmail,
-  signOut,
+let ready;
+let getAuth;
 
-  createRecaptchaVerifier,
-  signInWithPhoneNumber,
+let signInWithEmailAndPassword;
+let sendPasswordResetEmail;
+let signOut;
 
-  getFirestore,
-  collection,
-  getDocs,
-  query,
-  where,
-  limit,
-  doc,
-  setDoc,
+let createRecaptchaVerifier;
+let signInWithPhoneNumber;
 
-  isStub
-} from "../firebase-init.js";
+let getFirestore;
+let collection;
+let getDocs;
+let query;
+let where;
+let limit;
+let doc;
+let setDoc;
+
+let isStub;
+
+
+let firebaseModuleLoaded =
+  false;
+
+
+const PLATFORM_LOOKUP_URL =
+  "https://farmvistaloginlookup-444836596195.us-central1.run.app";
+
+
+async function loadFirebaseModule() {
+
+  if (
+    firebaseModuleLoaded
+  ) {
+
+    return;
+
+  }
+
+
+  const mod =
+    await import(
+      "../firebase-init.js"
+    );
+
+
+  ready =
+    mod.ready;
+
+  getAuth =
+    mod.getAuth;
+
+  signInWithEmailAndPassword =
+    mod.signInWithEmailAndPassword;
+
+  sendPasswordResetEmail =
+    mod.sendPasswordResetEmail;
+
+  signOut =
+    mod.signOut;
+
+  createRecaptchaVerifier =
+    mod.createRecaptchaVerifier;
+
+  signInWithPhoneNumber =
+    mod.signInWithPhoneNumber;
+
+  getFirestore =
+    mod.getFirestore;
+
+  collection =
+    mod.collection;
+
+  getDocs =
+    mod.getDocs;
+
+  query =
+    mod.query;
+
+  where =
+    mod.where;
+
+  limit =
+    mod.limit;
+
+  doc =
+    mod.doc;
+
+  setDoc =
+    mod.setDoc;
+
+  isStub =
+    mod.isStub;
+
+
+  firebaseModuleLoaded =
+    true;
+
+}
 
 
 // ==========================================================
@@ -438,12 +524,448 @@ function selectedFarmKey() {
 function showNoFarmMessage() {
 
   showErr(
-    "Choose a FarmVista farm before signing in."
+    "FarmVista could not determine your farming operation."
   );
 
 
   showPhoneErr(
-    "Choose a FarmVista farm before signing in."
+    "FarmVista could not determine your farming operation."
+  );
+
+}
+
+
+// ==========================================================
+// PLATFORM FARM LOOKUP
+// ==========================================================
+
+async function lookupFarmsForEmail(
+  email
+) {
+
+  const response =
+    await fetch(
+      PLATFORM_LOOKUP_URL,
+      {
+        method:
+          "POST",
+
+        headers:
+          {
+            "Content-Type":
+              "application/json"
+          },
+
+        body:
+          JSON.stringify({
+            email:
+              String(
+                email ||
+                ""
+              )
+                .trim()
+                .toLowerCase()
+          }),
+
+        cache:
+          "no-store"
+      }
+    );
+
+
+  if (
+    !response.ok
+  ) {
+
+    throw new Error(
+      `Farm lookup failed with HTTP ${response.status}.`
+    );
+
+  }
+
+
+  const result =
+    await response.json();
+
+
+  if (
+    !result ||
+    result.ok !==
+      true
+  ) {
+
+    throw new Error(
+      result?.error ||
+      "Farm lookup failed."
+    );
+
+  }
+
+
+  return Array.isArray(
+    result.farms
+  )
+    ? result.farms
+    : [];
+
+}
+
+
+// ==========================================================
+// LOAD ONE FARM CONFIGURATION
+// ==========================================================
+
+async function selectFarm(
+  farm
+) {
+
+  const farmKey =
+    String(
+      farm?.farmKey ||
+      ""
+    )
+      .trim()
+      .toLowerCase();
+
+
+  if (
+    !farmKey
+  ) {
+
+    throw new Error(
+      "Farm key is missing."
+    );
+
+  }
+
+
+  const configPath =
+    String(
+      farm?.configPath ||
+      `/farms/${farmKey}.json`
+    ).trim();
+
+
+  const response =
+    await fetch(
+      configPath,
+      {
+        cache:
+          "no-store"
+      }
+    );
+
+
+  if (
+    !response.ok
+  ) {
+
+    throw new Error(
+      `Farm configuration could not be loaded: ${farmKey}`
+    );
+
+  }
+
+
+  const farmConfig =
+    await response.json();
+
+
+  if (
+    !farmConfig ||
+    farmConfig.active ===
+      false ||
+    !farmConfig.firebaseConfig
+  ) {
+
+    throw new Error(
+      `Invalid FarmVista farm configuration: ${farmKey}`
+    );
+
+  }
+
+
+  window.FV_FARM =
+    farmConfig;
+
+
+  window.FV_FARM_KEY =
+    farmKey;
+
+
+  window.FV_FIREBASE_CONFIG =
+    farmConfig.firebaseConfig;
+
+
+  window.__FV_NO_FARM_SELECTED =
+    false;
+
+
+  window.__FV_FARM_CONFIG_FAILED =
+    false;
+
+
+  try {
+
+    localStorage.setItem(
+      "fv:farm-key",
+      farmKey
+    );
+
+  }
+  catch {}
+
+
+  console.info(
+    "[Login] Farm selected:",
+    farmKey
+  );
+
+
+  return farmConfig;
+
+}
+
+
+// ==========================================================
+// ACCOUNT CHOOSER
+// ==========================================================
+
+function prettyFarmName(
+  farmKey
+) {
+
+  return String(
+    farmKey ||
+    ""
+  )
+    .trim()
+    .replace(
+      /[-_]+/g,
+      " "
+    )
+    .replace(
+      /\b\w/g,
+      letter =>
+        letter.toUpperCase()
+    );
+
+}
+
+
+function chooseFarm(
+  farms
+) {
+
+  return new Promise(
+    resolve => {
+
+      const old =
+        document.getElementById(
+          "fvFarmChooser"
+        );
+
+
+      old?.remove();
+
+
+      const overlay =
+        document.createElement(
+          "div"
+        );
+
+
+      overlay.id =
+        "fvFarmChooser";
+
+
+      overlay.style.cssText =
+        `
+          position:fixed;
+          inset:0;
+          z-index:99999;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          padding:20px;
+          background:rgba(0,0,0,.42);
+          backdrop-filter:blur(5px);
+          -webkit-backdrop-filter:blur(5px);
+        `;
+
+
+      const card =
+        document.createElement(
+          "div"
+        );
+
+
+      card.style.cssText =
+        `
+          width:min(390px,100%);
+          padding:20px;
+          border-radius:18px;
+          background:#fff;
+          color:#111;
+          box-shadow:0 22px 55px rgba(0,0,0,.28);
+        `;
+
+
+      const title =
+        document.createElement(
+          "div"
+        );
+
+
+      title.textContent =
+        "Choose Account";
+
+
+      title.style.cssText =
+        `
+          font-size:21px;
+          font-weight:900;
+          margin-bottom:6px;
+        `;
+
+
+      const helper =
+        document.createElement(
+          "div"
+        );
+
+
+      helper.textContent =
+        "Your email has access to more than one FarmVista account.";
+
+
+      helper.style.cssText =
+        `
+          font-size:13px;
+          color:#666;
+          margin-bottom:16px;
+          line-height:1.4;
+        `;
+
+
+      card.appendChild(
+        title
+      );
+
+
+      card.appendChild(
+        helper
+      );
+
+
+      farms.forEach(
+        farm => {
+
+          const button =
+            document.createElement(
+              "button"
+            );
+
+
+          button.type =
+            "button";
+
+
+          button.textContent =
+            prettyFarmName(
+              farm.farmKey
+            );
+
+
+          button.style.cssText =
+            `
+              width:100%;
+              min-height:48px;
+              margin-top:8px;
+              border:1px solid #d9ded9;
+              border-radius:12px;
+              background:#fff;
+              color:#111;
+              font:inherit;
+              font-weight:800;
+              cursor:pointer;
+            `;
+
+
+          button.addEventListener(
+            "click",
+            () => {
+
+              overlay.remove();
+
+
+              resolve(
+                farm
+              );
+
+            }
+          );
+
+
+          card.appendChild(
+            button
+          );
+
+        }
+      );
+
+
+      overlay.appendChild(
+        card
+      );
+
+
+      document.body.appendChild(
+        overlay
+      );
+
+    }
+  );
+
+}
+
+
+// ==========================================================
+// RESOLVE FARM FOR EMAIL
+// ==========================================================
+
+async function resolveFarmForEmail(
+  email
+) {
+
+  const farms =
+    await lookupFarmsForEmail(
+      email
+    );
+
+
+  if (
+    farms.length ===
+    0
+  ) {
+
+    return null;
+
+  }
+
+
+  if (
+    farms.length ===
+    1
+  ) {
+
+    return farms[0];
+
+  }
+
+
+  return await chooseFarm(
+    farms
   );
 
 }
@@ -470,13 +992,16 @@ function initializeFirebase() {
 
         try {
 
+          // Firebase must not load until a farm has been selected.
+          await loadFirebaseModule();
+
+
           /*
-            firebase-config.js may be fetching:
+            firebase-config.js may already have resolved a farm
+            from an explicit ?farm= link.
 
-              /farms/dowson.json
-              /farms/borrowman.json
-
-            Wait for that tenant lookup first.
+            For automatic email login, selectFarm() sets the
+            same FV_* values before we get here.
           */
 
           if (
@@ -2005,10 +2530,12 @@ async function handleEmailSignIn(
 
 
   const email =
-    (
+    String(
       els.email?.value ||
       ""
-    ).trim();
+    )
+      .trim()
+      .toLowerCase();
 
 
   const password =
@@ -2052,6 +2579,47 @@ async function handleEmailSignIn(
 
   try {
 
+    // ======================================================
+    // STEP 1:
+    // Ask FarmVista Platform which farm(s) this email
+    // belongs to.
+    // ======================================================
+
+    const farm =
+      await resolveFarmForEmail(
+        email
+      );
+
+
+    if (
+      !farm
+    ) {
+
+      showErr(
+        "No active FarmVista account was found for this email."
+      );
+
+
+      return;
+
+    }
+
+
+    // ======================================================
+    // STEP 2:
+    // Load that farm's Firebase configuration.
+    // ======================================================
+
+    await selectFarm(
+      farm
+    );
+
+
+    // ======================================================
+    // STEP 3:
+    // Initialize Firebase against THAT farm.
+    // ======================================================
+
     const ok =
       await requireFirebase(
         "email"
@@ -2066,6 +2634,11 @@ async function handleEmailSignIn(
 
     }
 
+
+    // ======================================================
+    // STEP 4:
+    // Authenticate email/password against THAT farm.
+    // ======================================================
 
     await signInWithEmailAndPassword(
       auth,
@@ -2102,6 +2675,19 @@ async function handleEmailSignIn(
 
 
     if (
+      String(
+        error?.message ||
+        ""
+      ).includes(
+        "Farm lookup failed"
+      )
+    ) {
+
+      message =
+        "FarmVista could not look up your account. Please try again.";
+
+    }
+    else if (
       code ===
       "auth/invalid-email"
     ) {
@@ -2889,59 +3475,22 @@ wireUI();
 
 
 /*
-  Start Firebase in the background.
+  IMPORTANT:
 
-  The UI is already usable at this point, so the Email /
-  Phone tabs will never be blocked by Firebase initialization.
+  Do not initialize a farm Firebase project when the login
+  page first opens.
+
+  Email sign-in first asks FarmVista Platform which farm the
+  user belongs to. Firebase initializes only after that farm
+  has been resolved.
+
+  This is what allows a first-time user to open:
+
+      https://farmvista.app
+
+  without manually choosing their farming operation.
 */
 
-initializeFirebase()
-  .then(
-    result => {
-
-      if (
-        result
-      ) {
-
-        console.info(
-          "[Login] Authentication connection ready."
-        );
-
-        return;
-
-      }
-
-
-      if (
-        !selectedFarmKey()
-      ) {
-
-        console.info(
-          "[Login] No farm selected yet."
-        );
-
-        return;
-
-      }
-
-
-      console.warn(
-        "[Login] Farm selected but Firebase is not ready."
-      );
-
-    }
-  )
-  .catch(
-    error => {
-
-      firebaseFailed =
-        true;
-
-
-      console.error(
-        "[Login] Background Firebase startup failed:",
-        error
-      );
-
-    }
-  );
+console.info(
+  "[Login] Waiting for account lookup."
+);
