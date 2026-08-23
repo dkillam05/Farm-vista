@@ -611,6 +611,113 @@ async function lookupFarmsForEmail(
 }
 
 
+async function lookupFarmsForPhone(
+  phoneE164
+) {
+
+  const response =
+    await fetch(
+      PLATFORM_LOOKUP_URL,
+      {
+        method:
+          "POST",
+
+        headers:
+          {
+            "Content-Type":
+              "application/json"
+          },
+
+        body:
+          JSON.stringify({
+            phone:
+              String(
+                phoneE164 ||
+                ""
+              ).trim()
+          }),
+
+        cache:
+          "no-store"
+      }
+    );
+
+
+  if (
+    !response.ok
+  ) {
+
+    throw new Error(
+      `Farm lookup failed with HTTP ${response.status}.`
+    );
+
+  }
+
+
+  const result =
+    await response.json();
+
+
+  if (
+    !result ||
+    result.ok !==
+      true
+  ) {
+
+    throw new Error(
+      result?.error ||
+      "Farm lookup failed."
+    );
+
+  }
+
+
+  return Array.isArray(
+    result.farms
+  )
+    ? result.farms
+    : [];
+
+}
+
+
+async function resolveFarmForPhone(
+  phoneE164
+) {
+
+  const farms =
+    await lookupFarmsForPhone(
+      phoneE164
+    );
+
+
+  if (
+    farms.length ===
+    0
+  ) {
+
+    return null;
+
+  }
+
+
+  if (
+    farms.length ===
+    1
+  ) {
+
+    return farms[0];
+
+  }
+
+
+  return await chooseFarm(
+    farms
+  );
+
+}
+
+
 // ==========================================================
 // LOAD ONE FARM CONFIGURATION
 // ==========================================================
@@ -2895,21 +3002,6 @@ async function sendVerificationCode() {
   );
 
 
-  const ok =
-    await requireFirebase(
-      "phone"
-    );
-
-
-  if (
-    !ok
-  ) {
-
-    return;
-
-  }
-
-
   const rawPhone =
     els.phone?.value ||
     "";
@@ -2965,6 +3057,66 @@ async function sendVerificationCode() {
 
   try {
 
+    // ======================================================
+    // STEP 1:
+    // Ask FarmVista Platform which farm this phone belongs to.
+    // ======================================================
+
+    const farm =
+      await resolveFarmForPhone(
+        phoneE164
+      );
+
+
+    if (
+      !farm
+    ) {
+
+      showPhoneErr(
+        "Access denied. This phone number is not linked to an active FarmVista employee account."
+      );
+
+
+      return;
+
+    }
+
+
+    // ======================================================
+    // STEP 2:
+    // Load that farm's Firebase configuration.
+    // ======================================================
+
+    await selectFarm(
+      farm
+    );
+
+
+    // ======================================================
+    // STEP 3:
+    // Initialize Firebase for that farm.
+    // ======================================================
+
+    const ok =
+      await requireFirebase(
+        "phone"
+      );
+
+
+    if (
+      !ok
+    ) {
+
+      return;
+
+    }
+
+
+    // ======================================================
+    // STEP 4:
+    // Send the Firebase verification code.
+    // ======================================================
+
     const verifier =
       await getRecaptchaVerifier();
 
@@ -2993,11 +3145,29 @@ async function sendVerificationCode() {
     await resetRecaptcha();
 
 
-    showPhoneErr(
-      phoneSendErrorMessage(
-        error
+    if (
+      String(
+        error?.message ||
+        ""
+      ).includes(
+        "Farm lookup failed"
       )
-    );
+    ) {
+
+      showPhoneErr(
+        "FarmVista could not look up your account. Please try again."
+      );
+
+    }
+    else {
+
+      showPhoneErr(
+        phoneSendErrorMessage(
+          error
+        )
+      );
+
+    }
 
   }
   finally {
