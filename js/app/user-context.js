@@ -2244,53 +2244,351 @@
   }
 
 
-  async function fetchRoleDocByName(
-    mod,
-    roleName
-  ){
+async function fetchRoleDocByName(
+  mod,
+  roleName
+){
 
-    const db =
-      mod.getFirestore();
+  const db =
+    mod.getFirestore();
 
 
-    const q =
+  const q =
+    mod.query(
+      mod.collection(
+        db,
+        'accountRoles'
+      ),
+      mod.where(
+        'name',
+        '==',
+        roleName
+      )
+    );
+
+
+  const snap =
+    await mod.getDocs(
+      q
+    );
+
+
+  let data =
+    null;
+
+
+  snap.forEach(
+    item => {
+
+      data =
+        item.data() ||
+        null;
+
+    }
+  );
+
+
+  return data;
+
+}
+
+
+// ==========================================================
+// FARM OWNER / SETUP ADMIN
+// ==========================================================
+
+async function fetchFarmAccessState(
+  mod
+){
+
+  const db =
+    mod.getFirestore();
+
+
+  let company =
+    {};
+
+
+  let rolesKnown =
+    false;
+
+
+  let hasRoles =
+    false;
+
+
+  // --------------------------------------------------------
+  // COMPANY
+  // --------------------------------------------------------
+
+  try {
+
+    const companyRef =
+      mod.doc(
+        db,
+        'company',
+        'main'
+      );
+
+
+    const companySnap =
+      await mod.getDoc(
+        companyRef
+      );
+
+
+    if (
+      companySnap.exists()
+    ) {
+
+      company =
+        companySnap.data() ||
+        {};
+
+    }
+
+  }
+  catch (
+    error
+  ) {
+
+    debug(
+      'Unable to read company/main for farm access:',
+      error
+    );
+
+  }
+
+
+  // --------------------------------------------------------
+  // ACCOUNT ROLES
+  //
+  // Important:
+  // Only call the farm "new" if Firestore successfully tells
+  // us there are zero Account Roles.
+  // --------------------------------------------------------
+
+  try {
+
+    const roleQuery =
       mod.query(
         mod.collection(
           db,
           'accountRoles'
         ),
-        mod.where(
-          'name',
-          '==',
-          roleName
+        mod.limit(
+          1
         )
       );
 
 
-    const snap =
+    const roleSnap =
       await mod.getDocs(
-        q
+        roleQuery
       );
 
 
-    let data =
-      null;
+    rolesKnown =
+      true;
 
 
-    snap.forEach(
-      item => {
+    hasRoles =
+      !roleSnap.empty;
 
-        data =
-          item.data() ||
-          null;
+  }
+  catch (
+    error
+  ) {
 
+    debug(
+      'Unable to determine whether account roles exist:',
+      error
+    );
+
+  }
+
+
+  return {
+
+    company,
+
+    ownerUid:
+      String(
+        company.ownerUid ||
+        ''
+      ).trim(),
+
+    setupAdminUid:
+      String(
+        company.setupAdminUid ||
+        ''
+      ).trim(),
+
+    rolesKnown,
+
+    hasRoles
+
+  };
+
+}
+
+
+async function claimSetupAdminIfNeeded(
+  mod,
+  liveUser,
+  farmAccess
+){
+
+  if (
+    !liveUser?.uid ||
+    !farmAccess
+  ) {
+
+    return false;
+
+  }
+
+
+  // Farm already has a real owner.
+  if (
+    farmAccess.ownerUid
+  ) {
+
+    return false;
+
+  }
+
+
+  // A setup admin has already been established.
+  if (
+    farmAccess.setupAdminUid
+  ) {
+
+    return (
+      farmAccess.setupAdminUid ===
+      liveUser.uid
+    );
+
+  }
+
+
+  // Do not automatically claim an established farm.
+  if (
+    !farmAccess.rolesKnown ||
+    farmAccess.hasRoles
+  ) {
+
+    return false;
+
+  }
+
+
+  try {
+
+    const db =
+      mod.getFirestore();
+
+
+    const companyRef =
+      mod.doc(
+        db,
+        'company',
+        'main'
+      );
+
+
+    await mod.setDoc(
+      companyRef,
+      {
+
+        setupAdminUid:
+          liveUser.uid,
+
+        setupAdminEmail:
+          liveUser.email ||
+          null,
+
+        setupAdminCreatedAt:
+          nowIso()
+
+      },
+      {
+        merge:true
       }
     );
 
 
-    return data;
+    farmAccess.setupAdminUid =
+      liveUser.uid;
+
+
+    debug(
+      'Claimed temporary farm setup administrator:',
+      liveUser.uid
+    );
+
+
+    return true;
 
   }
+  catch (
+    error
+  ) {
+
+    console.error(
+      '[FV:UserContext] Unable to claim setup administrator:',
+      error
+    );
+
+
+    return false;
+
+  }
+
+}
+
+
+function buildFullAccessSet(
+  idx
+){
+
+  const allow =
+    new Set(
+      Array.from(
+        idx.CAP_SET
+      )
+    );
+
+
+  if (
+    idx.HOME_ID
+  ) {
+
+    allow.add(
+      idx.HOME_ID
+    );
+
+  }
+
+
+  /*
+    Capabilities used by the shell that are not normal
+    navigation leaf IDs.
+  */
+
+  allow.add(
+    'cap-qr-scanner'
+  );
+
+
+  allow.add(
+    'cap-camera-popup'
+  );
+
+
+  return allow;
+
+}
 
 
   // ==========================================================
@@ -2768,6 +3066,56 @@
         )
       );
 
+     // ======================================================
+// FARM OWNER / TEMPORARY SETUP ADMIN
+// ======================================================
+
+const farmAccess =
+  await fetchFarmAccessState(
+    mod
+  );
+
+
+const isOwner =
+  Boolean(
+    farmAccess.ownerUid &&
+    farmAccess.ownerUid ===
+      liveUser.uid
+  );
+
+
+let isSetupAdmin =
+  Boolean(
+    !farmAccess.ownerUid &&
+    farmAccess.setupAdminUid &&
+    farmAccess.setupAdminUid ===
+      liveUser.uid
+  );
+
+
+/*
+  Brand-new farm:
+
+  If there is no owner, no setup administrator and Firestore
+  confirms there are no Account Roles yet, the first
+  authenticated user becomes the temporary setup administrator.
+*/
+
+if (
+  !isOwner &&
+  !farmAccess.ownerUid &&
+  !farmAccess.setupAdminUid
+) {
+
+  isSetupAdmin =
+    await claimSetupAdminIfNeeded(
+      mod,
+      liveUser,
+      farmAccess
+    );
+
+}
+
 
     // ======================================================
     // RESOLVE FIREBASE USER -> FARMVISTA PERSON
@@ -2905,31 +3253,53 @@
       null;
 
 
-    const base =
-      baselineFromPerms(
-        perms,
-        idx
-      );
+const base =
+  baselineFromPerms(
+    perms,
+    idx
+  );
 
 
-    const allow =
-      applyOverrides(
-        base,
-        emp.overrides ||
-        {},
-        idx
-      );
+let allow;
 
 
-    if (
+// ======================================================
+// OWNER / SETUP ADMIN OVERRIDE
+// ======================================================
+
+if (
+  isOwner ||
+  isSetupAdmin
+) {
+
+  allow =
+    buildFullAccessSet(
+      idx
+    );
+
+}
+else {
+
+  allow =
+    applyOverrides(
+      base,
+      emp.overrides ||
+      {},
+      idx
+    );
+
+
+  if (
+    idx.HOME_ID
+  ) {
+
+    allow.add(
       idx.HOME_ID
-    ) {
+    );
 
-      allow.add(
-        idx.HOME_ID
-      );
+  }
 
-    }
+}
 
 
     const effectivePerms =
@@ -3067,11 +3437,29 @@
           allow
         ),
 
-      accessDenied:
-        false,
+accessDenied:
+  false,
 
-      updatedAt:
-        nowIso()
+isOwner:
+  Boolean(
+    isOwner
+  ),
+
+isSetupAdmin:
+  Boolean(
+    isSetupAdmin
+  ),
+
+farmOwnerUid:
+  farmAccess.ownerUid ||
+  null,
+
+setupAdminUid:
+  farmAccess.setupAdminUid ||
+  null,
+
+updatedAt:
+  nowIso()
 
     };
 
