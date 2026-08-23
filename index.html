@@ -1019,23 +1019,305 @@
         }).format(new Date());
       }
 
-      function initWeather(){
-        if(!window.FVWeather || typeof FVWeather.initWeatherModule !== "function"){
-          console.warn("[dashboard] FVWeather module not found.");
-          return;
-        }
+const WEATHER_GOOGLE_KEY =
+  "AIzaSyD5qLrXZch_rM4sVXmBrpGDH3Zp7RgfVHc";
 
-        FVWeather.initWeatherModule({
-          googleApiKey:"AIzaSyD5qLrXZch_rM4sVXmBrpGDH3Zp7RgfVHc",
-          lat:39.5656,
-          lon:-89.6573,
-          unitsSystem:"IMPERIAL",
-          selector:"#fv-weather",
-          showOpenMeteo:true,
-          mode:"card",
-          locationLabel:"Divernon, Illinois"
-        });
-      }
+
+function companyWeatherAddress(
+  company
+){
+
+  if (
+    !company
+  ) {
+
+    return "";
+
+  }
+
+
+  return [
+    company.addressStreet,
+    company.addressCity,
+    company.addressState,
+    company.addressZip
+  ]
+    .map(
+      value =>
+        String(
+          value ||
+          ""
+        ).trim()
+    )
+    .filter(
+      Boolean
+    )
+    .join(", ");
+
+}
+
+
+function companyWeatherLabel(
+  company
+){
+
+  if (
+    !company
+  ) {
+
+    return "";
+
+  }
+
+
+  const city =
+    String(
+      company.addressCity ||
+      ""
+    ).trim();
+
+
+  const state =
+    String(
+      company.addressState ||
+      ""
+    ).trim();
+
+
+  if (
+    city &&
+    state
+  ) {
+
+    return `${city}, ${state}`;
+
+  }
+
+
+  return (
+    city ||
+    state ||
+    ""
+  );
+
+}
+
+
+async function geocodeCompanyWeather(
+  company
+){
+
+  const address =
+    companyWeatherAddress(
+      company
+    );
+
+
+  if (
+    !address
+  ) {
+
+    return null;
+
+  }
+
+
+  const url =
+    (
+      "https://maps.googleapis.com/maps/api/geocode/json" +
+      `?address=${encodeURIComponent(address)}` +
+      `&key=${encodeURIComponent(WEATHER_GOOGLE_KEY)}`
+    );
+
+
+  try {
+
+    const response =
+      await fetch(
+        url
+      );
+
+
+    if (
+      !response.ok
+    ) {
+
+      throw new Error(
+        `Geocoding HTTP ${response.status}`
+      );
+
+    }
+
+
+    const data =
+      await response.json();
+
+
+    const point =
+      data?.results?.[0]?.geometry?.location;
+
+
+    const lat =
+      Number(
+        point?.lat
+      );
+
+
+    const lon =
+      Number(
+        point?.lng
+      );
+
+
+    if (
+      !Number.isFinite(lat) ||
+      !Number.isFinite(lon)
+    ) {
+
+      throw new Error(
+        "No coordinates returned for company address."
+      );
+
+    }
+
+
+    return {
+      lat,
+      lon,
+      locationLabel:
+        companyWeatherLabel(
+          company
+        ) ||
+        address
+    };
+
+  }
+  catch (
+    error
+  ) {
+
+    console.warn(
+      "[dashboard] company weather geocode failed:",
+      error
+    );
+
+
+    return null;
+
+  }
+
+}
+
+
+async function initWeather(){
+
+  const shell =
+    document.getElementById(
+      "fv-weather"
+    );
+
+
+  if (
+    !shell
+  ) {
+
+    return;
+
+  }
+
+
+  if (
+    !window.FVWeather ||
+    typeof FVWeather.initWeatherModule !==
+      "function"
+  ) {
+
+    console.warn(
+      "[dashboard] FVWeather module not found."
+    );
+
+
+    return;
+
+  }
+
+
+  const company =
+    window.FV_COMPANY ||
+    null;
+
+
+  if (
+    !company
+  ) {
+
+    shell.innerHTML =
+      `
+        <div class="fv-weather-card">
+          Weather location not configured.
+        </div>
+      `;
+
+
+    return;
+
+  }
+
+
+  const weatherLocation =
+    await geocodeCompanyWeather(
+      company
+    );
+
+
+  if (
+    !weatherLocation
+  ) {
+
+    shell.innerHTML =
+      `
+        <div class="fv-weather-card">
+          Weather location not configured.
+        </div>
+      `;
+
+
+    return;
+
+  }
+
+
+  window.FV_DASH_WEATHER_LOCATION =
+    weatherLocation;
+
+
+  FVWeather.initWeatherModule({
+    googleApiKey:
+      WEATHER_GOOGLE_KEY,
+
+    lat:
+      weatherLocation.lat,
+
+    lon:
+      weatherLocation.lon,
+
+    unitsSystem:
+      "IMPERIAL",
+
+    selector:
+      "#fv-weather",
+
+    showOpenMeteo:
+      true,
+
+    mode:
+      "card",
+
+    locationLabel:
+      weatherLocation.locationLabel
+  });
+
+}
 
       function startMarkets(){
         try{
@@ -1047,10 +1329,65 @@
         }
       }
 
-      document.addEventListener("DOMContentLoaded", ()=>{
-        initWeather();
-        startMarkets();
-      }, {once:true});
+document.addEventListener(
+  "DOMContentLoaded",
+  () => {
+
+    startMarkets();
+
+
+    /*
+      fv-shell loads company/main after Firebase authentication.
+
+      If it is already available, start weather now.
+      Otherwise wait for the shell's fv:company event.
+    */
+
+    if (
+      window.FV_COMPANY
+    ) {
+
+      initWeather();
+
+    }
+    else {
+
+      const weatherShell =
+        document.getElementById(
+          "fv-weather"
+        );
+
+
+      if (
+        weatherShell
+      ) {
+
+        weatherShell.innerHTML =
+          `
+            <div class="fv-weather-card">
+              Loading weather…
+            </div>
+          `;
+
+      }
+
+    }
+
+  },
+  {
+    once:true
+  }
+);
+
+
+document.addEventListener(
+  "fv:company",
+  () => {
+
+    initWeather();
+
+  }
+);
 
       const form = document.getElementById("ai-chat-form");
       if(form){
