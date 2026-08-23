@@ -691,6 +691,31 @@ async function resolveFarmForPhone(
     );
 
 
+  console.info(
+    "[Login] Platform phone lookup",
+    {
+      phone:
+        phoneE164,
+
+      farmCount:
+        farms.length,
+
+      farms:
+        farms.map(
+          farm => ({
+            farmKey:
+              farm?.farmKey ||
+              "",
+
+            configPath:
+              farm?.configPath ||
+              ""
+          })
+        )
+    }
+  );
+
+
   if (
     farms.length ===
     0
