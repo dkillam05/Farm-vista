@@ -2590,7 +2590,7 @@ function phoneVerifyErrorMessage(
 async function getRecaptchaVerifier() {
 
   // ========================================================
-  // CLEAR ANY OLD VERIFIER
+  // CLEAR ANY PREVIOUS VERIFIER
   // ========================================================
 
   if (
@@ -2630,56 +2630,51 @@ async function getRecaptchaVerifier() {
   }
 
 
-  // ========================================================
-  // MAKE SURE THE CONTAINER EXISTS
-  // ========================================================
-
-  let container =
-    document.getElementById(
-      "recaptcha-container"
-    );
-
-
   if (
-    !container
+    !els.sendCode
   ) {
 
-    container =
-      document.createElement(
-        "div"
-      );
-
-
-    container.id =
-      "recaptcha-container";
-
-
-    document.body.appendChild(
-      container
+    throw new Error(
+      "Send Verification Code button was not found."
     );
 
   }
 
 
-  container.innerHTML =
-    "";
-
-
   // ========================================================
-  // CREATE FRESH INVISIBLE RECAPTCHA
+  // INVISIBLE RECAPTCHA
   //
-  // IMPORTANT:
-  // Do NOT manually call .render() here.
-  // signInWithPhoneNumber() will use the verifier.
+  // Attach invisible reCAPTCHA directly to the button that
+  // starts phone verification.
   // ========================================================
 
   recaptchaVerifier =
     createRecaptchaVerifier(
       auth,
-      "recaptcha-container",
+      "sendCode",
       {
         size:
-          "invisible"
+          "invisible",
+
+        callback:
+          () => {
+
+            console.info(
+              "[Login] reCAPTCHA solved for:",
+              window.FV_FARM_KEY
+            );
+
+          },
+
+        "expired-callback":
+          () => {
+
+            console.warn(
+              "[Login] reCAPTCHA expired for:",
+              window.FV_FARM_KEY
+            );
+
+          }
       }
     );
 
