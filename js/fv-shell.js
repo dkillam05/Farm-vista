@@ -359,16 +359,28 @@
 
   <div class="scrim js-scrim"></div>
 
-  <aside class="drawer" part="drawer" aria-label="Main menu">
-    <header>
-      <div class="org">
-        <img src="/assets/icons/icon-192.png" alt="" />
-        <div class="org-text">
-          <div class="org-name">Dowson Farms</div>
-          <div class="org-loc">Divernon, Illinois</div>
+<aside class="drawer" part="drawer" aria-label="Main menu">
+  <header>
+    <div class="org">
+
+      <img
+        class="js-company-logo"
+        src="/assets/icons/icon-192.png"
+        alt="FarmVista"
+      />
+
+      <div class="org-text">
+
+        <div class="org-name js-company-name">
+          FarmVista
         </div>
+
+        <div class="org-loc js-company-loc"></div>
+
       </div>
-    </header>
+
+    </div>
+  </header>
     <nav class="js-nav"><div class="skeleton">Loading menu…</div></nav>
     <footer class="drawer-footer">
       <div class="df-left"><div class="brand">FarmVista</div><div class="slogan js-slogan">Loading…</div></div>
@@ -515,7 +527,25 @@
       this._logoutLabel = r.getElementById('logoutLabel');
       this._connRow = r.querySelector('.js-conn');
       this._connTxt = r.querySelector('.js-conn-text');
-      this._betaBadge = r.getElementById('betaBadge');
+      this._betaBadge =
+  r.getElementById(
+    'betaBadge'
+  );
+
+this._companyLogo =
+  r.querySelector(
+    '.js-company-logo'
+  );
+
+this._companyName =
+  r.querySelector(
+    '.js-company-name'
+  );
+
+this._companyLoc =
+  r.querySelector(
+    '.js-company-loc'
+  );
 
       /* QC refs */
       this._qcRail   = r.querySelector('.js-qc');
@@ -936,9 +966,17 @@ if (!authed) {
 
 
 // Wire authenticated FarmVista features.
-this._wireAuthLogout(this.shadowRoot);
+this._wireAuthLogout(
+  this.shadowRoot
+);
+
 this._initConnectionStatus();
+
 this._watchUserContextForSwaps();
+
+
+// Load this farm's company information.
+await this._loadCompanyBrand();
 
       // Hide overlay as soon as auth is confirmed (menu/context can finish in background)
       this._hideBootOverlayWithOptionalHold();
@@ -1193,6 +1231,238 @@ _kickToLogin(reason){
       return nav.querySelectorAll('a[href]').length > 0;
     }
 
+async _loadCompanyBrand(){
+
+  try {
+
+    const mod =
+      await import(
+        '/js/firebase-init.js'
+      );
+
+
+    const ctx =
+      await mod.ready;
+
+
+    const db =
+      ctx?.firestore ||
+      mod.getFirestore(
+        ctx?.app
+      );
+
+
+    if (
+      !db
+    ) {
+
+      this._applyCompanyBrand(
+        null
+      );
+
+      return;
+
+    }
+
+
+    const companyRef =
+      mod.doc(
+        db,
+        'company',
+        'main'
+      );
+
+
+    const snap =
+      await mod.getDoc(
+        companyRef
+      );
+
+
+    if (
+      !snap ||
+      !snap.exists()
+    ) {
+
+      window.FV_COMPANY =
+        null;
+
+
+      this._applyCompanyBrand(
+        null
+      );
+
+
+      return;
+
+    }
+
+
+    const company =
+      snap.data() ||
+      {};
+
+
+    window.FV_COMPANY =
+      company;
+
+
+    this._applyCompanyBrand(
+      company
+    );
+
+
+    try {
+
+      document.dispatchEvent(
+        new CustomEvent(
+          'fv:company',
+          {
+            detail:
+              company
+          }
+        )
+      );
+
+    }
+    catch {}
+
+  }
+  catch (
+    error
+  ) {
+
+    console.warn(
+      '[FarmVista] Unable to load company information:',
+      error
+    );
+
+
+    window.FV_COMPANY =
+      null;
+
+
+    this._applyCompanyBrand(
+      null
+    );
+
+  }
+
+}
+
+
+_applyCompanyBrand(
+  company
+){
+
+  const name =
+    String(
+      company?.name ||
+      ''
+    ).trim();
+
+
+  const city =
+    String(
+      company?.addressCity ||
+      ''
+    ).trim();
+
+
+  const state =
+    String(
+      company?.addressState ||
+      ''
+    ).trim();
+
+
+  const logoUrl =
+    String(
+      company?.logo?.url ||
+      ''
+    ).trim();
+
+
+  // ========================================================
+  // NAME
+  // ========================================================
+
+  if (
+    this._companyName
+  ) {
+
+    this._companyName.textContent =
+      name ||
+      'FarmVista';
+
+  }
+
+
+  // ========================================================
+  // LOCATION
+  // ========================================================
+
+  let locationText =
+    '';
+
+
+  if (
+    city &&
+    state
+  ) {
+
+    locationText =
+      `${city}, ${state}`;
+
+  }
+  else {
+
+    locationText =
+      city ||
+      state ||
+      '';
+
+  }
+
+
+  if (
+    this._companyLoc
+  ) {
+
+    this._companyLoc.textContent =
+      locationText;
+
+
+    this._companyLoc.style.display =
+      locationText
+        ? ''
+        : 'none';
+
+  }
+
+
+  // ========================================================
+  // LOGO
+  // ========================================================
+
+  if (
+    this._companyLogo
+  ) {
+
+    this._companyLogo.src =
+      logoUrl ||
+      '/assets/icons/icon-192.png';
+
+
+    this._companyLogo.alt =
+      name
+        ? `${name} logo`
+        : 'FarmVista';
+
+  }
+
+}
+     
     _setLogoutLabelNow(){
       const logoutLabel = this._logoutLabel; if (!logoutLabel) return;
       let name = '';
