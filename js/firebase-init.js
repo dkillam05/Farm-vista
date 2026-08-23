@@ -217,6 +217,8 @@ if (
 
 return null;
 
+};
+
 
 const saveStubUser =
   user => {
