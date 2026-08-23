@@ -565,12 +565,24 @@
       width:100%;
       max-width:900px;
       max-height:calc(100vh - var(--hdr-h,56px) - var(--ftr-h,42px) - 48px);
-      overflow:auto;
+
+      /* Still scrolls with mouse wheel / touch, but no visible bar */
+      overflow-y:auto;
+      overflow-x:hidden;
+      scrollbar-width:none;
+      -ms-overflow-style:none;
+
       padding:16px;
       border:1px solid var(--border);
       border-radius:18px;
       background:var(--surface);
       box-shadow:0 18px 40px rgba(0,0,0,.3);
+    }
+
+    .fv-weather-modal-inner::-webkit-scrollbar{
+      width:0;
+      height:0;
+      display:none;
     }
 
     .fv-weather-modal-close{
@@ -1023,188 +1035,30 @@ const WEATHER_GOOGLE_KEY =
   "AIzaSyD5qLrXZch_rM4sVXmBrpGDH3Zp7RgfVHc";
 
 
-function companyWeatherAddress(
-  company
-){
-
-  if (
-    !company
-  ) {
-
-    return "";
-
-  }
-
-
-  return [
-    company.addressStreet,
-    company.addressCity,
-    company.addressState,
-    company.addressZip
-  ]
-    .map(
-      value =>
-        String(
-          value ||
-          ""
-        ).trim()
-    )
-    .filter(
-      Boolean
-    )
-    .join(", ");
-
-}
-
-
 function companyWeatherLabel(
   company
 ){
 
-  if (
-    !company
-  ) {
-
-    return "";
-
-  }
-
-
   const city =
     String(
-      company.addressCity ||
-      ""
+      company?.addressCity ||
+      "Divernon"
     ).trim();
 
 
   const state =
     String(
-      company.addressState ||
-      ""
+      company?.addressState ||
+      "IL"
     ).trim();
 
 
-  if (
+  return (
     city &&
     state
-  ) {
-
-    return `${city}, ${state}`;
-
-  }
-
-
-  return (
-    city ||
-    state ||
-    ""
-  );
-
-}
-
-
-async function geocodeCompanyWeather(
-  company
-){
-
-  const address =
-    companyWeatherAddress(
-      company
-    );
-
-
-  if (
-    !address
-  ) {
-
-    return null;
-
-  }
-
-
-  const url =
-    (
-      "https://maps.googleapis.com/maps/api/geocode/json" +
-      `?address=${encodeURIComponent(address)}` +
-      `&key=${encodeURIComponent(WEATHER_GOOGLE_KEY)}`
-    );
-
-
-  try {
-
-    const response =
-      await fetch(
-        url
-      );
-
-
-    if (
-      !response.ok
-    ) {
-
-      throw new Error(
-        `Geocoding HTTP ${response.status}`
-      );
-
-    }
-
-
-    const data =
-      await response.json();
-
-
-    const point =
-      data?.results?.[0]?.geometry?.location;
-
-
-    const lat =
-      Number(
-        point?.lat
-      );
-
-
-    const lon =
-      Number(
-        point?.lng
-      );
-
-
-    if (
-      !Number.isFinite(lat) ||
-      !Number.isFinite(lon)
-    ) {
-
-      throw new Error(
-        "No coordinates returned for company address."
-      );
-
-    }
-
-
-    return {
-      lat,
-      lon,
-      locationLabel:
-        companyWeatherLabel(
-          company
-        ) ||
-        address
-    };
-
-  }
-  catch (
-    error
-  ) {
-
-    console.warn(
-      "[dashboard] company weather geocode failed:",
-      error
-    );
-
-
-    return null;
-
-  }
+  )
+    ? `${city}, ${state}`
+    : "Divernon, Illinois";
 
 }
 
@@ -1228,14 +1082,13 @@ async function initWeather(){
 
   if (
     !window.FVWeather ||
-    typeof FVWeather.initWeatherModule !==
+    typeof window.FVWeather.initWeatherModule !==
       "function"
   ) {
 
     console.warn(
       "[dashboard] FVWeather module not found."
     );
-
 
     return;
 
@@ -1251,68 +1104,146 @@ async function initWeather(){
 
 
   /*
-    First use the company already loaded by FarmVista.
-    If it is not ready yet, read company/main directly.
+    FarmVista company weather.
+
+    company/main has:
+      addressZip: 62530
+      addressCity: Divernon
+      addressState: IL
+
+    The weather module already contains the
+    correct Divernon coordinates, so we do not
+    need Google Geocoding here.
   */
 
-  let company =
+  const company =
     window.FV_COMPANY ||
-    null;
+    {};
 
+
+  const zip =
+    String(
+      company.addressZip ||
+      "62530"
+    )
+      .replace(
+        /[^\d]/g,
+        ""
+      )
+      .slice(
+        0,
+        5
+      );
+
+
+  const locationLabel =
+    companyWeatherLabel(
+      company
+    );
+
+
+  /*
+    Default coordinates for Divernon, IL 62530.
+
+    This guarantees the dashboard weather loads
+    even if company/main has not finished loading.
+  */
+
+  let weatherLocation = {
+    lat:
+      39.5656,
+
+    lon:
+      -89.6573,
+
+    locationLabel:
+      locationLabel
+  };
+
+
+  /*
+    Use company/main addressZip when available.
+
+    fv-weather.js uses Zippopotam.us for ZIP
+    changes, so use the same service here.
+  */
 
   if (
-    !company
+    zip
   ) {
 
     try {
 
-      let db =
-        null;
+      const response =
+        await fetch(
+          `https://api.zippopotam.us/us/${encodeURIComponent(zip)}`,
+          {
+            cache:
+              "no-store"
+          }
+        );
 
 
       if (
-        window.db &&
-        typeof window.db.collection ===
-          "function"
+        response.ok
       ) {
 
-        db =
-          window.db;
-
-      }
-      else if (
-        window.firebase &&
-        typeof window.firebase.firestore ===
-          "function"
-      ) {
-
-        db =
-          window.firebase.firestore();
-
-      }
+        const data =
+          await response.json();
 
 
-      if (
-        db
-      ) {
+        const place =
+          Array.isArray(
+            data?.places
+          )
+            ? data.places[0]
+            : null;
 
-        const companySnap =
-          await db
-            .collection(
-              "company"
-            )
-            .doc(
-              "main"
-            )
-            .get();
+
+        const lat =
+          Number(
+            place?.latitude
+          );
+
+
+        const lon =
+          Number(
+            place?.longitude
+          );
 
 
         if (
-          companySnap.exists
+          Number.isFinite(
+            lat
+          ) &&
+          Number.isFinite(
+            lon
+          )
         ) {
 
-          company =
-            companySnap.data();
+          const city =
+            String(
+              place?.["place name"] ||
+              company.addressCity ||
+              "Divernon"
+            ).trim();
+
+
+          const state =
+            String(
+              place?.["state abbreviation"] ||
+              company.addressState ||
+              "IL"
+            ).trim();
+
+
+          weatherLocation = {
+            lat,
+            lon,
+
+            locationLabel:
+              `${city}, ${state}`
+          };
 
         }
 
@@ -1323,8 +1254,15 @@ async function initWeather(){
       error
     ) {
 
+      /*
+        Do not fail the dashboard.
+
+        If ZIP lookup is unavailable, FarmVista
+        simply uses the Divernon default above.
+      */
+
       console.warn(
-        "[dashboard] company/main weather lookup failed:",
+        "[dashboard] ZIP weather lookup failed; using Divernon default.",
         error
       );
 
@@ -1334,94 +1272,18 @@ async function initWeather(){
 
 
   /*
-    Final FarmVista default.
-
-    This prevents the dashboard from showing
-    "Weather location not configured" just because
-    the company record has not finished loading.
-  */
-
-  if (
-    !company
-  ) {
-
-    company = {
-      addressCity:
-        "Divernon",
-
-      addressState:
-        "IL",
-
-      addressZip:
-        "62530"
-    };
-
-  }
-
-
-  /*
-    ZIP is our required weather location.
-
-    If company/main exists but for some reason
-    addressZip is blank, use 62530.
-  */
-
-  company = {
-    ...company,
-
-    addressZip:
-      String(
-        company.addressZip ||
-        "62530"
-      ).trim(),
-
-    addressCity:
-      String(
-        company.addressCity ||
-        "Divernon"
-      ).trim(),
-
-    addressState:
-      String(
-        company.addressState ||
-        "IL"
-      ).trim()
-  };
-
-
-  const weatherLocation =
-    await geocodeCompanyWeather(
-      company
-    );
-
-
-  if (
-    !weatherLocation
-  ) {
-
-    shell.innerHTML =
-      `
-        <div class="fv-weather-card">
-          Weather could not be loaded.
-        </div>
-      `;
-
-
-    return;
-
-  }
-
-
-  /*
-    This is shared with dash-weather-modal.js,
-    so clicking the card uses the exact same location.
+    The modal reads this same location.
   */
 
   window.FV_DASH_WEATHER_LOCATION =
     weatherLocation;
 
 
-  FVWeather.initWeatherModule({
+  /*
+    Start the existing FarmVista weather module.
+  */
+
+  window.FVWeather.initWeatherModule({
     googleApiKey:
       WEATHER_GOOGLE_KEY,
 
