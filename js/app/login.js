@@ -1,12 +1,19 @@
 // /js/app/login.js
 // FarmVista Login
+// Multi-farm ready
+//
 // Email/password + employee-authorized phone authentication.
+//
+// IMPORTANT:
+// - Login UI is wired immediately.
+// - Firebase can finish initializing afterward.
+// - No stub-mode login bypass.
+// - Selected farm must have a real Firebase connection.
 //
 // PHONE SECURITY:
 // Firebase may still SEND an SMS to a valid phone number.
-// However, after the code is verified, FarmVista will ONLY
-// allow the user into the app if the verified phone belongs
-// to exactly one ACTIVE employee record.
+// After verification, FarmVista only allows access when the
+// verified phone belongs to exactly one ACTIVE employee record.
 
 import {
   ready,
@@ -142,6 +149,54 @@ const els = {
 
 
 // ==========================================================
+// FIREBASE STATE
+// ==========================================================
+
+let firebaseContext =
+  null;
+
+let auth =
+  null;
+
+let firebaseReady =
+  false;
+
+let firebaseFailed =
+  false;
+
+let firebaseReadyPromise =
+  null;
+
+
+// ==========================================================
+// PHONE AUTH STATE
+// ==========================================================
+
+let confirmationResult =
+  null;
+
+let recaptchaVerifier =
+  null;
+
+let recaptchaWidgetId =
+  null;
+
+let lastPhoneE164 =
+  "";
+
+let lastPhoneDisplay =
+  "";
+
+
+// ==========================================================
+// AUTH MODE
+// ==========================================================
+
+let authMode =
+  "email";
+
+
+// ==========================================================
 // BASIC HELPERS
 // ==========================================================
 
@@ -152,8 +207,11 @@ function showErr(
   if (
     !els.err
   ) {
+
     return;
+
   }
+
 
   els.err.textContent =
     message ||
@@ -169,8 +227,11 @@ function showPhoneErr(
   if (
     !els.phoneErr
   ) {
+
     return;
+
   }
+
 
   els.phoneErr.textContent =
     message ||
@@ -186,8 +247,11 @@ function showPhoneVerifyErr(
   if (
     !els.phoneVerifyErr
   ) {
+
     return;
+
   }
+
 
   els.phoneVerifyErr.textContent =
     message ||
@@ -206,13 +270,17 @@ function setButtonBusy(
   if (
     !button
   ) {
+
     return;
+
   }
+
 
   button.disabled =
     Boolean(
       busy
     );
+
 
   button.textContent =
     busy
@@ -243,6 +311,7 @@ function resolveUnderBase(
         location.href
       );
 
+
     return (
       url.pathname +
       (
@@ -272,6 +341,7 @@ function nextUrl() {
       location.search
     );
 
+
   const hint =
     (
       qs.get(
@@ -280,10 +350,481 @@ function nextUrl() {
       ""
     ).trim();
 
+
   return resolveUnderBase(
     hint ||
     DEFAULT_HOME
   );
+
+}
+
+
+// ==========================================================
+// FARM HELPERS
+// ==========================================================
+
+function selectedFarmKey() {
+
+  let farmKey =
+    String(
+      window.FV_FARM_KEY ||
+      ""
+    )
+      .trim()
+      .toLowerCase();
+
+
+  if (
+    farmKey
+  ) {
+
+    return farmKey;
+
+  }
+
+
+  try {
+
+    const params =
+      new URLSearchParams(
+        location.search
+      );
+
+
+    farmKey =
+      String(
+        params.get(
+          "farm"
+        ) ||
+        ""
+      )
+        .trim()
+        .toLowerCase();
+
+  }
+  catch {}
+
+
+  if (
+    farmKey
+  ) {
+
+    return farmKey;
+
+  }
+
+
+  try {
+
+    farmKey =
+      String(
+        localStorage.getItem(
+          "fv:farm-key"
+        ) ||
+        ""
+      )
+        .trim()
+        .toLowerCase();
+
+  }
+  catch {}
+
+
+  return farmKey;
+
+}
+
+
+function showNoFarmMessage() {
+
+  showErr(
+    "Choose a FarmVista farm before signing in."
+  );
+
+
+  showPhoneErr(
+    "Choose a FarmVista farm before signing in."
+  );
+
+}
+
+
+// ==========================================================
+// FIREBASE INITIALIZATION
+// ==========================================================
+
+function initializeFirebase() {
+
+  if (
+    firebaseReadyPromise
+  ) {
+
+    return firebaseReadyPromise;
+
+  }
+
+
+  firebaseReadyPromise =
+    (
+      async () => {
+
+        try {
+
+          /*
+            firebase-config.js may be fetching:
+
+              /farms/dowson.json
+              /farms/borrowman.json
+
+            Wait for that tenant lookup first.
+          */
+
+          if (
+            window.FV_FARM_READY &&
+            typeof window.FV_FARM_READY.then ===
+              "function"
+          ) {
+
+            await window.FV_FARM_READY;
+
+          }
+
+
+          const farmKey =
+            selectedFarmKey();
+
+
+          if (
+            !farmKey
+          ) {
+
+            firebaseFailed =
+              true;
+
+            firebaseReady =
+              false;
+
+
+            return null;
+
+          }
+
+
+          firebaseContext =
+            await ready;
+
+
+          if (
+            isStub &&
+            isStub()
+          ) {
+
+            console.error(
+              "[Login] Firebase initialized in stub mode.",
+              {
+                farmKey:
+                  window.FV_FARM_KEY,
+
+                firebaseConfig:
+                  window.FV_FIREBASE_CONFIG,
+
+                configFailed:
+                  window.__FV_FARM_CONFIG_FAILED,
+
+                noFarm:
+                  window.__FV_NO_FARM_SELECTED
+              }
+            );
+
+
+            firebaseFailed =
+              true;
+
+            firebaseReady =
+              false;
+
+
+            return null;
+
+          }
+
+
+          auth =
+            firebaseContext?.auth ||
+            getAuth(
+              firebaseContext?.app
+            );
+
+
+          if (
+            !auth
+          ) {
+
+            throw new Error(
+              "Firebase Authentication did not initialize."
+            );
+
+          }
+
+
+          firebaseReady =
+            true;
+
+          firebaseFailed =
+            false;
+
+
+          console.info(
+            "[Login] Firebase ready.",
+            {
+              farmKey:
+                window.FV_FARM_KEY,
+
+              projectId:
+                window.FV_FIREBASE_CONFIG?.projectId ||
+                ""
+            }
+          );
+
+
+          return {
+            context:
+              firebaseContext,
+
+            auth
+          };
+
+        }
+        catch (
+          error
+        ) {
+
+          console.error(
+            "[Login] Firebase initialization failed:",
+            error
+          );
+
+
+          firebaseFailed =
+            true;
+
+          firebaseReady =
+            false;
+
+
+          return null;
+
+        }
+
+      }
+    )();
+
+
+  return firebaseReadyPromise;
+
+}
+
+
+async function requireFirebase(
+  errorTarget =
+    "email"
+) {
+
+  const farmKey =
+    selectedFarmKey();
+
+
+  if (
+    !farmKey
+  ) {
+
+    if (
+      errorTarget ===
+      "phone"
+    ) {
+
+      showPhoneErr(
+        "FarmVista does not know which farm to connect to."
+      );
+
+    }
+    else {
+
+      showErr(
+        "FarmVista does not know which farm to connect to."
+      );
+
+    }
+
+
+    return false;
+
+  }
+
+
+  if (
+    firebaseReady &&
+    auth
+  ) {
+
+    return true;
+
+  }
+
+
+  const result =
+    await initializeFirebase();
+
+
+  if (
+    result &&
+    firebaseReady &&
+    auth
+  ) {
+
+    return true;
+
+  }
+
+
+  const message =
+    "FarmVista could not connect to this farm. Please refresh and try again.";
+
+
+  if (
+    errorTarget ===
+    "phone"
+  ) {
+
+    showPhoneErr(
+      message
+    );
+
+  }
+  else {
+
+    showErr(
+      message
+    );
+
+  }
+
+
+  return false;
+
+}
+
+
+// ==========================================================
+// AUTH MODE UI
+// ==========================================================
+
+function setAuthMode(
+  mode
+) {
+
+  authMode =
+    mode ===
+      "phone"
+      ? "phone"
+      : "email";
+
+
+  const emailMode =
+    authMode ===
+    "email";
+
+
+  if (
+    els.emailForm
+  ) {
+
+    els.emailForm.style.display =
+      emailMode
+        ? "grid"
+        : "none";
+
+  }
+
+
+  if (
+    els.phoneForm
+  ) {
+
+    els.phoneForm.style.display =
+      emailMode
+        ? "none"
+        : "grid";
+
+  }
+
+
+  els.emailTab?.classList.toggle(
+    "active",
+    emailMode
+  );
+
+
+  els.phoneTab?.classList.toggle(
+    "active",
+    !emailMode
+  );
+
+
+  els.emailTab?.setAttribute(
+    "aria-selected",
+    emailMode
+      ? "true"
+      : "false"
+  );
+
+
+  els.phoneTab?.setAttribute(
+    "aria-selected",
+    emailMode
+      ? "false"
+      : "true"
+  );
+
+
+  showErr(
+    ""
+  );
+
+
+  showPhoneErr(
+    ""
+  );
+
+
+  showPhoneVerifyErr(
+    ""
+  );
+
+
+  try {
+
+    if (
+      emailMode
+    ) {
+
+      els.email?.focus({
+        preventScroll:
+          true
+      });
+
+    }
+    else {
+
+      els.phone?.focus({
+        preventScroll:
+          true
+      });
+
+    }
+
+  }
+  catch {}
 
 }
 
@@ -315,6 +856,7 @@ function formatUSPhoneDisplay(
     digitsOnly(
       value
     );
+
 
   if (
     digits.length >
@@ -461,7 +1003,7 @@ function employeeIsActive(
 
   if (
     typeof employee.active ===
-    "boolean"
+      "boolean"
   ) {
 
     return employee.active;
@@ -502,7 +1044,8 @@ async function findEmployeeForPhone(
 
 
   // ========================================================
-  // FIRST: exact normalized phoneE164 match
+  // FIRST:
+  // exact phoneE164 match
   // ========================================================
 
   try {
@@ -560,6 +1103,7 @@ async function findEmployeeForPhone(
       const employeeDoc =
         snap.docs[0];
 
+
       const employee =
         employeeDoc.data() ||
         {};
@@ -609,23 +1153,12 @@ async function findEmployeeForPhone(
       error
     );
 
-
-    /*
-      Keep going so older employee records can still
-      be checked by their formatted phone field.
-    */
-
   }
 
 
   // ========================================================
-  // SECOND: compatibility with older employee records
-  //
-  // Older employees may only have:
-  //
-  // phone: "(217) 555-1234"
-  //
-  // instead of phoneE164.
+  // SECOND:
+  // compatibility with older phone fields
   // ========================================================
 
   try {
@@ -684,12 +1217,6 @@ async function findEmployeeForPhone(
       matches.length >
       1
     ) {
-
-      console.error(
-        "[Login] Duplicate employee phone records:",
-        phoneE164
-      );
-
 
       return {
         ok:
@@ -851,15 +1378,6 @@ async function linkPhoneAuthToEmployee(
     error
   ) {
 
-    /*
-      IMPORTANT:
-      Do not block a valid employee merely because the
-      convenience UID-link write failed.
-
-      Authorization has already been proven by the employee
-      lookup above.
-    */
-
     console.warn(
       "[Login] could not link auth UID to employee:",
       error
@@ -901,7 +1419,6 @@ function clearFarmVistaUserCache() {
 // ==========================================================
 
 async function rejectPhoneUser(
-  auth,
   reason
 ) {
 
@@ -913,9 +1430,15 @@ async function rejectPhoneUser(
 
   try {
 
-    await signOut(
+    if (
       auth
-    );
+    ) {
+
+      await signOut(
+        auth
+      );
+
+    }
 
   }
   catch (
@@ -1030,148 +1553,6 @@ async function rejectPhoneUser(
   );
 
 }
-
-
-// ==========================================================
-// AUTH MODE
-// ==========================================================
-
-let authMode =
-  "email";
-
-
-function setAuthMode(
-  mode
-) {
-
-  authMode =
-    mode ===
-      "phone"
-      ? "phone"
-      : "email";
-
-
-  const emailMode =
-    authMode ===
-    "email";
-
-
-  if (
-    els.emailForm
-  ) {
-
-    els.emailForm.style.display =
-      emailMode
-        ? "grid"
-        : "none";
-
-  }
-
-
-  if (
-    els.phoneForm
-  ) {
-
-    els.phoneForm.style.display =
-      emailMode
-        ? "none"
-        : "grid";
-
-  }
-
-
-  els.emailTab?.classList.toggle(
-    "active",
-    emailMode
-  );
-
-
-  els.phoneTab?.classList.toggle(
-    "active",
-    !emailMode
-  );
-
-
-  els.emailTab?.setAttribute(
-    "aria-selected",
-    emailMode
-      ? "true"
-      : "false"
-  );
-
-
-  els.phoneTab?.setAttribute(
-    "aria-selected",
-    emailMode
-      ? "false"
-      : "true"
-  );
-
-
-  showErr(
-    ""
-  );
-
-
-  showPhoneErr(
-    ""
-  );
-
-
-  showPhoneVerifyErr(
-    ""
-  );
-
-
-  try {
-
-    if (
-      emailMode
-    ) {
-
-      els.email?.focus({
-        preventScroll:
-          true
-      });
-
-    }
-    else {
-
-      els.phone?.focus({
-        preventScroll:
-          true
-      });
-
-    }
-
-  }
-  catch {}
-
-}
-
-
-// ==========================================================
-// PHONE AUTH STATE
-// ==========================================================
-
-let confirmationResult =
-  null;
-
-
-let recaptchaVerifier =
-  null;
-
-
-let recaptchaWidgetId =
-  null;
-
-
-let lastPhoneE164 =
-  "";
-
-
-let lastPhoneDisplay =
-  "";
 
 
 // ==========================================================
@@ -1534,15 +1915,24 @@ function phoneVerifyErrorMessage(
 // RECAPTCHA
 // ==========================================================
 
-async function getRecaptchaVerifier(
-  auth
-) {
+async function getRecaptchaVerifier() {
 
   if (
     recaptchaVerifier
   ) {
 
     return recaptchaVerifier;
+
+  }
+
+
+  if (
+    !auth
+  ) {
+
+    throw new Error(
+      "Firebase Authentication is not ready."
+    );
 
   }
 
@@ -1599,50 +1989,40 @@ async function resetRecaptcha() {
 
 
 // ==========================================================
-// BOOT
+// EMAIL SIGN IN
 // ==========================================================
 
-(async function boot() {
+async function handleEmailSignIn(
+  event
+) {
 
-  let ctx;
-  let auth;
-
-
-  try {
-
-    await import(
-      "../firebase-init.js"
-    );
+  event?.preventDefault?.();
 
 
-    ctx =
-      await ready;
+  showErr(
+    ""
+  );
 
 
-    auth =
-      ctx?.auth ||
-      getAuth(
-        ctx?.app
-      );
+  const email =
+    (
+      els.email?.value ||
+      ""
+    ).trim();
 
-  }
-  catch (
-    error
+
+  const password =
+    els.password?.value ||
+    "";
+
+
+  if (
+    !email ||
+    !password
   ) {
 
-    console.warn(
-      "[Login] Firebase initialization failed:",
-      error
-    );
-
-
     showErr(
-      "Unable to initialize authentication."
-    );
-
-
-    showPhoneErr(
-      "Unable to initialize authentication."
+      "Enter your email and password."
     );
 
 
@@ -1651,8 +2031,657 @@ async function resetRecaptcha() {
   }
 
 
+  try {
+
+    localStorage.setItem(
+      "fv_last_email",
+      email
+    );
+
+  }
+  catch {}
+
+
+  setButtonBusy(
+    els.signIn,
+    true,
+    "Signing In…",
+    "Sign In"
+  );
+
+
+  try {
+
+    const ok =
+      await requireFirebase(
+        "email"
+      );
+
+
+    if (
+      !ok
+    ) {
+
+      return;
+
+    }
+
+
+    await signInWithEmailAndPassword(
+      auth,
+      email,
+      password
+    );
+
+
+    clearFarmVistaUserCache();
+
+
+    location.replace(
+      nextUrl()
+    );
+
+  }
+  catch (
+    error
+  ) {
+
+    console.warn(
+      "[Login] email sign-in error:",
+      error
+    );
+
+
+    const code =
+      error?.code ||
+      "";
+
+
+    let message =
+      "Sign in failed. Please check your email and password.";
+
+
+    if (
+      code ===
+      "auth/invalid-email"
+    ) {
+
+      message =
+        "That email address looks invalid.";
+
+    }
+    else if (
+      code ===
+      "auth/user-disabled"
+    ) {
+
+      message =
+        "This account has been disabled.";
+
+    }
+    else if (
+      code ===
+        "auth/user-not-found" ||
+      code ===
+        "auth/wrong-password" ||
+      code ===
+        "auth/invalid-credential"
+    ) {
+
+      message =
+        "Incorrect email or password.";
+
+    }
+    else if (
+      code ===
+      "auth/too-many-requests"
+    ) {
+
+      message =
+        "Too many attempts. Please try again later.";
+
+    }
+
+
+    showErr(
+      message
+    );
+
+  }
+  finally {
+
+    setButtonBusy(
+      els.signIn,
+      false,
+      "Signing In…",
+      "Sign In"
+    );
+
+  }
+
+}
+
+
+// ==========================================================
+// PASSWORD RESET
+// ==========================================================
+
+async function handlePasswordReset(
+  event
+) {
+
+  event?.preventDefault?.();
+
+
+  showErr(
+    ""
+  );
+
+
+  const email =
+    (
+      els.email?.value ||
+      ""
+    ).trim();
+
+
+  if (
+    !email
+  ) {
+
+    showErr(
+      "Enter your email above, then tap “Forgot password?”."
+    );
+
+
+    return;
+
+  }
+
+
+  const ok =
+    await requireFirebase(
+      "email"
+    );
+
+
+  if (
+    !ok
+  ) {
+
+    return;
+
+  }
+
+
+  try {
+
+    await sendPasswordResetEmail(
+      auth,
+      email
+    );
+
+
+    showErr(
+      "Reset link sent if the email exists."
+    );
+
+  }
+  catch (
+    error
+  ) {
+
+    console.warn(
+      "[Login] reset error:",
+      error
+    );
+
+
+    showErr(
+      "Could not send reset link. Please try again later."
+    );
+
+  }
+
+}
+
+
+// ==========================================================
+// SEND SMS CODE
+// ==========================================================
+
+async function sendVerificationCode() {
+
+  showPhoneErr(
+    ""
+  );
+
+
+  showPhoneVerifyErr(
+    ""
+  );
+
+
+  const ok =
+    await requireFirebase(
+      "phone"
+    );
+
+
+  if (
+    !ok
+  ) {
+
+    return;
+
+  }
+
+
+  const rawPhone =
+    els.phone?.value ||
+    "";
+
+
+  const phoneE164 =
+    normalizeUSPhone(
+      rawPhone
+    );
+
+
+  if (
+    !phoneE164
+  ) {
+
+    showPhoneErr(
+      "Enter a valid 10-digit mobile phone number."
+    );
+
+
+    return;
+
+  }
+
+
+  lastPhoneE164 =
+    phoneE164;
+
+
+  lastPhoneDisplay =
+    formatUSPhoneDisplay(
+      rawPhone
+    );
+
+
+  setButtonBusy(
+    els.sendCode,
+    true,
+    "Sending Code…",
+    "Send Verification Code"
+  );
+
+
+  if (
+    els.resendCode
+  ) {
+
+    els.resendCode.disabled =
+      true;
+
+  }
+
+
+  try {
+
+    const verifier =
+      await getRecaptchaVerifier();
+
+
+    confirmationResult =
+      await signInWithPhoneNumber(
+        auth,
+        lastPhoneE164,
+        verifier
+      );
+
+
+    showPhoneVerifyStep();
+
+  }
+  catch (
+    error
+  ) {
+
+    console.warn(
+      "[Login] phone send error:",
+      error
+    );
+
+
+    await resetRecaptcha();
+
+
+    showPhoneErr(
+      phoneSendErrorMessage(
+        error
+      )
+    );
+
+  }
+  finally {
+
+    setButtonBusy(
+      els.sendCode,
+      false,
+      "Sending Code…",
+      "Send Verification Code"
+    );
+
+
+    if (
+      els.resendCode
+    ) {
+
+      els.resendCode.disabled =
+        false;
+
+    }
+
+  }
+
+}
+
+
+// ==========================================================
+// VERIFY SMS CODE
+// ==========================================================
+
+async function verifyPhoneCode() {
+
+  showPhoneVerifyErr(
+    ""
+  );
+
+
+  if (
+    !confirmationResult
+  ) {
+
+    showPhoneVerifyErr(
+      "Please resend a verification code."
+    );
+
+
+    return;
+
+  }
+
+
+  const code =
+    digitsOnly(
+      els.verificationCode?.value
+    ).slice(
+      0,
+      6
+    );
+
+
+  if (
+    code.length !==
+    6
+  ) {
+
+    showPhoneVerifyErr(
+      "Enter the 6-digit verification code."
+    );
+
+
+    return;
+
+  }
+
+
+  setButtonBusy(
+    els.verifyCode,
+    true,
+    "Verifying…",
+    "Verify & Sign In"
+  );
+
+
+  try {
+
+    const credential =
+      await confirmationResult.confirm(
+        code
+      );
+
+
+    const firebaseUser =
+      credential?.user ||
+      auth?.currentUser ||
+      null;
+
+
+    if (
+      !firebaseUser
+    ) {
+
+      throw new Error(
+        "Firebase did not return the authenticated phone user."
+      );
+
+    }
+
+
+    const verifiedPhone =
+      normalizeUSPhone(
+        firebaseUser.phoneNumber ||
+        ""
+      );
+
+
+    if (
+      !verifiedPhone
+    ) {
+
+      await rejectPhoneUser(
+        "invalid_phone"
+      );
+
+
+      return;
+
+    }
+
+
+    const employeeMatch =
+      await findEmployeeForPhone(
+        verifiedPhone
+      );
+
+
+    if (
+      !employeeMatch.ok
+    ) {
+
+      await rejectPhoneUser(
+        employeeMatch.reason
+      );
+
+
+      return;
+
+    }
+
+
+    await linkPhoneAuthToEmployee(
+      employeeMatch,
+      firebaseUser
+    );
+
+
+    clearFarmVistaUserCache();
+
+
+    try {
+
+      await window.FVUserContext?.refresh?.({
+        force:
+          true
+      });
+
+    }
+    catch {}
+
+
+    location.replace(
+      nextUrl()
+    );
+
+  }
+  catch (
+    error
+  ) {
+
+    console.warn(
+      "[Login] phone verify error:",
+      error
+    );
+
+
+    showPhoneVerifyErr(
+      phoneVerifyErrorMessage(
+        error
+      )
+    );
+
+  }
+  finally {
+
+    setButtonBusy(
+      els.verifyCode,
+      false,
+      "Verifying…",
+      "Verify & Sign In"
+    );
+
+  }
+
+}
+
+
+// ==========================================================
+// RESEND CODE
+// ==========================================================
+
+async function resendVerificationCode() {
+
+  showPhoneVerifyErr(
+    ""
+  );
+
+
+  const ok =
+    await requireFirebase(
+      "phone"
+    );
+
+
+  if (
+    !ok
+  ) {
+
+    return;
+
+  }
+
+
+  if (
+    !lastPhoneE164
+  ) {
+
+    showPhoneRequestStep();
+
+
+    return;
+
+  }
+
+
+  setButtonBusy(
+    els.resendCode,
+    true,
+    "Resending…",
+    "Resend verification code"
+  );
+
+
+  try {
+
+    const verifier =
+      await getRecaptchaVerifier();
+
+
+    confirmationResult =
+      await signInWithPhoneNumber(
+        auth,
+        lastPhoneE164,
+        verifier
+      );
+
+
+    if (
+      els.phoneStatus
+    ) {
+
+      els.phoneStatus.textContent =
+        `A new verification code was sent to ${lastPhoneDisplay}.`;
+
+    }
+
+  }
+  catch (
+    error
+  ) {
+
+    console.warn(
+      "[Login] resend error:",
+      error
+    );
+
+
+    await resetRecaptcha();
+
+
+    showPhoneVerifyErr(
+      phoneSendErrorMessage(
+        error
+      )
+    );
+
+  }
+  finally {
+
+    setButtonBusy(
+      els.resendCode,
+      false,
+      "Resending…",
+      "Resend verification code"
+    );
+
+  }
+
+}
+
+
+// ==========================================================
+// WIRE UI IMMEDIATELY
+// ==========================================================
+
+function wireUI() {
+
   // ========================================================
-  // AUTH METHOD TABS
+  // EMAIL / PHONE TABS
   // ========================================================
 
   els.emailTab?.addEventListener(
@@ -1685,188 +2714,7 @@ async function resetRecaptcha() {
 
   els.emailForm?.addEventListener(
     "submit",
-    async event => {
-
-      event.preventDefault();
-
-
-      showErr(
-        ""
-      );
-
-
-      const email =
-        (
-          els.email?.value ||
-          ""
-        ).trim();
-
-
-      const password =
-        els.password?.value ||
-        "";
-
-
-      if (
-        !email ||
-        !password
-      ) {
-
-        showErr(
-          "Enter your email and password."
-        );
-
-
-        return;
-
-      }
-
-
-      try {
-
-        localStorage.setItem(
-          "fv_last_email",
-          email
-        );
-
-      }
-      catch {}
-
-
-if (
-  isStub &&
-  isStub()
-) {
-
-  showErr(
-    "FarmVista could not connect to this farm. Please refresh and try again."
-  );
-
-
-  console.error(
-    "[Login] Sign-in blocked because Firebase is running in stub mode.",
-    {
-      farmKey:
-        window.FV_FARM_KEY,
-
-      farm:
-        window.FV_FARM,
-
-      firebaseConfig:
-        window.FV_FIREBASE_CONFIG,
-
-      configFailed:
-        window.__FV_FARM_CONFIG_FAILED,
-
-      noFarm:
-        window.__FV_NO_FARM_SELECTED
-    }
-  );
-
-
-  return;
-
-}
-
-
-      setButtonBusy(
-        els.signIn,
-        true,
-        "Signing In…",
-        "Sign In"
-      );
-
-
-      try {
-
-        await signInWithEmailAndPassword(
-          auth,
-          email,
-          password
-        );
-
-
-        location.replace(
-          nextUrl()
-        );
-
-      }
-      catch (
-        error
-      ) {
-
-        console.warn(
-          "[Login] email sign-in error:",
-          error
-        );
-
-
-        const code =
-          error?.code ||
-          "";
-
-
-        let message =
-          "Sign in failed. Please check your email and password.";
-
-
-        if (
-          code ===
-          "auth/invalid-email"
-        ) {
-
-          message =
-            "That email address looks invalid.";
-
-        }
-        else if (
-          code ===
-          "auth/user-disabled"
-        ) {
-
-          message =
-            "This account has been disabled.";
-
-        }
-        else if (
-          code ===
-            "auth/user-not-found" ||
-          code ===
-            "auth/wrong-password" ||
-          code ===
-            "auth/invalid-credential"
-        ) {
-
-          message =
-            "Incorrect email or password.";
-
-        }
-        else if (
-          code ===
-          "auth/too-many-requests"
-        ) {
-
-          message =
-            "Too many attempts. Please try again later.";
-
-        }
-
-
-        showErr(
-          message
-        );
-
-
-        setButtonBusy(
-          els.signIn,
-          false,
-          "Signing In…",
-          "Sign In"
-        );
-
-      }
-
-    }
+    handleEmailSignIn
   );
 
 
@@ -1876,83 +2724,7 @@ if (
 
   els.forgot?.addEventListener(
     "click",
-    async event => {
-
-      event.preventDefault();
-
-
-      showErr(
-        ""
-      );
-
-
-      const email =
-        (
-          els.email?.value ||
-          ""
-        ).trim();
-
-
-      if (
-        !email
-      ) {
-
-        showErr(
-          "Enter your email above, then tap “Forgot password?”."
-        );
-
-
-        return;
-
-      }
-
-
-      if (
-        ctx &&
-        isStub &&
-        isStub()
-      ) {
-
-        showErr(
-          "Password reset is unavailable in offline mode."
-        );
-
-
-        return;
-
-      }
-
-
-      try {
-
-        await sendPasswordResetEmail(
-          auth,
-          email
-        );
-
-
-        showErr(
-          "Reset link sent if the email exists."
-        );
-
-      }
-      catch (
-        error
-      ) {
-
-        console.warn(
-          "[Login] reset error:",
-          error
-        );
-
-
-        showErr(
-          "Could not send reset link. Please try again later."
-        );
-
-      }
-
-    }
+    handlePasswordReset
   );
 
 
@@ -1989,162 +2761,8 @@ if (
 
 
   // ========================================================
-  // SEND SMS CODE
+  // PHONE FORM
   // ========================================================
-
-  async function sendVerificationCode() {
-
-    showPhoneErr(
-      ""
-    );
-
-
-    showPhoneVerifyErr(
-      ""
-    );
-
-
-    if (
-      ctx &&
-      isStub &&
-      isStub()
-    ) {
-
-      showPhoneErr(
-        "Phone sign-in is unavailable in offline mode."
-      );
-
-
-      return;
-
-    }
-
-
-    const rawPhone =
-      els.phone?.value ||
-      "";
-
-
-    const phoneE164 =
-      normalizeUSPhone(
-        rawPhone
-      );
-
-
-    if (
-      !phoneE164
-    ) {
-
-      showPhoneErr(
-        "Enter a valid 10-digit mobile phone number."
-      );
-
-
-      return;
-
-    }
-
-
-    lastPhoneE164 =
-      phoneE164;
-
-
-    lastPhoneDisplay =
-      formatUSPhoneDisplay(
-        rawPhone
-      );
-
-
-    setButtonBusy(
-      els.sendCode,
-      true,
-      "Sending Code…",
-      "Send Verification Code"
-    );
-
-
-    if (
-      els.resendCode
-    ) {
-
-      els.resendCode.disabled =
-        true;
-
-    }
-
-
-    try {
-
-      const verifier =
-        await getRecaptchaVerifier(
-          auth
-        );
-
-
-      /*
-        IMPORTANT:
-
-        Until the optional backend blocking function is added,
-        Firebase can still send an SMS to an unknown number.
-
-        The REQUIRED employee authorization check happens
-        immediately after the code is verified below.
-      */
-
-      confirmationResult =
-        await signInWithPhoneNumber(
-          auth,
-          lastPhoneE164,
-          verifier
-        );
-
-
-      showPhoneVerifyStep();
-
-    }
-    catch (
-      error
-    ) {
-
-      console.warn(
-        "[Login] phone send error:",
-        error
-      );
-
-
-      await resetRecaptcha();
-
-
-      showPhoneErr(
-        phoneSendErrorMessage(
-          error
-        )
-      );
-
-    }
-    finally {
-
-      setButtonBusy(
-        els.sendCode,
-        false,
-        "Sending Code…",
-        "Send Verification Code"
-      );
-
-
-      if (
-        els.resendCode
-      ) {
-
-        els.resendCode.disabled =
-          false;
-
-      }
-
-    }
-
-  }
-
 
   els.phoneForm?.addEventListener(
     "submit",
@@ -2172,213 +2790,8 @@ if (
 
 
   // ========================================================
-  // VERIFY SMS CODE + REQUIRED EMPLOYEE ACCESS CHECK
+  // VERIFY CODE
   // ========================================================
-
-  async function verifyPhoneCode() {
-
-    showPhoneVerifyErr(
-      ""
-    );
-
-
-    if (
-      !confirmationResult
-    ) {
-
-      showPhoneVerifyErr(
-        "Please resend a verification code."
-      );
-
-
-      return;
-
-    }
-
-
-    const code =
-      digitsOnly(
-        els.verificationCode?.value
-      ).slice(
-        0,
-        6
-      );
-
-
-    if (
-      code.length !==
-      6
-    ) {
-
-      showPhoneVerifyErr(
-        "Enter the 6-digit verification code."
-      );
-
-
-      return;
-
-    }
-
-
-    setButtonBusy(
-      els.verifyCode,
-      true,
-      "Verifying…",
-      "Verify & Sign In"
-    );
-
-
-    try {
-
-      // ----------------------------------------------------
-      // STEP 1:
-      // Firebase proves ownership of the phone number.
-      // ----------------------------------------------------
-
-      const credential =
-        await confirmationResult.confirm(
-          code
-        );
-
-
-      const firebaseUser =
-        credential?.user ||
-        auth.currentUser ||
-        null;
-
-
-      if (
-        !firebaseUser
-      ) {
-
-        throw new Error(
-          "Firebase did not return the authenticated phone user."
-        );
-
-      }
-
-
-      const verifiedPhone =
-        normalizeUSPhone(
-          firebaseUser.phoneNumber ||
-          ""
-        );
-
-
-      if (
-        !verifiedPhone
-      ) {
-
-        await rejectPhoneUser(
-          auth,
-          "invalid_phone"
-        );
-
-
-        return;
-
-      }
-
-
-      // ----------------------------------------------------
-      // STEP 2:
-      // REQUIRED FARMVISTA AUTHORIZATION CHECK.
-      // ----------------------------------------------------
-
-      const employeeMatch =
-        await findEmployeeForPhone(
-          verifiedPhone
-        );
-
-
-      if (
-        !employeeMatch.ok
-      ) {
-
-        await rejectPhoneUser(
-          auth,
-          employeeMatch.reason
-        );
-
-
-        return;
-
-      }
-
-
-      // ----------------------------------------------------
-      // STEP 3:
-      // Link this Firebase UID to the employee record.
-      // ----------------------------------------------------
-
-      await linkPhoneAuthToEmployee(
-        employeeMatch,
-        firebaseUser
-      );
-
-
-      // ----------------------------------------------------
-      // STEP 4:
-      // Clear any previous person's cached FarmVista context.
-      // ----------------------------------------------------
-
-      clearFarmVistaUserCache();
-
-
-      try {
-
-        await window.FVUserContext?.refresh?.({
-          force:
-            true
-        });
-
-      }
-      catch {}
-
-
-      // ----------------------------------------------------
-      // STEP 5:
-      // ONLY NOW may the user enter FarmVista.
-      // ----------------------------------------------------
-
-      location.replace(
-        nextUrl()
-      );
-
-    }
-    catch (
-      error
-    ) {
-
-      console.warn(
-        "[Login] phone verify error:",
-        error
-      );
-
-
-      /*
-        If Firebase authentication itself fails, remain on
-        the verification-code screen.
-      */
-
-      showPhoneVerifyErr(
-        phoneVerifyErrorMessage(
-          error
-        )
-      );
-
-
-      setButtonBusy(
-        els.verifyCode,
-        false,
-        "Verifying…",
-        "Verify & Sign In"
-      );
-
-    }
-
-  }
-
 
   els.verifyCode?.addEventListener(
     "click",
@@ -2453,91 +2866,7 @@ if (
 
   els.resendCode?.addEventListener(
     "click",
-    async () => {
-
-      showPhoneVerifyErr(
-        ""
-      );
-
-
-      if (
-        !lastPhoneE164
-      ) {
-
-        showPhoneRequestStep();
-
-
-        return;
-
-      }
-
-
-      setButtonBusy(
-        els.resendCode,
-        true,
-        "Resending…",
-        "Resend verification code"
-      );
-
-
-      try {
-
-        const verifier =
-          await getRecaptchaVerifier(
-            auth
-          );
-
-
-        confirmationResult =
-          await signInWithPhoneNumber(
-            auth,
-            lastPhoneE164,
-            verifier
-          );
-
-
-        if (
-          els.phoneStatus
-        ) {
-
-          els.phoneStatus.textContent =
-            `A new verification code was sent to ${lastPhoneDisplay}.`;
-
-        }
-
-      }
-      catch (
-        error
-      ) {
-
-        console.warn(
-          "[Login] resend error:",
-          error
-        );
-
-
-        await resetRecaptcha();
-
-
-        showPhoneVerifyErr(
-          phoneSendErrorMessage(
-            error
-          )
-        );
-
-      }
-      finally {
-
-        setButtonBusy(
-          els.resendCode,
-          false,
-          "Resending…",
-          "Resend verification code"
-        );
-
-      }
-
-    }
+    resendVerificationCode
   );
 
 
@@ -2549,4 +2878,70 @@ if (
     authMode
   );
 
-})();
+}
+
+
+// ==========================================================
+// START
+// ==========================================================
+
+wireUI();
+
+
+/*
+  Start Firebase in the background.
+
+  The UI is already usable at this point, so the Email /
+  Phone tabs will never be blocked by Firebase initialization.
+*/
+
+initializeFirebase()
+  .then(
+    result => {
+
+      if (
+        result
+      ) {
+
+        console.info(
+          "[Login] Authentication connection ready."
+        );
+
+        return;
+
+      }
+
+
+      if (
+        !selectedFarmKey()
+      ) {
+
+        console.info(
+          "[Login] No farm selected yet."
+        );
+
+        return;
+
+      }
+
+
+      console.warn(
+        "[Login] Farm selected but Firebase is not ready."
+      );
+
+    }
+  )
+  .catch(
+    error => {
+
+      firebaseFailed =
+        true;
+
+
+      console.error(
+        "[Login] Background Firebase startup failed:",
+        error
+      );
+
+    }
+  );
