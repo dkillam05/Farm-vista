@@ -800,12 +800,52 @@ async function selectFarm(
     farmKey;
 
 
-  window.FV_FIREBASE_CONFIG =
-    farmConfig.firebaseConfig;
+window.FV_FIREBASE_CONFIG =
+  farmConfig.firebaseConfig;
 
 
-  window.__FV_NO_FARM_SELECTED =
-    false;
+// ========================================================
+// RESET PHONE AUTH / RECAPTCHA WHEN FARM CHANGES
+// ========================================================
+
+try {
+
+  recaptchaVerifier?.clear?.();
+
+}
+catch {}
+
+
+recaptchaVerifier =
+  null;
+
+
+recaptchaWidgetId =
+  null;
+
+
+confirmationResult =
+  null;
+
+
+const recaptchaContainer =
+  document.getElementById(
+    "recaptcha-container"
+  );
+
+
+if (
+  recaptchaContainer
+) {
+
+  recaptchaContainer.innerHTML =
+    "";
+
+}
+
+
+window.__FV_NO_FARM_SELECTED =
+  false;
 
 
   window.__FV_FARM_CONFIG_FAILED =
