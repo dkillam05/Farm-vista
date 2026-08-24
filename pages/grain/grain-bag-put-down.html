@@ -770,32 +770,116 @@
           fieldCombo.setItems([]);
         }
       }
-      async function loadEmployees(){
-        try{
-          const snap=await getDocs(collection(db,'employees'));
-          const list=[];
-          snap.forEach(d=>{
-            const x=d.data()||{};
-            list.push({
-              id:d.id,
-              name:x.name||x.displayName||x.fullName||x.email||d.id,
-              email:x.email||d.id
-            });
-          });
-          list.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
-          EMPLOYEES=list;
-          subCombo.setItems(list);
-          const me=(auth.currentUser?.email||"").toLowerCase();
-          const mine=list.find(e=>(e.email||"").toLowerCase()===me) || list[0];
-          if(mine){
-            chosen.sub=mine;
-            document.getElementById("subBtn").textContent=mine.name;
-          }
-        }catch(e){
-          console.warn("Employees load error:", e);
-          subCombo.setItems([]);
-        }
-      }
+async function loadEmployees(){
+  try{
+    const snap=await getDocs(collection(db,'employees'));
+    const list=[];
+
+    snap.forEach(d=>{
+      const x=d.data()||{};
+
+      const firstName = String(x.firstName || "").trim();
+      const lastName  = String(x.lastName || "").trim();
+
+      const builtName =
+        [firstName, lastName]
+          .filter(Boolean)
+          .join(" ")
+          .trim();
+
+      list.push({
+        id:d.id,
+
+        // Employee document values
+        uid:
+          x.uid ||
+          x.firebaseUid ||
+          x.authUid ||
+          x.userUid ||
+          null,
+
+        name:
+          x.name ||
+          x.displayName ||
+          x.fullName ||
+          builtName ||
+          x.email ||
+          d.id,
+
+        email:String(x.email || "").trim()
+      });
+    });
+
+    list.sort((a,b)=>
+      (a.name||"").localeCompare(b.name||"")
+    );
+
+    EMPLOYEES=list;
+    subCombo.setItems(list);
+
+    // --------------------------------------------------
+    // DEFAULT "SUBMITTED BY" TO LOGGED-IN USER
+    // --------------------------------------------------
+    const user = auth.currentUser;
+
+    const userUid =
+      String(user?.uid || "").trim();
+
+    const userEmail =
+      String(user?.email || "")
+        .trim()
+        .toLowerCase();
+
+    const userName =
+      String(user?.displayName || "")
+        .trim()
+        .toLowerCase();
+
+    let mine = null;
+
+    // 1. Best match: Firebase UID
+    if(userUid){
+      mine = list.find(e =>
+        String(e.uid || "").trim() === userUid
+      );
+    }
+
+    // 2. Fall back to email
+    if(!mine && userEmail){
+      mine = list.find(e =>
+        String(e.email || "")
+          .trim()
+          .toLowerCase() === userEmail
+      );
+    }
+
+    // 3. Fall back to display name
+    if(!mine && userName){
+      mine = list.find(e =>
+        String(e.name || "")
+          .trim()
+          .toLowerCase() === userName
+      );
+    }
+
+    if(mine){
+      chosen.sub = mine;
+      document.getElementById("subBtn").textContent = mine.name;
+    }else{
+      // Do NOT silently select some other employee.
+      chosen.sub = null;
+
+      document.getElementById("subBtn").textContent =
+        user?.displayName ||
+        user?.email ||
+        "— Select —";
+    }
+
+  }catch(e){
+    console.warn("Employees load error:", e);
+    subCombo.setItems([]);
+  }
+}
       async function loadBags(){
         try{
           const snap=await getDocs(collection(db,'inventoryGrainBagMovements'));
@@ -883,12 +967,59 @@
         if(pBlock) pBlock.hidden = true;
         if(pReason) pReason.value = "";
 
-        const me=(getAuth().currentUser?.email||"").toLowerCase();
-        const mine=EMPLOYEES.find(e=>(e.email||"").toLowerCase()===me) || EMPLOYEES[0];
-        if(mine){
-          chosen.sub=mine;
-          document.getElementById("subBtn").textContent=mine.name;
-        }
+ const user = getAuth().currentUser;
+
+const userUid =
+  String(user?.uid || "").trim();
+
+const userEmail =
+  String(user?.email || "")
+    .trim()
+    .toLowerCase();
+
+const userName =
+  String(user?.displayName || "")
+    .trim()
+    .toLowerCase();
+
+let mine = null;
+
+// Firebase UID first
+if(userUid){
+  mine = EMPLOYEES.find(e =>
+    String(e.uid || "").trim() === userUid
+  );
+}
+
+// Then email
+if(!mine && userEmail){
+  mine = EMPLOYEES.find(e =>
+    String(e.email || "")
+      .trim()
+      .toLowerCase() === userEmail
+  );
+}
+
+// Then display name
+if(!mine && userName){
+  mine = EMPLOYEES.find(e =>
+    String(e.name || "")
+      .trim()
+      .toLowerCase() === userName
+  );
+}
+
+if(mine){
+  chosen.sub = mine;
+  document.getElementById("subBtn").textContent = mine.name;
+}else{
+  chosen.sub = null;
+
+  document.getElementById("subBtn").textContent =
+    user?.displayName ||
+    user?.email ||
+    "— Select —";
+}
       });
     })();
   </script>
