@@ -6014,11 +6014,92 @@ function openCustomerMenu() {
 
 }
 
+function activeFieldHarvestSource() {
+
+  const crop =
+    clean(
+      elements.crop.value
+    );
+
+
+  if (
+    !crop
+  ) {
+
+    return null;
+
+  }
+
+
+  return {
+
+    type:
+      "active_field_harvest",
+
+    value:
+      `active_field_harvest:${normalize(crop)}`,
+
+    id:
+      null,
+
+    siteId:
+      null,
+
+    siteName:
+      null,
+
+    binNumber:
+      null,
+
+    binIndex:
+      null,
+
+    fieldId:
+      null,
+
+    fieldName:
+      null,
+
+    crop,
+
+    cropYear:
+      null,
+
+    onHand:
+      null,
+
+    bypassInventory:
+      true,
+
+    label:
+      "Active Field Harvest",
+
+    searchText:
+      `active field harvest ${crop}`
+
+  };
+
+}
+
+
 function allSourceItems() {
 
+  const activeHarvest =
+    activeFieldHarvestSource();
+
+
   return [
+
+    ...(
+      activeHarvest
+        ? [activeHarvest]
+        : []
+    ),
+
     ...state.binSources,
+
     ...state.bagSources
+
   ];
 
 }
@@ -6041,10 +6122,6 @@ function currentSourceItems() {
   }
 
 
-  /*
-    Inventory selection is strict: a source must explicitly match
-    the selected crop. Unknown/blank crop inventory is not shown.
-  */
   return allSourceItems()
     .filter(
       item =>
@@ -6441,6 +6518,14 @@ function renderGrainSourceOptions(
     };
 
 
+  const harvest =
+    items.filter(
+      item =>
+        item.type ===
+        "active_field_harvest"
+    );
+
+
   const bins =
     items.filter(
       item =>
@@ -6458,6 +6543,12 @@ function renderGrainSourceOptions(
 
 
   renderGroup(
+    "Harvest",
+    harvest
+  );
+
+
+  renderGroup(
     "Bin Sites",
     bins
   );
@@ -6470,6 +6561,7 @@ function renderGrainSourceOptions(
 
 
   if (
+    !harvest.length &&
     !bins.length &&
     !bags.length
   ) {
@@ -7792,6 +7884,30 @@ const ticketUsesAllocationModel =
           load.grainSourceType ||
           ticket.grainSourceType
         );
+
+            if (
+        sourceType ===
+        "active field harvest" ||
+        sourceType ===
+        "active_field_harvest"
+      ) {
+
+        const crop =
+          clean(
+            load.crop ||
+            ticket.crop
+          );
+
+
+        if (
+          crop
+        ) {
+
+          return `active_field_harvest:${normalize(crop)}`;
+
+        }
+
+      }
 
 
       if (
@@ -9464,6 +9580,60 @@ async function saveVerifiedTicketWithInventory(
     throw new Error(
       "Net Bushels must be greater than zero."
     );
+
+  }
+
+    /*
+    ACTIVE FIELD HARVEST
+
+    Grain moves directly from the field to the elevator.
+
+    Keep:
+      - ticket bushels
+      - contract assignment
+      - grade factors
+      - load history
+
+    Do NOT:
+      - reduce bin inventory
+      - reduce grain bag inventory
+      - create an inventory movement
+  */
+  if (
+    selectedSource.type ===
+    "active_field_harvest"
+  ) {
+
+    await updateDoc(
+      doc(
+        db,
+        "grain_tickets",
+        ticketId
+      ),
+      {
+
+        ...payload,
+
+        inventoryPosted:
+          true,
+
+        inventoryPostedType:
+          "active_field_harvest",
+
+        inventoryPostedBushels:
+          0,
+
+        inventoryMovementId:
+          null,
+
+        inventoryPostedAt:
+          serverTimestamp()
+
+      }
+    );
+
+
+    return;
 
   }
 
