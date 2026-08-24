@@ -903,11 +903,44 @@ function buildBinAdditionPlan(
 
 
   /*
-    Only bins already assigned to this crop are eligible.
+    Determine whether this entire site is currently empty.
 
-    The user never chooses the individual bin.
+    If the site has zero grain, FarmVista may use its empty
+    bins for ANY selected crop.
 
-    FarmVista fills matching bins in their existing array order.
+    Once grain exists at the site, only bins already assigned
+    to that crop may be filled.
+  */
+
+  const siteTotalOnHand =
+    roundBushels(
+      bins.reduce(
+        (
+          total,
+          bin
+        ) =>
+          total +
+          Math.max(
+            0,
+            numberValue(
+              bin?.onHand
+            )
+          ),
+        0
+      )
+    );
+
+
+  const siteIsEmpty =
+    siteTotalOnHand <=
+    0;
+
+
+  /*
+    First fill bins that are already assigned to this crop.
+
+    If the entire site is empty, empty bins may also be used
+    and will automatically be assigned to the selected crop.
   */
 
   for (
@@ -931,19 +964,6 @@ function buildBinAdditionPlan(
       ];
 
 
-    if (
-      !sameCrop(
-        binCrop(
-          bin
-        ),
-        crop
-      )
-    ) {
-
-      continue;
-    }
-
-
     const before =
       Math.max(
         0,
@@ -951,6 +971,30 @@ function buildBinAdditionPlan(
           bin?.onHand
         )
       );
+
+
+    const matchesCrop =
+      sameCrop(
+        binCrop(
+          bin
+        ),
+        crop
+      );
+
+
+    const mayUseEmptyBin =
+      siteIsEmpty &&
+      before <=
+      0;
+
+
+    if (
+      !matchesCrop &&
+      !mayUseEmptyBin
+    ) {
+
+      continue;
+    }
 
 
     const capacity =
@@ -1015,9 +1059,23 @@ function buildBinAdditionPlan(
       onHand:
         after,
 
+      /*
+        Assign the crop when grain is first placed into
+        an otherwise empty bin.
+      */
+
       lastCropType:
+        crop,
+
+      crop:
         clean(
-          bin?.lastCropType
+          bin?.crop
+        ) ||
+        crop,
+
+      cropType:
+        clean(
+          bin?.cropType
         ) ||
         crop
 
@@ -1892,25 +1950,78 @@ function destinationOptions(
         )
     )
     .filter(
-      site =>
-        siteIsCentral(
-          site
-        )
-    )
-    .filter(
       site => {
 
         const bins =
           Array.isArray(
-            site.bins
+            site?.bins
           )
             ? site.bins
             : [];
 
 
         /*
-          Destination site is eligible only if it already has
-          at least one bin assigned to the selected crop.
+          DESTINATION RULES
+
+          1. If the entire bin site has ZERO bushels on hand,
+             it may receive ANY selected crop.
+
+          2. Once the site contains grain, it is only shown
+             when that grain matches the selected crop.
+
+          Examples:
+
+            Empty site:
+              0 bu
+              → available for Corn
+              → available for Soybeans
+
+            Site containing Soybeans:
+              → available for Soybeans
+              → NOT available for Corn
+        */
+
+
+        const totalOnHand =
+          roundBushels(
+            bins.reduce(
+              (
+                total,
+                bin
+              ) =>
+                total +
+                Math.max(
+                  0,
+                  numberValue(
+                    bin?.onHand
+                  )
+                ),
+              0
+            )
+          );
+
+
+        /*
+          Completely empty site.
+
+          It can receive the selected crop regardless of
+          any old lastCropType value left on an empty bin.
+        */
+
+        if (
+          totalOnHand <=
+          0
+        ) {
+
+          return true;
+        }
+
+
+        /*
+          Site already contains grain.
+
+          Only allow it when the site currently contains
+          the crop selected for this transfer.
         */
 
         return bins.some(
@@ -1920,7 +2031,11 @@ function destinationOptions(
                 bin
               ),
               crop
-            )
+            ) &&
+            numberValue(
+              bin?.onHand
+            ) >
+            0
         );
       }
     )
@@ -1934,7 +2049,7 @@ function destinationOptions(
           clean(
             site.name
           ) ||
-          "Central Grain Site"
+          "Grain Site"
 
       })
     )
@@ -4509,17 +4624,6 @@ async function saveBinSiteTransfer({
       }
 
 
-      if (
-        !siteIsCentral(
-          destinationData
-        )
-      ) {
-
-        throw new Error(
-          "Grain can only be transferred into a central grain site."
-        );
-      }
-
 
       const sourceAvailable =
         siteCropBushels(
@@ -5075,16 +5179,6 @@ async function saveBagTransfer({
       }
 
 
-      if (
-        !siteIsCentral(
-          destinationData
-        )
-      ) {
-
-        throw new Error(
-          "Grain can only be transferred into a central grain site."
-        );
-      }
 
 
       const bagPlan =
