@@ -1137,7 +1137,7 @@ function fallbackBuPerFoot(
 
   if (d >= 12) return 60;
   if (d >= 11) return 50;
-  if (d >= 10) return 39;
+  if (d >= 10) return 43;
   if (d >= 9) return 30;
   if (d > 0) return 25;
 
@@ -5132,23 +5132,22 @@ async function saveBagTransfer({
       // UPDATE BAG
       // ------------------------------------------------------
 
-      const bagPatch = {
+ const bagPatch = {
 
-        "counts.full":
-          bagPlan.countsAfter.full,
+  counts: {
+    full:
+      bagPlan.countsAfter.full,
 
-        "counts.partial":
-          bagPlan.countsAfter.partial,
+    partial:
+      bagPlan.countsAfter.partial
+  },
 
-        "counts.partialFeet":
-          bagPlan.countsAfter.partialFeet,
+  partialFeet:
+    bagPlan.countsAfter.partialFeet,
 
-        partialFeet:
-          bagPlan.countsAfter.partialFeet,
-
-        updatedAt:
-          serverTimestamp()
-      };
+  updatedAt:
+    serverTimestamp()
+};
 
 
       if (
