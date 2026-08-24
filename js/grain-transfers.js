@@ -2655,8 +2655,9 @@ function injectStyles() {
 
 .grain-transfer-crop-btn.selected{
   border-color:#3B7E46;
-  background:rgba(59,126,70,.12);
-  color:#2F6C3C;
+  background:#3B7E46;
+  color:#fff !important;
+  -webkit-text-fill-color:#fff !important;
 }
 
 
@@ -2767,18 +2768,28 @@ function injectStyles() {
   }
 
   .grain-transfer-backdrop{
-    align-items:flex-end;
-    padding:0;
+    align-items:center;
+    justify-content:center;
+    padding:16px;
   }
 
   .grain-transfer-modal{
-    width:100%;
-    max-height:92vh;
-    border-radius:16px 16px 0 0;
+    width:min(560px,100%);
+    max-height:calc(100dvh - 32px);
+    border-radius:16px;
   }
 
   .grain-transfer-crops{
-    grid-template-columns:repeat(2,minmax(0,1fr));
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    flex-wrap:wrap;
+    gap:8px;
+  }
+
+  .grain-transfer-crop-btn{
+    width:min(240px,100%);
+    min-height:46px;
   }
 
 }
