@@ -505,6 +505,70 @@
       </div>
     </div>
 
+        <!-- =========================================================
+         ACTIVE FIELD HARVEST
+    ========================================================== -->
+
+    <section class="workspace-section">
+      <div
+        class="inventory-card"
+        id="active-harvest-section"
+      >
+
+        <div class="inventory-head">
+          <div>
+            <h2 class="inventory-title">
+              Active Harvest
+            </h2>
+
+            <div class="inventory-sub">
+              Grain hauled directly from the field during harvest. These bushels are tracked separately and do not affect bin or grain bag inventory.
+            </div>
+          </div>
+        </div>
+
+
+        <div class="inventory-body">
+
+          <div class="table-wrap">
+
+            <table class="inventory-table">
+
+              <thead>
+                <tr>
+                  <th>Crop</th>
+                  <th class="num-cell">Bushels Hauled</th>
+                  <th class="num-cell">Loads Hauled</th>
+                  <th class="num-cell">Avg Moisture</th>
+                  <th class="num-cell">Avg FM</th>
+                  <th class="num-cell">Avg Damage</th>
+                </tr>
+              </thead>
+
+              <tbody id="active-harvest-tbody">
+
+                <tr>
+                  <td colspan="6" class="empty-row">
+                    Loading active harvest…
+                  </td>
+                </tr>
+
+              </tbody>
+
+            </table>
+
+          </div>
+
+
+          <div class="inventory-foot">
+            Totals come from non-voided grain tickets assigned to Active Field Harvest. Grain quality is weighted by each ticket's net bushels.
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
     <section class="workspace-section">
     <div class="inventory-card" id="grain-bins-section">
       <div class="inventory-head">
@@ -959,6 +1023,192 @@ function ticketsFromIds(ids){
     .filter(ticket => ticket && ticket.voided !== true);
 }
 
+    /* ============================================================
+     ACTIVE FIELD HARVEST
+
+     Direct field → truck → elevator grain.
+
+     This is harvest tracking only.
+     It does NOT represent stored inventory and does not change:
+       • bin inventory
+       • grain bag inventory
+
+     Totals come directly from non-voided grain tickets whose
+     grainSourceType is active_field_harvest.
+  ============================================================ */
+
+  function activeHarvestTicketsForCrop(
+    crop
+  ){
+
+    const wantedCrop =
+      cropKey(
+        crop
+      );
+
+
+    return [
+      ...state.ticketsById.values()
+    ]
+      .filter(
+        ticket =>
+          ticket &&
+          ticket.voided !== true &&
+          norm(
+            ticket.grainSourceType
+          ) ===
+            "active_field_harvest" &&
+          cropKey(
+            ticket.crop
+          ) ===
+            wantedCrop &&
+          num(
+            ticket.netBushels,
+            0
+          ) >
+            0
+      );
+
+  }
+
+
+  function activeHarvestSummary(
+    crop
+  ){
+
+    const tickets =
+      activeHarvestTicketsForCrop(
+        crop
+      );
+
+
+    const bushels =
+      tickets.reduce(
+        (
+          total,
+          ticket
+        ) =>
+          total +
+          Math.max(
+            0,
+            num(
+              ticket.netBushels,
+              0
+            )
+          ),
+        0
+      );
+
+
+    const grades =
+      gradeSummary(
+        tickets
+      );
+
+
+    return {
+
+      crop:
+        cropLabel(
+          crop
+        ),
+
+      bushels,
+
+      loads:
+        grades.loads,
+
+      moisture:
+        grades.moisture,
+
+      fm:
+        grades.fm,
+
+      damage:
+        grades.damage
+
+    };
+
+  }
+
+
+  function renderActiveHarvest(){
+
+    const tbody =
+      $(
+        "active-harvest-tbody"
+      );
+
+
+    if (
+      !tbody
+    ){
+      return;
+    }
+
+
+    /*
+      FarmVista intentionally always displays both primary
+      harvest crops, even before the first load is hauled.
+    */
+    const rows = [
+
+      activeHarvestSummary(
+        "Corn"
+      ),
+
+      activeHarvestSummary(
+        "Soybeans"
+      )
+
+    ];
+
+
+    tbody.innerHTML =
+      rows
+        .map(
+          row => `
+
+            <tr>
+
+              <td>
+                <span class="crop-pill">
+                  ${esc(row.crop)}
+                </span>
+              </td>
+
+              <td class="num-cell">
+                ${fmtBu(row.bushels)}
+              </td>
+
+              <td class="num-cell">
+                <span class="loads-pill">
+                  ${row.loads.toLocaleString("en-US")}
+                </span>
+              </td>
+
+              <td class="num-cell ${gradeClass(row.moisture)}">
+                ${fmtGrade(row.moisture)}
+              </td>
+
+              <td class="num-cell ${gradeClass(row.fm)}">
+                ${fmtGrade(row.fm)}
+              </td>
+
+              <td class="num-cell ${gradeClass(row.damage)}">
+                ${fmtGrade(row.damage)}
+              </td>
+
+            </tr>
+
+          `
+        )
+        .join(
+          ""
+        );
+
+  }
+
   function binTickets(siteId, binIndex=null){
     const ids = state.binMovements
       .filter(m =>
@@ -1203,6 +1453,7 @@ function ticketsFromIds(ids){
     state.canEdit = canFromPermValue(result.perms?.[KEY_GRAIN_KPI],"edit");
 
     if(!view){
+      $("active-harvest-section")?.classList.add("perm-hidden");
       $("grain-bins-section")?.classList.add("perm-hidden");
       $("grain-bags-section")?.classList.add("perm-hidden");
     }
@@ -1719,8 +1970,14 @@ function ticketsFromIds(ids){
   }
 
   async function loadAll(){
-    $("bin-tbody").innerHTML = `<tr><td colspan="7" class="empty-row">Loading grain bins…</td></tr>`;
-    $("bag-tbody").innerHTML = `<tr><td colspan="9" class="empty-row">Loading grain bags…</td></tr>`;
+    $("active-harvest-tbody").innerHTML =
+      `<tr><td colspan="6" class="empty-row">Loading active harvest…</td></tr>`;
+
+    $("bin-tbody").innerHTML =
+      `<tr><td colspan="7" class="empty-row">Loading grain bins…</td></tr>`;
+
+    $("bag-tbody").innerHTML =
+      `<tr><td colspan="9" class="empty-row">Loading grain bags…</td></tr>`;
 
     try{
       const [
@@ -1785,6 +2042,7 @@ function ticketsFromIds(ids){
         state.bagFields.flatMap(field => field.bags.map(b => b.crop))
       );
 
+      renderActiveHarvest();
       renderBins();
       renderBags();
     }catch(err){
