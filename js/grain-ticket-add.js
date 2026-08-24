@@ -1265,11 +1265,100 @@ function contractLabel(
 }
 
 
+function activeFieldHarvestSource() {
+
+  const crop =
+    clean(
+      el.crop.value
+    );
+
+
+  if (
+    !crop
+  ) {
+
+    return null;
+
+  }
+
+
+  return {
+
+    /*
+      Grain is moving directly from the active harvest field
+      to the elevator.
+
+      This is NOT stored inventory and must never reduce:
+        - bin inventory
+        - grain bag inventory
+    */
+    type:
+      "active_field_harvest",
+
+    value:
+      `active_field_harvest:${normalize(crop)}`,
+
+    id:
+      null,
+
+    siteId:
+      null,
+
+    siteName:
+      null,
+
+    binNumber:
+      null,
+
+    binIndex:
+      null,
+
+    fieldId:
+      null,
+
+    fieldName:
+      null,
+
+    crop,
+
+    cropYear:
+      null,
+
+    onHand:
+      null,
+
+    bypassInventory:
+      true,
+
+    label:
+      "Active Field Harvest",
+
+    searchText:
+      `active field harvest ${crop}`
+
+  };
+
+}
+
+
 function allSources() {
 
+  const activeHarvest =
+    activeFieldHarvestSource();
+
+
   return [
+
+    ...(
+      activeHarvest
+        ? [activeHarvest]
+        : []
+    ),
+
     ...state.binSources,
+
     ...state.bagSources
+
   ];
 
 }
@@ -1334,7 +1423,7 @@ function syncSource() {
     state.selectedSource?.label ||
     (
       el.crop.value
-        ? "Select bin or grain bag"
+        ? "Select grain source"
         : "Select crop first"
     );
 
@@ -1418,7 +1507,7 @@ function renderSource(
 
   addSearch(
     el.sourceMenu,
-    "Search matching bin site, bin, or field…",
+    "Search grain source…",
     searchText,
     value => {
 
@@ -1449,6 +1538,14 @@ function renderSource(
     );
 
 
+  const harvest =
+    filtered.filter(
+      item =>
+        item.type ===
+        "active_field_harvest"
+    );
+
+
   const bins =
     filtered.filter(
       item =>
@@ -1463,6 +1560,55 @@ function renderSource(
         item.type ===
         "grain_bag"
     );
+
+
+  /*
+    ACTIVE FIELD HARVEST
+
+    Always show this first for the selected crop.
+    No inventory balance is required.
+  */
+  if (
+    harvest.length
+  ) {
+
+    addGroup(
+      el.sourceMenu,
+      "Harvest"
+    );
+
+
+    harvest.forEach(
+      item => {
+
+        addChoice(
+          el.sourceMenu,
+          {
+            title:
+              item.label,
+
+            sub:
+              "Direct from field — does not affect inventory",
+
+            selected:
+              item.value ===
+              el.sourceValue.value,
+
+            onClick:
+              () => {
+
+                chooseSource(
+                  item.value
+                );
+
+              }
+          }
+        );
+
+      }
+    );
+
+  }
 
 
   if (
@@ -1545,16 +1691,21 @@ function renderSource(
   }
 
 
+  /*
+    Active Field Harvest means there is always at least one valid
+    source whenever a crop is selected, even if stored inventory is 0.
+  */
   if (
+    !harvest.length &&
     !bins.length &&
     !bags.length
   ) {
 
     addEmpty(
       el.sourceMenu,
-      `No grain source with available ${clean(
+      `No grain source was found for ${clean(
         el.crop.value
-      )} inventory was found.`
+      )}.`
     );
 
   }
