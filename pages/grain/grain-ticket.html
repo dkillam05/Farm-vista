@@ -3082,47 +3082,67 @@ function ticketHasContract(
   }
 
 
-  function postingHasValidSource(
-    ticket,
-    load
+function postingHasValidSource(
+  ticket,
+  load
+) {
+
+  const source =
+    postingResolvedSource(
+      ticket,
+      load
+    );
+
+
+  /*
+    Active Field Harvest is intentionally NOT an inventory source.
+
+    It is valid for load/ticket/contract tracking,
+    but it does not require a bin ID, bag ID, or inventory balance.
+  */
+  if (
+    source.type ===
+    "active_field_harvest"
   ) {
 
-    const source =
-      postingResolvedSource(
-        ticket,
-        load
-      );
-
-
-    if (
-      source.type ===
-      "bin"
-    ) {
-
-      return !!(
-        postingClean(source.siteId) &&
-        Number.isFinite(Number(source.binIndex)) &&
-        Number(source.binIndex) >= 0
-      );
-
-    }
-
-
-    if (
-      source.type ===
-      "grain_bag"
-    ) {
-
-      return !!postingClean(
-        source.id
-      );
-
-    }
-
-
-    return false;
+    return true;
 
   }
+
+
+  if (
+    source.type ===
+    "bin"
+  ) {
+
+    return !!(
+      postingClean(source.siteId) &&
+      Number.isFinite(
+        Number(
+          source.binIndex
+        )
+      ) &&
+      Number(source.binIndex) >= 0
+    );
+
+  }
+
+
+  if (
+    source.type ===
+    "grain_bag"
+  ) {
+
+    return !!postingClean(
+      source.id
+    );
+
+  }
+
+
+  return false;
+
+}
 
 
   function postingCropFactor(
@@ -5308,13 +5328,53 @@ function ticketHasContract(
             };
 
           }
-          else {
+else if (
+  sourceType ===
+  "active_field_harvest"
+) {
 
-            throw new Error(
-              "Unsupported grain source type."
-            );
+  /*
+    Grain moved directly from the active harvest field.
 
-          }
+    IMPORTANT:
+      - Contract bushels still post normally.
+      - Ticket bushels are still retained.
+      - Load history is still retained.
+      - NO bin inventory changes.
+      - NO grain bag inventory changes.
+      - NO inventory movement document is created.
+
+    inventoryPostedBushels = 0 means FarmVista has explicitly
+    handled the inventory side of this ticket and should not
+    try to subtract these bushels later.
+  */
+  inventoryResult = {
+
+    inventoryBushels:
+      0,
+
+    onHandBefore:
+      null,
+
+    onHandAfter:
+      null,
+
+    movementId:
+      null,
+
+    shortfallBushels:
+      0
+
+  };
+
+}
+else {
+
+  throw new Error(
+    "Unsupported grain source type."
+  );
+
+}
 
 
           transaction.update(
@@ -5577,13 +5637,53 @@ function ticketHasContract(
           );
 
       }
-      else {
+else if (
+  sourceType ===
+  "active_field_harvest"
+) {
 
-        throw new Error(
-          "Unsupported grain source type."
-        );
+  /*
+    Grain moved directly from the active harvest field.
 
-      }
+    IMPORTANT:
+      - Contract bushels still post normally.
+      - Ticket bushels are still retained.
+      - Load history is still retained.
+      - NO bin inventory changes.
+      - NO grain bag inventory changes.
+      - NO inventory movement document is created.
+
+    inventoryPostedBushels = 0 means FarmVista has explicitly
+    handled the inventory side of this ticket and should not
+    try to subtract these bushels later.
+  */
+  inventoryResult = {
+
+    inventoryBushels:
+      0,
+
+    onHandBefore:
+      null,
+
+    onHandAfter:
+      null,
+
+    movementId:
+      null,
+
+    shortfallBushels:
+      0
+
+  };
+
+}
+else {
+
+  throw new Error(
+    "Unsupported grain source type."
+  );
+
+}
 
 
       const contractResult =
@@ -7984,76 +8084,638 @@ function loOpenCustomerMenu(){
 }
 
 
-  function loRenderCropOptions(preferredValue=""){
-    if (!loEls.crop) return;
-    const wanted = loNorm(preferredValue || loEls.crop.value);
-    const inventoryCrops = new Set([...loState.binSources,...loState.bagSources].map(x=>loNorm(x.crop)).filter(Boolean));
-    const contractCrops = new Map();
-    loOpenContracts().forEach(contract => {
-      const raw = loClean(contract.crop || contract.commodity);
-      if (raw) contractCrops.set(loNorm(raw),raw);
-    });
-    const crops = [...contractCrops.entries()].filter(([norm])=>inventoryCrops.has(norm)).map(([,raw])=>raw).sort((a,b)=>a.localeCompare(b));
-    loEls.crop.innerHTML = "";
-    const blank = document.createElement("option");
-    blank.value = "";
-    blank.textContent = crops.length ? "Select crop" : "No crop has inventory + open contract";
-    loEls.crop.appendChild(blank);
-    loEls.crop.disabled = !crops.length;
-    crops.forEach(crop => { const o=document.createElement("option"); o.value=crop; o.textContent=crop; loEls.crop.appendChild(o); });
-    const match=[...loEls.crop.options].find(o=>o.value&&loNorm(o.value)===wanted);
-    loEls.crop.value=match?.value||"";
+function loRenderCropOptions(preferredValue=""){
+
+  if (!loEls.crop) {
+    return;
   }
 
-  function loCurrentSourceItems(){
-    const crop = loNorm(loEls.crop?.value);
-    if (!crop) return [];
-    const matchCrop = item => !!item.crop && loNorm(item.crop) === crop;
-    return [...loState.binSources.filter(matchCrop),...loState.bagSources.filter(matchCrop)];
-  }
+  const wanted =
+    loNorm(
+      preferredValue ||
+      loEls.crop.value
+    );
 
-  function loSelectedSource(){
-    const value = loClean(loEls.source?.value);
-    return loCurrentSourceItems().find(item=>item.value===value) || [...loState.binSources,...loState.bagSources].find(item=>item.value===value) || null;
-  }
 
-  function loCloseSourceMenu(){ loEls.sourceMenu?.classList.remove("open"); loEls.sourceButton?.setAttribute("aria-expanded","false"); }
+  /*
+    ACTIVE FIELD HARVEST RULE
 
-  function loSyncSourceButton(){
-    if (!loEls.sourceButtonText || !loEls.source) return;
-    const selected=loSelectedSource();
-    loEls.sourceButtonText.textContent = selected?.label || (loEls.crop?.value ? "Select bin or grain bag" : "Select crop first");
-    loEls.sourceMenu?.querySelectorAll(".loadout-source-choice").forEach(button=>button.classList.toggle("selected",button.dataset.sourceValue===loEls.source.value));
-  }
+    A crop does NOT need stored inventory to be dispatched.
 
-  function loChooseSourceValue(value){
-    if (!loEls.source) return;
-    loEls.source.value=value||"";
-    loSyncSourceButton();
-    loCloseSourceMenu();
-    loEls.source.dispatchEvent(new Event("change",{bubbles:true}));
-  }
+    Any crop with an open contract can be selected because
+    Active Field Harvest is always available as a grain source.
+  */
+  const contractCrops =
+    new Map();
 
-  function loRenderSourceSelector(searchText=""){
-    if (!loEls.sourceMenu || !loEls.source) return;
-    const cropReady=!!loNorm(loEls.crop?.value);
-    if (loEls.sourceButton) loEls.sourceButton.disabled=!cropReady;
-    if (!cropReady) {
-      loEls.source.value=""; loEls.sourceMenu.innerHTML="";
-      const empty=document.createElement("div"); empty.className="loadout-source-empty"; empty.textContent="Select a crop first."; loEls.sourceMenu.appendChild(empty);
-      loSyncSourceButton(); return;
+
+  loOpenContracts()
+    .forEach(
+      contract => {
+
+        const raw =
+          loClean(
+            contract.crop ||
+            contract.commodity
+          );
+
+
+        if (raw) {
+          contractCrops.set(
+            loNorm(raw),
+            raw
+          );
+        }
+
+      }
+    );
+
+
+  const crops =
+    [...contractCrops.values()]
+      .sort(
+        (a,b) =>
+          a.localeCompare(
+            b,
+            undefined,
+            {
+              numeric:true,
+              sensitivity:"base"
+            }
+          )
+      );
+
+
+  loEls.crop.innerHTML =
+    "";
+
+
+  const blank =
+    document.createElement(
+      "option"
+    );
+
+
+  blank.value =
+    "";
+
+
+  blank.textContent =
+    crops.length
+      ? "Select crop"
+      : "No crop has an open contract";
+
+
+  loEls.crop.appendChild(
+    blank
+  );
+
+
+  loEls.crop.disabled =
+    !crops.length;
+
+
+  crops.forEach(
+    crop => {
+
+      const option =
+        document.createElement(
+          "option"
+        );
+
+
+      option.value =
+        crop;
+
+
+      option.textContent =
+        crop;
+
+
+      loEls.crop.appendChild(
+        option
+      );
+
     }
-    const allItems=loCurrentSourceItems(); const search=loNorm(searchText);
-    if (loEls.source.value && !allItems.some(x=>x.value===loEls.source.value)) loEls.source.value="";
-    loEls.sourceMenu.innerHTML="";
-    const wrap=document.createElement("div"); wrap.className="loadout-source-search-wrap";
-    const input=document.createElement("input"); input.type="search"; input.className="loadout-source-search"; input.placeholder="Search bin site, bin, field…"; input.autocomplete="off"; input.value=searchText||""; wrap.appendChild(input); loEls.sourceMenu.appendChild(wrap);
-    const renderGroup=(title,items)=>{ const filtered=items.filter(item=>!search||loNorm(`${item.label} ${item.searchText||""}`).includes(search)); if(!filtered.length)return; const h=document.createElement("div"); h.className="loadout-source-group"; h.textContent=title; loEls.sourceMenu.appendChild(h); filtered.forEach(item=>{const b=document.createElement("button");b.type="button";b.className="loadout-source-choice";b.dataset.sourceValue=item.value;b.textContent=item.label;b.addEventListener("click",()=>loChooseSourceValue(item.value));loEls.sourceMenu.appendChild(b);}); };
-    renderGroup("Bin Sites",allItems.filter(x=>x.type==="bin")); renderGroup("Grain Bags",allItems.filter(x=>x.type==="grain_bag"));
-    if(!allItems.length){const empty=document.createElement("div");empty.className="loadout-source-empty";empty.textContent="No grain source with available inventory matches this crop.";loEls.sourceMenu.appendChild(empty);}
-    input.addEventListener("input",()=>{const v=input.value;loRenderSourceSelector(v);const r=loEls.sourceMenu.querySelector(".loadout-source-search");r?.focus();r?.setSelectionRange(v.length,v.length);});
-    loSyncSourceButton();
+  );
+
+
+  const match =
+    [...loEls.crop.options]
+      .find(
+        option =>
+          option.value &&
+          loNorm(option.value) === wanted
+      );
+
+
+  loEls.crop.value =
+    match?.value ||
+    "";
+
+}
+
+
+
+function loCurrentSourceItems(){
+
+  const crop =
+    loClean(
+      loEls.crop?.value
+    );
+
+
+  const cropNorm =
+    loNorm(
+      crop
+    );
+
+
+  if (!cropNorm) {
+    return [];
   }
+
+
+  const matchCrop =
+    item =>
+      !!item.crop &&
+      loNorm(item.crop) === cropNorm;
+
+
+  /*
+    This source exists regardless of inventory.
+
+    It represents grain moving directly:
+      combine / field → truck → elevator
+
+    No bin or grain-bag inventory is touched.
+  */
+  const activeFieldHarvest = {
+
+    type:
+      "active_field_harvest",
+
+    value:
+      `active_field_harvest:${cropNorm}`,
+
+    id:
+      null,
+
+    crop,
+
+    label:
+      "Active Field Harvest",
+
+    searchText:
+      `active field harvest ${crop}`,
+
+    bypassInventory:
+      true,
+
+    onHand:
+      null,
+
+    latitude:
+      null,
+
+    longitude:
+      null
+
+  };
+
+
+  return [
+
+    activeFieldHarvest,
+
+    ...loState.binSources.filter(
+      matchCrop
+    ),
+
+    ...loState.bagSources.filter(
+      matchCrop
+    )
+
+  ];
+
+}
+
+
+
+function loSelectedSource(){
+
+  const value =
+    loClean(
+      loEls.source?.value
+    );
+
+
+  return (
+    loCurrentSourceItems()
+      .find(
+        item =>
+          item.value === value
+      ) ||
+    null
+  );
+
+}
+
+
+
+function loCloseSourceMenu(){
+
+  loEls.sourceMenu
+    ?.classList.remove(
+      "open"
+    );
+
+
+  loEls.sourceButton
+    ?.setAttribute(
+      "aria-expanded",
+      "false"
+    );
+
+}
+
+
+
+function loSyncSourceButton(){
+
+  if (
+    !loEls.sourceButtonText ||
+    !loEls.source
+  ) {
+    return;
+  }
+
+
+  const selected =
+    loSelectedSource();
+
+
+  loEls.sourceButtonText.textContent =
+    selected?.label ||
+    (
+      loEls.crop?.value
+        ? "Select grain source"
+        : "Select crop first"
+    );
+
+
+  loEls.sourceMenu
+    ?.querySelectorAll(
+      ".loadout-source-choice"
+    )
+    .forEach(
+      button => {
+
+        button.classList.toggle(
+          "selected",
+          button.dataset.sourceValue ===
+            loEls.source.value
+        );
+
+      }
+    );
+
+}
+
+
+
+function loChooseSourceValue(
+  value
+){
+
+  if (!loEls.source) {
+    return;
+  }
+
+
+  loEls.source.value =
+    value ||
+    "";
+
+
+  loSyncSourceButton();
+
+
+  loCloseSourceMenu();
+
+
+  loEls.source.dispatchEvent(
+    new Event(
+      "change",
+      {
+        bubbles:true
+      }
+    )
+  );
+
+}
+
+
+
+function loRenderSourceSelector(
+  searchText=""
+){
+
+  if (
+    !loEls.sourceMenu ||
+    !loEls.source
+  ) {
+    return;
+  }
+
+
+  const cropReady =
+    !!loNorm(
+      loEls.crop?.value
+    );
+
+
+  if (
+    loEls.sourceButton
+  ) {
+
+    loEls.sourceButton.disabled =
+      !cropReady;
+
+  }
+
+
+  if (
+    !cropReady
+  ) {
+
+    loEls.source.value =
+      "";
+
+
+    loEls.sourceMenu.innerHTML =
+      "";
+
+
+    const empty =
+      document.createElement(
+        "div"
+      );
+
+
+    empty.className =
+      "loadout-source-empty";
+
+
+    empty.textContent =
+      "Select a crop first.";
+
+
+    loEls.sourceMenu.appendChild(
+      empty
+    );
+
+
+    loSyncSourceButton();
+
+
+    return;
+
+  }
+
+
+  const allItems =
+    loCurrentSourceItems();
+
+
+  const search =
+    loNorm(
+      searchText
+    );
+
+
+  if (
+    loEls.source.value &&
+    !allItems.some(
+      item =>
+        item.value ===
+        loEls.source.value
+    )
+  ) {
+
+    loEls.source.value =
+      "";
+
+  }
+
+
+  loEls.sourceMenu.innerHTML =
+    "";
+
+
+  const wrap =
+    document.createElement(
+      "div"
+    );
+
+
+  wrap.className =
+    "loadout-source-search-wrap";
+
+
+  const input =
+    document.createElement(
+      "input"
+    );
+
+
+  input.type =
+    "search";
+
+
+  input.className =
+    "loadout-source-search";
+
+
+  input.placeholder =
+    "Search grain source…";
+
+
+  input.autocomplete =
+    "off";
+
+
+  input.value =
+    searchText ||
+    "";
+
+
+  wrap.appendChild(
+    input
+  );
+
+
+  loEls.sourceMenu.appendChild(
+    wrap
+  );
+
+
+  const renderGroup =
+    (
+      title,
+      items
+    ) => {
+
+      const filtered =
+        items.filter(
+          item =>
+            !search ||
+            loNorm(
+              `${item.label} ${item.searchText || ""}`
+            )
+              .includes(
+                search
+              )
+        );
+
+
+      if (
+        !filtered.length
+      ) {
+        return;
+      }
+
+
+      const header =
+        document.createElement(
+          "div"
+        );
+
+
+      header.className =
+        "loadout-source-group";
+
+
+      header.textContent =
+        title;
+
+
+      loEls.sourceMenu.appendChild(
+        header
+      );
+
+
+      filtered.forEach(
+        item => {
+
+          const button =
+            document.createElement(
+              "button"
+            );
+
+
+          button.type =
+            "button";
+
+
+          button.className =
+            "loadout-source-choice";
+
+
+          button.dataset.sourceValue =
+            item.value;
+
+
+          button.textContent =
+            item.label;
+
+
+          button.addEventListener(
+            "click",
+            () =>
+              loChooseSourceValue(
+                item.value
+              )
+          );
+
+
+          loEls.sourceMenu.appendChild(
+            button
+          );
+
+        }
+      );
+
+    };
+
+
+  /*
+    Keep Active Field Harvest right at the top.
+  */
+  renderGroup(
+    "Harvest",
+    allItems.filter(
+      item =>
+        item.type ===
+        "active_field_harvest"
+    )
+  );
+
+
+  renderGroup(
+    "Bin Sites",
+    allItems.filter(
+      item =>
+        item.type ===
+        "bin"
+    )
+  );
+
+
+  renderGroup(
+    "Grain Bags",
+    allItems.filter(
+      item =>
+        item.type ===
+        "grain_bag"
+    )
+  );
+
+
+  input.addEventListener(
+    "input",
+    () => {
+
+      const value =
+        input.value;
+
+
+      loRenderSourceSelector(
+        value
+      );
+
+
+      const replacement =
+        loEls.sourceMenu.querySelector(
+          ".loadout-source-search"
+        );
+
+
+      replacement?.focus();
+
+
+      replacement?.setSelectionRange(
+        value.length,
+        value.length
+      );
+
+    }
+  );
+
+
+  loSyncSourceButton();
+
+}
 
   function loOpenSourceMenu(){
     if (!loEls.crop?.value) { loShowMessage("Select the crop first.","error"); return; }
@@ -9720,6 +10382,40 @@ async function loUpdateEta(){
     return false;
 
   }
+
+  /*
+  Active Field Harvest is a general harvest source,
+  not a specific stored location with GPS.
+
+  Do not block load creation trying to calculate
+  an ETA from a nonexistent inventory-source coordinate.
+*/
+if (
+  grainSource.type ===
+  "active_field_harvest"
+) {
+
+  loState.etaAt =
+    null;
+
+  loState.etaMinutes =
+    null;
+
+  loState.etaDistanceText =
+    "";
+
+
+  loEls.eta.value =
+    "N/A";
+
+
+  loEls.etaHelp.textContent =
+    "ETA is N/A for Active Field Harvest.";
+
+
+  return true;
+
+}
 
 
   if (
