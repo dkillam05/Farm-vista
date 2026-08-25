@@ -2,8 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
+
   <title>FarmVista • Grain Bin Inventory</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=8, user-scalable=yes"
+  />
+
   <meta name="theme-color" content="#3B7E46"/>
 
   <!-- Early theme boot -->
@@ -14,83 +20,2235 @@
   <link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/assets/icons/icon-192.png"/>
 
-
   <!-- Global CSS -->
   <link rel="stylesheet" href="/assets/css/theme.css"/>
   <link rel="stylesheet" href="/assets/css/app.css"/>
 
-  <!-- ✅ Load core + shell EARLY -->
+  <!-- Core + Shell -->
   <script src="/js/version.js" defer></script>
   <script src="/js/core.js" defer></script>
   <script src="/js/fv-shell.js" defer></script>
 
-  <!-- 2-up / 4-up tile grid -->
-  <style>
-    .form-tiles {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: clamp(10px, 2.5vw, 16px);
-    }
-    @media (min-width: 900px) {
-      .form-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-    }
-
-    /* Rounded dropdowns (in case any appear here later) */
-    select, .fv-dropdown, .dropdown-select {
-      border-radius: 12px !important;
-      border: 1px solid #ccc;
-      padding: 8px 10px;
-    }
-  </style>
-
-  <!-- Optional: form button web component -->
+  <!-- Ensure fv-form-button -->
   <script>
     (function(){
-      if(!customElements.get('fv-form-button')){
-        const s=document.createElement('script');
-        s.src='/js/fv-form-button.js';
-        s.defer=true;
+      if(!customElements.get("fv-form-button")){
+        const s = document.createElement("script");
+        s.src = "/js/fv-form-button.js";
+        s.defer = true;
         document.head.appendChild(s);
       }
     })();
   </script>
+
+  <style>
+    :root{
+      --green:#2F6C3C;
+      --danger:#b3261e;
+
+      --gridline:rgba(0,0,0,.10);
+      --gridline-strong:rgba(0,0,0,.16);
+
+      --sheet-bg:#ffffff;
+      --sheet-text:#111827;
+      --sheet-muted:#6B7280;
+      --sheet-hover:rgba(47,108,60,.07);
+
+      --site-row-bg:rgba(47,108,60,.17);
+    }
+
+    *{
+      box-sizing:border-box;
+    }
+
+    html,
+    body{
+      touch-action:auto;
+      -webkit-text-size-adjust:100%;
+      text-size-adjust:100%;
+    }
+
+    .page{
+      max-width:1450px;
+      margin:0 auto;
+
+      padding:clamp(14px,3vw,22px);
+
+      padding-bottom:
+        calc(
+          env(safe-area-inset-bottom,0px) +
+          var(--ftr-h,42px) +
+          110px
+        ) !important;
+    }
+
+    /* =========================================================
+       TOP
+    ========================================================= */
+
+    .top-content{
+      margin-bottom:20px;
+    }
+
+    .page-title{
+      margin:.2rem 0 4px;
+    }
+
+    .page-sub{
+      color:var(--muted,#67706B);
+      margin:0 0 16px;
+      line-height:1.45;
+    }
+
+    /* =========================================================
+       CENTERED ACTION TILES
+    ========================================================= */
+
+    .form-tiles{
+      width:min(620px,100%);
+      margin:18px auto 0;
+
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:clamp(10px,2.5vw,16px);
+    }
+
+    /* =========================================================
+       INVENTORY CARD
+    ========================================================= */
+
+    .inventory-section{
+      border:1px solid var(--border);
+      border-radius:14px;
+
+      background:var(--surface);
+
+      box-shadow:
+        var(
+          --shadow,
+          0 8px 20px rgba(0,0,0,.08)
+        );
+
+      overflow:hidden;
+    }
+
+    .inventory-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+
+      gap:14px;
+      flex-wrap:wrap;
+
+      padding:14px 16px;
+
+      border-bottom:
+        1px solid var(--border);
+
+      background:
+        linear-gradient(
+          90deg,
+          rgba(47,108,60,.12),
+          transparent
+        );
+    }
+
+    .inventory-title{
+      margin:0;
+      font-size:18px;
+      font-weight:950;
+    }
+
+    .inventory-helper{
+      margin:4px 0 0;
+
+      color:var(--muted,#67706B);
+
+      font-size:13px;
+      line-height:1.4;
+    }
+
+    .inventory-total{
+      flex:0 0 auto;
+
+      border:
+        1px solid rgba(47,108,60,.30);
+
+      border-radius:999px;
+
+      padding:7px 11px;
+
+      background:
+        rgba(47,108,60,.10);
+
+      color:var(--text);
+
+      font-size:12px;
+      font-weight:900;
+
+      white-space:nowrap;
+    }
+
+    /* =========================================================
+       TABLE
+    ========================================================= */
+
+    .table-wrap{
+      position:relative;
+      width:100%;
+
+      overflow:hidden;
+
+      background:var(--sheet-bg);
+    }
+
+    .grid-viewport{
+      width:100%;
+
+      overflow:auto;
+
+      -webkit-overflow-scrolling:touch;
+
+      background:var(--sheet-bg);
+
+      min-height:260px;
+
+      max-height:
+        calc(100vh - 300px);
+    }
+
+    table.inventory-grid{
+      width:100%;
+
+      min-width:650px;
+
+      border-collapse:separate;
+      border-spacing:0;
+
+      background:var(--sheet-bg);
+      color:var(--sheet-text);
+
+      font-size:14px;
+    }
+
+    .inventory-grid thead th{
+      position:sticky;
+      top:0;
+      z-index:20;
+
+      padding:11px 10px;
+
+      background:var(--sheet-bg);
+      color:var(--sheet-text);
+
+      border-right:
+        1px solid var(--gridline);
+
+      border-bottom:
+        1px solid var(--gridline-strong);
+
+      font-size:12px;
+      font-weight:950;
+
+      text-align:center;
+      white-space:nowrap;
+    }
+
+    .inventory-grid thead th:first-child{
+      text-align:left;
+    }
+
+    .inventory-grid thead th:last-child{
+      border-right:none;
+    }
+
+    .inventory-grid tbody td{
+      padding:10px 10px;
+
+      border-right:
+        1px solid var(--gridline);
+
+      border-bottom:
+        1px solid var(--gridline);
+
+      background:var(--sheet-bg);
+      color:var(--sheet-text);
+
+      text-align:center;
+      white-space:nowrap;
+    }
+
+    .inventory-grid tbody td:first-child{
+      text-align:left;
+    }
+
+    .inventory-grid tbody td:last-child{
+      border-right:none;
+    }
+
+    /* =========================================================
+       SITE GROUP ROW
+    ========================================================= */
+
+    .site-group-row td{
+      padding:10px 12px !important;
+
+      background:
+        var(--site-row-bg) !important;
+
+      color:
+        var(--sheet-text) !important;
+
+      border-bottom:
+        1px solid var(--gridline-strong) !important;
+
+      font-weight:1000;
+
+      text-align:left !important;
+    }
+
+    .site-group-inner{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+
+      gap:14px;
+    }
+
+    .site-name{
+      font-weight:1000;
+    }
+
+    .site-summary{
+      font-size:12px;
+      font-weight:850;
+
+      opacity:.72;
+
+      white-space:nowrap;
+    }
+
+    /* =========================================================
+       BIN ROW
+    ========================================================= */
+
+    .inventory-row{
+      cursor:pointer;
+    }
+
+    .inventory-row:hover td{
+      background:var(--sheet-hover);
+    }
+
+    .inventory-row:active td{
+      background:rgba(47,108,60,.12);
+    }
+
+    .bin-name{
+      font-weight:950;
+    }
+
+    .crop-cell{
+      font-weight:850;
+    }
+
+    .bushel-cell{
+      font-size:15px;
+      font-weight:950;
+
+      font-variant-numeric:
+        tabular-nums;
+    }
+
+    /* =========================================================
+       MESSAGE ROW
+    ========================================================= */
+
+    .message-row td{
+      padding:26px 16px !important;
+
+      text-align:center !important;
+
+      color:var(--sheet-muted) !important;
+
+      font-weight:800;
+    }
+
+    .error-row td{
+      color:var(--danger) !important;
+    }
+
+    /* =========================================================
+       REMOVE MODAL
+    ========================================================= */
+
+    dialog.remove-dialog{
+      width:min(500px,calc(100vw - 24px));
+
+      border:
+        1px solid var(--border);
+
+      border-radius:16px;
+
+      padding:0;
+
+      background:
+        var(
+          --card-surface,
+          var(--surface)
+        );
+
+      color:var(--text);
+
+      box-shadow:
+        0 18px 60px rgba(0,0,0,.38);
+    }
+
+    dialog.remove-dialog::backdrop{
+      background:
+        rgba(0,0,0,.52);
+    }
+
+    .remove-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+
+      gap:14px;
+
+      padding:15px 16px 13px;
+
+      border-bottom:
+        1px solid var(--border);
+
+      background:
+        linear-gradient(
+          90deg,
+          rgba(47,108,60,.12),
+          transparent
+        );
+    }
+
+    .remove-title{
+      margin:0;
+
+      font-size:19px;
+      font-weight:950;
+    }
+
+    .remove-sub{
+      margin:4px 0 0;
+
+      color:var(--muted,#67706B);
+
+      font-size:12px;
+      line-height:1.35;
+    }
+
+    .dialog-close{
+      width:34px;
+      height:34px;
+
+      flex:0 0 34px;
+
+      display:grid;
+      place-items:center;
+
+      border:
+        1px solid var(--border);
+
+      border-radius:9px;
+
+      background:
+        var(
+          --card-surface,
+          var(--surface)
+        );
+
+      color:var(--text);
+
+      font-size:21px;
+      line-height:1;
+
+      cursor:pointer;
+    }
+
+    .remove-body{
+      padding:16px;
+
+      display:grid;
+      gap:14px;
+    }
+
+    .current-box{
+      border:
+        1px solid var(--border);
+
+      border-radius:11px;
+
+      padding:11px 12px;
+
+      background:
+        rgba(47,108,60,.04);
+    }
+
+    .current-label{
+      display:block;
+
+      margin-bottom:4px;
+
+      color:var(--muted,#67706B);
+
+      font-size:11px;
+      font-weight:850;
+
+      text-transform:uppercase;
+      letter-spacing:.05em;
+    }
+
+    .current-value{
+      font-size:22px;
+      font-weight:1000;
+    }
+
+    .remove-field label{
+      display:block;
+
+      margin-bottom:6px;
+
+      color:var(--muted,#67706B);
+
+      font-size:12px;
+      font-weight:900;
+    }
+
+    .remove-input{
+      width:100%;
+
+      border:
+        1px solid var(--border);
+
+      border-radius:10px;
+
+      padding:11px 12px;
+
+      background:
+        var(
+          --card-surface,
+          var(--surface)
+        );
+
+      color:var(--text);
+
+      font:inherit;
+      font-size:18px;
+      font-weight:850;
+
+      outline:none;
+    }
+
+    .remove-help{
+      color:
+        var(--muted,#67706B);
+
+      font-size:12px;
+      line-height:1.4;
+    }
+
+    .remove-error{
+      display:none;
+
+      border:
+        1px solid rgba(179,38,30,.35);
+
+      border-radius:10px;
+
+      padding:9px 11px;
+
+      background:
+        rgba(179,38,30,.08);
+
+      color:var(--danger);
+
+      font-size:12px;
+      font-weight:850;
+    }
+
+    .remove-error.show{
+      display:block;
+    }
+
+    .remove-footer{
+      display:flex;
+      justify-content:flex-end;
+      gap:9px;
+
+      padding:12px 16px 15px;
+
+      border-top:
+        1px solid var(--border);
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+
+      min-height:40px;
+
+      padding:9px 15px;
+
+      border:
+        1px solid var(--border);
+
+      border-radius:10px;
+
+      background:
+        var(
+          --card-surface,
+          var(--surface)
+        );
+
+      color:var(--text);
+
+      font:inherit;
+      font-size:14px;
+      font-weight:950;
+
+      cursor:pointer;
+    }
+
+    .btn-primary{
+      border-color:transparent;
+
+      background:var(--green);
+
+      color:#fff !important;
+    }
+
+    .btn[disabled]{
+      opacity:.55;
+      cursor:not-allowed;
+    }
+
+    /* =========================================================
+       TOAST
+    ========================================================= */
+
+    .toast{
+      position:fixed;
+
+      left:50%;
+
+      bottom:
+        calc(
+          env(safe-area-inset-bottom,0px) +
+          72px
+        );
+
+      transform:
+        translateX(-50%);
+
+      z-index:99999;
+
+      display:none;
+
+      background:var(--green);
+      color:#fff;
+
+      padding:10px 14px;
+
+      border-radius:10px;
+
+      box-shadow:
+        0 6px 20px rgba(0,0,0,.25);
+
+      font-weight:950;
+
+      white-space:nowrap;
+    }
+
+    .toast.show{
+      display:block;
+    }
+
+    /* =========================================================
+       MOBILE PORTRAIT
+    ========================================================= */
+
+    @media(max-width:820px){
+
+      .page{
+        max-width:none;
+
+        padding:12px 10px;
+
+        padding-bottom:
+          calc(
+            env(safe-area-inset-bottom,0px) +
+            var(--ftr-h,42px) +
+            100px
+          ) !important;
+      }
+
+      .page-title{
+        font-size:24px;
+      }
+
+      .page-sub{
+        font-size:13px;
+      }
+
+      .grid-viewport{
+        max-height:
+          calc(100vh - 300px);
+      }
+
+      table.inventory-grid{
+        min-width:620px;
+
+        font-size:12px;
+      }
+
+      .inventory-grid thead th{
+        padding:9px 7px;
+
+        font-size:11px;
+      }
+
+      .inventory-grid tbody td{
+        padding:8px 7px;
+
+        font-size:12px;
+      }
+    }
+
+    /* =========================================================
+       PHONE LANDSCAPE — SPREADSHEET MODE
+    ========================================================= */
+
+    @media(
+      orientation:landscape
+    ) and (
+      max-height:600px
+    ){
+
+      .page{
+        max-width:none;
+
+        width:100%;
+
+        margin:0;
+
+        padding:0 !important;
+      }
+
+      .top-content{
+        display:none;
+      }
+
+      .inventory-section{
+        width:100%;
+
+        margin:0;
+
+        border:0;
+        border-radius:0;
+
+        box-shadow:none;
+      }
+
+      .inventory-head{
+        display:none;
+      }
+
+      .table-wrap{
+        width:100%;
+        border:0;
+      }
+
+      .grid-viewport{
+        width:100%;
+
+        height:
+          calc(
+            100vh -
+            var(--ftr-h,42px)
+          );
+
+        min-height:
+          calc(
+            100vh -
+            var(--ftr-h,42px)
+          );
+
+        max-height:
+          calc(
+            100vh -
+            var(--ftr-h,42px)
+          );
+
+        border:0;
+      }
+
+      table.inventory-grid{
+        min-width:620px;
+        font-size:12px;
+      }
+
+      .inventory-grid thead th{
+        padding:8px 7px;
+        font-size:11px;
+      }
+
+      .inventory-grid tbody td{
+        padding:7px 7px;
+        font-size:12px;
+      }
+
+      .site-group-row td{
+        padding:
+          7px 10px !important;
+      }
+
+      dialog.remove-dialog{
+        width:min(500px,88vw);
+
+        max-height:
+          calc(100vh - 16px);
+
+        overflow:auto;
+      }
+    }
+
+    /* =========================================================
+       DARK MODE
+    ========================================================= */
+
+    @media(prefers-color-scheme:dark){
+
+      :root{
+        --gridline:
+          rgba(255,255,255,.10);
+
+        --gridline-strong:
+          rgba(255,255,255,.16);
+
+        --sheet-bg:
+          var(--surface);
+
+        --sheet-text:
+          var(--text);
+
+        --sheet-muted:
+          var(--muted,#9CA3AF);
+
+        --sheet-hover:
+          rgba(255,255,255,.05);
+
+        --site-row-bg:
+          rgba(47,108,60,.30);
+      }
+    }
+  </style>
 </head>
 
 <body>
+
   <fv-shell>
+
     <div class="page container">
-      <h1 class="page-title">Grain Bin Inventory</h1>
-      <p class="page-sub">
-        Track on-farm storage levels across sites and crop years. Use
-        <strong>Add to Inventory</strong> for deposits, and
-        <strong>Remove from Inventory</strong> for loads out.
-      </p>
 
-      <!-- Portal visibility controlled by grain-bins.view -->
-      <section class="form-tiles" aria-label="Grain inventory actions" data-perm="grain-bins:view">
-        <!-- Add to Inventory → grain-bins.add -->
-        <fv-form-button
-          label="Add to Inventory"
-          icon-svg="plus"
-          href="/pages/grain/grain-bin-add.html"
-          data-perm="grain-bins:add">
-        </fv-form-button>
+      <!-- =====================================================
+           TOP
+      ====================================================== -->
 
-        <!-- Remove from Inventory → grain-bins.edit -->
-        <fv-form-button
-          label="Remove from Inventory"
-          icon-svg="minus"
-          href="/pages/grain/grain-bin-remove.html"
-          data-perm="grain-bins:edit">
-        </fv-form-button>
+      <div class="top-content">
+
+        <h1 class="page-title">
+          Grain Bin Inventory
+        </h1>
+
+        <p class="page-sub">
+          Track on-farm grain stored in bins.
+          Tap a bin row below to quickly remove inventory.
+        </p>
+
+        <section
+          class="form-tiles"
+          aria-label="Grain inventory actions"
+          data-perm="grain-bins:view"
+        >
+
+          <fv-form-button
+            label="Add to Inventory"
+            icon-svg="plus"
+            href="/pages/grain/grain-bin-add.html"
+            data-perm="grain-bins:add">
+          </fv-form-button>
+
+          <fv-form-button
+            label="Remove from Inventory"
+            icon-svg="minus"
+            href="/pages/grain/grain-bin-remove.html"
+            data-perm="grain-bins:edit">
+          </fv-form-button>
+
+        </section>
+
+      </div>
+
+
+      <!-- =====================================================
+           SPREADSHEET
+      ====================================================== -->
+
+      <section
+        class="inventory-section"
+        data-perm="grain-bins:view"
+      >
+
+        <header class="inventory-head">
+
+          <div>
+
+            <h2 class="inventory-title">
+              Current Bin Inventory
+            </h2>
+
+            <p class="inventory-helper">
+              Grouped by bin site. Tap a bin row to remove inventory.
+              Turn your phone sideways for full-screen spreadsheet view.
+            </p>
+
+          </div>
+
+          <div
+            id="inventoryTotal"
+            class="inventory-total"
+          >
+            0 bu On Hand
+          </div>
+
+        </header>
+
+
+        <div class="table-wrap">
+
+          <div
+            id="gridViewport"
+            class="grid-viewport"
+            aria-label="Grain bin inventory spreadsheet"
+          >
+
+            <table
+              class="inventory-grid"
+              aria-label="Current grain bin inventory"
+            >
+
+              <thead>
+
+                <tr>
+
+                  <th style="min-width:220px;">
+                    Bin
+                  </th>
+
+                  <th style="min-width:140px;">
+                    Crop
+                  </th>
+
+                  <th style="min-width:170px;">
+                    Bushels On Hand
+                  </th>
+
+                </tr>
+
+              </thead>
+
+
+              <tbody id="inventoryBody">
+
+                <tr class="message-row">
+                  <td colspan="3">
+                    Loading bin inventory…
+                  </td>
+                </tr>
+
+              </tbody>
+
+            </table>
+
+          </div>
+
+        </div>
+
       </section>
+
     </div>
+
   </fv-shell>
+
+
+  <!-- =========================================================
+       QUICK REMOVE POPUP
+  ========================================================== -->
+
+  <dialog
+    id="removeDialog"
+    class="remove-dialog"
+  >
+
+    <header class="remove-head">
+
+      <div>
+
+        <h3
+          id="removeTitle"
+          class="remove-title"
+        >
+          Remove Grain Inventory
+        </h3>
+
+        <p
+          id="removeSub"
+          class="remove-sub"
+        >
+          —
+        </p>
+
+      </div>
+
+
+      <button
+        id="removeClose"
+        class="dialog-close"
+        type="button"
+        aria-label="Close"
+      >
+        ×
+      </button>
+
+    </header>
+
+
+    <div class="remove-body">
+
+      <div class="current-box">
+
+        <span class="current-label">
+          Bushels Available
+        </span>
+
+        <span
+          id="availableBushels"
+          class="current-value"
+        >
+          0
+        </span>
+
+      </div>
+
+
+      <div class="remove-field">
+
+        <label for="removeBushels">
+          Bushels to Remove
+        </label>
+
+        <input
+          id="removeBushels"
+          class="remove-input"
+          type="number"
+          inputmode="decimal"
+          min="0"
+          step="0.01"
+          value="0"
+        />
+
+      </div>
+
+
+      <div class="remove-help">
+        Enter only the grain being removed right now. Remaining bushels stay in inventory.
+      </div>
+
+
+      <div
+        id="removeError"
+        class="remove-error"
+        role="alert"
+      ></div>
+
+    </div>
+
+
+    <footer class="remove-footer">
+
+      <button
+        id="removeCancel"
+        class="btn"
+        type="button"
+      >
+        Cancel
+      </button>
+
+
+      <button
+        id="removeSave"
+        class="btn btn-primary"
+        type="button"
+      >
+        Remove From Inventory
+      </button>
+
+    </footer>
+
+  </dialog>
+
+
+  <div
+    id="toast"
+    class="toast"
+    role="status"
+    aria-live="polite"
+  >
+    Saved.
+  </div>
+
 
   <noscript>
     <div class="container">
-      <div class="card">JavaScript is required for Grain Bin Inventory.</div>
+      <div class="card">
+        JavaScript is required for Grain Bin Inventory.
+      </div>
     </div>
   </noscript>
+
+
+  <!-- =========================================================
+       DATA
+  ========================================================== -->
+
+  <script type="module">
+
+    import {
+      ready,
+      getFirestore,
+      collection,
+      getDocs,
+      doc,
+      getDoc,
+      setDoc,
+      serverTimestamp
+    } from "/js/firebase-init.js";
+
+
+    const $ =
+      id =>
+        document.getElementById(id);
+
+
+    const body =
+      $("inventoryBody");
+
+
+    const inventoryTotal =
+      $("inventoryTotal");
+
+
+    const removeDialog =
+      $("removeDialog");
+
+
+    const removeTitle =
+      $("removeTitle");
+
+
+    const removeSub =
+      $("removeSub");
+
+
+    const removeClose =
+      $("removeClose");
+
+
+    const removeCancel =
+      $("removeCancel");
+
+
+    const removeSave =
+      $("removeSave");
+
+
+    const availableBushels =
+      $("availableBushels");
+
+
+    const removeBushels =
+      $("removeBushels");
+
+
+    const removeError =
+      $("removeError");
+
+
+    const state = {
+
+      db:
+        null,
+
+      sites:
+        [],
+
+      selected:
+        null
+
+    };
+
+
+    const COLLATOR =
+      new Intl.Collator(
+        undefined,
+        {
+          numeric:true,
+          sensitivity:"base"
+        }
+      );
+
+
+    function clean(value){
+
+      return String(
+        value ??
+        ""
+      )
+        .trim();
+
+    }
+
+
+    function norm(value){
+
+      return clean(value)
+        .toLowerCase();
+
+    }
+
+
+    function num(value){
+
+      const n =
+        Number(value);
+
+      return Number.isFinite(n)
+        ? n
+        : 0;
+
+    }
+
+
+    function escapeHtml(value){
+
+      return String(
+        value ??
+        ""
+      )
+        .replace(
+          /[&<>"']/g,
+          char => ({
+            "&":"&amp;",
+            "<":"&lt;",
+            ">":"&gt;",
+            '"':"&quot;",
+            "'":"&#39;"
+          }[char])
+        );
+
+    }
+
+
+    function cropDisplay(value){
+
+      const text =
+        clean(value);
+
+
+      const lower =
+        text.toLowerCase();
+
+
+      if(
+        lower === "corn"
+      ){
+        return "Corn";
+      }
+
+
+      if(
+        lower === "soybeans" ||
+        lower === "soybean" ||
+        lower === "beans"
+      ){
+        return "Soybeans";
+      }
+
+
+      if(
+        lower === "wheat"
+      ){
+        return "Wheat";
+      }
+
+
+      return text || "—";
+
+    }
+
+
+    function formatBushels(value){
+
+      const n =
+        Math.max(
+          0,
+          num(value)
+        );
+
+
+      return n.toLocaleString(
+        "en-US",
+        {
+          maximumFractionDigits:2
+        }
+      );
+
+    }
+
+
+    function toast(message){
+
+      const element =
+        $("toast");
+
+
+      element.textContent =
+        message;
+
+
+      element.classList
+        .remove(
+          "show"
+        );
+
+
+      void element.offsetWidth;
+
+
+      element.classList
+        .add(
+          "show"
+        );
+
+
+      clearTimeout(
+        toast._timer
+      );
+
+
+      toast._timer =
+        setTimeout(
+          () => {
+
+            element.classList
+              .remove(
+                "show"
+              );
+
+          },
+          2600
+        );
+
+    }
+
+
+    /* =========================================================
+       LOAD INVENTORY
+    ========================================================= */
+
+    async function loadInventory(){
+
+      body.innerHTML =
+        `
+          <tr class="message-row">
+            <td colspan="3">
+              Loading bin inventory…
+            </td>
+          </tr>
+        `;
+
+
+      try{
+
+        const snapshot =
+          await getDocs(
+            collection(
+              state.db,
+              "binSites"
+            )
+          );
+
+
+        const sites =
+          [];
+
+
+        snapshot.forEach(
+          siteDoc => {
+
+            const data =
+              siteDoc.data() ||
+              {};
+
+
+            const bins =
+              Array.isArray(
+                data.bins
+              )
+                ? data.bins
+                : [];
+
+
+            const openBins =
+              bins
+                .map(
+                  (
+                    bin,
+                    index
+                  ) => {
+
+                    const onHand =
+                      Math.max(
+                        0,
+                        num(
+                          bin?.onHand
+                        )
+                      );
+
+
+                    return {
+
+                      siteId:
+                        siteDoc.id,
+
+                      siteName:
+                        clean(
+                          data.name
+                        ) ||
+                        "Unnamed Site",
+
+                      binIndex:
+                        index,
+
+                      binNumber:
+                        bin?.num ??
+                        (
+                          index + 1
+                        ),
+
+                      crop:
+                        cropDisplay(
+                          bin?.lastCropType ||
+                          bin?.cropType ||
+                          bin?.crop
+                        ),
+
+                      onHand,
+
+                      raw:
+                        bin ||
+                        {}
+
+                    };
+
+                  }
+                )
+                .filter(
+                  bin =>
+                    bin.onHand >
+                    0.001
+                );
+
+
+            if(
+              !openBins.length
+            ){
+              return;
+            }
+
+
+            openBins.sort(
+              (
+                a,
+                b
+              ) =>
+                COLLATOR.compare(
+                  String(
+                    a.binNumber
+                  ),
+                  String(
+                    b.binNumber
+                  )
+                )
+            );
+
+
+            sites.push(
+              {
+
+                id:
+                  siteDoc.id,
+
+                name:
+                  clean(
+                    data.name
+                  ) ||
+                  "Unnamed Site",
+
+                bins:
+                  openBins,
+
+                total:
+                  openBins.reduce(
+                    (
+                      total,
+                      bin
+                    ) =>
+                      total +
+                      bin.onHand,
+                    0
+                  )
+
+              }
+            );
+
+          }
+        );
+
+
+        sites.sort(
+          (
+            a,
+            b
+          ) =>
+            COLLATOR.compare(
+              a.name,
+              b.name
+            )
+        );
+
+
+        state.sites =
+          sites;
+
+
+        renderInventory();
+
+
+      } catch(error){
+
+        console.error(
+          "[Grain Bin Inventory] load failed:",
+          error
+        );
+
+
+        body.innerHTML =
+          `
+            <tr class="message-row error-row">
+              <td colspan="3">
+                Unable to load grain bin inventory.
+              </td>
+            </tr>
+          `;
+
+      }
+
+    }
+
+
+    /* =========================================================
+       RENDER
+    ========================================================= */
+
+    function renderInventory(){
+
+      const total =
+        state.sites.reduce(
+          (
+            sum,
+            site
+          ) =>
+            sum +
+            site.total,
+          0
+        );
+
+
+      inventoryTotal.textContent =
+        `${formatBushels(
+          total
+        )} bu On Hand`;
+
+
+      if(
+        !state.sites.length
+      ){
+
+        body.innerHTML =
+          `
+            <tr class="message-row">
+              <td colspan="3">
+                No grain is currently stored in bins.
+              </td>
+            </tr>
+          `;
+
+        return;
+
+      }
+
+
+      const html =
+        [];
+
+
+      state.sites.forEach(
+        site => {
+
+          html.push(
+            `
+              <tr class="site-group-row">
+
+                <td colspan="3">
+
+                  <div class="site-group-inner">
+
+                    <span class="site-name">
+                      ${escapeHtml(
+                        site.name
+                      )}
+                    </span>
+
+                    <span class="site-summary">
+                      ${formatBushels(
+                        site.total
+                      )} bu
+                    </span>
+
+                  </div>
+
+                </td>
+
+              </tr>
+            `
+          );
+
+
+          site.bins.forEach(
+            bin => {
+
+              html.push(
+                `
+                  <tr
+                    class="inventory-row"
+                    data-site="${escapeHtml(
+                      bin.siteId
+                    )}"
+                    data-index="${bin.binIndex}"
+                    title="Tap to remove inventory"
+                  >
+
+                    <td>
+                      <span class="bin-name">
+                        Bin ${escapeHtml(
+                          bin.binNumber
+                        )}
+                      </span>
+                    </td>
+
+                    <td class="crop-cell">
+                      ${escapeHtml(
+                        bin.crop
+                      )}
+                    </td>
+
+                    <td class="bushel-cell">
+                      ${escapeHtml(
+                        formatBushels(
+                          bin.onHand
+                        )
+                      )}
+                    </td>
+
+                  </tr>
+                `
+              );
+
+            }
+          );
+
+        }
+      );
+
+
+      body.innerHTML =
+        html.join(
+          ""
+        );
+
+
+      body
+        .querySelectorAll(
+          ".inventory-row"
+        )
+        .forEach(
+          rowElement => {
+
+            rowElement
+              .addEventListener(
+                "click",
+                () => {
+
+                  const siteId =
+                    rowElement.dataset.site;
+
+
+                  const index =
+                    Number(
+                      rowElement.dataset.index
+                    );
+
+
+                  const site =
+                    state.sites.find(
+                      item =>
+                        item.id ===
+                        siteId
+                    );
+
+
+                  const bin =
+                    site?.bins.find(
+                      item =>
+                        Number(
+                          item.binIndex
+                        ) ===
+                        index
+                    );
+
+
+                  if(
+                    !site ||
+                    !bin
+                  ){
+                    return;
+                  }
+
+
+                  openRemoveDialog(
+                    site,
+                    bin
+                  );
+
+                }
+              );
+
+          }
+        );
+
+    }
+
+
+    /* =========================================================
+       REMOVE POPUP
+    ========================================================= */
+
+    function showRemoveError(message){
+
+      removeError.textContent =
+        message;
+
+
+      removeError.classList
+        .add(
+          "show"
+        );
+
+    }
+
+
+    function clearRemoveError(){
+
+      removeError.textContent =
+        "";
+
+
+      removeError.classList
+        .remove(
+          "show"
+        );
+
+    }
+
+
+    function openRemoveDialog(
+      site,
+      bin
+    ){
+
+      state.selected =
+        {
+          site,
+          bin
+        };
+
+
+      clearRemoveError();
+
+
+      removeTitle.textContent =
+        "Remove Grain Inventory";
+
+
+      removeSub.textContent =
+        `${site.name} • Bin ${bin.binNumber} • ${bin.crop}`;
+
+
+      availableBushels.textContent =
+        `${formatBushels(
+          bin.onHand
+        )} bu`;
+
+
+      removeBushels.value =
+        "0";
+
+
+      removeBushels.max =
+        String(
+          bin.onHand
+        );
+
+
+      /*
+        IMPORTANT:
+        No automatic focus/select here.
+
+        This matches the change we just made
+        on Grain Bag Inventory so the 0 is not
+        highlighted automatically and the phone
+        keyboard does not immediately open.
+      */
+
+
+      try{
+
+        removeDialog
+          .showModal();
+
+      }catch{
+
+        removeDialog
+          .setAttribute(
+            "open",
+            ""
+          );
+
+      }
+
+    }
+
+
+    function closeRemoveDialog(){
+
+      state.selected =
+        null;
+
+
+      clearRemoveError();
+
+
+      try{
+
+        removeDialog
+          .close();
+
+      }catch{
+
+        removeDialog
+          .removeAttribute(
+            "open"
+          );
+
+      }
+
+    }
+
+
+    async function saveRemove(){
+
+      const selected =
+        state.selected;
+
+
+      if(
+        !selected
+      ){
+        return;
+      }
+
+
+      clearRemoveError();
+
+
+      const amount =
+        num(
+          removeBushels.value
+        );
+
+
+      const available =
+        num(
+          selected.bin.onHand
+        );
+
+
+      if(
+        !(amount > 0)
+      ){
+
+        showRemoveError(
+          "Enter the number of bushels being removed."
+        );
+
+        return;
+
+      }
+
+
+      if(
+        amount >
+        available
+      ){
+
+        showRemoveError(
+          `Only ${formatBushels(
+            available
+          )} bushels are available.`
+        );
+
+        return;
+
+      }
+
+
+      removeSave.disabled =
+        true;
+
+
+      removeCancel.disabled =
+        true;
+
+
+      removeClose.disabled =
+        true;
+
+
+      removeSave.textContent =
+        "Saving…";
+
+
+      try{
+
+        const siteRef =
+          doc(
+            state.db,
+            "binSites",
+            selected.site.id
+          );
+
+
+        const snapshot =
+          await getDoc(
+            siteRef
+          );
+
+
+        if(
+          !snapshot.exists()
+        ){
+
+          throw new Error(
+            "Bin site no longer exists."
+          );
+
+        }
+
+
+        const data =
+          snapshot.data() ||
+          {};
+
+
+        const bins =
+          Array.isArray(
+            data.bins
+          )
+            ? [
+                ...data.bins
+              ]
+            : [];
+
+
+        const index =
+          Number(
+            selected.bin.binIndex
+          );
+
+
+        if(
+          !bins[index]
+        ){
+
+          throw new Error(
+            "Bin no longer exists."
+          );
+
+        }
+
+
+        const latestOnHand =
+          Math.max(
+            0,
+            num(
+              bins[index]?.onHand
+            )
+          );
+
+
+        if(
+          amount >
+          latestOnHand
+        ){
+
+          throw new Error(
+            `Only ${formatBushels(
+              latestOnHand
+            )} bushels are currently available.`
+          );
+
+        }
+
+
+        const nextOnHand =
+          Math.max(
+            0,
+            latestOnHand -
+            amount
+          );
+
+
+        bins[index] =
+          {
+
+            ...bins[index],
+
+            onHand:
+              Number(
+                nextOnHand.toFixed(
+                  2
+                )
+              ),
+
+            lastUpdatedMs:
+              Date.now()
+
+          };
+
+
+        await setDoc(
+          siteRef,
+          {
+            bins,
+            updatedAt:
+              serverTimestamp()
+          },
+          {
+            merge:true
+          }
+        );
+
+
+        closeRemoveDialog();
+
+
+        toast(
+          "Bin inventory updated."
+        );
+
+
+        await loadInventory();
+
+
+      }catch(error){
+
+        console.error(
+          "[Grain Bin Inventory] remove failed:",
+          error
+        );
+
+
+        showRemoveError(
+          error?.message ||
+          "Unable to remove inventory."
+        );
+
+
+      }finally{
+
+        removeSave.disabled =
+          false;
+
+
+        removeCancel.disabled =
+          false;
+
+
+        removeClose.disabled =
+          false;
+
+
+        removeSave.textContent =
+          "Remove From Inventory";
+
+      }
+
+    }
+
+
+    /* =========================================================
+       EVENTS
+    ========================================================= */
+
+    removeClose
+      .addEventListener(
+        "click",
+        closeRemoveDialog
+      );
+
+
+    removeCancel
+      .addEventListener(
+        "click",
+        closeRemoveDialog
+      );
+
+
+    removeSave
+      .addEventListener(
+        "click",
+        saveRemove
+      );
+
+
+    removeDialog
+      .addEventListener(
+        "click",
+        event => {
+
+          const rect =
+            removeDialog
+              .getBoundingClientRect();
+
+
+          const inside =
+            event.clientX >=
+              rect.left &&
+            event.clientX <=
+              rect.right &&
+            event.clientY >=
+              rect.top &&
+            event.clientY <=
+              rect.bottom;
+
+
+          if(
+            !inside
+          ){
+
+            closeRemoveDialog();
+
+          }
+
+        }
+      );
+
+
+    window
+      .addEventListener(
+        "focus",
+        () => {
+
+          if(
+            state.db &&
+            !removeDialog.open
+          ){
+
+            loadInventory();
+
+          }
+
+        }
+      );
+
+
+    document
+      .addEventListener(
+        "visibilitychange",
+        () => {
+
+          if(
+            !document.hidden &&
+            state.db &&
+            !removeDialog.open
+          ){
+
+            loadInventory();
+
+          }
+
+        }
+      );
+
+
+    /* =========================================================
+       BOOT
+    ========================================================= */
+
+    (async function(){
+
+      await ready;
+
+
+      state.db =
+        getFirestore();
+
+
+      await loadInventory();
+
+    })();
+
+  </script>
+
 </body>
 </html>
