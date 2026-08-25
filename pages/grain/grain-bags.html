@@ -1906,79 +1906,148 @@ const state = {
     }
 
 
-    function rowPartialFeet(row){
+function rowPartialFeet(row){
 
-      /*
-        FarmVista has used both:
+  /*
+    Grain bag remaining footage may exist in either:
 
-        counts.partialFeet
-        partialFeet
+      partialFeet
+      counts.partialFeet
 
-        depending on when the record was created/updated.
-      */
+    Both may be arrays.
 
-      const direct =
-        row.counts?.partialFeet;
-
-
-      if (
-        Number.isFinite(
-          Number(direct)
-        )
-      ) {
-
-        return Math.max(
-          0,
-          Number(direct)
-        );
-
-      }
+    IMPORTANT:
+    Do not treat an empty array [] as numeric zero,
+    because the actual remaining footage may be stored
+    in the other field.
+  */
 
 
-      if (
-        Array.isArray(
-          row.partialFeet
-        )
-      ) {
+  /* -----------------------------------------
+     1. Top-level partialFeet array
+  ----------------------------------------- */
 
-        return row.partialFeet
-          .reduce(
-            (
-              total,
-              value
-            ) =>
-              total +
-              Math.max(
-                0,
-                num(value)
-              ),
-            0
-          );
+  if(
+    Array.isArray(
+      row.partialFeet
+    ) &&
+    row.partialFeet.length
+  ){
 
-      }
+    return row.partialFeet
+      .reduce(
+        (
+          total,
+          value
+        ) =>
+          total +
+          Math.max(
+            0,
+            num(value)
+          ),
+        0
+      );
 
-
-      if (
-        Number.isFinite(
-          Number(
-            row.partialFeet
-          )
-        )
-      ) {
-
-        return Math.max(
-          0,
-          Number(
-            row.partialFeet
-          )
-        );
-
-      }
+  }
 
 
-      return 0;
+  /* -----------------------------------------
+     2. counts.partialFeet array
+  ----------------------------------------- */
 
-    }
+  if(
+    Array.isArray(
+      row.counts?.partialFeet
+    ) &&
+    row.counts.partialFeet.length
+  ){
+
+    return row.counts.partialFeet
+      .reduce(
+        (
+          total,
+          value
+        ) =>
+          total +
+          Math.max(
+            0,
+            num(value)
+          ),
+        0
+      );
+
+  }
+
+
+  /* -----------------------------------------
+     3. Top-level numeric partialFeet
+  ----------------------------------------- */
+
+  if(
+    !Array.isArray(
+      row.partialFeet
+    ) &&
+    row.partialFeet !==
+      null &&
+    row.partialFeet !==
+      undefined &&
+    row.partialFeet !==
+      "" &&
+    Number.isFinite(
+      Number(
+        row.partialFeet
+      )
+    )
+  ){
+
+    return Math.max(
+      0,
+      Number(
+        row.partialFeet
+      )
+    );
+
+  }
+
+
+  /* -----------------------------------------
+     4. counts.partialFeet numeric
+  ----------------------------------------- */
+
+  const countsPartialFeet =
+    row.counts?.partialFeet;
+
+
+  if(
+    !Array.isArray(
+      countsPartialFeet
+    ) &&
+    countsPartialFeet !==
+      null &&
+    countsPartialFeet !==
+      undefined &&
+    countsPartialFeet !==
+      "" &&
+    Number.isFinite(
+      Number(
+        countsPartialFeet
+      )
+    )
+  ){
+
+    return Math.max(
+      0,
+      Number(
+        countsPartialFeet
+      )
+    );
+
+  }
+
+
+  return 0;
+
+}
 
 function estimateBuPerFoot(diameterFt){
 
