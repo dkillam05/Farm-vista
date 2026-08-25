@@ -4730,6 +4730,1028 @@ function parseDragPayload(
   }
 }
 
+/* ============================================================
+   TOUCH DRAG & DROP
+   iPad / iPhone / touch screens
+
+   Desktop HTML drag/drop remains unchanged.
+
+   Touch behavior:
+   - normal tap = existing click behavior
+   - normal swipe = scroll
+   - press and hold ~300ms = begin drag
+============================================================ */
+
+const touchDrag = {
+  timer: null,
+  active: false,
+
+  startX: 0,
+  startY: 0,
+
+  sourceElement: null,
+  payload: null,
+
+  ghost: null,
+  dropTarget: null,
+
+  previousUserSelect: ""
+};
+
+
+function getTouchDragSource(
+  target
+) {
+  if (
+    !(target instanceof Element)
+  ) {
+    return null;
+  }
+
+
+  /*
+    Never start a drag from the ticket checkbox.
+  */
+  if (
+    target.closest(
+      ".ticket-select"
+    )
+  ) {
+    return null;
+  }
+
+
+  /*
+    SPOT assigned ticket.
+  */
+  const spotButton =
+    target.closest(
+      "[data-spot-ticket]"
+    );
+
+  if (spotButton) {
+    return {
+      element:
+        spotButton,
+
+      payload: {
+        ticketId:
+          clean(
+            spotButton.dataset
+              .spotTicket
+          ),
+
+        type:
+          "spot",
+
+        sourceId:
+          ""
+      }
+    };
+  }
+
+
+  /*
+    CONTRACT assigned ticket.
+  */
+  const assignedButton =
+    target.closest(
+      "[data-ticket][data-contract]"
+    );
+
+  if (assignedButton) {
+    return {
+      element:
+        assignedButton,
+
+      payload: {
+        ticketId:
+          clean(
+            assignedButton.dataset
+              .ticket
+          ),
+
+        type:
+          "contract",
+
+        sourceId:
+          clean(
+            assignedButton.dataset
+              .contract
+          )
+      }
+    };
+  }
+
+
+  /*
+    UNASSIGNED ticket card.
+
+    data-touch-ticket-id is added in Edit #2.
+  */
+  const unassignedCard =
+    target.closest(
+      "[data-touch-ticket-id]"
+    );
+
+  if (unassignedCard) {
+    return {
+      element:
+        unassignedCard,
+
+      payload: {
+        ticketId:
+          clean(
+            unassignedCard.dataset
+              .touchTicketId
+          ),
+
+        type:
+          "unassigned",
+
+        sourceId:
+          ""
+      }
+    };
+  }
+
+
+  return null;
+}
+
+
+function clearTouchDropHighlights() {
+  document
+    .querySelectorAll(
+      ".drag-over"
+    )
+    .forEach(
+      element =>
+        element.classList.remove(
+          "drag-over"
+        )
+    );
+
+
+  $("unassigned-ticket-list")
+    ?.classList
+    .remove(
+      "drag-over-unassign"
+    );
+
+
+  touchDrag.dropTarget =
+    null;
+}
+
+
+function createTouchDragGhost(
+  payload
+) {
+  const ticket =
+    state.tickets.find(
+      item =>
+        item.id ===
+        payload.ticketId
+    );
+
+
+  const ghost =
+    document.createElement(
+      "div"
+    );
+
+
+  ghost.className =
+    "fv-touch-drag-ghost";
+
+
+  ghost.textContent =
+    `Ticket ${
+      ticket?.ticketNumber ||
+      payload.ticketId
+    }`;
+
+
+  Object.assign(
+    ghost.style,
+    {
+      position:
+        "fixed",
+
+      left:
+        "0",
+
+      top:
+        "0",
+
+      zIndex:
+        "999999",
+
+      pointerEvents:
+        "none",
+
+      padding:
+        "10px 14px",
+
+      borderRadius:
+        "10px",
+
+      border:
+        "2px solid var(--fv-green, #3B7E46)",
+
+      background:
+        "var(--surface, #fff)",
+
+      color:
+        "inherit",
+
+      boxShadow:
+        "0 10px 30px rgba(0,0,0,.25)",
+
+      fontSize:
+        ".9rem",
+
+      fontWeight:
+        "800",
+
+      whiteSpace:
+        "nowrap",
+
+      opacity:
+        ".96",
+
+      transform:
+        "translate(-50%, -120%)"
+    }
+  );
+
+
+  document.body.appendChild(
+    ghost
+  );
+
+
+  touchDrag.ghost =
+    ghost;
+
+
+  return ghost;
+}
+
+
+function moveTouchDragGhost(
+  x,
+  y
+) {
+  if (
+    !touchDrag.ghost
+  ) {
+    return;
+  }
+
+
+  touchDrag.ghost.style.left =
+    `${x}px`;
+
+  touchDrag.ghost.style.top =
+    `${y}px`;
+}
+
+
+function getTouchDropTarget(
+  x,
+  y
+) {
+  const payload =
+    touchDrag.payload;
+
+
+  if (!payload) {
+    return null;
+  }
+
+
+  const ticket =
+    state.tickets.find(
+      item =>
+        item.id ===
+        payload.ticketId
+    );
+
+
+  if (
+    !ticket ||
+    ticket.voided
+  ) {
+    return null;
+  }
+
+
+  const element =
+    document.elementFromPoint(
+      x,
+      y
+    );
+
+
+  if (
+    !(element instanceof Element)
+  ) {
+    return null;
+  }
+
+
+  /*
+    DROP BACK TO UNASSIGNED
+  */
+  const unassigned =
+    element.closest(
+      "#unassigned-ticket-list"
+    );
+
+
+  if (
+    unassigned &&
+    [
+      "contract",
+      "spot"
+    ].includes(
+      payload.type
+    ) &&
+    ticketMatchesCurrent(
+      ticket
+    )
+  ) {
+    return {
+      type:
+        "unassigned",
+
+      id:
+        "",
+
+      element:
+        unassigned
+    };
+  }
+
+
+  /*
+    DROP ON SPOT
+  */
+  const spot =
+    element.closest(
+      ".spot-drop-card"
+    );
+
+
+  if (
+    spot &&
+    payload.type !==
+      "spot"
+  ) {
+    return {
+      type:
+        "spot",
+
+      id:
+        "",
+
+      element:
+        spot
+    };
+  }
+
+
+  /*
+    DROP ON CONTRACT
+
+    data-touch-contract-id is added in Edit #3.
+  */
+  const contractCard =
+    element.closest(
+      "[data-touch-contract-id]"
+    );
+
+
+  if (contractCard) {
+    const contractId =
+      clean(
+        contractCard.dataset
+          .touchContractId
+      );
+
+
+    const contract =
+      state.contracts.find(
+        item =>
+          item.id ===
+          contractId
+      );
+
+
+    if (
+      !contract ||
+      contract.voided
+    ) {
+      return null;
+    }
+
+
+    /*
+      Don't drop back onto the same
+      contract it came from.
+    */
+    if (
+      payload.type ===
+        "contract" &&
+      payload.sourceId ===
+        contract.id
+    ) {
+      return null;
+    }
+
+
+    Object.assign(
+      contract,
+      calculateContractTotals(
+        contract
+      )
+    );
+
+
+    if (
+      contract.openBushels <=
+      EPSILON
+    ) {
+      return null;
+    }
+
+
+    const validation =
+      validateTicketAgainstContract(
+        ticket,
+        contract
+      );
+
+
+    if (validation) {
+      return null;
+    }
+
+
+    return {
+      type:
+        "contract",
+
+      id:
+        contract.id,
+
+      element:
+        contractCard
+    };
+  }
+
+
+  return null;
+}
+
+
+function highlightTouchDropTarget(
+  target
+) {
+  clearTouchDropHighlights();
+
+
+  if (!target) {
+    return;
+  }
+
+
+  touchDrag.dropTarget =
+    target;
+
+
+  if (
+    target.type ===
+    "unassigned"
+  ) {
+    target.element
+      .classList
+      .add(
+        "drag-over-unassign"
+      );
+
+    return;
+  }
+
+
+  target.element
+    .classList
+    .add(
+      "drag-over"
+    );
+}
+
+
+function beginTouchDrag(
+  source,
+  touch
+) {
+  if (
+    state.busy ||
+    !source?.payload
+  ) {
+    return;
+  }
+
+
+  touchDrag.active =
+    true;
+
+  touchDrag.sourceElement =
+    source.element;
+
+  touchDrag.payload =
+    source.payload;
+
+
+  dragStart(
+    source.payload.ticketId,
+    source.payload.type,
+    source.payload.sourceId
+  );
+
+
+  source.element
+    .classList
+    .add(
+      "dragging"
+    );
+
+
+  /*
+    Prevent text selection while actively dragging.
+  */
+  touchDrag.previousUserSelect =
+    document.body.style
+      .userSelect;
+
+
+  document.body.style
+    .userSelect =
+      "none";
+
+
+  createTouchDragGhost(
+    source.payload
+  );
+
+
+  moveTouchDragGhost(
+    touch.clientX,
+    touch.clientY
+  );
+
+
+  highlightTouchDropTarget(
+    getTouchDropTarget(
+      touch.clientX,
+      touch.clientY
+    )
+  );
+}
+
+
+function cleanupTouchDrag() {
+  if (
+    touchDrag.timer
+  ) {
+    clearTimeout(
+      touchDrag.timer
+    );
+
+    touchDrag.timer =
+      null;
+  }
+
+
+  touchDrag.sourceElement
+    ?.classList
+    .remove(
+      "dragging"
+    );
+
+
+  touchDrag.ghost
+    ?.remove();
+
+
+  clearTouchDropHighlights();
+
+
+  document.body.style
+    .userSelect =
+      touchDrag.previousUserSelect;
+
+
+  touchDrag.active =
+    false;
+
+  touchDrag.sourceElement =
+    null;
+
+  touchDrag.payload =
+    null;
+
+  touchDrag.ghost =
+    null;
+
+  touchDrag.dropTarget =
+    null;
+
+  touchDrag.previousUserSelect =
+    "";
+
+
+  dragClear();
+}
+
+
+function performTouchDrop(
+  target
+) {
+  const payload =
+    touchDrag.payload;
+
+
+  if (
+    !payload ||
+    !target
+  ) {
+    return;
+  }
+
+
+  /*
+    CONTRACT / SPOT → UNASSIGNED
+  */
+  if (
+    target.type ===
+    "unassigned"
+  ) {
+    if (
+      payload.type ===
+      "contract"
+    ) {
+      unassignTicketFromContract(
+        payload.ticketId,
+        payload.sourceId
+      );
+    }
+    else if (
+      payload.type ===
+      "spot"
+    ) {
+      unassignSpotBushels(
+        payload.ticketId
+      );
+    }
+
+    return;
+  }
+
+
+  /*
+    ANY VALID SOURCE → CONTRACT
+  */
+  if (
+    target.type ===
+    "contract"
+  ) {
+    moveTicketToContract(
+      payload.ticketId,
+      target.id,
+      payload.type,
+      payload.sourceId
+    );
+
+    return;
+  }
+
+
+  /*
+    UNASSIGNED / CONTRACT → SPOT
+  */
+  if (
+    target.type ===
+    "spot"
+  ) {
+    moveTicketBushelsToSpot(
+      payload.ticketId,
+      payload.type,
+      payload.sourceId
+    );
+  }
+}
+
+
+/*
+  Delegated touch handling means dynamically-rendered
+  ticket cards do not need individual touch listeners.
+*/
+
+document.addEventListener(
+  "touchstart",
+  event => {
+    if (
+      state.busy ||
+      event.touches.length !==
+      1
+    ) {
+      return;
+    }
+
+
+    const source =
+      getTouchDragSource(
+        event.target
+      );
+
+
+    if (
+      !source ||
+      !source.payload.ticketId
+    ) {
+      return;
+    }
+
+
+    const touch =
+      event.touches[0];
+
+
+    touchDrag.startX =
+      touch.clientX;
+
+    touchDrag.startY =
+      touch.clientY;
+
+
+    touchDrag.sourceElement =
+      source.element;
+
+    touchDrag.payload =
+      source.payload;
+
+
+    if (
+      touchDrag.timer
+    ) {
+      clearTimeout(
+        touchDrag.timer
+      );
+    }
+
+
+    /*
+      Long enough to distinguish drag from
+      normal tap or scrolling.
+    */
+    touchDrag.timer =
+      setTimeout(
+        () => {
+          touchDrag.timer =
+            null;
+
+          beginTouchDrag(
+            source,
+            touch
+          );
+        },
+        300
+      );
+  },
+  {
+    passive:
+      true
+  }
+);
+
+
+document.addEventListener(
+  "touchmove",
+  event => {
+    if (
+      event.touches.length !==
+      1
+    ) {
+      cleanupTouchDrag();
+
+      return;
+    }
+
+
+    const touch =
+      event.touches[0];
+
+
+    /*
+      Before the 300ms hold activates:
+      if the finger moves normally, treat it
+      as scrolling and cancel the pending drag.
+    */
+    if (
+      !touchDrag.active
+    ) {
+      const dx =
+        touch.clientX -
+        touchDrag.startX;
+
+      const dy =
+        touch.clientY -
+        touchDrag.startY;
+
+
+      const distance =
+        Math.hypot(
+          dx,
+          dy
+        );
+
+
+      if (
+        distance > 12 &&
+        touchDrag.timer
+      ) {
+        clearTimeout(
+          touchDrag.timer
+        );
+
+        touchDrag.timer =
+          null;
+
+        touchDrag.sourceElement =
+          null;
+
+        touchDrag.payload =
+          null;
+      }
+
+
+      return;
+    }
+
+
+    /*
+      Once long-press drag is active,
+      stop page scrolling while the ticket moves.
+    */
+    event.preventDefault();
+
+
+    moveTouchDragGhost(
+      touch.clientX,
+      touch.clientY
+    );
+
+
+    highlightTouchDropTarget(
+      getTouchDropTarget(
+        touch.clientX,
+        touch.clientY
+      )
+    );
+  },
+  {
+    passive:
+      false
+  }
+);
+
+
+document.addEventListener(
+  "touchend",
+  event => {
+    if (
+      !touchDrag.active
+    ) {
+      if (
+        touchDrag.timer
+      ) {
+        clearTimeout(
+          touchDrag.timer
+        );
+
+        touchDrag.timer =
+          null;
+      }
+
+
+      touchDrag.sourceElement =
+        null;
+
+      touchDrag.payload =
+        null;
+
+      return;
+    }
+
+
+    const touch =
+      event.changedTouches[0];
+
+
+    const target =
+      touch
+        ? getTouchDropTarget(
+            touch.clientX,
+            touch.clientY
+          )
+        : touchDrag.dropTarget;
+
+
+    /*
+      Prevent the synthetic click that iOS may
+      fire after finishing a drag.
+    */
+    const sourceElement =
+      touchDrag.sourceElement;
+
+
+    if (sourceElement) {
+      sourceElement.dataset
+        .touchSuppressClick =
+          "1";
+
+
+      setTimeout(
+        () => {
+          delete sourceElement
+            .dataset
+            .touchSuppressClick;
+        },
+        500
+      );
+    }
+
+
+    performTouchDrop(
+      target
+    );
+
+
+    cleanupTouchDrag();
+  },
+  {
+    passive:
+      true
+  }
+);
+
+
+document.addEventListener(
+  "touchcancel",
+  cleanupTouchDrag,
+  {
+    passive:
+      true
+  }
+);
+
+
+/*
+  Stop the click that Safari sometimes creates
+  immediately after a completed touch drag.
+
+  Normal taps are NOT affected.
+*/
+document.addEventListener(
+  "click",
+  event => {
+    const source =
+      event.target.closest?.(
+        `
+          [data-touch-ticket-id],
+          [data-ticket][data-contract],
+          [data-spot-ticket]
+        `
+      );
+
+
+    if (
+      source?.dataset
+        ?.touchSuppressClick ===
+        "1"
+    ) {
+      event.preventDefault();
+
+      event.stopImmediatePropagation();
+    }
+  },
+  true
+);
+
 
 /* ============================================================
    RECONCILIATION RENDER
@@ -5028,6 +6050,23 @@ function renderTicketCards(
         ticket.voided
           ? "ticket-card voided-record"
           : "ticket-card";
+
+
+      /*
+        Touch DND source ID.
+
+        Desktop still uses card.draggable below.
+        Touch screens use this data attribute.
+      */
+      if (
+        !ticket.voided &&
+        remaining >
+        EPSILON
+      ) {
+        card.dataset.touchTicketId =
+          ticket.id;
+      }
+
 
       card.draggable =
         !state.busy &&
@@ -5494,6 +6533,17 @@ function renderContractDropCards(
 
       card.className =
         "contract-drop-card";
+
+
+      /*
+        Touch DND target ID.
+
+        This lets iPad / touchscreen dragging determine
+        exactly which contract is underneath the finger.
+      */
+      card.dataset.touchContractId =
+        contract.id;
+
 
       if (full) {
         card.style.opacity =
