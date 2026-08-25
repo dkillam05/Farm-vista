@@ -2,19 +2,23 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
+
   <title>FarmVista • Grain Bag Inventory</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=8, user-scalable=yes"
+  />
+
   <meta name="theme-color" content="#3B7E46"/>
 
-   <!-- Early theme boot -->
+  <!-- Early theme boot -->
   <script src="/js/theme-boot.js"></script>
-  
-  <!-- PWA + icons (ABSOLUTE paths) -->
+
+  <!-- PWA + icons -->
   <link rel="manifest" href="/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png"/>
   <link rel="icon" href="/assets/icons/icon-192.png"/>
-
-  
 
   <!-- Global CSS -->
   <link rel="stylesheet" href="/assets/css/theme.css"/>
@@ -25,69 +29,3623 @@
   <script src="/js/core.js" defer></script>
   <script src="/js/fv-shell.js" defer></script>
 
-  <!-- 2-up / 4-up tile grid -->
-  <style>
-    .page{max-width:1100px;margin:0 auto;padding:clamp(14px,3vw,22px)}
-    .page-title{margin:.2rem 0 4px}
-    .page-sub{color:var(--muted,#67706B);margin:0 0 16px}
-    .form-tiles{
-      display:grid;
-      grid-template-columns:repeat(2,minmax(0,1fr));
-      gap:clamp(10px,2.5vw,16px);
-    }
-    @media(min-width:900px){
-      .form-tiles{ grid-template-columns:repeat(4,minmax(0,1fr)); }
-    }
-  </style>
-
-  <!-- Ensure fv-form-button is loaded -->
+  <!-- Ensure fv-form-button -->
   <script>
     (function(){
-      if(!customElements.get('fv-form-button')){
-        const s=document.createElement('script');
-        s.src='/js/fv-form-button.js';
-        s.defer=true;
+      if(!customElements.get("fv-form-button")){
+        const s = document.createElement("script");
+        s.src = "/js/fv-form-button.js";
+        s.defer = true;
         document.head.appendChild(s);
       }
     })();
   </script>
+
+  <style>
+    :root{
+      --bag-green:#2F6C3C;
+      --bag-green-soft:rgba(47,108,60,.10);
+      --bag-green-soft-2:rgba(47,108,60,.16);
+
+      --gridline:rgba(0,0,0,.10);
+      --gridline-strong:rgba(0,0,0,.16);
+
+      --sheet-bg:#ffffff;
+      --sheet-text:#111827;
+      --sheet-muted:#6B7280;
+      --sheet-hover:rgba(47,108,60,.07);
+
+      --farm-row-bg:rgba(47,108,60,.17);
+      --crop-row-bg:rgba(47,108,60,.08);
+
+      --danger:#b3261e;
+    }
+
+    *{
+      box-sizing:border-box;
+    }
+
+    html,
+    body{
+      touch-action:auto;
+      -webkit-text-size-adjust:100%;
+      text-size-adjust:100%;
+    }
+
+    .page{
+      max-width:1450px;
+      margin:0 auto;
+
+      padding:
+        clamp(14px,3vw,22px);
+
+      padding-bottom:
+        calc(
+          env(safe-area-inset-bottom,0px) +
+          var(--ftr-h,42px) +
+          110px
+        ) !important;
+    }
+
+    /* =========================================================
+       PAGE TOP
+    ========================================================= */
+
+    .page-title{
+      margin:.2rem 0 4px;
+    }
+
+    .page-sub{
+      color:var(--muted,#67706B);
+      margin:0 0 16px;
+      line-height:1.45;
+    }
+
+    .top-content{
+      margin-bottom:20px;
+    }
+
+    /* =========================================================
+       CENTER ACTION TILES
+    ========================================================= */
+
+    .form-tiles{
+      width:min(620px,100%);
+      margin:18px auto 0;
+
+      display:grid;
+      grid-template-columns:
+        repeat(2,minmax(0,1fr));
+
+      gap:clamp(10px,2.5vw,16px);
+    }
+
+    @media(max-width:600px){
+      .form-tiles{
+        width:min(520px,100%);
+      }
+    }
+
+    /* =========================================================
+       INVENTORY SECTION
+    ========================================================= */
+
+    .inventory-section{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--surface);
+
+      box-shadow:
+        var(
+          --shadow,
+          0 8px 20px rgba(0,0,0,.08)
+        );
+
+      overflow:hidden;
+    }
+
+    .inventory-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+
+      gap:14px;
+      flex-wrap:wrap;
+
+      padding:14px 16px;
+
+      border-bottom:
+        1px solid var(--border);
+
+      background:
+        linear-gradient(
+          90deg,
+          rgba(47,108,60,.12),
+          transparent
+        );
+    }
+
+    .inventory-head-left{
+      min-width:0;
+    }
+
+    .inventory-title{
+      margin:0;
+      font-size:18px;
+      font-weight:950;
+    }
+
+    .inventory-helper{
+      margin:4px 0 0;
+      color:var(--muted,#67706B);
+      font-size:13px;
+      line-height:1.4;
+    }
+
+    .season-pill{
+      flex:0 0 auto;
+
+      border:
+        1px solid rgba(47,108,60,.30);
+
+      border-radius:999px;
+
+      padding:7px 11px;
+
+      background:
+        rgba(47,108,60,.10);
+
+      color:var(--text);
+
+      font-size:12px;
+      font-weight:900;
+
+      white-space:nowrap;
+    }
+
+    /* =========================================================
+       TABLE
+    ========================================================= */
+
+    .table-wrap{
+      position:relative;
+      width:100%;
+      overflow:hidden;
+      background:var(--sheet-bg);
+    }
+
+    .grid-viewport{
+      width:100%;
+      overflow:auto;
+      -webkit-overflow-scrolling:touch;
+
+      background:var(--sheet-bg);
+
+      max-height:
+        calc(100vh - 300px);
+
+      min-height:260px;
+    }
+
+    table.inventory-grid{
+      width:100%;
+      min-width:940px;
+
+      border-collapse:separate;
+      border-spacing:0;
+
+      background:var(--sheet-bg);
+      color:var(--sheet-text);
+
+      font-size:14px;
+    }
+
+    .inventory-grid thead th{
+      position:sticky;
+      top:0;
+      z-index:20;
+
+      padding:11px 10px;
+
+      background:var(--sheet-bg);
+      color:var(--sheet-text);
+
+      border-right:
+        1px solid var(--gridline);
+
+      border-bottom:
+        1px solid var(--gridline-strong);
+
+      font-size:12px;
+      font-weight:950;
+
+      text-align:center;
+      white-space:nowrap;
+
+      letter-spacing:.15px;
+    }
+
+    .inventory-grid thead th:first-child{
+      text-align:left;
+    }
+
+    .inventory-grid thead th:last-child{
+      border-right:none;
+    }
+
+    .inventory-grid tbody td{
+      padding:10px 10px;
+
+      border-right:
+        1px solid var(--gridline);
+
+      border-bottom:
+        1px solid var(--gridline);
+
+      background:var(--sheet-bg);
+      color:var(--sheet-text);
+
+      text-align:center;
+      white-space:nowrap;
+    }
+
+    .inventory-grid tbody td:first-child{
+      text-align:left;
+    }
+
+    .inventory-grid tbody td:last-child{
+      border-right:none;
+    }
+
+    /* =========================================================
+       FARM GROUP ROW
+    ========================================================= */
+
+    .farm-group-row td{
+      padding:10px 12px !important;
+
+      background:
+        var(--farm-row-bg) !important;
+
+      color:var(--sheet-text) !important;
+
+      border-bottom:
+        1px solid var(--gridline-strong) !important;
+
+      font-weight:1000;
+      font-size:14px;
+
+      text-align:left !important;
+    }
+
+    .farm-group-inner{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:14px;
+    }
+
+    .farm-name{
+      font-weight:1000;
+    }
+
+    .farm-summary{
+      font-size:12px;
+      font-weight:850;
+      opacity:.72;
+      white-space:nowrap;
+    }
+
+    /* =========================================================
+       CROP GROUP ROW
+    ========================================================= */
+
+    .crop-group-row td{
+      padding:7px 12px 7px 22px !important;
+
+      background:
+        var(--crop-row-bg) !important;
+
+      color:var(--sheet-text) !important;
+
+      text-align:left !important;
+
+      font-size:12px;
+      font-weight:950;
+
+      text-transform:uppercase;
+      letter-spacing:.06em;
+    }
+
+    .crop-group-inner{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+    }
+
+    .crop-summary{
+      opacity:.70;
+      font-size:11px;
+      font-weight:850;
+      letter-spacing:0;
+      text-transform:none;
+    }
+
+    /* =========================================================
+       ACTUAL INVENTORY ROW
+    ========================================================= */
+
+    .inventory-row{
+      cursor:pointer;
+    }
+
+    .inventory-row:hover td{
+      background:
+        var(--sheet-hover);
+    }
+
+    .inventory-row:active td{
+      background:
+        rgba(47,108,60,.12);
+    }
+
+    .field-name{
+      font-weight:950;
+    }
+
+    .crop-cell{
+      font-weight:850;
+    }
+
+    .number-cell{
+      font-variant-numeric:
+        tabular-nums;
+    }
+
+    .bag-count{
+      font-weight:950;
+      font-size:15px;
+    }
+
+    .muted{
+      color:var(--sheet-muted);
+    }
+
+    /* =========================================================
+       PRIORITY
+    ========================================================= */
+
+    .priority-pill{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+
+      min-width:30px;
+      height:26px;
+
+      padding:0 8px;
+
+      border:
+        1px solid var(--border);
+
+      border-radius:999px;
+
+      font-size:12px;
+      font-weight:950;
+    }
+
+    .priority-pill.high{
+      border-color:
+        rgba(179,38,30,.28);
+
+      background:
+        rgba(179,38,30,.10);
+
+      color:#9f221c;
+    }
+
+    .priority-pill.medium{
+      border-color:
+        rgba(177,117,0,.30);
+
+      background:
+        rgba(177,117,0,.10);
+    }
+
+    .priority-pill.low{
+      background:
+        rgba(47,108,60,.08);
+    }
+
+    /* =========================================================
+       LOADING / EMPTY / ERROR
+    ========================================================= */
+
+    .message-row td{
+      padding:26px 16px !important;
+      text-align:center !important;
+      color:var(--sheet-muted) !important;
+      font-weight:800;
+    }
+
+    .error-row td{
+      color:var(--danger) !important;
+    }
+
+    /* =========================================================
+       PICKUP MODAL
+    ========================================================= */
+
+    dialog.pickup-dialog{
+      width:
+        min(520px,calc(100vw - 24px));
+
+      border:
+        1px solid var(--border);
+
+      border-radius:16px;
+
+      padding:0;
+
+      background:
+        var(
+          --card-surface,
+          var(--surface)
+        );
+
+      color:var(--text);
+
+      box-shadow:
+        0 18px 60px rgba(0,0,0,.38);
+    }
+
+    dialog.pickup-dialog::backdrop{
+      background:
+        rgba(0,0,0,.52);
+    }
+
+    .pickup-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+
+      gap:14px;
+
+      padding:15px 16px 13px;
+
+      border-bottom:
+        1px solid var(--border);
+
+      background:
+        linear-gradient(
+          90deg,
+          rgba(47,108,60,.12),
+          transparent
+        );
+    }
+
+    .pickup-title{
+      margin:0;
+      font-size:19px;
+      font-weight:950;
+    }
+
+    .pickup-sub{
+      margin:4px 0 0;
+
+      color:
+        var(--muted,#67706B);
+
+      font-size:12px;
+      line-height:1.35;
+    }
+
+    .dialog-close{
+      width:34px;
+      height:34px;
+
+      flex:0 0 34px;
+
+      display:grid;
+      place-items:center;
+
+      border:
+        1px solid var(--border);
+
+      border-radius:9px;
+
+      background:
+        var(
+          --card-surface,
+          var(--surface)
+        );
+
+      color:var(--text);
+
+      font-size:21px;
+      line-height:1;
+
+      cursor:pointer;
+    }
+
+    .pickup-body{
+      padding:16px;
+
+      display:grid;
+      gap:14px;
+    }
+
+    .pickup-current{
+      display:grid;
+      grid-template-columns:
+        repeat(2,minmax(0,1fr));
+
+      gap:10px;
+    }
+
+    .current-box{
+      border:
+        1px solid var(--border);
+
+      border-radius:11px;
+
+      padding:11px 12px;
+
+      background:
+        rgba(47,108,60,.04);
+    }
+
+    .current-label{
+      display:block;
+
+      margin-bottom:4px;
+
+      color:
+        var(--muted,#67706B);
+
+      font-size:11px;
+      font-weight:850;
+
+      text-transform:uppercase;
+      letter-spacing:.05em;
+    }
+
+    .current-value{
+      font-size:20px;
+      font-weight:1000;
+    }
+
+    .pickup-fields{
+      display:grid;
+      grid-template-columns:
+        repeat(2,minmax(0,1fr));
+
+      gap:12px;
+    }
+
+    .pickup-field label{
+      display:block;
+
+      margin-bottom:5px;
+
+      color:
+        var(--muted,#67706B);
+
+      font-size:12px;
+      font-weight:900;
+    }
+
+    .pickup-input{
+      width:100%;
+
+      border:
+        1px solid var(--border);
+
+      border-radius:10px;
+
+      padding:11px 12px;
+
+      background:
+        var(
+          --card-surface,
+          var(--surface)
+        );
+
+      color:var(--text);
+
+      font:inherit;
+      font-size:17px;
+      font-weight:850;
+
+      outline:none;
+    }
+
+    .pickup-help{
+      color:
+        var(--muted,#67706B);
+
+      font-size:12px;
+      line-height:1.4;
+    }
+
+    .pickup-error{
+      display:none;
+
+      border:
+        1px solid rgba(179,38,30,.35);
+
+      border-radius:10px;
+
+      padding:9px 11px;
+
+      background:
+        rgba(179,38,30,.08);
+
+      color:var(--danger);
+
+      font-size:12px;
+      font-weight:850;
+    }
+
+    .pickup-error.show{
+      display:block;
+    }
+
+    .pickup-footer{
+      display:flex;
+      justify-content:flex-end;
+      gap:9px;
+
+      padding:12px 16px 15px;
+
+      border-top:
+        1px solid var(--border);
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+
+      min-height:40px;
+
+      padding:9px 15px;
+
+      border:
+        1px solid var(--border);
+
+      border-radius:10px;
+
+      background:
+        var(
+          --card-surface,
+          var(--surface)
+        );
+
+      color:var(--text);
+
+      font:inherit;
+      font-size:14px;
+      font-weight:950;
+
+      cursor:pointer;
+    }
+
+    .btn-primary{
+      border-color:transparent;
+      background:var(--bag-green);
+      color:#fff !important;
+    }
+
+    .btn[disabled]{
+      opacity:.55;
+      cursor:not-allowed;
+    }
+
+    /* =========================================================
+       TOAST
+    ========================================================= */
+
+    .toast{
+      position:fixed;
+
+      left:50%;
+      bottom:
+        calc(
+          env(safe-area-inset-bottom,0px) +
+          72px
+        );
+
+      transform:translateX(-50%);
+
+      z-index:99999;
+
+      display:none;
+
+      background:
+        var(--bag-green);
+
+      color:#fff;
+
+      padding:10px 14px;
+
+      border-radius:10px;
+
+      box-shadow:
+        0 6px 20px rgba(0,0,0,.25);
+
+      font-weight:950;
+
+      white-space:nowrap;
+    }
+
+    .toast.show{
+      display:block;
+    }
+
+    /* =========================================================
+       MOBILE PORTRAIT
+    ========================================================= */
+
+    @media(max-width:820px){
+
+      .page{
+        max-width:none;
+
+        padding:
+          12px 10px;
+
+        padding-bottom:
+          calc(
+            env(safe-area-inset-bottom,0px) +
+            var(--ftr-h,42px) +
+            100px
+          ) !important;
+      }
+
+      .page-title{
+        font-size:24px;
+      }
+
+      .page-sub{
+        font-size:13px;
+      }
+
+      .inventory-section{
+        border-radius:12px;
+      }
+
+      .inventory-head{
+        padding:12px;
+      }
+
+      .grid-viewport{
+        max-height:
+          calc(100vh - 300px);
+      }
+
+      table.inventory-grid{
+        min-width:820px;
+        font-size:12px;
+      }
+
+      .inventory-grid thead th{
+        padding:9px 7px;
+        font-size:11px;
+      }
+
+      .inventory-grid tbody td{
+        padding:8px 7px;
+        font-size:12px;
+      }
+
+      .form-tiles{
+        gap:10px;
+      }
+    }
+
+    /* =========================================================
+       PHONE LANDSCAPE
+       Turn the phone sideways and the spreadsheet takes over.
+    ========================================================= */
+
+    @media(
+      orientation:landscape
+    ) and (
+      max-height:600px
+    ){
+
+      .page{
+        max-width:none;
+
+        width:100%;
+
+        margin:0;
+
+        padding:0 !important;
+      }
+
+      /*
+        Hide the normal portal content.
+        The spreadsheet becomes the page.
+      */
+      .top-content{
+        display:none;
+      }
+
+      .inventory-section{
+        width:100%;
+
+        margin:0;
+
+        border:0;
+        border-radius:0;
+
+        box-shadow:none;
+      }
+
+      .inventory-head{
+        display:none;
+      }
+
+      .table-wrap{
+        width:100%;
+        border:0;
+      }
+
+      .grid-viewport{
+        width:100%;
+
+        height:
+          calc(
+            100vh -
+            var(--ftr-h,42px)
+          );
+
+        min-height:
+          calc(
+            100vh -
+            var(--ftr-h,42px)
+          );
+
+        max-height:
+          calc(
+            100vh -
+            var(--ftr-h,42px)
+          );
+
+        border:0;
+      }
+
+      table.inventory-grid{
+        min-width:900px;
+        font-size:12px;
+      }
+
+      .inventory-grid thead th{
+        padding:8px 7px;
+        font-size:11px;
+      }
+
+      .inventory-grid tbody td{
+        padding:7px 7px;
+        font-size:12px;
+      }
+
+      .farm-group-row td{
+        padding:
+          7px 10px !important;
+      }
+
+      .crop-group-row td{
+        padding:
+          6px 10px 6px 20px !important;
+      }
+
+      dialog.pickup-dialog{
+        width:
+          min(520px,88vw);
+
+        max-height:
+          calc(100vh - 16px);
+
+        overflow:auto;
+      }
+    }
+
+    /* =========================================================
+       DARK MODE
+    ========================================================= */
+
+    @media(prefers-color-scheme:dark){
+
+      :root{
+        --gridline:
+          rgba(255,255,255,.10);
+
+        --gridline-strong:
+          rgba(255,255,255,.16);
+
+        --sheet-bg:
+          var(--surface);
+
+        --sheet-text:
+          var(--text);
+
+        --sheet-muted:
+          var(--muted,#9CA3AF);
+
+        --sheet-hover:
+          rgba(255,255,255,.05);
+
+        --farm-row-bg:
+          rgba(47,108,60,.30);
+
+        --crop-row-bg:
+          rgba(47,108,60,.17);
+      }
+
+      .priority-pill.high{
+        color:#ffb2ad;
+      }
+    }
+  </style>
 </head>
 
 <body>
+
   <fv-shell>
+
     <div class="page container">
-      <h1 class="page-title">Grain Bag Inventory</h1>
-      <p class="page-sub">
-        Manage on-farm grain stored in <strong>bags</strong>.<br/>
-        Use <strong>Put Bag Down</strong> when placing a new bag in the field, and
-        <strong>Pick Up Bag</strong> when removing it after unloading.
-      </p>
 
-      <!-- Portal visibility controlled by grain-bags.view -->
-      <section class="form-tiles" aria-label="Grain bag actions" data-perm="grain-bags:view">
+      <!-- =====================================================
+           NORMAL PAGE TOP
+      ====================================================== -->
 
-        <!-- Put Bag Down → grain-bags.add -->
-        <fv-form-button
-          label="Put Bag Down"
-          icon-svg="plus"
-          href="/pages/grain/grain-bag-put-down.html"
-          data-perm="grain-bags:add">
-        </fv-form-button>
+      <div class="top-content">
 
-        <!-- Pick Up Bag → grain-bags.edit -->
-        <fv-form-button
-          label="Pick Up Bag"
-          icon-svg="minus"
-          href="/pages/grain/grain-bag-pick-up.html"
-          data-perm="grain-bags:edit">
-        </fv-form-button>
+        <h1 class="page-title">
+          Grain Bag Inventory
+        </h1>
+
+        <p class="page-sub">
+          Manage on-farm grain stored in <strong>bags</strong>.
+          Tap an inventory row below to remove bags as they are picked up.
+        </p>
+
+        <!-- Portal visibility controlled by grain-bags.view -->
+        <section
+          class="form-tiles"
+          aria-label="Grain bag actions"
+          data-perm="grain-bags:view"
+        >
+
+          <fv-form-button
+            label="Put Bag Down"
+            icon-svg="plus"
+            href="/pages/grain/grain-bag-put-down.html"
+            data-perm="grain-bags:add">
+          </fv-form-button>
+
+          <fv-form-button
+            label="Pick Up Bag"
+            icon-svg="minus"
+            href="/pages/grain/grain-bag-pick-up.html"
+            data-perm="grain-bags:edit">
+          </fv-form-button>
+
+        </section>
+
+      </div>
+
+
+      <!-- =====================================================
+           BAG INVENTORY SPREADSHEET
+      ====================================================== -->
+
+      <section
+        class="inventory-section"
+        data-perm="grain-bags:view"
+      >
+
+        <header class="inventory-head">
+
+          <div class="inventory-head-left">
+
+            <h2 class="inventory-title">
+              Current Bag Inventory
+            </h2>
+
+            <p class="inventory-helper">
+              Grouped by farm and crop. Tap a field row to remove inventory.
+              Turn your phone sideways for full-screen spreadsheet view.
+            </p>
+
+          </div>
+
+          <div
+            id="seasonPill"
+            class="season-pill"
+          >
+            Crop Year —
+          </div>
+
+        </header>
+
+
+        <div class="table-wrap">
+
+          <div
+            id="gridViewport"
+            class="grid-viewport"
+            aria-label="Grain bag inventory spreadsheet"
+          >
+
+            <table
+              class="inventory-grid"
+              aria-label="Current grain bag inventory"
+            >
+
+              <thead>
+
+                <tr>
+                  <th style="min-width:190px;">
+                    Field
+                  </th>
+
+                  <th style="min-width:105px;">
+                    Crop
+                  </th>
+
+                  <th style="min-width:115px;">
+                    Put Down
+                  </th>
+
+                  <th style="min-width:100px;">
+                    Moisture
+                  </th>
+
+                  <th style="min-width:105px;">
+                    Full Bags
+                  </th>
+
+                  <th style="min-width:110px;">
+                    Partial Bags
+                  </th>
+
+                  <th style="min-width:95px;">
+                    Priority
+                  </th>
+                </tr>
+
+              </thead>
+
+              <tbody id="inventoryBody">
+
+                <tr class="message-row">
+                  <td colspan="7">
+                    Loading bag inventory…
+                  </td>
+                </tr>
+
+              </tbody>
+
+            </table>
+
+          </div>
+
+        </div>
 
       </section>
+
     </div>
+
   </fv-shell>
 
+
+  <!-- =========================================================
+       QUICK PICKUP DIALOG
+  ========================================================== -->
+
+  <dialog
+    id="pickupDialog"
+    class="pickup-dialog"
+  >
+
+    <header class="pickup-head">
+
+      <div>
+
+        <h3
+          id="pickupTitle"
+          class="pickup-title"
+        >
+          Remove Bag Inventory
+        </h3>
+
+        <p
+          id="pickupSub"
+          class="pickup-sub"
+        >
+          —
+        </p>
+
+      </div>
+
+      <button
+        id="pickupClose"
+        class="dialog-close"
+        type="button"
+        aria-label="Close"
+      >
+        ×
+      </button>
+
+    </header>
+
+
+    <div class="pickup-body">
+
+      <div class="pickup-current">
+
+        <div class="current-box">
+          <span class="current-label">
+            Full Available
+          </span>
+
+          <span
+            id="availableFull"
+            class="current-value"
+          >
+            0
+          </span>
+        </div>
+
+
+        <div class="current-box">
+          <span class="current-label">
+            Partial Available
+          </span>
+
+          <span
+            id="availablePartial"
+            class="current-value"
+          >
+            0
+          </span>
+        </div>
+
+      </div>
+
+
+      <div class="pickup-fields">
+
+        <div class="pickup-field">
+
+          <label for="removeFull">
+            Full Bags to Remove
+          </label>
+
+          <input
+            id="removeFull"
+            class="pickup-input"
+            type="number"
+            min="0"
+            step="1"
+            value="0"
+            inputmode="numeric"
+          />
+
+        </div>
+
+
+        <div class="pickup-field">
+
+          <label for="removePartial">
+            Partial Bags to Remove
+          </label>
+
+          <input
+            id="removePartial"
+            class="pickup-input"
+            type="number"
+            min="0"
+            step="1"
+            value="0"
+            inputmode="numeric"
+          />
+
+        </div>
+
+      </div>
+
+
+      <div class="pickup-help">
+        Enter only what is being removed right now. Remaining bags stay in inventory.
+      </div>
+
+
+      <div
+        id="pickupError"
+        class="pickup-error"
+        role="alert"
+      ></div>
+
+    </div>
+
+
+    <footer class="pickup-footer">
+
+      <button
+        id="pickupCancel"
+        class="btn"
+        type="button"
+      >
+        Cancel
+      </button>
+
+      <button
+        id="pickupSave"
+        class="btn btn-primary"
+        type="button"
+      >
+        Remove From Inventory
+      </button>
+
+    </footer>
+
+  </dialog>
+
+
+  <div
+    id="toast"
+    class="toast"
+    role="status"
+    aria-live="polite"
+  >
+    Saved.
+  </div>
+
+
   <noscript>
-    <div class="container"><div class="card">JavaScript is required for Grain Bag Inventory.</div></div>
+    <div class="container">
+      <div class="card">
+        JavaScript is required for Grain Bag Inventory.
+      </div>
+    </div>
   </noscript>
+
+
+  <!-- =========================================================
+       DATA + INVENTORY LOGIC
+  ========================================================== -->
+
+  <script type="module">
+
+    import {
+      ready,
+      getFirestore,
+      getAuth,
+      collection,
+      getDocs,
+      doc,
+      updateDoc,
+      addDoc,
+      serverTimestamp
+    } from "/js/firebase-init.js";
+
+
+    /* =========================================================
+       ELEMENTS
+    ========================================================= */
+
+    const $ =
+      id =>
+        document.getElementById(id);
+
+
+    const body =
+      $("inventoryBody");
+
+
+    const seasonPill =
+      $("seasonPill");
+
+
+    const pickupDialog =
+      $("pickupDialog");
+
+
+    const pickupTitle =
+      $("pickupTitle");
+
+
+    const pickupSub =
+      $("pickupSub");
+
+
+    const pickupClose =
+      $("pickupClose");
+
+
+    const pickupCancel =
+      $("pickupCancel");
+
+
+    const pickupSave =
+      $("pickupSave");
+
+
+    const availableFull =
+      $("availableFull");
+
+
+    const availablePartial =
+      $("availablePartial");
+
+
+    const removeFull =
+      $("removeFull");
+
+
+    const removePartial =
+      $("removePartial");
+
+
+    const pickupError =
+      $("pickupError");
+
+
+    /* =========================================================
+       STATE
+    ========================================================= */
+
+    const state = {
+
+      db:
+        null,
+
+      auth:
+        null,
+
+      farms:
+        [],
+
+      fields:
+        [],
+
+      farmById:
+        new Map(),
+
+      fieldById:
+        new Map(),
+
+      rows:
+        [],
+
+      selected:
+        null,
+
+      season:
+        null
+
+    };
+
+
+    /* =========================================================
+       HELPERS
+    ========================================================= */
+
+    const COLLATOR =
+      new Intl.Collator(
+        undefined,
+        {
+          numeric:true,
+          sensitivity:"base"
+        }
+      );
+
+
+    function clean(value){
+
+      return String(
+        value ??
+        ""
+      )
+        .trim();
+
+    }
+
+
+    function norm(value){
+
+      return clean(value)
+        .toLowerCase();
+
+    }
+
+
+    function escapeHtml(value){
+
+      return String(
+        value ??
+        ""
+      )
+        .replace(
+          /[&<>"']/g,
+          char => ({
+            "&":"&amp;",
+            "<":"&lt;",
+            ">":"&gt;",
+            '"':"&quot;",
+            "'":"&#39;"
+          }[char])
+        );
+
+    }
+
+
+    function num(value){
+
+      const n =
+        Number(value);
+
+      return Number.isFinite(n)
+        ? n
+        : 0;
+
+    }
+
+
+    function integer(value){
+
+      return Math.max(
+        0,
+        Math.floor(
+          num(value)
+        )
+      );
+
+    }
+
+
+    function formatDate(value){
+
+      if (!value) {
+        return "—";
+      }
+
+
+      let date =
+        null;
+
+
+      if (
+        typeof value ===
+          "object" &&
+        typeof value.toDate ===
+          "function"
+      ) {
+
+        date =
+          value.toDate();
+
+      } else {
+
+        const text =
+          clean(value);
+
+
+        if (
+          /^\d{4}-\d{2}-\d{2}$/
+            .test(text)
+        ) {
+
+          const [
+            y,
+            m,
+            d
+          ] =
+            text
+              .split("-")
+              .map(Number);
+
+
+          date =
+            new Date(
+              y,
+              m - 1,
+              d
+            );
+
+        } else {
+
+          const parsed =
+            new Date(value);
+
+
+          if (
+            !Number.isNaN(
+              parsed.getTime()
+            )
+          ) {
+
+            date =
+              parsed;
+
+          }
+
+        }
+
+      }
+
+
+      if (!date) {
+        return "—";
+      }
+
+
+      return new Intl.DateTimeFormat(
+        "en-US",
+        {
+          month:"short",
+          day:"numeric",
+          year:"numeric"
+        }
+      )
+        .format(date);
+
+    }
+
+
+    function dateObject(value){
+
+      if (!value) {
+        return null;
+      }
+
+
+      if (
+        typeof value ===
+          "object" &&
+        typeof value.toDate ===
+          "function"
+      ) {
+
+        return value.toDate();
+
+      }
+
+
+      const text =
+        clean(value);
+
+
+      if (
+        /^\d{4}-\d{2}-\d{2}$/
+          .test(text)
+      ) {
+
+        const [
+          y,
+          m,
+          d
+        ] =
+          text
+            .split("-")
+            .map(Number);
+
+
+        return new Date(
+          y,
+          m - 1,
+          d
+        );
+
+      }
+
+
+      const parsed =
+        new Date(value);
+
+
+      return Number.isNaN(
+        parsed.getTime()
+      )
+        ? null
+        : parsed;
+
+    }
+
+
+    function todayISO(){
+
+      const date =
+        new Date();
+
+
+      const year =
+        date.getFullYear();
+
+
+      const month =
+        String(
+          date.getMonth() + 1
+        )
+          .padStart(
+            2,
+            "0"
+          );
+
+
+      const day =
+        String(
+          date.getDate()
+        )
+          .padStart(
+            2,
+            "0"
+          );
+
+
+      return `${year}-${month}-${day}`;
+
+    }
+
+
+    function currentCropSeason(){
+
+      const now =
+        new Date();
+
+
+      const calendarYear =
+        now.getFullYear();
+
+
+      /*
+        August through December:
+          crop year = this calendar year
+
+        January through July:
+          crop year = previous calendar year
+      */
+
+      const cropYear =
+        now.getMonth() >= 7
+          ? calendarYear
+          : calendarYear - 1;
+
+
+      return {
+
+        cropYear,
+
+        start:
+          new Date(
+            cropYear,
+            7,
+            1,
+            0,
+            0,
+            0,
+            0
+          ),
+
+        end:
+          new Date(
+            cropYear + 1,
+            6,
+            31,
+            23,
+            59,
+            59,
+            999
+          )
+
+      };
+
+    }
+
+
+    function cropDisplay(value){
+
+      const text =
+        clean(value);
+
+
+      const lower =
+        text.toLowerCase();
+
+
+      if (
+        lower === "corn"
+      ) {
+
+        return "Corn";
+
+      }
+
+
+      if (
+        lower === "soybean" ||
+        lower === "soybeans" ||
+        lower === "beans"
+      ) {
+
+        return "Soybeans";
+
+      }
+
+
+      if (
+        lower === "wheat"
+      ) {
+
+        return "Wheat";
+
+      }
+
+
+      if (!text) {
+        return "Unknown";
+      }
+
+
+      return text
+        .charAt(0)
+        .toUpperCase() +
+        text.slice(1);
+
+    }
+
+
+    function moistureValue(row){
+
+      const candidates = [
+
+        row.moisture,
+
+        row.moisturePct,
+
+        row.moisturePercent,
+
+        row.grainMoisture,
+
+        row.grain?.moisture
+
+      ];
+
+
+      for (
+        const value
+        of candidates
+      ) {
+
+        if (
+          value !==
+            null &&
+          value !==
+            undefined &&
+          value !==
+            ""
+        ) {
+
+          const n =
+            Number(value);
+
+
+          if (
+            Number.isFinite(n)
+          ) {
+
+            return n;
+
+          }
+
+        }
+
+      }
+
+
+      return null;
+
+    }
+
+
+    function priorityValue(row){
+
+      const n =
+        Number(
+          row.priority ??
+          0
+        );
+
+
+      return Number.isFinite(n)
+        ? n
+        : 0;
+
+    }
+
+
+    function priorityClass(value){
+
+      const n =
+        Number(value) ||
+        0;
+
+
+      if (
+        n >= 7
+      ) {
+
+        return "high";
+
+      }
+
+
+      if (
+        n >= 4
+      ) {
+
+        return "medium";
+
+      }
+
+
+      return "low";
+
+    }
+
+
+    function rowFull(row){
+
+      return integer(
+        row.counts?.full
+      );
+
+    }
+
+
+    function rowPartial(row){
+
+      return integer(
+        row.counts?.partial
+      );
+
+    }
+
+
+    function rowPartialFeet(row){
+
+      /*
+        FarmVista has used both:
+
+        counts.partialFeet
+        partialFeet
+
+        depending on when the record was created/updated.
+      */
+
+      const direct =
+        row.counts?.partialFeet;
+
+
+      if (
+        Number.isFinite(
+          Number(direct)
+        )
+      ) {
+
+        return Math.max(
+          0,
+          Number(direct)
+        );
+
+      }
+
+
+      if (
+        Array.isArray(
+          row.partialFeet
+        )
+      ) {
+
+        return row.partialFeet
+          .reduce(
+            (
+              total,
+              value
+            ) =>
+              total +
+              Math.max(
+                0,
+                num(value)
+              ),
+            0
+          );
+
+      }
+
+
+      if (
+        Number.isFinite(
+          Number(
+            row.partialFeet
+          )
+        )
+      ) {
+
+        return Math.max(
+          0,
+          Number(
+            row.partialFeet
+          )
+        );
+
+      }
+
+
+      return 0;
+
+    }
+
+
+    function hasInventory(row){
+
+      return (
+        rowFull(row) >
+          0 ||
+        rowPartial(row) >
+          0 ||
+        rowPartialFeet(row) >
+          0
+      );
+
+    }
+
+
+    function isPutDown(row){
+
+      const type =
+        norm(
+          row.type
+        )
+          .replace(
+            /\s+/g,
+            ""
+          );
+
+
+      return (
+        type === "putdown"
+      );
+
+    }
+
+
+    function isPickedUp(row){
+
+      const status =
+        norm(
+          row.status
+        )
+          .replace(
+            /\s+/g,
+            ""
+          );
+
+
+      return (
+        status === "pickedup"
+      );
+
+    }
+
+
+    function rowCropYear(row){
+
+      const raw =
+        Number(
+          row.cropYear
+        );
+
+
+      if (
+        Number.isFinite(raw) &&
+        raw > 1900
+      ) {
+
+        return raw;
+
+      }
+
+
+      const date =
+        dateObject(
+          row.datePlaced ||
+          row.placedDate ||
+          row.createdAt
+        );
+
+
+      if (!date) {
+        return null;
+      }
+
+
+      /*
+        Infer crop year using the same
+        Aug 1 → Jul 31 rule.
+      */
+
+      return date.getMonth() >= 7
+        ? date.getFullYear()
+        : date.getFullYear() - 1;
+
+    }
+
+
+    function isCurrentSeason(row){
+
+      const season =
+        state.season;
+
+
+      const cropYear =
+        rowCropYear(row);
+
+
+      if (
+        cropYear !==
+          null
+      ) {
+
+        return Number(
+          cropYear
+        ) ===
+          Number(
+            season.cropYear
+          );
+
+      }
+
+
+      /*
+        Last fallback:
+        if no cropYear can be determined,
+        test the placed date.
+      */
+
+      const date =
+        dateObject(
+          row.datePlaced ||
+          row.placedDate ||
+          row.createdAt
+        );
+
+
+      if (!date) {
+        return false;
+      }
+
+
+      return (
+        date >=
+          season.start &&
+        date <=
+          season.end
+      );
+
+    }
+
+
+    /* =========================================================
+       FARM + FIELD LOOKUP
+    ========================================================= */
+
+    function getFieldRecord(row){
+
+      const fieldId =
+        clean(
+          row.field?.id ||
+          row.fieldId
+        );
+
+
+      if (
+        fieldId &&
+        state.fieldById.has(
+          fieldId
+        )
+      ) {
+
+        return state.fieldById.get(
+          fieldId
+        );
+
+      }
+
+
+      return null;
+
+    }
+
+
+    function getFieldName(row){
+
+      const field =
+        getFieldRecord(row);
+
+
+      return clean(
+        row.field?.name ||
+        row.fieldName ||
+        field?.name
+      ) ||
+        "Unknown Field";
+
+    }
+
+
+    function getFarmInfo(row){
+
+      const field =
+        getFieldRecord(row);
+
+
+      const farmId =
+        clean(
+          row.farm?.id ||
+          row.farmId ||
+          row.field?.farmId ||
+          field?.farmId
+        );
+
+
+      let farmName =
+        clean(
+          row.farm?.name ||
+          row.farmName ||
+          row.field?.farmName ||
+          field?.farmName
+        );
+
+
+      if (
+        !farmName &&
+        farmId &&
+        state.farmById.has(
+          farmId
+        )
+      ) {
+
+        farmName =
+          clean(
+            state.farmById.get(
+              farmId
+            )?.name
+          );
+
+      }
+
+
+      return {
+
+        id:
+          farmId ||
+          `name:${farmName || "Unknown Farm"}`,
+
+        name:
+          farmName ||
+          "Unknown Farm"
+
+      };
+
+    }
+
+
+    /* =========================================================
+       USER
+    ========================================================= */
+
+    function currentUser(){
+
+      const user =
+        state.auth?.currentUser;
+
+
+      const email =
+        clean(
+          user?.email
+        );
+
+
+      const name =
+        clean(
+          user?.displayName
+        ) ||
+        email ||
+        "FarmVista User";
+
+
+      return {
+
+        employeeId:
+          user?.uid ||
+          email ||
+          null,
+
+        uid:
+          user?.uid ||
+          null,
+
+        name,
+
+        email:
+          email ||
+          null
+
+      };
+
+    }
+
+
+    /* =========================================================
+       TOAST
+    ========================================================= */
+
+    function toast(message){
+
+      const element =
+        $("toast");
+
+
+      element.textContent =
+        message;
+
+
+      element.classList
+        .remove(
+          "show"
+        );
+
+
+      void element.offsetWidth;
+
+
+      element.classList
+        .add(
+          "show"
+        );
+
+
+      clearTimeout(
+        toast._timer
+      );
+
+
+      toast._timer =
+        setTimeout(
+          () => {
+
+            element.classList
+              .remove(
+                "show"
+              );
+
+          },
+          2600
+        );
+
+    }
+
+
+    /* =========================================================
+       DATA LOAD
+    ========================================================= */
+
+    async function loadReferenceData(){
+
+      const db =
+        state.db;
+
+
+      const [
+        farmsSnapshot,
+        fieldsSnapshot
+      ] =
+        await Promise.all([
+
+          getDocs(
+            collection(
+              db,
+              "farms"
+            )
+          ),
+
+          getDocs(
+            collection(
+              db,
+              "fields"
+            )
+          )
+
+        ]);
+
+
+      state.farms =
+        farmsSnapshot.docs
+          .map(
+            snapshot => ({
+              id:
+                snapshot.id,
+              ...snapshot.data()
+            })
+          );
+
+
+      state.fields =
+        fieldsSnapshot.docs
+          .map(
+            snapshot => ({
+              id:
+                snapshot.id,
+              ...snapshot.data()
+            })
+          );
+
+
+      state.farmById =
+        new Map();
+
+
+      state.farms
+        .forEach(
+          farm => {
+
+            state.farmById
+              .set(
+                String(
+                  farm.id
+                ),
+                farm
+              );
+
+          }
+        );
+
+
+      state.fieldById =
+        new Map();
+
+
+      state.fields
+        .forEach(
+          field => {
+
+            state.fieldById
+              .set(
+                String(
+                  field.id
+                ),
+                field
+              );
+
+          }
+        );
+
+    }
+
+
+    async function loadBagInventory(){
+
+      body.innerHTML =
+        `
+          <tr class="message-row">
+            <td colspan="7">
+              Loading bag inventory…
+            </td>
+          </tr>
+        `;
+
+
+      try{
+
+        const snapshot =
+          await getDocs(
+            collection(
+              state.db,
+              "grain_bag_events"
+            )
+          );
+
+
+        let rows =
+          snapshot.docs
+            .map(
+              snapshot => ({
+                id:
+                  snapshot.id,
+                ...snapshot.data()
+              })
+            )
+            .filter(
+              isPutDown
+            )
+            .filter(
+              row =>
+                !isPickedUp(
+                  row
+                )
+            )
+            .filter(
+              hasInventory
+            )
+            .filter(
+              isCurrentSeason
+            );
+
+
+        rows =
+          rows.map(
+            row => {
+
+              const farm =
+                getFarmInfo(
+                  row
+                );
+
+
+              return {
+
+                ...row,
+
+                _farmId:
+                  farm.id,
+
+                _farmName:
+                  farm.name,
+
+                _fieldName:
+                  getFieldName(
+                    row
+                  ),
+
+                _crop:
+                  cropDisplay(
+                    row.cropType ||
+                    row.crop
+                  ),
+
+                _moisture:
+                  moistureValue(
+                    row
+                  ),
+
+                _full:
+                  rowFull(
+                    row
+                  ),
+
+                _partial:
+                  rowPartial(
+                    row
+                  ),
+
+                _priority:
+                  priorityValue(
+                    row
+                  )
+
+              };
+
+            }
+          );
+
+
+        state.rows =
+          rows;
+
+
+        renderInventory();
+
+
+      } catch(error){
+
+        console.error(
+          "[Grain Bag Inventory] load failed:",
+          error
+        );
+
+
+        body.innerHTML =
+          `
+            <tr class="message-row error-row">
+              <td colspan="7">
+                Unable to load grain bag inventory.
+              </td>
+            </tr>
+          `;
+
+      }
+
+    }
+
+
+    /* =========================================================
+       GROUPING
+    ========================================================= */
+
+    function buildGroups(){
+
+      const farms =
+        new Map();
+
+
+      state.rows
+        .forEach(
+          row => {
+
+            const farmKey =
+              String(
+                row._farmId ||
+                row._farmName
+              );
+
+
+            if (
+              !farms.has(
+                farmKey
+              )
+            ) {
+
+              farms.set(
+                farmKey,
+                {
+                  id:
+                    farmKey,
+
+                  name:
+                    row._farmName,
+
+                  crops:
+                    new Map(),
+
+                  full:
+                    0,
+
+                  partial:
+                    0
+                }
+              );
+
+            }
+
+
+            const farm =
+              farms.get(
+                farmKey
+              );
+
+
+            farm.full +=
+              row._full;
+
+
+            farm.partial +=
+              row._partial;
+
+
+            const cropKey =
+              row._crop;
+
+
+            if (
+              !farm.crops.has(
+                cropKey
+              )
+            ) {
+
+              farm.crops.set(
+                cropKey,
+                {
+                  name:
+                    cropKey,
+
+                  rows:
+                    [],
+
+                  full:
+                    0,
+
+                  partial:
+                    0
+                }
+              );
+
+            }
+
+
+            const crop =
+              farm.crops.get(
+                cropKey
+              );
+
+
+            crop.rows.push(
+              row
+            );
+
+
+            crop.full +=
+              row._full;
+
+
+            crop.partial +=
+              row._partial;
+
+          }
+        );
+
+
+      return Array
+        .from(
+          farms.values()
+        )
+        .sort(
+          (
+            a,
+            b
+          ) =>
+            COLLATOR.compare(
+              a.name,
+              b.name
+            )
+        );
+
+    }
+
+
+    /* =========================================================
+       RENDER
+    ========================================================= */
+
+    function renderInventory(){
+
+      if (
+        !state.rows.length
+      ) {
+
+        body.innerHTML =
+          `
+            <tr class="message-row">
+              <td colspan="7">
+                No open grain bags for the ${escapeHtml(
+                  state.season.cropYear
+                )} crop year.
+              </td>
+            </tr>
+          `;
+
+        return;
+
+      }
+
+
+      const farms =
+        buildGroups();
+
+
+      const html =
+        [];
+
+
+      farms.forEach(
+        farm => {
+
+          html.push(
+            `
+              <tr class="farm-group-row">
+
+                <td colspan="7">
+
+                  <div class="farm-group-inner">
+
+                    <span class="farm-name">
+                      ${escapeHtml(
+                        farm.name
+                      )}
+                    </span>
+
+                    <span class="farm-summary">
+                      ${farm.full} full
+                      •
+                      ${farm.partial} partial
+                    </span>
+
+                  </div>
+
+                </td>
+
+              </tr>
+            `
+          );
+
+
+          const crops =
+            Array
+              .from(
+                farm.crops.values()
+              )
+              .sort(
+                (
+                  a,
+                  b
+                ) =>
+                  COLLATOR.compare(
+                    a.name,
+                    b.name
+                  )
+              );
+
+
+          crops.forEach(
+            crop => {
+
+              html.push(
+                `
+                  <tr class="crop-group-row">
+
+                    <td colspan="7">
+
+                      <div class="crop-group-inner">
+
+                        <span>
+                          ${escapeHtml(
+                            crop.name
+                          )}
+                        </span>
+
+                        <span class="crop-summary">
+                          ${crop.full} full
+                          •
+                          ${crop.partial} partial
+                        </span>
+
+                      </div>
+
+                    </td>
+
+                  </tr>
+                `
+              );
+
+
+              crop.rows
+                .sort(
+                  (
+                    a,
+                    b
+                  ) => {
+
+                    const fieldCompare =
+                      COLLATOR.compare(
+                        a._fieldName,
+                        b._fieldName
+                      );
+
+
+                    if (
+                      fieldCompare !==
+                        0
+                    ) {
+
+                      return fieldCompare;
+
+                    }
+
+
+                    return clean(
+                      a.datePlaced
+                    )
+                      .localeCompare(
+                        clean(
+                          b.datePlaced
+                        )
+                      );
+
+                  }
+                )
+                .forEach(
+                  row => {
+
+                    const moisture =
+                      row._moisture ===
+                        null
+                        ? "—"
+                        : `${Number(
+                            row._moisture
+                          ).toFixed(
+                            1
+                          )}%`;
+
+
+                    const priority =
+                      Number(
+                        row._priority
+                      ) ||
+                      0;
+
+
+                    html.push(
+                      `
+                        <tr
+                          class="inventory-row"
+                          data-id="${escapeHtml(
+                            row.id
+                          )}"
+                          title="Tap to remove inventory"
+                        >
+
+                          <td>
+                            <span class="field-name">
+                              ${escapeHtml(
+                                row._fieldName
+                              )}
+                            </span>
+                          </td>
+
+                          <td class="crop-cell">
+                            ${escapeHtml(
+                              row._crop
+                            )}
+                          </td>
+
+                          <td class="number-cell">
+                            ${escapeHtml(
+                              formatDate(
+                                row.datePlaced ||
+                                row.placedDate ||
+                                row.createdAt
+                              )
+                            )}
+                          </td>
+
+                          <td class="number-cell">
+                            ${escapeHtml(
+                              moisture
+                            )}
+                          </td>
+
+                          <td class="number-cell">
+                            <span class="bag-count">
+                              ${row._full}
+                            </span>
+                          </td>
+
+                          <td class="number-cell">
+                            <span class="bag-count">
+                              ${row._partial}
+                            </span>
+                          </td>
+
+                          <td>
+                            <span
+                              class="
+                                priority-pill
+                                ${priorityClass(
+                                  priority
+                                )}
+                              "
+                            >
+                              ${priority ||
+                                "—"}
+                            </span>
+                          </td>
+
+                        </tr>
+                      `
+                    );
+
+                  }
+                );
+
+            }
+          );
+
+        }
+      );
+
+
+      body.innerHTML =
+        html.join(
+          ""
+        );
+
+
+      body
+        .querySelectorAll(
+          ".inventory-row[data-id]"
+        )
+        .forEach(
+          rowElement => {
+
+            rowElement
+              .addEventListener(
+                "click",
+                () => {
+
+                  const id =
+                    rowElement.dataset.id;
+
+
+                  const row =
+                    state.rows.find(
+                      item =>
+                        item.id ===
+                        id
+                    );
+
+
+                  if (!row) {
+                    return;
+                  }
+
+
+                  openPickup(
+                    row
+                  );
+
+                }
+              );
+
+          }
+        );
+
+    }
+
+
+    /* =========================================================
+       QUICK PICKUP
+    ========================================================= */
+
+    function showPickupError(message){
+
+      pickupError.textContent =
+        message;
+
+
+      pickupError.classList
+        .add(
+          "show"
+        );
+
+    }
+
+
+    function clearPickupError(){
+
+      pickupError.textContent =
+        "";
+
+
+      pickupError.classList
+        .remove(
+          "show"
+        );
+
+    }
+
+
+    function openPickup(row){
+
+      state.selected =
+        row;
+
+
+      clearPickupError();
+
+
+      const full =
+        rowFull(
+          row
+        );
+
+
+      const partial =
+        rowPartial(
+          row
+        );
+
+
+      pickupTitle.textContent =
+        "Remove Bag Inventory";
+
+
+      pickupSub.textContent =
+        [
+          row._farmName,
+          row._fieldName,
+          row._crop
+        ]
+          .filter(
+            Boolean
+          )
+          .join(
+            " • "
+          );
+
+
+      availableFull.textContent =
+        String(
+          full
+        );
+
+
+      availablePartial.textContent =
+        String(
+          partial
+        );
+
+
+      removeFull.value =
+        "0";
+
+
+      removePartial.value =
+        "0";
+
+
+      removeFull.max =
+        String(
+          full
+        );
+
+
+      removePartial.max =
+        String(
+          partial
+        );
+
+
+      try{
+
+        pickupDialog
+          .showModal();
+
+      } catch{
+
+        pickupDialog
+          .setAttribute(
+            "open",
+            ""
+          );
+
+      }
+
+
+      /*
+        Put the cursor in Full Bags by default
+        because that's normally the fastest pickup.
+      */
+
+      setTimeout(
+        () => {
+
+          removeFull
+            .focus();
+
+          removeFull
+            .select();
+
+        },
+        50
+      );
+
+    }
+
+
+    function closePickup(){
+
+      state.selected =
+        null;
+
+
+      clearPickupError();
+
+
+      try{
+
+        pickupDialog
+          .close();
+
+      } catch{
+
+        pickupDialog
+          .removeAttribute(
+            "open"
+          );
+
+      }
+
+    }
+
+
+    async function savePickup(){
+
+      const row =
+        state.selected;
+
+
+      if (!row) {
+        return;
+      }
+
+
+      clearPickupError();
+
+
+      const availableF =
+        rowFull(
+          row
+        );
+
+
+      const availableP =
+        rowPartial(
+          row
+        );
+
+
+      const takeFull =
+        integer(
+          removeFull.value
+        );
+
+
+      const takePartial =
+        integer(
+          removePartial.value
+        );
+
+
+      if (
+        takeFull ===
+          0 &&
+        takePartial ===
+          0
+      ) {
+
+        showPickupError(
+          "Enter at least one full or partial bag to remove."
+        );
+
+        return;
+
+      }
+
+
+      if (
+        takeFull >
+          availableF
+      ) {
+
+        showPickupError(
+          `Only ${availableF} full bag${
+            availableF === 1
+              ? ""
+              : "s"
+          } available.`
+        );
+
+        return;
+
+      }
+
+
+      if (
+        takePartial >
+          availableP
+      ) {
+
+        showPickupError(
+          `Only ${availableP} partial bag${
+            availableP === 1
+              ? ""
+              : "s"
+          } available.`
+        );
+
+        return;
+
+      }
+
+
+      const leftFull =
+        availableF -
+        takeFull;
+
+
+      const leftPartial =
+        availableP -
+        takePartial;
+
+
+      const who =
+        currentUser();
+
+
+      const pickupDate =
+        todayISO();
+
+
+      pickupSave.disabled =
+        true;
+
+
+      pickupCancel.disabled =
+        true;
+
+
+      pickupClose.disabled =
+        true;
+
+
+      pickupSave.textContent =
+        "Saving…";
+
+
+      try{
+
+        /*
+          ---------------------------------------
+          1. Record pickup history
+          ---------------------------------------
+        */
+
+        await addDoc(
+          collection(
+            state.db,
+            "grain_bag_events"
+          ),
+          {
+
+            type:
+              "pickUp",
+
+            field: {
+              id:
+                clean(
+                  row.field?.id ||
+                  row.fieldId
+                ) ||
+                null,
+
+              name:
+                row._fieldName
+            },
+
+            farm: {
+              id:
+                clean(
+                  row._farmId
+                ) ||
+                null,
+
+              name:
+                row._farmName
+            },
+
+            cropYear:
+              state.season.cropYear,
+
+            crop:
+              row._crop,
+
+            countsPicked: {
+              full:
+                takeFull,
+
+              partial:
+                takePartial
+            },
+
+            appliedTo: [
+              {
+                refPutDownId:
+                  row.id,
+
+                takeFull,
+
+                takePartial
+              }
+            ],
+
+            pickedUpDate:
+              pickupDate,
+
+            pickedUpBy:
+              who,
+
+            quickInventoryPickup:
+              true,
+
+            createdAt:
+              serverTimestamp(),
+
+            updatedAt:
+              serverTimestamp()
+
+          }
+        );
+
+
+        /*
+          ---------------------------------------
+          2. Update original put-down inventory
+          ---------------------------------------
+        */
+
+        const patch = {
+
+          "counts.full":
+            leftFull,
+
+          "counts.partial":
+            leftPartial,
+
+          updatedAt:
+            serverTimestamp()
+
+        };
+
+
+        /*
+          Only mark the put-down completely picked up
+          when there is truly nothing remaining.
+        */
+
+        const partialFeetRemaining =
+          rowPartialFeet(
+            row
+          );
+
+
+        if (
+          leftFull ===
+            0 &&
+          leftPartial ===
+            0 &&
+          partialFeetRemaining <=
+            0
+        ) {
+
+          patch.status =
+            "pickedUp";
+
+          patch.pickedUpAt =
+            pickupDate;
+
+          patch.pickedUpBy =
+            who;
+
+        }
+
+
+        await updateDoc(
+          doc(
+            state.db,
+            "grain_bag_events",
+            row.id
+          ),
+          patch
+        );
+
+
+        closePickup();
+
+
+        toast(
+          "Bag inventory updated."
+        );
+
+
+        await loadBagInventory();
+
+
+      } catch(error){
+
+        console.error(
+          "[Grain Bag Inventory] pickup failed:",
+          error
+        );
+
+
+        showPickupError(
+          error?.message ||
+          "Unable to update inventory."
+        );
+
+
+      } finally{
+
+        pickupSave.disabled =
+          false;
+
+
+        pickupCancel.disabled =
+          false;
+
+
+        pickupClose.disabled =
+          false;
+
+
+        pickupSave.textContent =
+          "Remove From Inventory";
+
+      }
+
+    }
+
+
+    /* =========================================================
+       EVENTS
+    ========================================================= */
+
+    pickupClose
+      .addEventListener(
+        "click",
+        closePickup
+      );
+
+
+    pickupCancel
+      .addEventListener(
+        "click",
+        closePickup
+      );
+
+
+    pickupSave
+      .addEventListener(
+        "click",
+        savePickup
+      );
+
+
+    pickupDialog
+      .addEventListener(
+        "click",
+        event => {
+
+          /*
+            Clicking the dark backdrop closes the dialog.
+          */
+
+          const rect =
+            pickupDialog
+              .getBoundingClientRect();
+
+
+          const inside =
+            (
+              event.clientX >=
+                rect.left &&
+              event.clientX <=
+                rect.right &&
+              event.clientY >=
+                rect.top &&
+              event.clientY <=
+                rect.bottom
+            );
+
+
+          if (!inside) {
+
+            closePickup();
+
+          }
+
+        }
+      );
+
+
+    window
+      .addEventListener(
+        "focus",
+        () => {
+
+          if (
+            state.db &&
+            !pickupDialog.open
+          ) {
+
+            loadBagInventory();
+
+          }
+
+        }
+      );
+
+
+    document
+      .addEventListener(
+        "visibilitychange",
+        () => {
+
+          if (
+            !document.hidden &&
+            state.db &&
+            !pickupDialog.open
+          ) {
+
+            loadBagInventory();
+
+          }
+
+        }
+      );
+
+
+    /* =========================================================
+       BOOT
+    ========================================================= */
+
+    (async function(){
+
+      await ready;
+
+
+      state.db =
+        getFirestore();
+
+
+      state.auth =
+        getAuth();
+
+
+      state.season =
+        currentCropSeason();
+
+
+      seasonPill.textContent =
+        `Crop Year ${
+          state.season.cropYear
+        } • Aug ${
+          state.season.cropYear
+        } – Jul ${
+          state.season.cropYear + 1
+        }`;
+
+
+      try{
+
+        await loadReferenceData();
+
+      } catch(error){
+
+        /*
+          Bag inventory can still load without farm/field maps.
+          Existing event values will be used as fallbacks.
+        */
+
+        console.warn(
+          "[Grain Bag Inventory] farm/field reference load failed:",
+          error
+        );
+
+      }
+
+
+      await loadBagInventory();
+
+    })();
+
+  </script>
+
 </body>
 </html>
