@@ -14,6 +14,7 @@
 
   <!-- Early theme boot -->
   <script src="/js/theme-boot.js"></script>
+  <script src="/js/grain-capacity.js"></script>
 
   <!-- PWA + icons -->
   <link rel="manifest" href="/manifest.webmanifest"/>
@@ -1098,33 +1099,46 @@
                     Crop
                   </th>
 
-                  <th style="min-width:115px;">
-                    Put Down
-                  </th>
+<tr>
+  <th style="min-width:190px;">
+    Field
+  </th>
 
-                  <th style="min-width:100px;">
-                    Moisture
-                  </th>
+  <th style="min-width:105px;">
+    Crop
+  </th>
 
-                  <th style="min-width:105px;">
-                    Full Bags
-                  </th>
+  <th style="min-width:110px;">
+    Bushels
+  </th>
 
-                  <th style="min-width:110px;">
-                    Partial Bags
-                  </th>
+  <th style="min-width:115px;">
+    Put Down
+  </th>
 
-                  <th style="min-width:95px;">
-                    Priority
-                  </th>
-                </tr>
+  <th style="min-width:100px;">
+    Moisture
+  </th>
+
+  <th style="min-width:105px;">
+    Full Bags
+  </th>
+
+  <th style="min-width:110px;">
+    Partial Bags
+  </th>
+
+  <th style="min-width:95px;">
+    Priority
+  </th>
+</tr>
 
               </thead>
 
               <tbody id="inventoryBody">
 
                 <tr class="message-row">
-                  <td colspan="7">
+                  <td colspan="8">
                     Loading bag inventory…
                   </td>
                 </tr>
@@ -1994,6 +2008,152 @@
 
     }
 
+   function estimateBuPerFoot(diameterFt){
+
+  const d =
+    num(diameterFt);
+
+  if(d >= 12) return 60;
+  if(d >= 11) return 50;
+  if(d >= 10) return 39;
+  if(d >= 9)  return 30;
+  if(d > 0)   return 25;
+
+  return 0;
+}
+
+
+function cropFactorFromCorn(cropType){
+
+  try{
+
+    const api =
+      window.FVGrainCapacity ||
+      null;
+
+    if(
+      api &&
+      typeof api.getFactor === "function"
+    ){
+
+      const factor =
+        Number(
+          api.getFactor(
+            cropType
+          )
+        );
+
+      if(
+        Number.isFinite(factor) &&
+        factor > 0
+      ){
+        return factor;
+      }
+
+    }
+
+  }catch(_){}
+
+  return 1;
+}
+
+
+function bagCurrentFeet(row){
+
+  const sku =
+    row?.bagSku ||
+    {};
+
+  const lengthFt =
+    num(
+      sku.sizeFeet ||
+      sku.lengthFt
+    );
+
+  if(!(lengthFt > 0)){
+    return 0;
+  }
+
+
+  const full =
+    rowFull(
+      row
+    );
+
+
+  const partial =
+    rowPartial(
+      row
+    );
+
+
+  let partialFeetTotal =
+    rowPartialFeet(
+      row
+    );
+
+
+  if(
+    partial > 0 &&
+    partialFeetTotal <= 0
+  ){
+
+    partialFeetTotal =
+      partial *
+      0.5 *
+      lengthFt;
+
+  }
+
+
+  return (
+    full *
+    lengthFt
+  ) +
+    partialFeetTotal;
+}
+
+
+function bagBushels(row){
+
+  const sku =
+    row?.bagSku ||
+    {};
+
+
+  const cornBuPerFoot =
+    estimateBuPerFoot(
+      sku.diameterFt ||
+      sku.diameter
+    );
+
+
+  if(!(cornBuPerFoot > 0)){
+    return 0;
+  }
+
+
+  const cropBuPerFoot =
+    cornBuPerFoot *
+    cropFactorFromCorn(
+      row.cropType ||
+      row.crop ||
+      ""
+    );
+
+
+  return Math.max(
+    0,
+    Math.round(
+      bagCurrentFeet(
+        row
+      ) *
+      cropBuPerFoot
+    )
+  );
+
+} 
+
 
     function hasInventory(row){
 
@@ -2532,15 +2692,20 @@
                     row
                   ),
 
-                _partial:
-                  rowPartial(
-                    row
-                  ),
+_partial:
+  rowPartial(
+    row
+  ),
 
-                _priority:
-                  priorityValue(
-                    row
-                  )
+_bushels:
+  bagBushels(
+    row
+  ),
+
+_priority:
+  priorityValue(
+    row
+  )
 
               };
 
@@ -2900,21 +3065,29 @@
                             </span>
                           </td>
 
-                          <td class="crop-cell">
-                            ${escapeHtml(
-                              row._crop
-                            )}
-                          </td>
+<td class="crop-cell">
+  ${escapeHtml(
+    row._crop
+  )}
+</td>
 
-                          <td class="number-cell">
-                            ${escapeHtml(
-                              formatDate(
-                                row.datePlaced ||
-                                row.placedDate ||
-                                row.createdAt
-                              )
-                            )}
-                          </td>
+<td class="number-cell">
+  <span class="bag-count">
+    ${Number(
+      row._bushels || 0
+    ).toLocaleString("en-US")}
+  </span>
+</td>
+
+<td class="number-cell">
+  ${escapeHtml(
+    formatDate(
+      row.datePlaced ||
+      row.placedDate ||
+      row.createdAt
+    )
+  )}
+</td>
 
                           <td class="number-cell">
                             ${escapeHtml(
