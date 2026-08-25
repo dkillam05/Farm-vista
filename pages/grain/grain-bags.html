@@ -1381,36 +1381,42 @@
        STATE
     ========================================================= */
 
-    const state = {
+const state = {
 
-      db:
-        null,
+  db:
+    null,
 
-      auth:
-        null,
+  auth:
+    null,
 
-      farms:
-        [],
+  farms:
+    [],
 
-      fields:
-        [],
+  fields:
+    [],
 
-      farmById:
-        new Map(),
+  farmById:
+    new Map(),
 
-      fieldById:
-        new Map(),
+  fieldById:
+    new Map(),
 
-      rows:
-        [],
+  productsById:
+    new Map(),
 
-      selected:
-        null,
+  bagMovementByKey:
+    new Map(),
 
-      season:
-        null
+  rows:
+    [],
 
-    };
+  selected:
+    null,
+
+  season:
+    null
+
+};
 
 
     /* =========================================================
@@ -1974,10 +1980,17 @@
 
     }
 
-   function estimateBuPerFoot(diameterFt){
+function estimateBuPerFoot(diameterFt){
 
   const d =
     num(diameterFt);
+
+  /*
+    FALLBACK ONLY.
+
+    Normal FarmVista capacity comes from
+    productsGrainBags.bushels.
+  */
 
   if(d >= 12) return 60;
   if(d >= 11) return 50;
@@ -2013,28 +2026,292 @@ function cropFactorFromCorn(cropType){
         Number.isFinite(factor) &&
         factor > 0
       ){
+
         return factor;
+
       }
 
     }
 
   }catch(_){}
 
+
   return 1;
+
 }
 
 
-function bagCurrentFeet(row){
+function makeBagKey(
+  brand,
+  diameterFt,
+  lengthFt
+){
+
+  return [
+    norm(brand),
+    num(diameterFt),
+    num(lengthFt)
+  ].join("|");
+
+}
+
+
+function parseDocIdFromRef(ref){
+
+  if(!ref){
+    return "";
+  }
+
+
+  try{
+
+    if(
+      typeof ref.id === "string" &&
+      ref.id
+    ){
+
+      return ref.id;
+
+    }
+
+  }catch(_){}
+
+
+  const parts =
+    String(
+      ref ||
+      ""
+    )
+      .split("/")
+      .filter(Boolean);
+
+
+  return parts.length
+    ? parts[
+        parts.length - 1
+      ]
+    : "";
+
+}
+
+
+function resolveBagProduct(sku){
+
+  sku =
+    sku ||
+    {};
+
+
+  /*
+    First try the product ID saved in bagSku.
+  */
+
+  const skuId =
+    clean(
+      sku.id
+    );
+
+
+  if(
+    skuId &&
+    state.productsById.has(
+      skuId
+    )
+  ){
+
+    return state.productsById.get(
+      skuId
+    );
+
+  }
+
+
+  /*
+    Then try the inventory movement/product relationship.
+  */
+
+  const key =
+    makeBagKey(
+      sku.brand,
+      sku.diameterFt ||
+        sku.diameter,
+      sku.sizeFeet ||
+        sku.lengthFt
+    );
+
+
+  const movement =
+    state.bagMovementByKey.get(
+      key
+    );
+
+
+  const productId =
+    parseDocIdFromRef(
+      movement?.productRef
+    );
+
+
+  if(
+    productId &&
+    state.productsById.has(
+      productId
+    )
+  ){
+
+    return state.productsById.get(
+      productId
+    );
+
+  }
+
+
+  /*
+    Final product lookup:
+    match brand + diameter + length.
+  */
+
+  for(
+    const product
+    of state.productsById.values()
+  ){
+
+    const sameBrand =
+      norm(
+        product?.brand
+      ) ===
+      norm(
+        sku?.brand
+      );
+
+
+    const sameDiameter =
+      num(
+        product?.diameterFt
+      ) ===
+      num(
+        sku?.diameterFt ||
+        sku?.diameter
+      );
+
+
+    const sameLength =
+      num(
+        product?.lengthFt
+      ) ===
+      num(
+        sku?.sizeFeet ||
+        sku?.lengthFt
+      );
+
+
+    if(
+      sameBrand &&
+      sameDiameter &&
+      sameLength
+    ){
+
+      return product;
+
+    }
+
+  }
+
+
+  return null;
+
+}
+
+
+function bagCapacityInfo(row){
 
   const sku =
     row?.bagSku ||
     {};
 
+
+  const product =
+    resolveBagProduct(
+      sku
+    );
+
+
   const lengthFt =
     num(
-      sku.sizeFeet ||
-      sku.lengthFt
+      product?.lengthFt ||
+      sku?.sizeFeet ||
+      sku?.lengthFt
     );
+
+
+  /*
+    productsGrainBags.bushels is the
+    source of truth for full bag capacity.
+  */
+
+  const cornBuPerBag =
+    num(
+      product?.bushels
+    );
+
+
+  let cornBuPerFoot =
+    0;
+
+
+  if(
+    cornBuPerBag > 0 &&
+    lengthFt > 0
+  ){
+
+    cornBuPerFoot =
+      cornBuPerBag /
+      lengthFt;
+
+  } else {
+
+    /*
+      Only use the diameter estimate if
+      no matching product was found.
+    */
+
+    cornBuPerFoot =
+      estimateBuPerFoot(
+        sku.diameterFt ||
+        sku.diameter
+      );
+
+  }
+
+
+  return {
+
+    lengthFt,
+
+    cropBuPerFoot:
+      cornBuPerFoot *
+      cropFactorFromCorn(
+        row.cropType ||
+        row.crop ||
+        ""
+      )
+
+  };
+
+}
+
+
+function bagCurrentFeet(row){
+
+  const capacity =
+    bagCapacityInfo(
+      row
+    );
+
+
+  const lengthFt =
+    capacity.lengthFt;
+
 
   if(!(lengthFt > 0)){
     return 0;
@@ -2076,36 +2353,29 @@ function bagCurrentFeet(row){
     full *
     lengthFt
   ) +
-    partialFeetTotal;
+  partialFeetTotal;
+
 }
 
 
 function bagBushels(row){
 
-  const sku =
-    row?.bagSku ||
-    {};
-
-
-  const cornBuPerFoot =
-    estimateBuPerFoot(
-      sku.diameterFt ||
-      sku.diameter
+  const capacity =
+    bagCapacityInfo(
+      row
     );
 
 
-  if(!(cornBuPerFoot > 0)){
+  if(
+    !(
+      capacity.cropBuPerFoot >
+      0
+    )
+  ){
+
     return 0;
+
   }
-
-
-  const cropBuPerFoot =
-    cornBuPerFoot *
-    cropFactorFromCorn(
-      row.cropType ||
-      row.crop ||
-      ""
-    );
 
 
   return Math.max(
@@ -2114,11 +2384,11 @@ function bagBushels(row){
       bagCurrentFeet(
         row
       ) *
-      cropBuPerFoot
+      capacity.cropBuPerFoot
     )
   );
 
-} 
+}
 
 
     function hasInventory(row){
@@ -2475,97 +2745,223 @@ function bagBushels(row){
        DATA LOAD
     ========================================================= */
 
-    async function loadReferenceData(){
+async function loadReferenceData(){
 
-      const db =
-        state.db;
-
-
-      const [
-        farmsSnapshot,
-        fieldsSnapshot
-      ] =
-        await Promise.all([
-
-          getDocs(
-            collection(
-              db,
-              "farms"
-            )
-          ),
-
-          getDocs(
-            collection(
-              db,
-              "fields"
-            )
-          )
-
-        ]);
+  const db =
+    state.db;
 
 
-      state.farms =
-        farmsSnapshot.docs
-          .map(
-            snapshot => ({
-              id:
-                snapshot.id,
-              ...snapshot.data()
-            })
+  const [
+    farmsSnapshot,
+    fieldsSnapshot,
+    productsSnapshot,
+    bagMovementSnapshot
+  ] =
+    await Promise.all([
+
+      getDocs(
+        collection(
+          db,
+          "farms"
+        )
+      ),
+
+      getDocs(
+        collection(
+          db,
+          "fields"
+        )
+      ),
+
+      getDocs(
+        collection(
+          db,
+          "productsGrainBags"
+        )
+      ),
+
+      getDocs(
+        collection(
+          db,
+          "inventoryGrainBagMovements"
+        )
+      )
+
+    ]);
+
+
+  /* =========================================================
+     FARMS
+  ========================================================= */
+
+  state.farms =
+    farmsSnapshot.docs
+      .map(
+        snapshot => ({
+          id:
+            snapshot.id,
+          ...snapshot.data()
+        })
+      );
+
+
+  state.farmById =
+    new Map();
+
+
+  state.farms
+    .forEach(
+      farm => {
+
+        state.farmById
+          .set(
+            String(
+              farm.id
+            ),
+            farm
           );
 
+      }
+    );
 
-      state.fields =
-        fieldsSnapshot.docs
-          .map(
-            snapshot => ({
-              id:
-                snapshot.id,
-              ...snapshot.data()
-            })
+
+  /* =========================================================
+     FIELDS
+  ========================================================= */
+
+  state.fields =
+    fieldsSnapshot.docs
+      .map(
+        snapshot => ({
+          id:
+            snapshot.id,
+          ...snapshot.data()
+        })
+      );
+
+
+  state.fieldById =
+    new Map();
+
+
+  state.fields
+    .forEach(
+      field => {
+
+        state.fieldById
+          .set(
+            String(
+              field.id
+            ),
+            field
           );
 
+      }
+    );
 
-      state.farmById =
-        new Map();
+
+  /* =========================================================
+     GRAIN BAG PRODUCTS
+  ========================================================= */
+
+  state.productsById =
+    new Map();
 
 
-      state.farms
-        .forEach(
-          farm => {
+  productsSnapshot.docs
+    .forEach(
+      snapshot => {
 
-            state.farmById
-              .set(
-                String(
-                  farm.id
-                ),
-                farm
-              );
+        state.productsById.set(
+          snapshot.id,
+          {
+            id:
+              snapshot.id,
 
+            ...(
+              snapshot.data() ||
+              {}
+            )
           }
         );
 
+      }
+    );
 
-      state.fieldById =
-        new Map();
+
+  /* =========================================================
+     BAG PRODUCT MOVEMENT LOOKUP
+  ========================================================= */
+
+  state.bagMovementByKey =
+    new Map();
 
 
-      state.fields
-        .forEach(
-          field => {
+  bagMovementSnapshot
+    .forEach(
+      snapshot => {
 
-            state.fieldById
-              .set(
-                String(
-                  field.id
-                ),
-                field
+        const data =
+          snapshot.data() ||
+          {};
+
+
+        const key =
+          makeBagKey(
+            data.brand,
+            data.diameterFt,
+            data.lengthFt
+          );
+
+
+        const existing =
+          state.bagMovementByKey.get(
+            key
+          );
+
+
+        const existingMs =
+          existing?.updatedAt?.toDate
+
+            ? existing
+                .updatedAt
+                .toDate()
+                .getTime()
+
+            : num(
+                existing?.updatedAt
               );
 
-          }
-        );
 
-    }
+        const newMs =
+          data?.updatedAt?.toDate
+
+            ? data
+                .updatedAt
+                .toDate()
+                .getTime()
+
+            : num(
+                data?.updatedAt
+              );
+
+
+        if(
+          !existing ||
+          newMs >= existingMs
+        ){
+
+          state.bagMovementByKey.set(
+            key,
+            data
+          );
+
+        }
+
+      }
+    );
+
+}
 
 
     async function loadBagInventory(){
