@@ -499,26 +499,16 @@ export const NAV_MENU = {
       ]
     },
 
+
     /* ===== Reports ===== */
     {
-      type: 'group',
+      type: 'link',
       id: 'reports',
       perm: 'reports',
       icon: '📑',
       label: 'Reports',
-      collapsible: true,
-      initialOpen: false,
-      children: [
-        {
-          type: 'link',
-          id: 'reports-predef',
-          perm: 'reports-predef',
-          icon: '📚',
-          label: 'Predefined Reports',
-          href: '/pages/reports/reports-predefined.html',
-          activeMatch: 'starts-with'
-        }
-      ]
+      href: '/pages/reports/reports-predefined.html',
+      activeMatch: 'starts-with'
     },
 
     /* ===== Setup ===== */
