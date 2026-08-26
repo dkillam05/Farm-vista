@@ -54,8 +54,26 @@
   function prune(node, allow){
     if (!node || !node.type || !node.id) return null;
 
-    if (node.type === 'link') {
-      return allow.has(node.id) ? { ...node } : null;
+     if (node.type === 'link') {
+      // Normal direct permission match
+      if (allow.has(node.id)) {
+        return { ...node };
+      }
+
+      // Reports used to be:
+      //   Reports
+      //     └─ Predefined Reports (reports-predef)
+      //
+      // Reports is now a direct link, but preserve existing
+      // Account Role permissions that already allowed reports-predef.
+      if (
+        node.id === 'reports' &&
+        (allow.has('reports') || allow.has('reports-predef'))
+      ) {
+        return { ...node };
+      }
+
+      return null;
     }
 
     if (node.type === 'group') {
