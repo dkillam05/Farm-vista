@@ -503,8 +503,8 @@ export const NAV_MENU = {
     /* ===== Reports ===== */
     {
       type: 'link',
-      id: 'reports-predef',
-      perm: 'reports-predef',
+      id: 'reports',
+      perm: 'reports',
       icon: '📑',
       label: 'Reports',
       href: '/pages/reports/reports-predefined.html',
