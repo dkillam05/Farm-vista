@@ -1885,10 +1885,17 @@ a.href = href;
         return wrap;
       };
 
-      (cfg.items || []).forEach(item=>{
-        if (item.type === 'group' && item.collapsible) nav.appendChild(mkGroup(item, 0));
-        else if (item.type === 'link') nav.appendChild(mkLink(item, 0));
-      });
+(cfg.items || []).forEach(item=>{
+  if (item.type === 'group' && item.collapsible) {
+    nav.appendChild(mkGroup(item, 0));
+  }
+  else if (item.type === 'group' && !item.collapsible && item.href) {
+    nav.appendChild(mkLink(item, 0));
+  }
+  else if (item.type === 'link') {
+    nav.appendChild(mkLink(item, 0));
+  }
+});
     }
 
     _postPaintSanity(){
