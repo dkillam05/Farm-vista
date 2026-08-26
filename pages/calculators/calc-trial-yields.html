@@ -651,6 +651,27 @@
       color:var(--muted);
       padding:10px 2px;
     }
+    /* =========================================================
+   FIELD COMBO — MOBILE / DESKTOP POSITION FIX
+========================================================= */
+
+.fv-panel{
+  max-width:calc(100vw - 24px) !important;
+  max-height:min(360px,50vh) !important;
+  overflow-y:auto !important;
+  overflow-x:hidden !important;
+  border-radius:12px !important;
+  box-shadow:0 12px 30px rgba(0,0,0,.22) !important;
+  z-index:10050 !important;
+}
+
+@media(max-width:700px){
+  .fv-panel{
+    max-height:42vh !important;
+  }
+}
+    
+    
   </style>
 </head>
 
@@ -1451,100 +1472,175 @@
     });
 
 
-    /* =========================================================
-       HARD FIX FOR FV COMBO PANEL INSIDE MODAL
-    ========================================================== */
+/* =========================================================
+   FV COMBO PANEL POSITIONING
+   Keeps Field + calculator dropdowns attached to their boxes
+========================================================= */
 
-    function clamp(n,a,b){
-      return Math.max(a,Math.min(b,n));
-    }
+function clamp(n,a,b){
+  return Math.max(a,Math.min(b,n));
+}
 
-    function forcePlaceOpenComboPanels(anchorBtn){
+function forcePlaceOpenComboPanels(anchorBtn){
 
-      const panel =
-        document.querySelector(".fv-panel.show");
+  const panel =
+    document.querySelector(".fv-panel.show");
 
-      if(!panel || !anchorBtn) return;
+  if(!panel || !anchorBtn) return;
 
-      const r =
-        anchorBtn.getBoundingClientRect();
+  const r =
+    anchorBtn.getBoundingClientRect();
 
-      const vwW =
-        window.innerWidth;
+  const vwW =
+    window.innerWidth;
 
-      const vwH =
-        window.innerHeight;
+  const vwH =
+    window.innerHeight;
 
-      const gap = 6;
+  const gap = 6;
+  const edge = 12;
 
-      const width =
-        Math.max(
-          180,
-          Math.round(r.width)
-        );
-
-      panel.style.width =
-        width + "px";
-
-      const left =
-        clamp(
-          Math.round(r.left),
-          8,
-          vwW - width - 8
-        );
-
-      let top =
-        Math.round(
-          r.bottom + gap
-        );
-
-      const panelHeight =
-        Math.round(
-          panel.getBoundingClientRect().height ||
-          240
-        );
-
-      if(
-        top + panelHeight >
-        vwH - 8
-      ){
-
-        const upward =
-          Math.round(
-            r.top -
-            gap -
-            panelHeight
-          );
-
-        if(upward >= 8){
-          top = upward;
-        }
-      }
-
-      panel.style.left =
-        left + "px";
-
-      panel.style.top =
-        top + "px";
-    }
-
-    $("cyModal").addEventListener(
-      "click",
-      e => {
-
-        const btn =
-          e.target.closest &&
-          e.target.closest(".fv-buttonish");
-
-        if(!btn) return;
-
-        setTimeout(
-          ()=>forcePlaceOpenComboPanels(btn),
-          0
-        );
-      },
-      true
+  /*
+   * Make dropdown match the control width instead of
+   * becoming almost the full width of the screen.
+   */
+  const width =
+    Math.min(
+      Math.max(220,Math.round(r.width)),
+      vwW - (edge * 2)
     );
+
+  panel.style.position = "fixed";
+  panel.style.width = width + "px";
+  panel.style.minWidth = width + "px";
+  panel.style.maxWidth = width + "px";
+
+  let left =
+    Math.round(r.left);
+
+  left =
+    clamp(
+      left,
+      edge,
+      vwW - width - edge
+    );
+
+  /*
+   * First try opening directly below the field.
+   */
+  let availableBelow =
+    vwH - r.bottom - edge - gap;
+
+  let availableAbove =
+    r.top - edge - gap;
+
+  let desiredHeight =
+    Math.min(
+      360,
+      Math.max(
+        180,
+        Math.round(vwH * .42)
+      )
+    );
+
+  let top;
+
+  /*
+   * If there isn't enough room below, open upward.
+   */
+  if(
+    availableBelow < 180 &&
+    availableAbove > availableBelow
+  ){
+    desiredHeight =
+      Math.min(
+        desiredHeight,
+        availableAbove
+      );
+
+    top =
+      Math.round(
+        r.top -
+        gap -
+        desiredHeight
+      );
+  }
+  else{
+    desiredHeight =
+      Math.min(
+        desiredHeight,
+        availableBelow
+      );
+
+    top =
+      Math.round(
+        r.bottom + gap
+      );
+  }
+
+  panel.style.left = left + "px";
+  panel.style.top = Math.max(edge,top) + "px";
+
+  panel.style.maxHeight =
+    Math.max(160,desiredHeight) + "px";
+
+  panel.style.overflowY = "auto";
+  panel.style.overflowX = "hidden";
+}
+
+
+/*
+ * Position ANY FarmVista combo on this page.
+ *
+ * This fixes:
+ *   - Field
+ *   - Crop
+ *   - Cut Width
+ */
+document.addEventListener(
+  "click",
+  e => {
+
+    const btn =
+      e.target.closest &&
+      e.target.closest(".fv-buttonish");
+
+    if(!btn) return;
+
+    setTimeout(
+      ()=>{
+        forcePlaceOpenComboPanels(btn);
+      },
+      0
+    );
+  },
+  true
+);
+
+
+/*
+ * Reposition an open combo if the phone rotates
+ * or the viewport changes.
+ */
+window.addEventListener(
+  "resize",
+  ()=>{
+
+    const panel =
+      document.querySelector(".fv-panel.show");
+
+    if(!panel) return;
+
+    const active =
+      document.querySelector(
+        ".fv-buttonish[aria-expanded='true']"
+      );
+
+    if(active){
+      forcePlaceOpenComboPanels(active);
+    }
+  }
+);
 
 
     /* =========================================================
