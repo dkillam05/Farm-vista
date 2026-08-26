@@ -500,16 +500,17 @@ export const NAV_MENU = {
     },
 
 
-    /* ===== Reports ===== */
-    {
-      type: 'link',
-      id: 'reports',
-      perm: 'reports',
-      icon: '📑',
-      label: 'Reports',
-      href: '/pages/reports/reports-predefined.html',
-      activeMatch: 'starts-with'
-    },
+/* ===== Reports ===== */
+{
+  type: 'link',
+  id: 'reports',
+  perm: 'reports',
+  permKey: 'reports-predef',
+  icon: '📑',
+  label: 'Reports',
+  href: '/pages/reports/reports-predefined.html',
+  activeMatch: 'starts-with'
+},
 
     /* ===== Setup ===== */
     {
