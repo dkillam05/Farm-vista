@@ -631,16 +631,77 @@
         await ready;
         __db = getFirestore();
 
-        // Submitted by + date
-        submittedByEl.value = "";
-        submittedDateEl.value = todayISO();
-        try{
-          const auth = getAuth();
-          onAuthStateChanged(auth, (u)=>{
-            const name = (u && (u.displayName || u.email)) ? String(u.displayName || u.email) : "";
-            submittedByEl.value = name || "";
-          });
-        }catch{}
+// Submitted by + date
+// Always show the currently logged-in FarmVista employee.
+// Field remains readonly and cannot be changed by the user.
+submittedByEl.value = "";
+submittedDateEl.value = todayISO();
+
+try{
+  const auth = getAuth();
+
+  onAuthStateChanged(auth, async (u)=>{
+    if(!u){
+      submittedByEl.value = "";
+      return;
+    }
+
+    let displayName = "";
+
+    try{
+      // First try matching the logged-in Auth UID directly
+      const employeeSnap = await getDoc(doc(__db, "employees", u.uid));
+
+      if(employeeSnap.exists()){
+        const d = employeeSnap.data() || {};
+
+        displayName =
+          String(d.displayName || "").trim() ||
+          [d.firstName, d.lastName].filter(Boolean).join(" ").trim() ||
+          String(d.name || "").trim();
+      }
+    }catch(e){
+      console.warn("Could not load employee by UID:", e);
+    }
+
+    // If employee docs are not keyed by Auth UID,
+    // search active employees for the logged-in email.
+    if(!displayName && u.email){
+      try{
+        const employeeSnap = await getDocs(collection(__db, "employees"));
+        const loginEmail = String(u.email || "").trim().toLowerCase();
+
+        for(const ds of employeeSnap.docs){
+          const d = ds.data() || {};
+          const employeeEmail = String(d.email || "").trim().toLowerCase();
+
+          if(employeeEmail && employeeEmail === loginEmail){
+            displayName =
+              String(d.displayName || "").trim() ||
+              [d.firstName, d.lastName].filter(Boolean).join(" ").trim() ||
+              String(d.name || "").trim();
+
+            if(displayName) break;
+          }
+        }
+      }catch(e){
+        console.warn("Could not match employee by email:", e);
+      }
+    }
+
+    // Final fallbacks
+    if(!displayName){
+      displayName =
+        String(u.displayName || "").trim() ||
+        String(u.email || "").trim();
+    }
+
+    submittedByEl.value = displayName;
+  });
+
+}catch(e){
+  console.error("Submitted By initialization failed:", e);
+}
 
         // Farm/Field combos
         farmCombo = makeCombo({
