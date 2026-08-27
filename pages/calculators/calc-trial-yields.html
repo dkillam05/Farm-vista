@@ -1,2810 +1,3946 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>FarmVista - Trial Yields</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#3B7E46">
-
-  <link rel="manifest" href="../../manifest.webmanifest">
-
-  <script defer src="../../js/theme-boot.js"></script>
-
-  <link rel="stylesheet" href="../../assets/css/theme.css">
-  <link rel="stylesheet" href="../../assets/css/app.css">
-
-  <script defer src="../../js/fv-shell.js"></script>
-  <script defer src="../../js/fv-combo.js"></script>
-
-  <style>
-    :root{
-      --page-bottom-gap:96px;
-      --card-max:940px;
-      --accent:#2F6C3C;
-      --ring:rgba(47,108,60,.20);
-      --trial-bg:rgba(47,108,60,.07);
-      --check-bg:rgba(140,140,140,.08);
-    }
-
-    html{
-      -webkit-text-size-adjust:100%;
-    }
-
-    body{
-      background:var(--app-bg,var(--surface));
-    }
-
-    .wrap{
-      max-width:var(--card-max);
-      margin:0 auto;
-      padding:clamp(14px,3vw,22px);
-      padding-bottom:
-        calc(
-          env(safe-area-inset-bottom,0px)
-          + var(--ftr-h,42px)
-          + var(--page-bottom-gap)
-        ) !important;
-    }
-
-    .calc-card{
-      border:1px solid var(--border);
-      border-radius:14px;
-      background:var(--surface);
-      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      overflow:visible;
-      margin-bottom:var(--page-bottom-gap);
-    }
-
-    .card-head{
-      display:flex;
-      align-items:center;
-      gap:12px;
-      padding:14px 16px;
-      background:
-        linear-gradient(
-          90deg,
-          rgba(47,108,60,.12),
-          transparent
-        );
-      border-bottom:1px solid var(--border);
-      border-radius:14px 14px 0 0;
-    }
-
-    .card-head .icon{
-      width:34px;
-      height:34px;
-      color:var(--accent);
-      flex:0 0 auto;
-    }
-
-    .card-head h1{
-      margin:0;
-      font-size:clamp(20px,3.2vw,26px);
-      line-height:1.2;
-    }
-
-    .muted{
-      color:var(--muted,#67706B);
-    }
-
-    .setup{
-      padding:16px;
-      border-bottom:1px solid var(--border);
-      background:
-        linear-gradient(
-          180deg,
-          rgba(47,108,60,.04),
-          transparent
-        );
-      overflow:visible;
-      position:relative;
-      z-index:50;
-    }
-
-    .setup-grid{
-      display:grid;
-      grid-template-columns:1fr 1fr;
-      gap:12px;
-      align-items:start;
-    }
-
-    @media(max-width:700px){
-      .setup-grid{
-        grid-template-columns:1fr;
-      }
-    }
-
-    label{
-      display:block;
-      font-weight:700;
-      margin-bottom:6px;
-    }
-
-    input,
-    select,
-    button{
-      font-size:16px;
-    }
-
-    .ctrl{
-      display:flex;
-      align-items:center;
-      gap:8px;
-      border:1px solid var(--border);
-      background:var(--surface);
-      border-radius:10px;
-      padding:10px 12px;
-    }
-
-    .ctrl:focus-within{
-      border-color:rgba(47,108,60,.42);
-      box-shadow:0 0 0 4px var(--ring);
-    }
-
-    .ctrl input{
-      width:100%;
-      min-width:0;
-      border:0;
-      outline:0;
-      background:transparent;
-      color:var(--text);
-    }
-
-    .select-box{
-      width:100%;
-      border:1px solid var(--border);
-      border-radius:12px;
-      padding:10px 12px;
-      background:var(--surface);
-      color:var(--text);
-      outline:none;
-    }
-
-    .select-box:focus{
-      border-color:rgba(47,108,60,.42);
-      box-shadow:0 0 0 4px var(--ring);
-    }
-
-    .field-picker{
-      position:relative;
-      width:100%;
-      z-index:200;
-    }
-
-    /*
-     * Whichever picker is OPEN must sit above
-     * the other picker and the rest of the page.
-     */
-    .field-picker.open{
-      z-index:15000;
-    }
-
-    .field-picker-btn{
-      width:100%;
-      min-height:46px;
-      appearance:none;
-      border:1px solid var(--border);
-      border-radius:12px;
-      background:var(--surface);
-      color:var(--text);
-      padding:10px 42px 10px 12px;
-      text-align:left;
-      cursor:pointer;
-      position:relative;
-      font-weight:500;
-      z-index:2;
-    }
-
-    .field-picker-btn:focus{
-      outline:none;
-      border-color:rgba(47,108,60,.42);
-      box-shadow:0 0 0 4px var(--ring);
-    }
-
-    .field-picker-btn::after{
-      content:"";
-      position:absolute;
-      right:15px;
-      top:50%;
-      width:8px;
-      height:8px;
-      border-right:2px solid currentColor;
-      border-bottom:2px solid currentColor;
-      transform:
-        translateY(-70%)
-        rotate(45deg);
-      pointer-events:none;
-    }
-
-    .field-picker.open .field-picker-btn{
-      border-radius:12px 12px 0 0;
-      border-bottom-color:var(--border);
-    }
-
-    .field-picker.open .field-picker-btn::after{
-      transform:
-        translateY(-25%)
-        rotate(225deg);
-    }
-
-    .field-picker-placeholder{
-      color:var(--muted,#777);
-    }
-
-    .field-picker-panel{
-      position:absolute;
-
-      /*
-       * Pull panel directly against bottom of selector.
-       * Negative 1px overlaps the borders so there is
-       * no visible gap.
-       */
-      top:calc(100% - 1px);
-      left:0;
-      right:0;
-
-      display:none;
-
-      background:var(--surface);
-      border:1px solid var(--border);
-      border-top:0;
-      border-radius:0 0 12px 12px;
-      box-shadow:0 14px 34px rgba(0,0,0,.24);
-
-      z-index:15001;
-
-      overflow:hidden;
-    }
-
-    .field-picker.open .field-picker-panel{
-      display:block;
-    }
-
-    .field-search-wrap{
-      padding:10px;
-      border-bottom:1px solid var(--border);
-      background:var(--surface);
-    }
-
-    .field-search{
-      width:100%;
-      box-sizing:border-box;
-      border:1px solid var(--border);
-      border-radius:10px;
-      padding:11px 12px;
-      background:var(--surface);
-      color:var(--text);
-      outline:none;
-    }
-
-    .field-search:focus{
-      border-color:rgba(47,108,60,.42);
-      box-shadow:0 0 0 3px var(--ring);
-    }
-
-    .field-options{
-      max-height:min(360px,42vh);
-      overflow-y:auto;
-      overflow-x:hidden;
-      -webkit-overflow-scrolling:touch;
-      overscroll-behavior:contain;
-      background:var(--surface);
-    }
-
-    .field-option{
-      width:100%;
-      appearance:none;
-      border:0;
-      border-bottom:1px solid var(--border);
-      background:var(--surface);
-      color:var(--text);
-      padding:12px 14px;
-      text-align:left;
-      cursor:pointer;
-      border-radius:0;
-    }
-
-    .field-option:last-child{
-      border-bottom:0;
-    }
-
-    .field-option:hover,
-    .field-option:focus{
-      outline:none;
-      background:rgba(47,108,60,.08);
-    }
-
-    .field-option.selected{
-      font-weight:800;
-      background:rgba(47,108,60,.10);
-    }
-
-    .field-empty{
-      padding:15px;
-      color:var(--muted);
-      text-align:center;
-    }
-
-    .section-head{
-      display:flex;
-      gap:10px;
-      align-items:center;
-      flex-wrap:wrap;
-      padding:16px 16px 8px;
-    }
-
-    .section-head h2{
-      flex:1;
-      margin:0;
-      font-size:20px;
-    }
-
-    .section-note{
-      padding:0 16px 10px;
-      color:var(--muted);
-      font-size:13px;
-      line-height:1.4;
-    }
-
-    .btn{
-      appearance:none;
-      border:1px solid var(--border);
-      background:var(--surface);
-      padding:10px 14px;
-      border-radius:10px;
-      font-weight:700;
-      cursor:pointer;
-      color:var(--text) !important;
-    }
-
-    .btn:hover{
-      border-color:rgba(47,108,60,.45);
-    }
-
-    .btn[disabled]{
-      opacity:.55;
-      cursor:not-allowed;
-    }
-
-    .btn-primary{
-      background:var(--accent);
-      color:#fff !important;
-      border-color:var(--accent);
-    }
-
-    .strip-list{
-      padding:8px 16px 16px;
-      display:grid;
-      gap:12px;
-    }
-
-    .strip{
-      border:1px solid var(--border);
-      border-radius:14px;
-      overflow:hidden;
-      background:var(--surface);
-    }
-
-    .strip[data-type="Trial"]{
-      background:
-        linear-gradient(
-          180deg,
-          var(--trial-bg),
-          transparent 58%
-        );
-    }
-
-    .strip[data-type="Check"]{
-      background:
-        linear-gradient(
-          180deg,
-          var(--check-bg),
-          transparent 58%
-        );
-    }
-
-    .strip-head{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      padding:10px 12px;
-      border-bottom:1px solid var(--border);
-    }
-
-    .strip-number{
-      font-weight:800;
-    }
-
-    .strip-badge{
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      min-width:66px;
-      border-radius:999px;
-      padding:4px 10px;
-      font-size:12px;
-      font-weight:800;
-      border:1px solid var(--border);
-      background:var(--surface);
-    }
-
-    .strip[data-type="Trial"] .strip-badge{
-      color:var(--accent);
-      border-color:rgba(47,108,60,.35);
-    }
-
-    .strip-head-spacer{
-      flex:1;
-    }
-
-    .remove-strip{
-      appearance:none;
-      border:1px solid var(--border);
-      background:var(--surface);
-      border-radius:9px;
-      padding:6px 10px;
-      cursor:pointer;
-      color:var(--text);
-      font-weight:700;
-    }
-
-    .strip-body{
-      padding:12px;
-      display:grid;
-      gap:10px;
-    }
-
-    .strip-top-grid{
-      display:grid;
-      grid-template-columns:180px 1fr;
-      gap:10px;
-    }
-
-    @media(max-width:650px){
-      .strip-top-grid{
-        grid-template-columns:1fr;
-      }
-    }
-
-    .yieldline{
-      display:flex;
-      gap:10px;
-      align-items:center;
-      justify-content:space-between;
-      padding:11px 12px;
-      border:1px dashed var(--border);
-      border-radius:10px;
-      background:var(--surface);
-    }
-
-    .yield-value{
-      font-size:18px;
-      font-weight:850;
-    }
-
-    .calc-details{
-      color:var(--muted);
-      font-size:12px;
-      margin-top:3px;
-      line-height:1.35;
-    }
-
-    .summary{
-      padding:0 16px 16px;
-    }
-
-    .summary-tile{
-      border:1px solid var(--border);
-      border-radius:14px;
-      padding:14px;
-      background:
-        linear-gradient(
-          180deg,
-          rgba(47,108,60,.07),
-          transparent 65%
-        );
-    }
-
-    .summary-tile h3{
-      margin:0 0 12px;
-    }
-
-    .summary-grid{
-      display:grid;
-      grid-template-columns:repeat(2,minmax(0,1fr));
-      gap:10px;
-    }
-
-    @media(max-width:650px){
-      .summary-grid{
-        grid-template-columns:1fr;
-      }
-    }
-
-    .summary-stat{
-      border:1px solid var(--border);
-      border-radius:10px;
-      padding:10px;
-      background:var(--surface);
-    }
-
-    .summary-stat .label{
-      color:var(--muted);
-      font-size:12px;
-      font-weight:700;
-      margin-bottom:3px;
-    }
-
-    .summary-stat .value{
-      font-size:18px;
-      font-weight:850;
-    }
-
-    .adv-positive{
-      color:var(--accent);
-    }
-
-    .adv-negative{
-      color:#b12828;
-    }
-
-    .bottom-actions{
-      padding:16px;
-      border-top:1px dashed var(--border);
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
-    }
-
-    .bottom-actions .save{
-      margin-left:auto;
-    }
-
-    @media(max-width:600px){
-      .bottom-actions .save{
-        margin-left:0;
-        width:100%;
-      }
-    }
-
-    .history-section{
-      border-top:1px solid var(--border);
-      padding:16px;
-    }
-
-    .history-head{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      margin-bottom:12px;
-    }
-
-    .history-head h2{
-      flex:1;
-      margin:0;
-      font-size:20px;
-    }
-
-    .history-list{
-      display:grid;
-      gap:10px;
-    }
-
-    .history-row{
-      border:1px solid var(--border);
-      border-radius:12px;
-      padding:12px;
-      background:var(--surface);
-    }
-
-    .history-main{
-      display:flex;
-      gap:10px;
-      align-items:center;
-    }
-
-    .history-info{
-      flex:1;
-      min-width:0;
-    }
-
-    .history-title{
-      font-weight:850;
-      margin-bottom:4px;
-      overflow-wrap:anywhere;
-    }
-
-    .history-sub{
-      color:var(--muted);
-      font-size:13px;
-      line-height:1.4;
-    }
-
-    .modal{
-      position:fixed;
-      inset:0;
-      display:none;
-      place-items:center;
-      background:rgba(0,0,0,.42);
-      z-index:9999;
-      opacity:0;
-    }
-
-    .modal[open]{
-      display:grid;
-      opacity:1;
-    }
-
-    .dialog{
-      width:min(860px,94vw);
-      max-height:88vh;
-      display:flex;
-      flex-direction:column;
-      background:var(--surface);
-      color:var(--text);
-      border-radius:14px;
-      border:1px solid var(--border);
-      box-shadow:0 16px 36px rgba(0,0,0,.28);
-      overflow:hidden;
-    }
-
-    .dialog-head{
-      padding:12px 14px;
-      border-bottom:1px solid var(--border);
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      gap:8px;
-    }
-
-    .dialog-body{
-      padding:14px;
-      overflow:auto;
-      overflow-x:hidden;
-      flex:1 1 auto;
-      min-height:0;
-      -webkit-overflow-scrolling:touch;
-    }
-
-    .closex{
-      border:1px solid var(--border);
-      background:var(--surface);
-      border-radius:10px;
-      padding:8px 12px;
-      cursor:pointer;
-      font-weight:700;
-      color:var(--text) !important;
-    }
-
-    html.no-scroll,
-    body.no-scroll{
-      overflow:hidden;
-    }
-
-    .cg{
-      display:grid;
-      grid-template-columns:1fr 1fr;
-      gap:12px;
-    }
-
-    @media(max-width:760px){
-      .cg{
-        grid-template-columns:1fr;
-      }
-    }
-
-    .unit{
-      font-size:12px;
-      color:var(--muted);
-      white-space:nowrap;
-    }
-
-    .result-grid{
-      display:grid;
-      grid-template-columns:1fr;
-      gap:12px;
-      margin-top:12px;
-    }
-
-    .mini-tile{
-      border:1px solid var(--border);
-      border-radius:12px;
-      padding:10px;
-      background:var(--surface);
-    }
-
-    .mini-tile h4{
-      margin:0 0 6px;
-      font-size:14px;
-    }
-
-    .help-btn{
-      appearance:none;
-      border:1px solid var(--border);
-      background:var(--surface);
-      border-radius:999px;
-      width:26px;
-      height:26px;
-      display:inline-grid;
-      place-items:center;
-      cursor:pointer;
-      color:var(--text) !important;
-      padding:0;
-    }
-
-    .help-btn svg{
-      width:16px;
-      height:16px;
-    }
-
-    .help-note{
-      margin:0 0 10px;
-      color:var(--muted);
-      font-size:13px;
-      line-height:1.4;
-    }
-
-    .bul{
-      margin:8px 0 0;
-      padding-left:18px;
-    }
-
-    .bul li{
-      margin:8px 0;
-      line-height:1.4;
-    }
-
-    .k{
-      display:inline-block;
-      padding:1px 8px;
-      border:1px solid var(--border);
-      border-radius:999px;
-      background:var(--surface);
-      font-weight:700;
-      font-size:12px;
-      color:var(--text);
-    }
-
-    .detail-title{
-      font-size:18px;
-      font-weight:850;
-      margin-bottom:4px;
-    }
-
-    .detail-sub{
-      color:var(--muted);
-      font-size:13px;
-      margin-bottom:14px;
-    }
-
-    .detail-summary{
-      display:grid;
-      grid-template-columns:1fr auto;
-      gap:7px 12px;
-      align-items:baseline;
-      margin-bottom:14px;
-    }
-
-    .detail-summary .value{
-      font-weight:850;
-      text-align:right;
-    }
-
-    .detail-strip{
-      border:1px solid var(--border);
-      border-radius:12px;
-      padding:10px;
-      margin-top:8px;
-      background:var(--surface);
-    }
-
-    .detail-strip-head{
-      display:flex;
-      gap:8px;
-      align-items:center;
-      margin-bottom:6px;
-    }
-
-    .loading{
-      color:var(--muted);
-      padding:10px 2px;
-    }
-
-    .modal .fv-panel{
-      z-index:12000 !important;
-      max-height:42vh !important;
-      overflow-y:auto !important;
-      overflow-x:hidden !important;
-    }
-  </style>
+<meta charset="utf-8">
+<title>FarmVista - Trial Yields</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#3B7E46">
+
+<link rel="manifest" href="../../manifest.webmanifest">
+<script defer src="../../js/theme-boot.js"></script>
+
+<link rel="stylesheet" href="../../assets/css/theme.css">
+<link rel="stylesheet" href="../../assets/css/app.css">
+
+<script defer src="../../js/fv-shell.js"></script>
+<script defer src="../../js/fv-combo.js"></script>
+
+<style>
+:root{
+  --gap:96px;
+  --max:940px;
+  --accent:#2F6C3C;
+  --ring:rgba(47,108,60,.20);
+  --trial:rgba(47,108,60,.07);
+  --check:rgba(140,140,140,.08);
+}
+
+html{
+  -webkit-text-size-adjust:100%;
+}
+
+body{
+  background:var(--app-bg,var(--surface));
+}
+
+.wrap{
+  max-width:var(--max);
+  margin:auto;
+  padding:clamp(14px,3vw,22px);
+  padding-bottom:
+    calc(
+      env(safe-area-inset-bottom,0px)
+      + var(--ftr-h,42px)
+      + var(--gap)
+    ) !important;
+}
+
+.card{
+  border:1px solid var(--border);
+  border-radius:14px;
+  background:var(--surface);
+  box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
+  overflow:visible;
+  margin-bottom:var(--gap);
+}
+
+.head{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding:14px 16px;
+  background:
+    linear-gradient(
+      90deg,
+      rgba(47,108,60,.12),
+      transparent
+    );
+  border-bottom:1px solid var(--border);
+  border-radius:14px 14px 0 0;
+}
+
+.head svg{
+  width:34px;
+  height:34px;
+  color:var(--accent);
+  flex:0 0 auto;
+}
+
+.head h1{
+  margin:0;
+  font-size:clamp(20px,3.2vw,26px);
+}
+
+.muted{
+  color:var(--muted,#67706B);
+}
+
+.setup{
+  padding:16px;
+  border-bottom:1px solid var(--border);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(47,108,60,.04),
+      transparent
+    );
+  overflow:visible;
+  position:relative;
+  z-index:50;
+}
+
+.setup-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:12px;
+  align-items:start;
+}
+
+@media(max-width:700px){
+  .setup-grid{
+    grid-template-columns:1fr;
+  }
+}
+
+label{
+  display:block;
+  font-weight:700;
+  margin-bottom:6px;
+}
+
+input,
+select,
+button{
+  font-size:16px;
+}
+
+.ctrl{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  border:1px solid var(--border);
+  background:var(--surface);
+  border-radius:10px;
+  padding:10px 12px;
+}
+
+.ctrl:focus-within{
+  border-color:rgba(47,108,60,.42);
+  box-shadow:0 0 0 4px var(--ring);
+}
+
+.ctrl input{
+  width:100%;
+  min-width:0;
+  border:0;
+  outline:0;
+  background:transparent;
+  color:var(--text);
+}
+
+.select-box{
+  width:100%;
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:10px 12px;
+  background:var(--surface);
+  color:var(--text);
+  outline:none;
+}
+
+/* =========================================================
+   SEARCHABLE FIELD / TRIAL PICKERS
+========================================================= */
+
+.picker{
+  position:relative;
+  width:100%;
+  z-index:200;
+}
+
+.picker.open{
+  z-index:15000;
+}
+
+.picker-btn{
+  width:100%;
+  min-height:46px;
+  appearance:none;
+  border:1px solid var(--border);
+  border-radius:12px;
+  background:var(--surface);
+  color:var(--text);
+  padding:10px 42px 10px 12px;
+  text-align:left;
+  cursor:pointer;
+  position:relative;
+  font-weight:500;
+}
+
+.picker-btn:focus{
+  outline:none;
+  border-color:rgba(47,108,60,.42);
+  box-shadow:0 0 0 4px var(--ring);
+}
+
+.picker-btn::after{
+  content:"";
+  position:absolute;
+  right:15px;
+  top:50%;
+  width:8px;
+  height:8px;
+  border-right:2px solid currentColor;
+  border-bottom:2px solid currentColor;
+  transform:
+    translateY(-70%)
+    rotate(45deg);
+  pointer-events:none;
+}
+
+.picker.open .picker-btn{
+  border-radius:12px 12px 0 0;
+}
+
+.picker.open .picker-btn::after{
+  transform:
+    translateY(-25%)
+    rotate(225deg);
+}
+
+.placeholder{
+  color:var(--muted,#777);
+}
+
+.picker-panel{
+  position:absolute;
+  top:calc(100% - 1px);
+  left:0;
+  right:0;
+  display:none;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-top:0;
+  border-radius:0 0 12px 12px;
+  box-shadow:0 14px 34px rgba(0,0,0,.24);
+  z-index:15001;
+  overflow:hidden;
+}
+
+.picker.open .picker-panel{
+  display:block;
+}
+
+.search-wrap{
+  padding:10px;
+  border-bottom:1px solid var(--border);
+  background:var(--surface);
+}
+
+.search{
+  width:100%;
+  box-sizing:border-box;
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:11px 12px;
+  background:var(--surface);
+  color:var(--text);
+  outline:none;
+}
+
+.search:focus{
+  border-color:rgba(47,108,60,.42);
+  box-shadow:0 0 0 3px var(--ring);
+}
+
+.options{
+  max-height:min(360px,42vh);
+  overflow:auto;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior:contain;
+  background:var(--surface);
+}
+
+.option{
+  width:100%;
+  appearance:none;
+  border:0;
+  border-bottom:1px solid var(--border);
+  background:var(--surface);
+  color:var(--text);
+  padding:12px 14px;
+  text-align:left;
+  cursor:pointer;
+  border-radius:0;
+}
+
+.option:last-child{
+  border-bottom:0;
+}
+
+.option:hover,
+.option:focus{
+  outline:none;
+  background:rgba(47,108,60,.08);
+}
+
+.option.selected{
+  font-weight:800;
+  background:rgba(47,108,60,.10);
+}
+
+.empty{
+  padding:15px;
+  color:var(--muted);
+  text-align:center;
+}
+
+.other-wrap{
+  margin-top:10px;
+}
+
+.other-wrap[hidden]{
+  display:none !important;
+}
+
+.other-note{
+  margin-top:6px;
+  color:var(--muted);
+  font-size:12px;
+  line-height:1.4;
+}
+
+/* =========================================================
+   PAGE
+========================================================= */
+
+.section-head{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  flex-wrap:wrap;
+  padding:16px 16px 8px;
+}
+
+.section-head h2{
+  flex:1;
+  margin:0;
+  font-size:20px;
+}
+
+.section-note{
+  padding:0 16px 10px;
+  color:var(--muted);
+  font-size:13px;
+  line-height:1.4;
+}
+
+.btn{
+  appearance:none;
+  border:1px solid var(--border);
+  background:var(--surface);
+  padding:10px 14px;
+  border-radius:10px;
+  font-weight:700;
+  cursor:pointer;
+  color:var(--text) !important;
+}
+
+.btn[disabled]{
+  opacity:.55;
+  cursor:not-allowed;
+}
+
+.primary{
+  background:var(--accent);
+  color:#fff !important;
+  border-color:var(--accent);
+}
+
+.strip-list{
+  padding:8px 16px 16px;
+  display:grid;
+  gap:12px;
+}
+
+.strip{
+  border:1px solid var(--border);
+  border-radius:14px;
+  overflow:hidden;
+  background:var(--surface);
+}
+
+.strip[data-type="Trial"]{
+  background:
+    linear-gradient(
+      180deg,
+      var(--trial),
+      transparent 58%
+    );
+}
+
+.strip[data-type="Check"]{
+  background:
+    linear-gradient(
+      180deg,
+      var(--check),
+      transparent 58%
+    );
+}
+
+.strip-head{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px 12px;
+  border-bottom:1px solid var(--border);
+}
+
+.strip-num{
+  font-weight:800;
+}
+
+.badge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:66px;
+  border-radius:999px;
+  padding:4px 10px;
+  font-size:12px;
+  font-weight:800;
+  border:1px solid var(--border);
+  background:var(--surface);
+}
+
+.strip[data-type="Trial"] .badge{
+  color:var(--accent);
+  border-color:rgba(47,108,60,.35);
+}
+
+.spacer{
+  flex:1;
+}
+
+.strip-body{
+  padding:12px;
+  display:grid;
+  gap:10px;
+}
+
+.strip-grid{
+  display:grid;
+  grid-template-columns:180px 1fr;
+  gap:10px;
+}
+
+@media(max-width:650px){
+  .strip-grid{
+    grid-template-columns:1fr;
+  }
+}
+
+.yieldline{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  justify-content:space-between;
+  padding:11px 12px;
+  border:1px dashed var(--border);
+  border-radius:10px;
+  background:var(--surface);
+}
+
+.yield-value{
+  font-size:18px;
+  font-weight:850;
+}
+
+.calc-details{
+  color:var(--muted);
+  font-size:12px;
+  margin-top:3px;
+  line-height:1.35;
+}
+
+.summary{
+  padding:0 16px 16px;
+}
+
+.summary-tile{
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:14px;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(47,108,60,.07),
+      transparent 65%
+    );
+}
+
+.summary-tile h3{
+  margin:0 0 12px;
+}
+
+.summary-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px;
+}
+
+@media(max-width:650px){
+  .summary-grid{
+    grid-template-columns:1fr;
+  }
+}
+
+.stat{
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:10px;
+  background:var(--surface);
+}
+
+.stat .l{
+  color:var(--muted);
+  font-size:12px;
+  font-weight:700;
+  margin-bottom:3px;
+}
+
+.stat .v{
+  font-size:18px;
+  font-weight:850;
+}
+
+.pos{
+  color:var(--accent);
+}
+
+.neg{
+  color:#b12828;
+}
+
+.actions{
+  padding:16px;
+  border-top:1px dashed var(--border);
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
+.actions .save{
+  margin-left:auto;
+}
+
+@media(max-width:600px){
+  .actions .save{
+    margin-left:0;
+    width:100%;
+  }
+}
+
+.history{
+  border-top:1px solid var(--border);
+  padding:16px;
+}
+
+.history-head{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin-bottom:12px;
+}
+
+.history-head h2{
+  flex:1;
+  margin:0;
+  font-size:20px;
+}
+
+.history-list{
+  display:grid;
+  gap:10px;
+}
+
+.history-row{
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:12px;
+  background:var(--surface);
+}
+
+.history-main{
+  display:flex;
+  gap:10px;
+  align-items:center;
+}
+
+.history-info{
+  flex:1;
+  min-width:0;
+}
+
+.history-title{
+  font-weight:850;
+  margin-bottom:4px;
+  overflow-wrap:anywhere;
+}
+
+.history-sub{
+  color:var(--muted);
+  font-size:13px;
+  line-height:1.4;
+}
+
+/* =========================================================
+   MODALS
+========================================================= */
+
+.modal{
+  position:fixed;
+  inset:0;
+  display:none;
+  place-items:center;
+  background:rgba(0,0,0,.42);
+  z-index:99999;
+}
+
+.modal[open]{
+  display:grid;
+}
+
+.dialog{
+  width:min(860px,94vw);
+  max-height:88vh;
+  display:flex;
+  flex-direction:column;
+  background:var(--surface);
+  color:var(--text);
+  border-radius:14px;
+  border:1px solid var(--border);
+  box-shadow:0 16px 36px rgba(0,0,0,.28);
+  overflow:hidden;
+}
+
+.dialog-head{
+  padding:12px 14px;
+  border-bottom:1px solid var(--border);
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:8px;
+}
+
+.dialog-body{
+  padding:14px;
+  overflow:auto;
+  flex:1 1 auto;
+  min-height:0;
+  -webkit-overflow-scrolling:touch;
+}
+
+.closex{
+  border:1px solid var(--border);
+  background:var(--surface);
+  border-radius:10px;
+  padding:8px 12px;
+  cursor:pointer;
+  font-weight:700;
+  color:var(--text) !important;
+}
+
+html.no-scroll,
+body.no-scroll{
+  overflow:hidden;
+}
+
+.cg{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:12px;
+}
+
+@media(max-width:760px){
+  .cg{
+    grid-template-columns:1fr;
+  }
+}
+
+.unit{
+  font-size:12px;
+  color:var(--muted);
+  white-space:nowrap;
+}
+
+.result{
+  margin-top:12px;
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:10px;
+  background:var(--surface);
+}
+
+.detail-strip{
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:10px;
+  margin-top:8px;
+}
+
+.loading{
+  color:var(--muted);
+  padding:10px 2px;
+}
+
+.modal .fv-panel{
+  z-index:120000 !important;
+  max-height:42vh !important;
+  overflow-y:auto !important;
+}
+</style>
 </head>
 
 <body>
 
-  <fv-shell>
-
-    <div class="wrap">
-
-      <div class="calc-card">
-
-        <div class="card-head">
-
-          <div class="icon" aria-hidden="true">
-
-            <svg
-              viewBox="0 0 32 32"
-              width="34"
-              height="34"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.6"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="M16 3.5v15M9.5 8h13"/>
-
-              <path
-                d="M12 8l-4 7h8l-4-7zM24 8l-4 7h8l-4-7z"
-                fill="currentColor"
-                fill-opacity=".07"
-              />
-
-              <path d="M8 15c0 2 2 4 4 4s4-2 4-4M20 15c0 2 2 4 4 4s4-2 4-4"/>
-
-              <path d="M11 20h10M9 24h14"/>
-
-              <text
-                x="16"
-                y="30"
-                text-anchor="middle"
-                font-size="7"
-                font-family="system-ui,-apple-system,Segoe UI,Roboto,sans-serif"
-                fill="currentColor"
-                stroke="none"
-              >TRIAL</text>
-            </svg>
-
-          </div>
-
-          <div>
-
-            <h1>Trial Yields</h1>
-
-            <div class="muted">
-              Pick an active field trial and field, then add as many trial and check strips as needed.
-            </div>
-
-          </div>
-
-        </div>
-
-        <section class="setup">
-
-          <div class="setup-grid">
-
-            <div>
-
-              <label>Field</label>
-
-              <div
-                class="field-picker"
-                id="fieldPicker"
-              >
-
-                <button
-                  class="field-picker-btn"
-                  id="fieldPickerBtn"
-                  type="button"
-                  aria-haspopup="listbox"
-                  aria-expanded="false"
-                >
-                  <span
-                    id="fieldPickerText"
-                    class="field-picker-placeholder"
-                  >
-                    - Select Field -
-                  </span>
-                </button>
-
-                <div
-                  class="field-picker-panel"
-                  id="fieldPickerPanel"
-                >
-
-                  <div class="field-search-wrap">
-
-                    <input
-                      id="fieldSearch"
-                      class="field-search"
-                      type="search"
-                      inputmode="search"
-                      autocomplete="off"
-                      placeholder="Search fields..."
-                    >
-
-                  </div>
-
-                  <div
-                    class="field-options"
-                    id="fieldOptions"
-                    role="listbox"
-                  ></div>
-
-                </div>
-
-                <input
-                  type="hidden"
-                  id="testField"
-                  value=""
-                >
-
-              </div>
-
-            </div>
-
-            <div>
-
-              <label>
-                Active Trial
-              </label>
-
-              <div
-                class="field-picker"
-                id="trialPicker"
-              >
-
-                <button
-                  class="field-picker-btn"
-                  id="trialPickerBtn"
-                  type="button"
-                  aria-haspopup="listbox"
-                  aria-expanded="false"
-                >
-                  <span
-                    id="trialPickerText"
-                    class="field-picker-placeholder"
-                  >
-                    - Select Active Trial -
-                  </span>
-                </button>
-
-                <div
-                  class="field-picker-panel"
-                  id="trialPickerPanel"
-                >
-
-                  <div class="field-search-wrap">
-
-                    <input
-                      id="trialSearch"
-                      class="field-search"
-                      type="search"
-                      inputmode="search"
-                      autocomplete="off"
-                      placeholder="Search active trials..."
-                    >
-
-                  </div>
-
-                  <div
-                    class="field-options"
-                    id="trialOptions"
-                    role="listbox"
-                  ></div>
-
-                </div>
-
-                <input
-                  type="hidden"
-                  id="testTrial"
-                  value=""
-                >
-
-              </div>
-
-              <input
-                id="testName"
-                type="hidden"
-                value=""
-              >
-
-              <div
-                id="trialMeta"
-                class="muted"
-                style="font-size:12px; line-height:1.4; margin-top:6px;"
-              >
-                Pick a field to see trials in that field, or pick a trial to see its linked fields.
-              </div>
-
-            </div>
-
-          </div>
-
-        </section>
-
-        <div class="section-head">
-
-          <h2>
-            Trial Strips
-          </h2>
-
-          <button
-            class="btn btn-primary"
-            id="addTrial"
-            type="button"
-          >
-            + Trial
-          </button>
-
-          <button
-            class="btn"
-            id="addCheck"
-            type="button"
-          >
-            + Check
-          </button>
-
-        </div>
-
-        <div class="section-note">
-          Add each combine pass below. FarmVista averages all Trial strips together and all Check strips together.
-        </div>
-
-        <div
-          class="strip-list"
-          id="stripList"
-        ></div>
-
-        <section class="summary">
-
-          <div class="summary-tile">
-
-            <h3>
-              Test Summary
-            </h3>
-
-            <div class="summary-grid">
-
-              <div class="summary-stat">
-                <div class="label">
-                  Trial Strips
-                </div>
-
-                <div
-                  class="value"
-                  id="trialCount"
-                >
-                  0
-                </div>
-              </div>
-
-              <div class="summary-stat">
-                <div class="label">
-                  Check Strips
-                </div>
-
-                <div
-                  class="value"
-                  id="checkCount"
-                >
-                  0
-                </div>
-              </div>
-
-              <div class="summary-stat">
-                <div class="label">
-                  Trial Average
-                </div>
-
-                <div
-                  class="value"
-                  id="trialAvg"
-                >
-                  - bu/ac
-                </div>
-              </div>
-
-              <div class="summary-stat">
-                <div class="label">
-                  Check Average
-                </div>
-
-                <div
-                  class="value"
-                  id="checkAvg"
-                >
-                  - bu/ac
-                </div>
-              </div>
-
-              <div class="summary-stat">
-                <div class="label">
-                  Trial vs Check
-                </div>
-
-                <div
-                  class="value"
-                  id="yieldDiff"
-                >
-                  - bu/ac
-                </div>
-              </div>
-
-              <div class="summary-stat">
-                <div class="label">
-                  Trial Difference
-                </div>
-
-                <div
-                  class="value"
-                  id="yieldPct"
-                >
-                  -%
-                </div>
-              </div>
-
-            </div>
-
-          </div>
-
-        </section>
-
-        <div class="bottom-actions">
-
-          <button
-            class="btn"
-            id="clearCurrent"
-            type="button"
-          >
-            Clear Test
-          </button>
-
-          <button
-            class="btn btn-primary save"
-            id="saveTrial"
-            type="button"
-          >
-            Save Test
-          </button>
-
-        </div>
-
-        <section class="history-section">
-
-          <div class="history-head">
-
-            <h2>
-              Previous Tests
-            </h2>
-
-            <button
-              class="btn"
-              id="refreshHistory"
-              type="button"
-            >
-              Refresh
-            </button>
-
-          </div>
-
-          <div
-            id="historyList"
-            class="history-list"
-          ></div>
-
-          <div
-            id="historyEmpty"
-            class="loading"
-          >
-            Loading saved tests...
-          </div>
-
-        </section>
-
-      </div>
-
-    </div>
-
-  </fv-shell>
-
-  <div
-    class="modal"
-    id="cyModal"
-    aria-hidden="true"
-  >
-
-    <div
-      class="dialog"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="cyTitle"
-    >
-
-      <div class="dialog-head">
-
-        <div
-          style="
-            display:flex;
-            align-items:center;
-            gap:10px;
-          "
-        >
-
-          <h3
-            id="cyTitle"
-            style="margin:0;"
-          >
-            Combine Yield
-          </h3>
-
-          <button
-            class="help-btn"
-            id="cyHelpBtn"
-            type="button"
-            aria-label="True shrink help"
-          >
-
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <circle cx="12" cy="12" r="10"></circle>
-              <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2-3 4"></path>
-              <path d="M12 17h.01"></path>
-            </svg>
-
-          </button>
-
-        </div>
-
-        <button
-          class="closex"
-          id="cyClose"
-          type="button"
-        >
-          Back
-        </button>
-
-      </div>
-
-      <div class="dialog-body">
-
-        <form
-          id="cyForm"
-          novalidate
-          autocomplete="off"
-        >
-
-          <div class="cg">
-
-            <div>
-
-              <label>
-                Crop
-              </label>
-
-              <select
-                id="cyCrop"
-                class="select-box"
-                data-fv-combo
-              >
-                <option value="corn">
-                  Corn (56 lb/bu - 15.5%)
-                </option>
-
-                <option value="soy">
-                  Soybeans (60 lb/bu - 13.0%)
-                </option>
-              </select>
-
-            </div>
-
-            <div>
-
-              <label>
-                Cut Width
-              </label>
-
-              <select
-                id="cyWid"
-                class="select-box"
-                data-fv-combo
-              >
-                <option value="20">20 ft</option>
-                <option value="25">25 ft</option>
-                <option value="30" selected>30 ft</option>
-                <option value="35">35 ft</option>
-                <option value="40">40 ft</option>
-                <option value="45">45 ft</option>
-              </select>
-
-            </div>
-
-            <div>
-
-              <label>
-                Cut Length
-              </label>
-
-              <div class="ctrl">
-
-                <input
-                  id="cyLen"
-                  type="text"
-                  inputmode="decimal"
-                  placeholder="e.g. 2400"
-                >
-
-                <span class="unit">
-                  ft
-                </span>
-
-              </div>
-
-            </div>
-
-            <div>
-
-              <label>
-                Area
-              </label>
-
-              <div class="ctrl">
-
-                <input
-                  id="cyAc"
-                  type="text"
-                  readonly
-                  placeholder="auto"
-                >
-
-                <span class="unit">
-                  ac
-                </span>
-
-              </div>
-
-            </div>
-
-            <div>
-
-              <label>
-                Wet Weight
-              </label>
-
-              <div class="ctrl">
-
-                <input
-                  id="cyWt"
-                  type="text"
-                  inputmode="numeric"
-                  placeholder="e.g. 27,580"
-                >
-
-                <span class="unit">
-                  lb
-                </span>
-
-              </div>
-
-            </div>
-
-            <div>
-
-              <label>
-                Start Moisture
-              </label>
-
-              <div class="ctrl">
-
-                <input
-                  id="cyM"
-                  type="text"
-                  inputmode="decimal"
-                  placeholder="e.g. 28.50"
-                >
-
-                <span class="unit">
-                  %
-                </span>
-
-              </div>
-
-            </div>
-
-          </div>
-
-          <div
-            class="result-grid"
-            id="cyRes"
-            hidden
-          >
-
-            <div class="mini-tile">
-
-              <h4>
-                True Shrink Result
-              </h4>
-
-              <div>
-                Standard-moisture bushels:
-                <strong id="tBu">-</strong>
-              </div>
-
-              <div>
-                Yield:
-                <strong id="tYield">-</strong>
-                bu/ac
-              </div>
-
-            </div>
-
-          </div>
-
-          <div
-            style="
-              display:flex;
-              gap:10px;
-              justify-content:flex-end;
-              margin-top:12px;
-              flex-wrap:wrap;
-            "
-          >
-
-            <button
-              type="button"
-              class="btn"
-              id="cyCalc"
-            >
-              Calculate
-            </button>
-
-            <button
-              type="button"
-              class="btn btn-primary"
-              id="cyUseBtn"
-            >
-              Use This Yield
-            </button>
-
-          </div>
-
-        </form>
-
-      </div>
-
-    </div>
-
+<fv-shell>
+
+<div class="wrap">
+
+<div class="card">
+
+<div class="head">
+
+<svg
+  viewBox="0 0 32 32"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+  aria-hidden="true"
+>
+  <path d="M16 3.5v15M9.5 8h13"/>
+  <path
+    d="M12 8l-4 7h8l-4-7zM24 8l-4 7h8l-4-7z"
+    fill="currentColor"
+    fill-opacity=".07"
+  />
+  <path d="M8 15c0 2 2 4 4 4s4-2 4-4M20 15c0 2 2 4 4 4s4-2 4-4"/>
+  <path d="M11 20h10M9 24h14"/>
+</svg>
+
+<div>
+  <h1>Trial Yields</h1>
+  <div class="muted">
+    Pick a field and active trial, or choose Other for a one-off yield check.
   </div>
+</div>
 
-  <div
-    class="modal"
-    id="cyHelpModal"
-    aria-hidden="true"
+</div>
+
+<section class="setup">
+
+<div class="setup-grid">
+
+<div>
+
+<label>Field</label>
+
+<div class="picker" id="fieldPicker">
+
+<button
+  class="picker-btn"
+  id="fieldBtn"
+  type="button"
+  aria-expanded="false"
+>
+  <span
+    id="fieldText"
+    class="placeholder"
   >
+    - Select Field -
+  </span>
+</button>
 
-    <div
-      class="dialog"
-      role="dialog"
-      aria-modal="true"
-    >
+<div class="picker-panel">
 
-      <div class="dialog-head">
-
-        <h3 style="margin:0;">
-          True Shrink
-        </h3>
-
-        <button
-          class="closex"
-          id="cyHelpClose"
-          type="button"
-        >
-          Back
-        </button>
-
-      </div>
-
-      <div class="dialog-body">
-
-        <p class="help-note">
-          FarmVista adjusts wet grain weight to standard moisture before converting the weight to standard-moisture bushels.
-        </p>
-
-        <ul class="bul">
-
-          <li>
-            <strong>Corn:</strong>
-            <span class="k">15.5%</span>
-            standard moisture and
-            <span class="k">56 lb/bu</span>.
-          </li>
-
-          <li>
-            <strong>Soybeans:</strong>
-            <span class="k">13.0%</span>
-            standard moisture and
-            <span class="k">60 lb/bu</span>.
-          </li>
-
-          <li>
-            The original weight, moisture, dimensions, acres, bushels and calculated yield are saved with each strip.
-          </li>
-
-        </ul>
-
-      </div>
-
-    </div>
-
-  </div>
-
-  <div
-    class="modal"
-    id="historyModal"
-    aria-hidden="true"
+<div class="search-wrap">
+  <input
+    id="fieldSearch"
+    class="search"
+    type="search"
+    autocomplete="off"
+    placeholder="Search fields..."
   >
+</div>
 
-    <div
-      class="dialog"
-      role="dialog"
-      aria-modal="true"
-    >
+<div
+  id="fieldOptions"
+  class="options"
+></div>
 
-      <div class="dialog-head">
+</div>
 
-        <h3 style="margin:0;">
-          Trial Details
-        </h3>
+<input
+  type="hidden"
+  id="fieldId"
+>
 
-        <button
-          class="closex"
-          id="historyClose"
-          type="button"
-        >
-          Back
-        </button>
+</div>
 
+</div>
+
+<div>
+
+<label>Active Trial</label>
+
+<div
+  class="picker"
+  id="trialPicker"
+>
+
+<button
+  class="picker-btn"
+  id="trialBtn"
+  type="button"
+  aria-expanded="false"
+>
+  <span
+    id="trialText"
+    class="placeholder"
+  >
+    - Select Active Trial -
+  </span>
+</button>
+
+<div class="picker-panel">
+
+<div class="search-wrap">
+  <input
+    id="trialSearch"
+    class="search"
+    type="search"
+    autocomplete="off"
+    placeholder="Search active trials..."
+  >
+</div>
+
+<div
+  id="trialOptions"
+  class="options"
+></div>
+
+</div>
+
+<input
+  type="hidden"
+  id="trialId"
+>
+
+</div>
+
+<div
+  id="otherWrap"
+  class="other-wrap"
+  hidden
+>
+
+<label for="otherName">
+  Trial Name
+</label>
+
+<div class="ctrl">
+
+<input
+  id="otherName"
+  type="text"
+  placeholder="e.g. Random yield check"
+>
+
+</div>
+
+<div class="other-note">
+  This saves as Other and is not linked to a fieldTrials record.
+</div>
+
+</div>
+
+<div
+  id="trialMeta"
+  class="other-note"
+>
+  Pick a field to see trials linked to that field. Other is always available.
+</div>
+
+</div>
+
+</div>
+
+</section>
+
+<div class="section-head">
+
+<h2>
+  Trial Strips
+</h2>
+
+<button
+  class="btn primary"
+  id="addTrial"
+  type="button"
+>
+  + Trial
+</button>
+
+<button
+  class="btn"
+  id="addCheck"
+  type="button"
+>
+  + Check
+</button>
+
+</div>
+
+<div class="section-note">
+  Add each combine pass below. FarmVista averages all Trial strips together and all Check strips together.
+</div>
+
+<div
+  class="strip-list"
+  id="stripList"
+></div>
+
+<section class="summary">
+
+<div class="summary-tile">
+
+<h3>
+  Test Summary
+</h3>
+
+<div class="summary-grid">
+
+<div class="stat">
+  <div class="l">Trial Strips</div>
+  <div class="v" id="trialCount">0</div>
+</div>
+
+<div class="stat">
+  <div class="l">Check Strips</div>
+  <div class="v" id="checkCount">0</div>
+</div>
+
+<div class="stat">
+  <div class="l">Trial Average</div>
+  <div class="v" id="trialAvg">- bu/ac</div>
+</div>
+
+<div class="stat">
+  <div class="l">Check Average</div>
+  <div class="v" id="checkAvg">- bu/ac</div>
+</div>
+
+<div class="stat">
+  <div class="l">Trial vs Check</div>
+  <div class="v" id="yieldDiff">- bu/ac</div>
+</div>
+
+<div class="stat">
+  <div class="l">Trial Difference</div>
+  <div class="v" id="yieldPct">-%</div>
+</div>
+
+</div>
+
+</div>
+
+</section>
+
+<div class="actions">
+
+<button
+  class="btn"
+  id="clearCurrent"
+  type="button"
+>
+  Clear Test
+</button>
+
+<button
+  class="btn primary save"
+  id="saveTrial"
+  type="button"
+>
+  Save Test
+</button>
+
+</div>
+
+<section class="history">
+
+<div class="history-head">
+
+<h2>
+  Previous Tests
+</h2>
+
+<button
+  class="btn"
+  id="refreshHistory"
+  type="button"
+>
+  Refresh
+</button>
+
+</div>
+
+<div
+  id="historyList"
+  class="history-list"
+></div>
+
+<div
+  id="historyEmpty"
+  class="loading"
+>
+  Loading saved tests...
+</div>
+
+</section>
+
+</div>
+
+</div>
+
+</fv-shell>
+
+<!-- =========================================================
+     COMBINE YIELD MODAL
+========================================================= -->
+
+<div
+  class="modal"
+  id="cyModal"
+  aria-hidden="true"
+>
+
+<div class="dialog">
+
+<div class="dialog-head">
+
+<h3 style="margin:0;">
+  Combine Yield
+</h3>
+
+<button
+  class="closex"
+  id="cyClose"
+  type="button"
+>
+  Back
+</button>
+
+</div>
+
+<div class="dialog-body">
+
+<div class="cg">
+
+<div>
+
+<label>
+  Crop
+</label>
+
+<select
+  id="cyCrop"
+  class="select-box"
+  data-fv-combo
+>
+  <option value="corn">
+    Corn (56 lb/bu - 15.5%)
+  </option>
+
+  <option value="soy">
+    Soybeans (60 lb/bu - 13.0%)
+  </option>
+</select>
+
+</div>
+
+<div>
+
+<label>
+  Cut Width
+</label>
+
+<select
+  id="cyWid"
+  class="select-box"
+  data-fv-combo
+>
+  <option value="20">20 ft</option>
+  <option value="25">25 ft</option>
+  <option value="30" selected>30 ft</option>
+  <option value="35">35 ft</option>
+  <option value="40">40 ft</option>
+  <option value="45">45 ft</option>
+</select>
+
+</div>
+
+<div>
+
+<label>
+  Cut Length
+</label>
+
+<div class="ctrl">
+
+<input
+  id="cyLen"
+  type="text"
+  inputmode="decimal"
+  placeholder="e.g. 2400"
+>
+
+<span class="unit">
+  ft
+</span>
+
+</div>
+
+</div>
+
+<div>
+
+<label>
+  Area
+</label>
+
+<div class="ctrl">
+
+<input
+  id="cyAc"
+  type="text"
+  readonly
+  placeholder="auto"
+>
+
+<span class="unit">
+  ac
+</span>
+
+</div>
+
+</div>
+
+<div>
+
+<label>
+  Wet Weight
+</label>
+
+<div class="ctrl">
+
+<input
+  id="cyWt"
+  type="text"
+  inputmode="numeric"
+  placeholder="e.g. 27,580"
+>
+
+<span class="unit">
+  lb
+</span>
+
+</div>
+
+</div>
+
+<div>
+
+<label>
+  Start Moisture
+</label>
+
+<div class="ctrl">
+
+<input
+  id="cyM"
+  type="text"
+  inputmode="decimal"
+  placeholder="e.g. 28.50"
+>
+
+<span class="unit">
+  %
+</span>
+
+</div>
+
+</div>
+
+</div>
+
+<div
+  id="cyRes"
+  class="result"
+  hidden
+>
+
+<strong>
+  True Shrink Result
+</strong>
+
+<div>
+  Standard-moisture bushels:
+  <strong id="tBu">-</strong>
+</div>
+
+<div>
+  Yield:
+  <strong id="tYield">-</strong>
+  bu/ac
+</div>
+
+</div>
+
+<div
+  style="
+    display:flex;
+    gap:10px;
+    justify-content:flex-end;
+    margin-top:12px;
+    flex-wrap:wrap;
+  "
+>
+
+<button
+  class="btn"
+  id="cyCalc"
+  type="button"
+>
+  Calculate
+</button>
+
+<button
+  class="btn primary"
+  id="cyUse"
+  type="button"
+>
+  Use This Yield
+</button>
+
+</div>
+
+</div>
+
+</div>
+
+</div>
+
+<!-- =========================================================
+     HISTORY MODAL
+========================================================= -->
+
+<div
+  class="modal"
+  id="historyModal"
+  aria-hidden="true"
+>
+
+<div class="dialog">
+
+<div class="dialog-head">
+
+<h3 style="margin:0;">
+  Trial Details
+</h3>
+
+<button
+  class="closex"
+  id="historyClose"
+  type="button"
+>
+  Back
+</button>
+
+</div>
+
+<div
+  class="dialog-body"
+  id="historyBody"
+></div>
+
+</div>
+
+</div>
+
+<script type="module">
+(async()=>{
+
+"use strict";
+
+if(window.__FV_TRIAL_YIELDS_V24__) return;
+window.__FV_TRIAL_YIELDS_V24__ = true;
+
+const $ =
+  id =>
+    document.getElementById(id);
+
+const esc =
+  value =>
+    String(value ?? "")
+      .replace(/&/g,"&amp;")
+      .replace(/</g,"&lt;")
+      .replace(/>/g,"&gt;")
+      .replace(/"/g,"&quot;")
+      .replace(/'/g,"&#039;");
+
+const num =
+  value => {
+
+    const n =
+      parseFloat(
+        String(value ?? "")
+          .replace(/,/g,"")
+          .trim()
+      );
+
+    return Number.isFinite(n)
+      ? n
+      : NaN;
+  };
+
+const fmt =
+  (value,decimals=2) =>
+    Number.isFinite(
+      Number(value)
+    )
+      ? Number(value).toLocaleString(
+          undefined,
+          {
+            maximumFractionDigits:decimals
+          }
+        )
+      : "-";
+
+let fb;
+let db;
+let auth = null;
+
+let FIELDS = [];
+let TRIALS = [];
+let HISTORY = [];
+
+let seq = 0;
+let targetRow = null;
+
+/* =========================================================
+   FIREBASE
+========================================================= */
+
+async function initFirebase(){
+
+  fb =
+    await import(
+      "../../js/firebase-init.js"
+    );
+
+  await fb.ready;
+
+  if(
+    typeof fb.isStub === "function" &&
+    fb.isStub()
+  ){
+    throw new Error(
+      "Firebase is not available."
+    );
+  }
+
+  db =
+    fb.getFirestore();
+
+  try{
+    auth =
+      fb.getAuth();
+  }
+  catch{
+    auth = null;
+  }
+}
+
+function upgradeCombos(root){
+
+  try{
+
+    if(
+      window.FVCombo &&
+      typeof window.FVCombo.upgrade ===
+      "function"
+    ){
+      window.FVCombo.upgrade(
+        root || document
+      );
+    }
+
+  }
+  catch(error){
+
+    console.warn(
+      "[FV] Combo upgrade failed",
+      error
+    );
+  }
+}
+
+/* =========================================================
+   FIELD DATA
+
+   IMPORTANT:
+   This loads EVERY active field.
+
+   Fields are NOT restricted to fieldTrials.
+========================================================= */
+
+async function loadFields(){
+
+  const snap =
+    await fb.getDocs(
+      fb.collection(
+        db,
+        "fields"
+      )
+    );
+
+  const rows = [];
+
+  snap.forEach(
+    docSnap => {
+
+      const data =
+        docSnap.data() || {};
+
+      if(
+        String(
+          data.status || ""
+        ).toLowerCase() !==
+        "active"
+      ){
+        return;
+      }
+
+      rows.push({
+
+        id:
+          docSnap.id,
+
+        name:
+          data.name ||
+          "(Unnamed field)",
+
+        farmId:
+          data.farmId ||
+          "",
+
+        farmName:
+          data.farmName ||
+          ""
+
+      });
+    }
+  );
+
+  rows.sort(
+    (a,b) =>
+      String(a.name)
+        .localeCompare(
+          String(b.name),
+          undefined,
+          {
+            numeric:true
+          }
+        )
+  );
+
+  FIELDS =
+    rows;
+
+  renderFields();
+}
+
+/* =========================================================
+   FIELD TRIALS
+========================================================= */
+
+async function loadTrials(){
+
+  const snap =
+    await fb.getDocs(
+      fb.collection(
+        db,
+        "fieldTrials"
+      )
+    );
+
+  const activeDocs = [];
+
+  snap.forEach(
+    docSnap => {
+
+      const data =
+        docSnap.data() || {};
+
+      if(
+        String(
+          data.status || ""
+        ).toLowerCase() ===
+        "active"
+      ){
+
+        activeDocs.push({
+
+          id:
+            docSnap.id,
+
+          data
+
+        });
+      }
+    }
+  );
+
+  TRIALS =
+    await Promise.all(
+
+      activeDocs.map(
+
+        async item => {
+
+          const fieldSnap =
+            await fb.getDocs(
+              fb.collection(
+                db,
+                "fieldTrials",
+                item.id,
+                "fields"
+              )
+            );
+
+          const links = [];
+
+          fieldSnap.forEach(
+            fieldDoc => {
+
+              const data =
+                fieldDoc.data() || {};
+
+              links.push({
+
+                docId:
+                  fieldDoc.id,
+
+                fieldId:
+                  String(
+                    data.fieldId ||
+                    fieldDoc.id ||
+                    ""
+                  ),
+
+                fieldName:
+                  data.fieldName ||
+                  "",
+
+                farmId:
+                  data.farmId ||
+                  "",
+
+                farmName:
+                  data.farmName ||
+                  "",
+
+                notes:
+                  data.notes ||
+                  "",
+
+                tillable:
+                  Number.isFinite(
+                    Number(
+                      data.tillable
+                    )
+                  )
+                    ? Number(
+                        data.tillable
+                      )
+                    : null,
+
+                trialAcres:
+                  Number.isFinite(
+                    Number(
+                      data.trialAcres
+                    )
+                  )
+                    ? Number(
+                        data.trialAcres
+                      )
+                    : null
+
+              });
+            }
+          );
+
+          const data =
+            item.data;
+
+          return {
+
+            id:
+              item.id,
+
+            trialName:
+              data.trialName ||
+              "(Unnamed Trial)",
+
+            trialType:
+              data.trialType ||
+              "",
+
+            treatmentProduct:
+              data.treatmentProduct ||
+              "",
+
+            check:
+              data.check ||
+              "",
+
+            crop:
+              data.crop ||
+              "",
+
+            cropYear:
+              data.cropYear ??
+              null,
+
+            operationTask:
+              data.operationTask ||
+              "",
+
+            notes:
+              data.notes ||
+              "",
+
+            links
+
+          };
+        }
+      )
+    );
+
+  TRIALS.sort(
+    (a,b) =>
+      String(a.trialName)
+        .localeCompare(
+          String(b.trialName),
+          undefined,
+          {
+            numeric:true
+          }
+        )
+  );
+
+  renderTrials();
+}
+
+/* =========================================================
+   PICKERS
+========================================================= */
+
+const fieldPicker =
+  $("fieldPicker");
+
+const trialPicker =
+  $("trialPicker");
+
+const fieldBtn =
+  $("fieldBtn");
+
+const trialBtn =
+  $("trialBtn");
+
+const fieldText =
+  $("fieldText");
+
+const trialText =
+  $("trialText");
+
+const fieldId =
+  $("fieldId");
+
+const trialId =
+  $("trialId");
+
+const fieldSearch =
+  $("fieldSearch");
+
+const trialSearch =
+  $("trialSearch");
+
+const fieldOptions =
+  $("fieldOptions");
+
+const trialOptions =
+  $("trialOptions");
+
+const otherWrap =
+  $("otherWrap");
+
+const otherName =
+  $("otherName");
+
+const trialMeta =
+  $("trialMeta");
+
+function closePickers(){
+
+  fieldPicker.classList.remove(
+    "open"
+  );
+
+  trialPicker.classList.remove(
+    "open"
+  );
+
+  fieldBtn.setAttribute(
+    "aria-expanded",
+    "false"
+  );
+
+  trialBtn.setAttribute(
+    "aria-expanded",
+    "false"
+  );
+}
+
+function openPicker(
+  picker,
+  button,
+  search,
+  renderFunction
+){
+
+  closePickers();
+
+  picker.classList.add(
+    "open"
+  );
+
+  button.setAttribute(
+    "aria-expanded",
+    "true"
+  );
+
+  search.value =
+    "";
+
+  renderFunction();
+
+  setTimeout(
+    ()=>{
+      search.focus();
+    },
+    0
+  );
+}
+
+fieldBtn.addEventListener(
+  "click",
+  event => {
+
+    event.stopPropagation();
+
+    if(
+      fieldPicker.classList.contains(
+        "open"
+      )
+    ){
+      closePickers();
+    }
+    else{
+      openPicker(
+        fieldPicker,
+        fieldBtn,
+        fieldSearch,
+        renderFields
+      );
+    }
+  }
+);
+
+trialBtn.addEventListener(
+  "click",
+  event => {
+
+    event.stopPropagation();
+
+    if(
+      trialPicker.classList.contains(
+        "open"
+      )
+    ){
+      closePickers();
+    }
+    else{
+      openPicker(
+        trialPicker,
+        trialBtn,
+        trialSearch,
+        renderTrials
+      );
+    }
+  }
+);
+
+fieldPicker.addEventListener(
+  "click",
+  event =>{
+    event.stopPropagation();
+  }
+);
+
+trialPicker.addEventListener(
+  "click",
+  event =>{
+    event.stopPropagation();
+  }
+);
+
+document.addEventListener(
+  "click",
+  closePickers
+);
+
+document.addEventListener(
+  "keydown",
+  event => {
+
+    if(
+      event.key ===
+      "Escape"
+    ){
+      closePickers();
+    }
+  }
+);
+
+fieldSearch.addEventListener(
+  "input",
+  ()=>{
+    renderFields(
+      fieldSearch.value
+    );
+  }
+);
+
+trialSearch.addEventListener(
+  "input",
+  ()=>{
+    renderTrials(
+      trialSearch.value
+    );
+  }
+);
+
+function getSelectedField(){
+
+  return FIELDS.find(
+    field =>
+      field.id ===
+      fieldId.value
+  ) || null;
+}
+
+function getSelectedTrial(){
+
+  if(
+    trialId.value ===
+    "__OTHER__"
+  ){
+
+    return {
+
+      id:
+        "__OTHER__",
+
+      isOther:
+        true,
+
+      trialName:
+        String(
+          otherName.value ||
+          ""
+        ).trim(),
+
+      trialType:
+        "Other",
+
+      links:
+        []
+
+    };
+  }
+
+  return TRIALS.find(
+    trial =>
+      trial.id ===
+      trialId.value
+  ) || null;
+}
+
+/* =========================================================
+   FIELD PICKER
+
+   ALWAYS shows every active field.
+========================================================= */
+
+function renderFields(
+  searchText=""
+){
+
+  const query =
+    String(
+      searchText ||
+      ""
+    )
+      .trim()
+      .toLowerCase();
+
+  const rows =
+    query
+      ? FIELDS.filter(
+          field =>
+            String(
+              field.name
+            )
+              .toLowerCase()
+              .includes(
+                query
+              )
+        )
+      : FIELDS;
+
+  fieldOptions.innerHTML =
+    "";
+
+  if(
+    !rows.length
+  ){
+
+    fieldOptions.innerHTML =
+      '<div class="empty">No matching fields.</div>';
+
+    return;
+  }
+
+  rows.forEach(
+    field => {
+
+      const button =
+        document.createElement(
+          "button"
+        );
+
+      button.type =
+        "button";
+
+      button.className =
+        "option";
+
+      if(
+        field.id ===
+        fieldId.value
+      ){
+        button.classList.add(
+          "selected"
+        );
+      }
+
+      button.textContent =
+        field.name;
+
+      button.addEventListener(
+        "click",
+        ()=>{
+          selectField(
+            field
+          );
+        }
+      );
+
+      fieldOptions.appendChild(
+        button
+      );
+    }
+  );
+}
+
+function selectField(
+  field
+){
+
+  fieldId.value =
+    field
+      ? field.id
+      : "";
+
+  if(field){
+
+    fieldText.textContent =
+      field.name;
+
+    fieldText.classList.remove(
+      "placeholder"
+    );
+
+  }
+  else{
+
+    fieldText.textContent =
+      "- Select Field -";
+
+    fieldText.classList.add(
+      "placeholder"
+    );
+  }
+
+  /*
+   * If a real trial was previously selected,
+   * and the new field is not linked to it,
+   * clear that trial.
+   *
+   * Other is allowed on every field.
+   */
+  const trial =
+    getSelectedTrial();
+
+  if(
+    trial &&
+    !trial.isOther &&
+    !trial.links.some(
+      link =>
+        link.fieldId ===
+        fieldId.value
+    )
+  ){
+
+    trialId.value =
+      "";
+
+    trialText.textContent =
+      "- Select Active Trial -";
+
+    trialText.classList.add(
+      "placeholder"
+    );
+
+    otherWrap.hidden =
+      true;
+
+    otherName.value =
+      "";
+  }
+
+  renderTrials();
+
+  renderTrialMeta();
+
+  closePickers();
+}
+
+/* =========================================================
+   TRIAL PICKER
+
+   FIELD SELECTED:
+   - Other
+   - only active trials linked to that field
+
+   NO FIELD SELECTED:
+   - Other
+   - all active trials
+========================================================= */
+
+function getTrialRows(){
+
+  const selectedFieldId =
+    fieldId.value;
+
+  if(
+    !selectedFieldId
+  ){
+    return TRIALS;
+  }
+
+  return TRIALS.filter(
+    trial =>
+      trial.links.some(
+        link =>
+          link.fieldId ===
+          selectedFieldId
+      )
+  );
+}
+
+function renderTrials(
+  searchText=""
+){
+
+  const query =
+    String(
+      searchText ||
+      ""
+    )
+      .trim()
+      .toLowerCase();
+
+  let rows =
+    getTrialRows();
+
+  if(query){
+
+    rows =
+      rows.filter(
+        trial => {
+
+          const text =
+            [
+              trial.trialName,
+              trial.trialType,
+              trial.crop,
+              trial.cropYear,
+              trial.treatmentProduct,
+              trial.check
+            ]
+              .join(" ")
+              .toLowerCase();
+
+          return text.includes(
+            query
+          );
+        }
+      );
+  }
+
+  trialOptions.innerHTML =
+    "";
+
+  /*
+   * OTHER ALWAYS FIRST
+   */
+  const otherButton =
+    document.createElement(
+      "button"
+    );
+
+  otherButton.type =
+    "button";
+
+  otherButton.className =
+    "option";
+
+  if(
+    trialId.value ===
+    "__OTHER__"
+  ){
+    otherButton.classList.add(
+      "selected"
+    );
+  }
+
+  otherButton.textContent =
+    "Other";
+
+  otherButton.addEventListener(
+    "click",
+    ()=>{
+
+      selectTrial({
+
+        id:
+          "__OTHER__",
+
+        isOther:
+          true
+
+      });
+    }
+  );
+
+  trialOptions.appendChild(
+    otherButton
+  );
+
+  rows.forEach(
+    trial => {
+
+      const button =
+        document.createElement(
+          "button"
+        );
+
+      button.type =
+        "button";
+
+      button.className =
+        "option";
+
+      if(
+        trial.id ===
+        trialId.value
+      ){
+        button.classList.add(
+          "selected"
+        );
+      }
+
+      let text =
+        trial.trialName;
+
+      if(
+        trial.crop
+      ){
+
+        text +=
+          " - " +
+          trial.crop;
+
+        if(
+          trial.cropYear
+        ){
+          text +=
+            " " +
+            trial.cropYear;
+        }
+      }
+
+      button.textContent =
+        text;
+
+      button.addEventListener(
+        "click",
+        ()=>{
+          selectTrial(
+            trial
+          );
+        }
+      );
+
+      trialOptions.appendChild(
+        button
+      );
+    }
+  );
+}
+
+function selectTrial(
+  trial
+){
+
+  if(
+    trial &&
+    trial.isOther
+  ){
+
+    trialId.value =
+      "__OTHER__";
+
+    trialText.textContent =
+      "Other";
+
+    trialText.classList.remove(
+      "placeholder"
+    );
+
+    otherWrap.hidden =
+      false;
+
+    setTimeout(
+      ()=>{
+        otherName.focus();
+      },
+      0
+    );
+
+  }
+  else if(trial){
+
+    trialId.value =
+      trial.id;
+
+    trialText.textContent =
+      trial.trialName;
+
+    trialText.classList.remove(
+      "placeholder"
+    );
+
+    otherWrap.hidden =
+      true;
+
+    otherName.value =
+      "";
+
+  }
+  else{
+
+    trialId.value =
+      "";
+
+    trialText.textContent =
+      "- Select Active Trial -";
+
+    trialText.classList.add(
+      "placeholder"
+    );
+
+    otherWrap.hidden =
+      true;
+
+    otherName.value =
+      "";
+  }
+
+  renderTrialMeta();
+
+  closePickers();
+}
+
+function renderTrialMeta(){
+
+  const trial =
+    getSelectedTrial();
+
+  if(
+    !trial
+  ){
+
+    trialMeta.textContent =
+      "Pick a field to see trials linked to that field. Other is always available.";
+
+    return;
+  }
+
+  if(
+    trial.isOther
+  ){
+
+    trialMeta.textContent =
+      "Other yield check - enter your own Trial Name.";
+
+    return;
+  }
+
+  const parts = [];
+
+  if(
+    trial.trialType
+  ){
+    parts.push(
+      trial.trialType
+    );
+  }
+
+  if(
+    trial.crop
+  ){
+
+    let cropText =
+      trial.crop;
+
+    if(
+      trial.cropYear
+    ){
+      cropText +=
+        " " +
+        trial.cropYear;
+    }
+
+    parts.push(
+      cropText
+    );
+  }
+
+  if(
+    trial.treatmentProduct
+  ){
+    parts.push(
+      "Treatment: " +
+      trial.treatmentProduct
+    );
+  }
+
+  if(
+    trial.check
+  ){
+    parts.push(
+      "Check: " +
+      trial.check
+    );
+  }
+
+  trialMeta.textContent =
+    parts.length
+      ? parts.join(
+          " | "
+        )
+      : "Active trial selected.";
+}
+
+/* =========================================================
+   STRIPS
+========================================================= */
+
+function getStripRows(){
+
+  return [
+    ...$("stripList")
+      .querySelectorAll(
+        ".strip"
+      )
+  ];
+}
+
+function renumberStrips(){
+
+  getStripRows().forEach(
+    (row,index)=>{
+
+      row.querySelector(
+        "[data-num]"
+      ).textContent =
+        "Strip " +
+        (index + 1);
+    }
+  );
+}
+
+function addStrip(
+  type
+){
+
+  seq++;
+
+  const row =
+    document.createElement(
+      "div"
+    );
+
+  row.className =
+    "strip";
+
+  row.dataset.type =
+    type;
+
+  row._calc =
+    null;
+
+  row.innerHTML = `
+
+    <div class="strip-head">
+
+      <div
+        class="strip-num"
+        data-num
+      >
+        Strip
       </div>
 
       <div
-        class="dialog-body"
-        id="historyBody"
-      ></div>
+        class="badge"
+        data-badge
+      >
+        ${esc(type)}
+      </div>
+
+      <div class="spacer"></div>
+
+      <button
+        class="btn"
+        data-remove
+        type="button"
+      >
+        Remove
+      </button>
 
     </div>
 
-  </div>
+    <div class="strip-body">
 
-  <script type="module">
-  (async function(){
+      <div class="strip-grid">
 
-    "use strict";
+        <div>
 
-    if(window.__FV_TRIAL_YIELDS_V22__) return;
-    window.__FV_TRIAL_YIELDS_V22__ = true;
+          <label>
+            Strip Type
+          </label>
 
-    const $ =
-      id =>
-        document.getElementById(id);
+          <select
+            class="select-box"
+            data-type
+          >
+            <option value="Trial">
+              Trial
+            </option>
 
-    const num =
-      value => {
+            <option value="Check">
+              Check
+            </option>
+          </select>
 
-        const n =
-          parseFloat(
-            String(value ?? "")
-              .replace(/,/g,"")
-              .trim()
-          );
+        </div>
 
-        return Number.isFinite(n)
-          ? n
-          : NaN;
-      };
+        <div>
 
-    const fmt =
-      (value,decimals=2) => {
+          <label>
+            Strip Notes
+          </label>
 
-        if(
-          !Number.isFinite(
-            Number(value)
-          )
-        ){
-          return "-";
-        }
+          <div class="ctrl">
 
-        return Number(value)
-          .toLocaleString(
-            undefined,
-            {
-              minimumFractionDigits:0,
-              maximumFractionDigits:decimals
-            }
-          );
-      };
+            <input
+              data-notes
+              placeholder="Optional - hybrid, product, rate, etc."
+            >
 
-    const fmtDate =
-      value => {
+          </div>
 
-        if(!value){
-          return "-";
-        }
+        </div>
 
-        let date = null;
+      </div>
 
-        if(
-          value &&
-          typeof value.toDate === "function"
-        ){
-          date =
-            value.toDate();
-        }
-        else if(
-          typeof value === "number"
-        ){
-          date =
-            new Date(value);
-        }
-        else if(
-          typeof value === "string"
-        ){
-          date =
-            new Date(value);
-        }
-        else if(
-          value.seconds
-        ){
-          date =
-            new Date(
-              value.seconds * 1000
-            );
-        }
+      <div class="yieldline">
 
-        if(
-          !date ||
-          Number.isNaN(
-            date.getTime()
-          )
-        ){
-          return "-";
-        }
+        <div>
 
-        return date.toLocaleString();
-      };
+          <strong>
+            Yield
+          </strong>
 
-    function esc(value){
+          <div
+            class="yield-value"
+            data-yield
+          >
+            -
+          </div>
 
-      return String(value ?? "")
-        .replace(/&/g,"&amp;")
-        .replace(/</g,"&lt;")
-        .replace(/>/g,"&gt;")
-        .replace(/"/g,"&quot;")
-        .replace(/'/g,"&#039;");
+          <div
+            class="calc-details"
+            data-details
+          >
+            No yield entered yet.
+          </div>
+
+        </div>
+
+        <button
+          class="btn"
+          data-enter
+          type="button"
+        >
+          Enter Yield...
+        </button>
+
+      </div>
+
+    </div>
+  `;
+
+  $("stripList")
+    .appendChild(
+      row
+    );
+
+  const typeSelect =
+    row.querySelector(
+      "[data-type]"
+    );
+
+  typeSelect.value =
+    type;
+
+  typeSelect.addEventListener(
+    "change",
+    ()=>{
+
+      row.dataset.type =
+        typeSelect.value;
+
+      row.querySelector(
+        "[data-badge]"
+      ).textContent =
+        typeSelect.value;
+
+      refreshSummary();
     }
+  );
 
-    let fb = null;
-    let db = null;
-    let auth = null;
+  row.querySelector(
+    "[data-remove]"
+  ).addEventListener(
+    "click",
+    ()=>{
 
-    async function initFirebase(){
+      row.remove();
 
-      fb =
-        await import(
-          "../../js/firebase-init.js"
-        );
+      renumberStrips();
 
-      await fb.ready;
+      refreshSummary();
+    }
+  );
+
+  row.querySelector(
+    "[data-enter]"
+  ).addEventListener(
+    "click",
+    event =>{
+
+      openCalculator(
+        row,
+        event.currentTarget
+      );
+    }
+  );
+
+  renumberStrips();
+
+  refreshSummary();
+}
+
+$("addTrial")
+  .addEventListener(
+    "click",
+    ()=>addStrip(
+      "Trial"
+    )
+  );
+
+$("addCheck")
+  .addEventListener(
+    "click",
+    ()=>addStrip(
+      "Check"
+    )
+  );
+
+/* =========================================================
+   YIELD CALCULATOR
+========================================================= */
+
+const SETTINGS = {
+
+  corn:{
+    name:"Corn",
+    standardMoisture:15.5,
+    poundsPerBushel:56
+  },
+
+  soy:{
+    name:"Soybeans",
+    standardMoisture:13,
+    poundsPerBushel:60
+  }
+
+};
+
+const SQFT_PER_ACRE =
+  43560;
+
+const cyModal =
+  $("cyModal");
+
+const cyCrop =
+  $("cyCrop");
+
+const cyWid =
+  $("cyWid");
+
+const cyLen =
+  $("cyLen");
+
+const cyAc =
+  $("cyAc");
+
+const cyWt =
+  $("cyWt");
+
+const cyM =
+  $("cyM");
+
+function calculateArea(){
+
+  const length =
+    num(
+      cyLen.value
+    );
+
+  const width =
+    num(
+      cyWid.value
+    );
+
+  const area =
+    length *
+    width /
+    SQFT_PER_ACRE;
+
+  cyAc.value =
+    Number.isFinite(
+      area
+    ) &&
+    area > 0
+      ? fmt(
+          area,
+          4
+        )
+      : "";
+
+  return area;
+}
+
+cyLen.addEventListener(
+  "input",
+  calculateArea
+);
+
+cyWid.addEventListener(
+  "change",
+  calculateArea
+);
+
+function calculateYield(){
+
+  const crop =
+    SETTINGS[
+      cyCrop.value
+    ];
+
+  const width =
+    num(
+      cyWid.value
+    );
+
+  const length =
+    num(
+      cyLen.value
+    );
+
+  const area =
+    length *
+    width /
+    SQFT_PER_ACRE;
+
+  const wetWeight =
+    num(
+      cyWt.value
+    );
+
+  const moisture =
+    num(
+      cyM.value
+    );
+
+  if(
+    !crop ||
+    ![
+      width,
+      length,
+      area,
+      wetWeight,
+      moisture
+    ].every(
+      Number.isFinite
+    ) ||
+    width <= 0 ||
+    length <= 0 ||
+    area <= 0 ||
+    wetWeight <= 0 ||
+    moisture <= 0 ||
+    moisture >= 100
+  ){
+
+    alert(
+      "Enter valid crop, width, length, wet weight, and moisture."
+    );
+
+    return null;
+  }
+
+  const standardWeight =
+    wetWeight *
+    (
+      (100 - moisture) /
+      (
+        100 -
+        crop.standardMoisture
+      )
+    );
+
+  const standardBushels =
+    standardWeight /
+    crop.poundsPerBushel;
+
+  const yieldBuAc =
+    standardBushels /
+    area;
+
+  return {
+
+    crop:
+      cyCrop.value,
+
+    cropName:
+      crop.name,
+
+    cutWidthFt:
+      width,
+
+    cutLengthFt:
+      length,
+
+    acres:
+      area,
+
+    wetWeightLb:
+      wetWeight,
+
+    startMoisture:
+      moisture,
+
+    standardMoisture:
+      crop.standardMoisture,
+
+    poundsPerBushel:
+      crop.poundsPerBushel,
+
+    standardWeightLb:
+      standardWeight,
+
+    standardBushels:
+      standardBushels,
+
+    yieldBuAc:
+      yieldBuAc
+
+  };
+}
+
+function showCalculation(
+  calc
+){
+
+  $("cyRes").hidden =
+    !calc;
+
+  if(calc){
+
+    $("tBu").textContent =
+      fmt(
+        calc.standardBushels,
+        2
+      );
+
+    $("tYield").textContent =
+      fmt(
+        calc.yieldBuAc,
+        2
+      );
+  }
+}
+
+function openModal(
+  modal
+){
+
+  closePickers();
+
+  modal.setAttribute(
+    "open",
+    ""
+  );
+
+  document.documentElement
+    .classList.add(
+      "no-scroll"
+    );
+
+  document.body
+    .classList.add(
+      "no-scroll"
+    );
+
+  upgradeCombos(
+    modal
+  );
+}
+
+function closeModal(
+  modal
+){
+
+  modal.removeAttribute(
+    "open"
+  );
+
+  document.documentElement
+    .classList.remove(
+      "no-scroll"
+    );
+
+  document.body
+    .classList.remove(
+      "no-scroll"
+    );
+}
+
+function openCalculator(
+  row
+){
+
+  targetRow =
+    row;
+
+  if(
+    row._calc
+  ){
+
+    const calc =
+      row._calc;
+
+    cyCrop.value =
+      calc.crop ||
+      "corn";
+
+    cyWid.value =
+      String(
+        calc.cutWidthFt ||
+        30
+      );
+
+    cyLen.value =
+      fmt(
+        calc.cutLengthFt,
+        2
+      );
+
+    cyAc.value =
+      fmt(
+        calc.acres,
+        4
+      );
+
+    cyWt.value =
+      Math.round(
+        calc.wetWeightLb
+      ).toLocaleString();
+
+    cyM.value =
+      fmt(
+        calc.startMoisture,
+        2
+      );
+
+    showCalculation(
+      calc
+    );
+
+  }
+  else{
+
+    cyCrop.value =
+      "corn";
+
+    cyWid.value =
+      "30";
+
+    cyLen.value =
+      "";
+
+    cyAc.value =
+      "";
+
+    cyWt.value =
+      "";
+
+    cyM.value =
+      "";
+
+    showCalculation(
+      null
+    );
+  }
+
+  openModal(
+    cyModal
+  );
+}
+
+$("cyClose")
+  .addEventListener(
+    "click",
+    ()=>closeModal(
+      cyModal
+    )
+  );
+
+$("cyCalc")
+  .addEventListener(
+    "click",
+    ()=>{
+
+      calculateArea();
+
+      showCalculation(
+        calculateYield()
+      );
+    }
+  );
+
+$("cyUse")
+  .addEventListener(
+    "click",
+    ()=>{
+
+      calculateArea();
+
+      const calc =
+        calculateYield();
 
       if(
-        typeof fb.isStub === "function" &&
-        fb.isStub()
+        !calc ||
+        !targetRow
       ){
-        throw new Error(
-          "Firebase is not available."
+        return;
+      }
+
+      targetRow._calc =
+        calc;
+
+      targetRow.querySelector(
+        "[data-yield]"
+      ).textContent =
+        fmt(
+          calc.yieldBuAc,
+          2
+        ) +
+        " bu/ac";
+
+      targetRow.querySelector(
+        "[data-details]"
+      ).textContent =
+        `${calc.cropName} | ` +
+        `${fmt(calc.cutWidthFt,0)} ft x ` +
+        `${fmt(calc.cutLengthFt,2)} ft | ` +
+        `${fmt(calc.acres,3)} ac | ` +
+        `${fmt(calc.wetWeightLb,0)} lb | ` +
+        `${fmt(calc.startMoisture,2)}% moisture`;
+
+      refreshSummary();
+
+      closeModal(
+        cyModal
+      );
+    }
+  );
+
+/* =========================================================
+   SUMMARY
+========================================================= */
+
+function getStripData(){
+
+  return getStripRows()
+    .map(
+      (row,index)=>{
+
+        return {
+
+          order:
+            index + 1,
+
+          type:
+            row.querySelector(
+              "[data-type]"
+            ).value,
+
+          notes:
+            row.querySelector(
+              "[data-notes]"
+            ).value.trim(),
+
+          yieldBuAc:
+            row._calc
+              ? row._calc
+                  .yieldBuAc
+              : null,
+
+          calculation:
+            row._calc
+              ? {
+                  ...row._calc
+                }
+              : null
+
+        };
+      }
+    );
+}
+
+function average(
+  values
+){
+
+  const clean =
+    values.filter(
+      Number.isFinite
+    );
+
+  if(
+    !clean.length
+  ){
+    return null;
+  }
+
+  return clean.reduce(
+    (sum,value) =>
+      sum +
+      value,
+    0
+  ) /
+  clean.length;
+}
+
+function refreshSummary(){
+
+  const strips =
+    getStripData();
+
+  const trialStrips =
+    strips.filter(
+      strip =>
+        strip.type ===
+        "Trial"
+    );
+
+  const checkStrips =
+    strips.filter(
+      strip =>
+        strip.type ===
+        "Check"
+    );
+
+  const trialAverage =
+    average(
+      trialStrips.map(
+        strip =>
+          strip.yieldBuAc
+      )
+    );
+
+  const checkAverage =
+    average(
+      checkStrips.map(
+        strip =>
+          strip.yieldBuAc
+      )
+    );
+
+  const differenceBuAc =
+    Number.isFinite(
+      trialAverage
+    ) &&
+    Number.isFinite(
+      checkAverage
+    )
+      ? trialAverage -
+        checkAverage
+      : null;
+
+  const differencePct =
+    Number.isFinite(
+      differenceBuAc
+    ) &&
+    checkAverage !== 0
+      ? (
+          differenceBuAc /
+          checkAverage
+        ) *
+        100
+      : null;
+
+  $("trialCount").textContent =
+    trialStrips.length;
+
+  $("checkCount").textContent =
+    checkStrips.length;
+
+  $("trialAvg").textContent =
+    Number.isFinite(
+      trialAverage
+    )
+      ? fmt(
+          trialAverage,
+          2
+        ) +
+        " bu/ac"
+      : "- bu/ac";
+
+  $("checkAvg").textContent =
+    Number.isFinite(
+      checkAverage
+    )
+      ? fmt(
+          checkAverage,
+          2
+        ) +
+        " bu/ac"
+      : "- bu/ac";
+
+  const diffElement =
+    $("yieldDiff");
+
+  const pctElement =
+    $("yieldPct");
+
+  diffElement.textContent =
+    Number.isFinite(
+      differenceBuAc
+    )
+      ? (
+          differenceBuAc >= 0
+            ? "+"
+            : ""
+        ) +
+        fmt(
+          differenceBuAc,
+          2
+        ) +
+        " bu/ac"
+      : "- bu/ac";
+
+  pctElement.textContent =
+    Number.isFinite(
+      differencePct
+    )
+      ? (
+          differencePct >= 0
+            ? "+"
+            : ""
+        ) +
+        fmt(
+          differencePct,
+          2
+        ) +
+        "%"
+      : "-%";
+
+  diffElement.className =
+    "v " +
+    (
+      differenceBuAc > 0
+        ? "pos"
+        : differenceBuAc < 0
+          ? "neg"
+          : ""
+    );
+
+  pctElement.className =
+    "v " +
+    (
+      differencePct > 0
+        ? "pos"
+        : differencePct < 0
+          ? "neg"
+          : ""
+    );
+
+  return {
+
+    trialStripCount:
+      trialStrips.length,
+
+    checkStripCount:
+      checkStrips.length,
+
+    trialYieldCount:
+      trialStrips.filter(
+        strip =>
+          Number.isFinite(
+            strip.yieldBuAc
+          )
+      ).length,
+
+    checkYieldCount:
+      checkStrips.filter(
+        strip =>
+          Number.isFinite(
+            strip.yieldBuAc
+          )
+      ).length,
+
+    trialAverage,
+
+    checkAverage,
+
+    differenceBuAc,
+
+    differencePct
+
+  };
+}
+
+/* =========================================================
+   CLEAR
+========================================================= */
+
+function clearCurrent(
+  askFirst=true
+){
+
+  if(
+    askFirst &&
+    !confirm(
+      "Clear the current test and all unsaved strips?"
+    )
+  ){
+    return;
+  }
+
+  fieldId.value =
+    "";
+
+  trialId.value =
+    "";
+
+  otherName.value =
+    "";
+
+  fieldText.textContent =
+    "- Select Field -";
+
+  trialText.textContent =
+    "- Select Active Trial -";
+
+  fieldText.classList.add(
+    "placeholder"
+  );
+
+  trialText.classList.add(
+    "placeholder"
+  );
+
+  otherWrap.hidden =
+    true;
+
+  $("stripList").innerHTML =
+    "";
+
+  addStrip(
+    "Trial"
+  );
+
+  addStrip(
+    "Check"
+  );
+
+  renderTrialMeta();
+}
+
+$("clearCurrent")
+  .addEventListener(
+    "click",
+    ()=>clearCurrent(
+      true
+    )
+  );
+
+/* =========================================================
+   VALIDATION
+========================================================= */
+
+function validateCurrent(){
+
+  const problems =
+    [];
+
+  const field =
+    getSelectedField();
+
+  const trial =
+    getSelectedTrial();
+
+  const strips =
+    getStripData();
+
+  if(
+    !field
+  ){
+    problems.push(
+      "Select a field."
+    );
+  }
+
+  if(
+    !trial
+  ){
+    problems.push(
+      "Select a trial or Other."
+    );
+  }
+
+  if(
+    trial &&
+    trial.isOther &&
+    !String(
+      otherName.value ||
+      ""
+    ).trim()
+  ){
+    problems.push(
+      "Enter a Trial Name for Other."
+    );
+  }
+
+  if(
+    trial &&
+    !trial.isOther &&
+    field &&
+    !trial.links.some(
+      link =>
+        link.fieldId ===
+        field.id
+    )
+  ){
+    problems.push(
+      "That trial is not linked to the selected field."
+    );
+  }
+
+  if(
+    !strips.length
+  ){
+    problems.push(
+      "Add at least one strip."
+    );
+  }
+
+  strips.forEach(
+    (strip,index)=>{
+
+      if(
+        !Number.isFinite(
+          strip.yieldBuAc
+        )
+      ){
+        problems.push(
+          `Strip ${index + 1} needs a yield.`
         );
       }
-
-      db =
-        fb.getFirestore();
-
-      try{
-        auth =
-          fb.getAuth();
-      }
-      catch(e){
-        auth = null;
-      }
     }
+  );
 
-    function upgradeCombos(root){
+  if(
+    !strips.some(
+      strip =>
+        strip.type ===
+        "Trial"
+    )
+  ){
+    problems.push(
+      "Add at least one Trial strip."
+    );
+  }
+
+  if(
+    !strips.some(
+      strip =>
+        strip.type ===
+        "Check"
+    )
+  ){
+    problems.push(
+      "Add at least one Check strip."
+    );
+  }
+
+  return problems;
+}
+
+/* =========================================================
+   SAVE
+========================================================= */
+
+$("saveTrial")
+  .addEventListener(
+    "click",
+    async ()=>{
+
+      const problems =
+        validateCurrent();
+
+      if(
+        problems.length
+      ){
+
+        alert(
+          "Fix these before saving:\n\n- " +
+          problems.join(
+            "\n- "
+          )
+        );
+
+        return;
+      }
+
+      const saveButton =
+        $("saveTrial");
+
+      saveButton.disabled =
+        true;
+
+      saveButton.textContent =
+        "Saving...";
 
       try{
 
-        if(
-          window.FVCombo &&
-          typeof window.FVCombo.upgrade === "function"
-        ){
-          window.FVCombo.upgrade(
-            root || document
+        const field =
+          getSelectedField();
+
+        const trial =
+          getSelectedTrial();
+
+        const isOther =
+          Boolean(
+            trial.isOther
           );
-        }
+
+        const trialName =
+          isOther
+            ? String(
+                otherName.value ||
+                ""
+              ).trim()
+            : trial.trialName;
+
+        const fieldTrialLink =
+          isOther
+            ? null
+            : trial.links.find(
+                link =>
+                  link.fieldId ===
+                  field.id
+              ) ||
+              null;
+
+        const strips =
+          getStripData();
+
+        const summary =
+          refreshSummary();
+
+        const user =
+          auth &&
+          auth.currentUser
+            ? auth.currentUser
+            : null;
+
+        const now =
+          new Date();
+
+        const record = {
+
+          fieldId:
+            field.id,
+
+          fieldName:
+            field.name,
+
+          farmId:
+            fieldTrialLink &&
+            fieldTrialLink.farmId
+              ? fieldTrialLink.farmId
+              : field.farmId ||
+                "",
+
+          farmName:
+            fieldTrialLink &&
+            fieldTrialLink.farmName
+              ? fieldTrialLink.farmName
+              : field.farmName ||
+                "",
+
+          fieldTrialId:
+            isOther
+              ? ""
+              : trial.id,
+
+          trialName,
+
+          testName:
+            trialName,
+
+          trialType:
+            isOther
+              ? "Other"
+              : trial.trialType,
+
+          treatmentProduct:
+            isOther
+              ? ""
+              : trial.treatmentProduct,
+
+          check:
+            isOther
+              ? ""
+              : trial.check,
+
+          crop:
+            isOther
+              ? ""
+              : trial.crop,
+
+          cropYear:
+            isOther
+              ? null
+              : trial.cropYear,
+
+          operationTask:
+            isOther
+              ? ""
+              : trial.operationTask,
+
+          fieldTrialNotes:
+            isOther
+              ? ""
+              : trial.notes,
+
+          trialFieldLinkId:
+            isOther
+              ? ""
+              : fieldTrialLink
+                ? fieldTrialLink.docId ||
+                  ""
+                : "",
+
+          trialFieldNotes:
+            isOther
+              ? ""
+              : fieldTrialLink
+                ? fieldTrialLink.notes ||
+                  ""
+                : "",
+
+          tillable:
+            isOther
+              ? null
+              : fieldTrialLink
+                ? fieldTrialLink.tillable
+                : null,
+
+          trialAcres:
+            isOther
+              ? null
+              : fieldTrialLink
+                ? fieldTrialLink.trialAcres
+                : null,
+
+          /*
+           * This flag makes reporting easy:
+           *
+           * true  = one-off / Other yield check
+           * false = linked fieldTrials record
+           */
+          isOtherTrial:
+            isOther,
+
+          strips,
+
+          summary,
+
+          trialStripCount:
+            summary.trialStripCount,
+
+          checkStripCount:
+            summary.checkStripCount,
+
+          trialAverage:
+            summary.trialAverage,
+
+          checkAverage:
+            summary.checkAverage,
+
+          differenceBuAc:
+            summary.differenceBuAc,
+
+          differencePct:
+            summary.differencePct,
+
+          createdAt:
+            typeof fb.serverTimestamp ===
+            "function"
+              ? fb.serverTimestamp()
+              : now,
+
+          createdAtMs:
+            Date.now(),
+
+          createdAtISO:
+            now.toISOString(),
+
+          createdByUid:
+            user
+              ? user.uid ||
+                ""
+              : "",
+
+          createdByEmail:
+            user
+              ? user.email ||
+                ""
+              : "",
+
+          createdByName:
+            user
+              ? user.displayName ||
+                ""
+              : ""
+
+        };
+
+        await fb.addDoc(
+          fb.collection(
+            db,
+            "trialYields"
+          ),
+          record
+        );
+
+        alert(
+          "Trial test saved to FarmVista."
+        );
+
+        clearCurrent(
+          false
+        );
+
+        await loadHistory();
 
       }
       catch(error){
 
-        console.warn(
-          "[FV] combo upgrade failed",
+        console.error(
+          "[FV] Trial Yield save failed",
           error
         );
-      }
-    }
 
-    let FIELDS = [];
-    let TRIALS = [];
-
-    async function loadFields(){
-
-      const snap =
-        await fb.getDocs(
-          fb.collection(
-            db,
-            "fields"
-          )
-        );
-
-      const rows = [];
-
-      snap.forEach(
-        docSnap => {
-
-          const data =
-            docSnap.data() || {};
-
-          if(
-            String(
-              data.status || ""
-            ).toLowerCase() !==
-            "active"
-          ){
-            return;
-          }
-
-          rows.push({
-            id:docSnap.id,
-            name:
-              data.name ||
-              "(Unnamed field)",
-            farmId:
-              data.farmId ||
-              "",
-            farmName:
-              data.farmName ||
-              ""
-          });
-        }
-      );
-
-      rows.sort(
-        (a,b) =>
-          String(a.name)
-            .localeCompare(
-              String(b.name),
-              undefined,
-              {
-                numeric:true
-              }
-            )
-      );
-
-      FIELDS = rows;
-    }
-
-    async function loadActiveTrials(){
-
-      const snap =
-        await fb.getDocs(
-          fb.collection(
-            db,
-            "fieldTrials"
-          )
-        );
-
-      const activeDocs = [];
-
-      snap.forEach(
-        docSnap => {
-
-          const data =
-            docSnap.data() || {};
-
-          if(
-            String(
-              data.status || ""
-            ).toLowerCase() !==
-            "active"
-          ){
-            return;
-          }
-
-          activeDocs.push({
-            docSnap,
-            data
-          });
-        }
-      );
-
-      const rows =
-        await Promise.all(
-          activeDocs.map(
-            async item => {
-
-              const trialId =
-                item.docSnap.id;
-
-              const data =
-                item.data;
-
-              const fieldSnap =
-                await fb.getDocs(
-                  fb.collection(
-                    db,
-                    "fieldTrials",
-                    trialId,
-                    "fields"
-                  )
-                );
-
-              const linkedFields = [];
-
-              fieldSnap.forEach(
-                fieldDoc => {
-
-                  const fieldData =
-                    fieldDoc.data() || {};
-
-                  const fieldId =
-                    String(
-                      fieldData.fieldId ||
-                      fieldDoc.id ||
-                      ""
-                    ).trim();
-
-                  if(!fieldId){
-                    return;
-                  }
-
-                  linkedFields.push({
-                    id:
-                      fieldDoc.id,
-                    fieldId,
-                    fieldName:
-                      fieldData.fieldName ||
-                      "",
-                    farmId:
-                      fieldData.farmId ||
-                      "",
-                    farmName:
-                      fieldData.farmName ||
-                      "",
-                    notes:
-                      fieldData.notes ||
-                      "",
-                    tillable:
-                      Number.isFinite(
-                        Number(fieldData.tillable)
-                      )
-                        ? Number(fieldData.tillable)
-                        : null,
-                    trialAcres:
-                      Number.isFinite(
-                        Number(fieldData.trialAcres)
-                      )
-                        ? Number(fieldData.trialAcres)
-                        : null
-                  });
-                }
-              );
-
-              return {
-                id:
-                  trialId,
-                trialName:
-                  data.trialName ||
-                  "(Unnamed Trial)",
-                trialType:
-                  data.trialType ||
-                  "",
-                treatmentProduct:
-                  data.treatmentProduct ||
-                  "",
-                check:
-                  data.check ||
-                  "",
-                crop:
-                  data.crop ||
-                  "",
-                cropYear:
-                  data.cropYear ?? null,
-                operationTask:
-                  data.operationTask ||
-                  "",
-                notes:
-                  data.notes ||
-                  "",
-                status:
-                  data.status ||
-                  "",
-                linkedFields
-              };
-            }
-          )
-        );
-
-      rows.sort(
-        (a,b) =>
-          String(a.trialName)
-            .localeCompare(
-              String(b.trialName),
-              undefined,
-              {
-                numeric:true
-              }
-            )
-      );
-
-      TRIALS = rows;
-
-      renderTrialOptions("");
-      renderFieldOptions("");
-    }
-
-    function activeTrialFieldIds(){
-
-      return new Set(
-        TRIALS.flatMap(
-          trial =>
-            trial.linkedFields.map(
-              link =>
-                link.fieldId
-            )
-        )
-      );
-    }
-
-    function trialsForField(
-      fieldId
-    ){
-
-      if(!fieldId){
-        return TRIALS;
-      }
-
-      return TRIALS.filter(
-        trial =>
-          trial.linkedFields.some(
-            link =>
-              link.fieldId ===
-              fieldId
-          )
-      );
-    }
-
-    function fieldsForTrial(
-      trialId
-    ){
-
-      const activeIds =
-        activeTrialFieldIds();
-
-      let rows =
-        FIELDS.filter(
-          field =>
-            activeIds.has(
-              field.id
-            )
-        );
-
-      if(!trialId){
-        return rows;
-      }
-
-      const trial =
-        TRIALS.find(
-          item =>
-            item.id ===
-            trialId
-        );
-
-      if(!trial){
-        return [];
-      }
-
-      const linkedIds =
-        new Set(
-          trial.linkedFields.map(
-            link =>
-              link.fieldId
-          )
-        );
-
-      return rows.filter(
-        field =>
-          linkedIds.has(
-            field.id
-          )
-      );
-    }
-
-    const fieldPicker =
-      $("fieldPicker");
-
-    const fieldPickerBtn =
-      $("fieldPickerBtn");
-
-    const fieldPickerText =
-      $("fieldPickerText");
-
-    const fieldSearch =
-      $("fieldSearch");
-
-    const fieldOptions =
-      $("fieldOptions");
-
-    const testField =
-      $("testField");
-
-    const trialPicker =
-      $("trialPicker");
-
-    const trialPickerBtn =
-      $("trialPickerBtn");
-
-    const trialPickerText =
-      $("trialPickerText");
-
-    const trialSearch =
-      $("trialSearch");
-
-    const trialOptions =
-      $("trialOptions");
-
-    const testTrial =
-      $("testTrial");
-
-    function getSelectedTrial(){
-
-      const trialId =
-        testTrial.value;
-
-      return TRIALS.find(
-        trial =>
-          trial.id ===
-          trialId
-      ) || null;
-    }
-
-    function getTrialFieldLink(
-      trial,
-      fieldId
-    ){
-
-      if(
-        !trial ||
-        !fieldId
-      ){
-        return null;
-      }
-
-      return trial.linkedFields.find(
-        link =>
-          link.fieldId ===
-          fieldId
-      ) || null;
-    }
-
-    function renderTrialMeta(){
-
-      const trial =
-        getSelectedTrial();
-
-      const meta =
-        $("trialMeta");
-
-      if(!trial){
-
-        meta.textContent =
-          "Pick a field to see trials in that field, or pick a trial to see its linked fields.";
-
-        return;
-      }
-
-      const pieces = [];
-
-      if(trial.trialType){
-        pieces.push(
-          trial.trialType
-        );
-      }
-
-      if(trial.crop){
-        pieces.push(
-          trial.crop +
+        alert(
+          "FarmVista could not save this test.\n\n" +
           (
-            trial.cropYear !== null &&
-            trial.cropYear !== undefined
-              ? " " + trial.cropYear
-              : ""
+            error &&
+            error.message
+              ? error.message
+              : "Unknown error"
           )
         );
       }
+      finally{
 
-      if(trial.treatmentProduct){
-        pieces.push(
-          "Treatment: " +
-          trial.treatmentProduct
-        );
-      }
+        saveButton.disabled =
+          false;
 
-      if(trial.check){
-        pieces.push(
-          "Check: " +
-          trial.check
-        );
-      }
-
-      meta.textContent =
-        pieces.length
-          ? pieces.join(" | ")
-          : "Active trial selected.";
-    }
-
-    function closeFieldPicker(){
-
-      fieldPicker.classList.remove(
-        "open"
-      );
-
-      fieldPickerBtn.setAttribute(
-        "aria-expanded",
-        "false"
-      );
-    }
-
-    function closeTrialPicker(){
-
-      trialPicker.classList.remove(
-        "open"
-      );
-
-      trialPickerBtn.setAttribute(
-        "aria-expanded",
-        "false"
-      );
-    }
-
-    function openFieldPicker(){
-
-      closeTrialPicker();
-
-      fieldPicker.classList.add(
-        "open"
-      );
-
-      fieldPickerBtn.setAttribute(
-        "aria-expanded",
-        "true"
-      );
-
-      fieldSearch.value = "";
-
-      renderFieldOptions("");
-
-      setTimeout(
-        ()=>{
-          fieldSearch.focus();
-        },
-        0
-      );
-    }
-
-    function openTrialPicker(){
-
-      closeFieldPicker();
-
-      trialPicker.classList.add(
-        "open"
-      );
-
-      trialPickerBtn.setAttribute(
-        "aria-expanded",
-        "true"
-      );
-
-      trialSearch.value = "";
-
-      renderTrialOptions("");
-
-      setTimeout(
-        ()=>{
-          trialSearch.focus();
-        },
-        0
-      );
-    }
-
-    function toggleFieldPicker(){
-
-      if(
-        fieldPicker.classList.contains(
-          "open"
-        )
-      ){
-        closeFieldPicker();
-      }
-      else{
-        openFieldPicker();
+        saveButton.textContent =
+          "Save Test";
       }
     }
+  );
 
-    function toggleTrialPicker(){
+/* =========================================================
+   HISTORY
+========================================================= */
 
-      if(
-        trialPicker.classList.contains(
-          "open"
-        )
-      ){
-        closeTrialPicker();
-      }
-      else{
-        openTrialPicker();
-      }
-    }
+function formatDate(
+  value
+){
 
-    function selectField(
-      field,
-      options={}
+  try{
+
+    let date;
+
+    if(
+      value &&
+      typeof value.toDate ===
+      "function"
     ){
-
-      testField.value =
-        field
-          ? field.id
-          : "";
-
-      if(field){
-
-        fieldPickerText.textContent =
-          field.name;
-
-        fieldPickerText.classList.remove(
-          "field-picker-placeholder"
+      date =
+        value.toDate();
+    }
+    else if(
+      value &&
+      value.seconds
+    ){
+      date =
+        new Date(
+          value.seconds *
+          1000
         );
-      }
-      else{
-
-        fieldPickerText.textContent =
-          "- Select Field -";
-
-        fieldPickerText.classList.add(
-          "field-picker-placeholder"
+    }
+    else{
+      date =
+        new Date(
+          value
         );
-      }
-
-      const selectedTrial =
-        getSelectedTrial();
-
-      if(
-        field &&
-        selectedTrial &&
-        !selectedTrial.linkedFields.some(
-          link =>
-            link.fieldId ===
-            field.id
-        )
-      ){
-        testTrial.value = "";
-
-        trialPickerText.textContent =
-          "- Select Active Trial -";
-
-        trialPickerText.classList.add(
-          "field-picker-placeholder"
-        );
-
-        $("testName").value = "";
-      }
-
-      renderTrialOptions("");
-      renderTrialMeta();
-
-      if(!options.keepOpen){
-        closeFieldPicker();
-      }
     }
 
-    function selectTrial(
-      trial,
-      options={}
+    if(
+      Number.isNaN(
+        date.getTime()
+      )
     ){
+      return "-";
+    }
 
-      testTrial.value =
-        trial
-          ? trial.id
-          : "";
+    return date.toLocaleString();
 
-      if(trial){
+  }
+  catch{
+    return "-";
+  }
+}
 
-        trialPickerText.textContent =
-          trial.trialName;
+async function loadHistory(){
 
-        trialPickerText.classList.remove(
-          "field-picker-placeholder"
-        );
+  const list =
+    $("historyList");
 
-        $("testName").value =
-          trial.trialName;
-      }
-      else{
+  const empty =
+    $("historyEmpty");
 
-        trialPickerText.textContent =
-          "- Select Active Trial -";
+  list.innerHTML =
+    "";
 
-        trialPickerText.classList.add(
-          "field-picker-placeholder"
-        );
+  empty.hidden =
+    false;
 
-        $("testName").value = "";
-      }
+  empty.textContent =
+    "Loading saved tests...";
 
-      if(trial){
+  try{
 
-        const currentField =
-          testField.value;
+    const snap =
+      await fb.getDocs(
+        fb.collection(
+          db,
+          "trialYields"
+        )
+      );
 
-        if(
-          currentField &&
-          !trial.linkedFields.some(
-            link =>
-              link.fieldId ===
-              currentField
+    const rows =
+      [];
+
+    snap.forEach(
+      docSnap => {
+
+        rows.push({
+
+          id:
+            docSnap.id,
+
+          ...(
+            docSnap.data() ||
+            {}
           )
-        ){
-          selectField(
-            null,
-            {
-              keepOpen:true
-            }
-          );
-        }
+
+        });
       }
+    );
 
-      renderFieldOptions("");
-      renderTrialMeta();
-
-      if(!options.keepOpen){
-        closeTrialPicker();
-      }
-    }
-
-    function renderTrialOptions(
-      searchText=""
-    ){
-
-      const query =
-        String(
-          searchText || ""
+    rows.sort(
+      (a,b) =>
+        Number(
+          b.createdAtMs ||
+          0
+        ) -
+        Number(
+          a.createdAtMs ||
+          0
         )
-          .trim()
-          .toLowerCase();
-
-      const fieldId =
-        testField.value;
-
-      let rows =
-        trialsForField(
-          fieldId
-        );
-
-      if(query){
-
-        rows =
-          rows.filter(
-            trial => {
-
-              const haystack =
-                [
-                  trial.trialName,
-                  trial.trialType,
-                  trial.crop,
-                  trial.cropYear,
-                  trial.treatmentProduct,
-                  trial.check
-                ]
-                  .join(" ")
-                  .toLowerCase();
-
-              return haystack.includes(
-                query
-              );
-            }
-          );
-      }
-
-      trialOptions.innerHTML = "";
-
-      if(!rows.length){
-
-        trialOptions.innerHTML =
-          '<div class="field-empty">No matching active trials.</div>';
-
-        return;
-      }
-
-      rows.forEach(
-        trial => {
-
-          const button =
-            document.createElement(
-              "button"
-            );
-
-          button.type =
-            "button";
-
-          button.className =
-            "field-option";
-
-          button.setAttribute(
-            "role",
-            "option"
-          );
-
-          const parts = [
-            trial.trialName
-          ];
-
-          if(trial.crop){
-
-            parts.push(
-              trial.crop +
-              (
-                trial.cropYear !== null &&
-                trial.cropYear !== undefined
-                  ? " " + trial.cropYear
-                  : ""
-              )
-            );
-          }
-
-          button.textContent =
-            parts.join(" - ");
-
-          if(
-            trial.id ===
-            testTrial.value
-          ){
-            button.classList.add(
-              "selected"
-            );
-
-            button.setAttribute(
-              "aria-selected",
-              "true"
-            );
-          }
-
-          button.addEventListener(
-            "click",
-            ()=>{
-              selectTrial(
-                trial
-              );
-            }
-          );
-
-          trialOptions.appendChild(
-            button
-          );
-        }
-      );
-    }
-
-    function renderFieldOptions(
-      searchText
-    ){
-
-      const query =
-        String(
-          searchText || ""
-        )
-          .trim()
-          .toLowerCase();
-
-      const trialId =
-        testTrial.value;
-
-      let rows =
-        fieldsForTrial(
-          trialId
-        );
-
-      if(query){
-
-        rows =
-          rows.filter(
-            field =>
-              String(
-                field.name
-              )
-                .toLowerCase()
-                .includes(
-                  query
-                )
-          );
-      }
-
-      fieldOptions.innerHTML = "";
-
-      if(!rows.length){
-
-        fieldOptions.innerHTML =
-          '<div class="field-empty">No matching linked fields.</div>';
-
-        return;
-      }
-
-      rows.forEach(
-        field => {
-
-          const button =
-            document.createElement(
-              "button"
-            );
-
-          button.type =
-            "button";
-
-          button.className =
-            "field-option";
-
-          button.setAttribute(
-            "role",
-            "option"
-          );
-
-          button.textContent =
-            field.name;
-
-          if(
-            field.id ===
-            testField.value
-          ){
-
-            button.classList.add(
-              "selected"
-            );
-
-            button.setAttribute(
-              "aria-selected",
-              "true"
-            );
-          }
-
-          button.addEventListener(
-            "click",
-            ()=>{
-              selectField(
-                field
-              );
-            }
-          );
-
-          fieldOptions.appendChild(
-            button
-          );
-        }
-      );
-    }
-
-    fieldPickerBtn.addEventListener(
-      "click",
-      event=>{
-
-        event.stopPropagation();
-
-        toggleFieldPicker();
-      }
     );
 
-    trialPickerBtn.addEventListener(
-      "click",
-      event=>{
+    HISTORY =
+      rows;
 
-        event.stopPropagation();
+    renderHistory();
 
-        toggleTrialPicker();
-      }
+  }
+  catch(error){
+
+    console.error(
+      "[FV] Trial history load failed",
+      error
     );
 
-    fieldSearch.addEventListener(
-      "input",
-      ()=>{
-        renderFieldOptions(
-          fieldSearch.value
-        );
-      }
-    );
+    empty.hidden =
+      false;
 
-    trialSearch.addEventListener(
-      "input",
-      ()=>{
-        renderTrialOptions(
-          trialSearch.value
-        );
-      }
-    );
+    empty.textContent =
+      "Could not load saved tests.";
+  }
+}
 
-    fieldPicker.addEventListener(
-      "click",
-      event=>{
-        event.stopPropagation();
-      }
-    );
+function renderHistory(){
 
-    trialPicker.addEventListener(
-      "click",
-      event=>{
-        event.stopPropagation();
-      }
-    );
+  const list =
+    $("historyList");
 
-    document.addEventListener(
-      "click",
-      ()=>{
-        closeFieldPicker();
-        closeTrialPicker();
-      }
-    );
+  const empty =
+    $("historyEmpty");
 
-    document.addEventListener(
-      "keydown",
-      event=>{
+  list.innerHTML =
+    "";
 
-        if(
-          event.key === "Escape"
-        ){
+  if(
+    !HISTORY.length
+  ){
 
-          if(
-            fieldPicker.classList.contains(
-              "open"
-            )
-          ){
-            closeFieldPicker();
-            fieldPickerBtn.focus();
-          }
+    empty.hidden =
+      false;
 
-          if(
-            trialPicker.classList.contains(
-              "open"
-            )
-          ){
-            closeTrialPicker();
-            trialPickerBtn.focus();
-          }
-        }
-      }
-    );
+    empty.textContent =
+      "No saved tests yet.";
 
-    let lastModalOpener = null;
+    return;
+  }
 
-    function openModal(
-      modal,
-      opener
-    ){
+  empty.hidden =
+    true;
 
-      closeFieldPicker();
-      closeTrialPicker();
+  HISTORY.forEach(
+    record => {
 
-      lastModalOpener =
-        opener || null;
-
-      modal.setAttribute(
-        "open",
-        ""
-      );
-
-      modal.setAttribute(
-        "aria-hidden",
-        "false"
-      );
-
-      document.documentElement
-        .classList.add(
-          "no-scroll"
-        );
-
-      document.body
-        .classList.add(
-          "no-scroll"
-        );
-
-      upgradeCombos(modal);
-    }
-
-    function closeModal(modal){
-
-      modal.removeAttribute(
-        "open"
-      );
-
-      modal.setAttribute(
-        "aria-hidden",
-        "true"
-      );
-
-      document.documentElement
-        .classList.remove(
-          "no-scroll"
-        );
-
-      document.body
-        .classList.remove(
-          "no-scroll"
-        );
-
-      if(
-        lastModalOpener &&
-        typeof lastModalOpener.focus ===
-        "function"
-      ){
-        lastModalOpener.focus();
-      }
-    }
-
-    document.addEventListener(
-      "keydown",
-      event=>{
-
-        if(
-          event.key !== "Escape"
-        ){
-          return;
-        }
-
-        [
-          $("cyHelpModal"),
-          $("cyModal"),
-          $("historyModal")
-        ].forEach(
-          modal=>{
-
-            if(
-              modal.hasAttribute(
-                "open"
-              )
-            ){
-              closeModal(modal);
-            }
-          }
-        );
-      }
-    );
-
-    const stripList =
-      $("stripList");
-
-    let stripSequence = 0;
-
-    function createStrip(
-      type="Trial"
-    ){
-
-      stripSequence++;
+      const summary =
+        record.summary ||
+        record;
 
       const row =
         document.createElement(
@@ -2812,1116 +3948,9 @@
         );
 
       row.className =
-        "strip";
+        "history-row";
 
-      row.dataset.type =
-        type;
-
-      row.dataset.stripId =
-        "strip-" +
-        Date.now() +
-        "-" +
-        stripSequence;
-
-      row._calc = null;
-
-      row.innerHTML = `
-
-        <div class="strip-head">
-
-          <div
-            class="strip-number"
-            data-k="number"
-          >
-            Strip
-          </div>
-
-          <div class="strip-badge">
-            ${esc(type)}
-          </div>
-
-          <div class="strip-head-spacer"></div>
-
-          <button
-            class="remove-strip"
-            type="button"
-            data-k="remove"
-          >
-            Remove
-          </button>
-
-        </div>
-
-        <div class="strip-body">
-
-          <div class="strip-top-grid">
-
-            <div>
-
-              <label>
-                Strip Type
-              </label>
-
-              <select
-                class="select-box"
-                data-k="type"
-              >
-                <option value="Trial">
-                  Trial
-                </option>
-
-                <option value="Check">
-                  Check
-                </option>
-              </select>
-
-            </div>
-
-            <div>
-
-              <label>
-                Strip Notes
-              </label>
-
-              <div class="ctrl">
-
-                <input
-                  type="text"
-                  data-k="notes"
-                  placeholder="Optional - hybrid, product, rate, etc."
-                >
-
-              </div>
-
-            </div>
-
-          </div>
-
-          <div class="yieldline">
-
-            <div>
-
-              <strong>
-                Yield
-              </strong>
-
-              <div
-                class="yield-value"
-                data-k="yield"
-              >
-                -
-              </div>
-
-              <div
-                class="calc-details"
-                data-k="details"
-              >
-                No yield entered yet.
-              </div>
-
-            </div>
-
-            <button
-              type="button"
-              class="btn"
-              data-k="enter"
-            >
-              Enter Yield...
-            </button>
-
-          </div>
-
-        </div>
-      `;
-
-      stripList.appendChild(row);
-
-      const typeSelect =
-        row.querySelector(
-          '[data-k="type"]'
-        );
-
-      typeSelect.value =
-        type;
-
-      typeSelect.addEventListener(
-        "change",
-        ()=>{
-
-          row.dataset.type =
-            typeSelect.value;
-
-          row.querySelector(
-            ".strip-badge"
-          ).textContent =
-            typeSelect.value;
-
-          refreshSummary();
-        }
-      );
-
-      row.querySelector(
-        '[data-k="remove"]'
-      ).addEventListener(
-        "click",
-        ()=>{
-
-          row.remove();
-
-          renumberStrips();
-
-          refreshSummary();
-        }
-      );
-
-      row.querySelector(
-        '[data-k="enter"]'
-      ).addEventListener(
-        "click",
-        event=>{
-
-          openCombineYield(
-            row,
-            event.currentTarget
-          );
-        }
-      );
-
-      renumberStrips();
-
-      refreshSummary();
-
-      return row;
-    }
-
-    function getStripRows(){
-
-      return [
-        ...stripList.querySelectorAll(
-          ".strip"
-        )
-      ];
-    }
-
-    function renumberStrips(){
-
-      getStripRows().forEach(
-        (row,index)=>{
-
-          row.querySelector(
-            '[data-k="number"]'
-          ).textContent =
-            "Strip " +
-            (index + 1);
-        }
-      );
-    }
-
-    $("addTrial")
-      .addEventListener(
-        "click",
-        ()=>createStrip(
-          "Trial"
-        )
-      );
-
-    $("addCheck")
-      .addEventListener(
-        "click",
-        ()=>createStrip(
-          "Check"
-        )
-      );
-
-    const SQFT_PER_ACRE =
-      43560;
-
-    const CROP_SETTINGS = {
-
-      corn:{
-        name:"Corn",
-        standardMoisture:15.5,
-        poundsPerBushel:56
-      },
-
-      soy:{
-        name:"Soybeans",
-        standardMoisture:13,
-        poundsPerBushel:60
-      }
-
-    };
-
-    const cyModal =
-      $("cyModal");
-
-    const cyCrop =
-      $("cyCrop");
-
-    const cyWid =
-      $("cyWid");
-
-    const cyLen =
-      $("cyLen");
-
-    const cyAc =
-      $("cyAc");
-
-    const cyWt =
-      $("cyWt");
-
-    const cyM =
-      $("cyM");
-
-    const cyRes =
-      $("cyRes");
-
-    const tYield =
-      $("tYield");
-
-    const tBu =
-      $("tBu");
-
-    let cyTargetRow = null;
-
-    function restrictInteger(el){
-
-      el.addEventListener(
-        "input",
-        ()=>{
-
-          el.value =
-            String(
-              el.value || ""
-            ).replace(
-              /[^\d]/g,
-              ""
-            );
-        }
-      );
-
-      el.addEventListener(
-        "blur",
-        ()=>{
-
-          const cleaned =
-            String(
-              el.value || ""
-            ).replace(
-              /[^\d]/g,
-              ""
-            );
-
-          el.value =
-            cleaned
-              ? Number(cleaned)
-                  .toLocaleString()
-              : "";
-        }
-      );
-    }
-
-    function restrictDecimal(el){
-
-      el.addEventListener(
-        "input",
-        ()=>{
-
-          let value =
-            String(
-              el.value || ""
-            ).replace(
-              /[^\d.]/g,
-              ""
-            );
-
-          const firstDot =
-            value.indexOf(".");
-
-          if(firstDot >= 0){
-
-            value =
-              value.slice(
-                0,
-                firstDot + 1
-              ) +
-              value
-                .slice(
-                  firstDot + 1
-                )
-                .replace(
-                  /\./g,
-                  ""
-                );
-          }
-
-          const pieces =
-            value.split(".");
-
-          if(
-            pieces.length === 2
-          ){
-
-            pieces[1] =
-              pieces[1].slice(
-                0,
-                2
-              );
-
-            value =
-              pieces[0] +
-              "." +
-              pieces[1];
-          }
-
-          el.value =
-            value;
-        }
-      );
-
-      el.addEventListener(
-        "blur",
-        ()=>{
-
-          const value =
-            num(el.value);
-
-          if(
-            !Number.isFinite(
-              value
-            )
-          ){
-            el.value = "";
-            return;
-          }
-
-          el.value =
-            fmt(
-              value,
-              2
-            );
-        }
-      );
-    }
-
-    restrictDecimal(
-      cyLen
-    );
-
-    restrictInteger(
-      cyWt
-    );
-
-    restrictDecimal(
-      cyM
-    );
-
-    function calculateArea(){
-
-      const length =
-        num(
-          cyLen.value
-        );
-
-      const width =
-        num(
-          cyWid.value
-        );
-
-      if(
-        !Number.isFinite(length) ||
-        !Number.isFinite(width) ||
-        length <= 0 ||
-        width <= 0
-      ){
-
-        cyAc.value = "";
-
-        return NaN;
-      }
-
-      const acres =
-        length *
-        width /
-        SQFT_PER_ACRE;
-
-      cyAc.value =
-        fmt(
-          acres,
-          4
-        );
-
-      return acres;
-    }
-
-    cyLen.addEventListener(
-      "input",
-      calculateArea
-    );
-
-    cyWid.addEventListener(
-      "change",
-      calculateArea
-    );
-
-    function calculateTrueYield(){
-
-      const cropKey =
-        cyCrop.value;
-
-      const crop =
-        CROP_SETTINGS[
-          cropKey
-        ];
-
-      const width =
-        num(
-          cyWid.value
-        );
-
-      const length =
-        num(
-          cyLen.value
-        );
-
-      const area =
-        length *
-        width /
-        SQFT_PER_ACRE;
-
-      const wetWeight =
-        num(
-          cyWt.value
-        );
-
-      const moisture =
-        num(
-          cyM.value
-        );
-
-      if(
-        !crop ||
-        !Number.isFinite(width) ||
-        !Number.isFinite(length) ||
-        !Number.isFinite(area) ||
-        !Number.isFinite(wetWeight) ||
-        !Number.isFinite(moisture) ||
-        width <= 0 ||
-        length <= 0 ||
-        area <= 0 ||
-        wetWeight <= 0 ||
-        moisture <= 0
-      ){
-
-        alert(
-          "Enter crop, width, length, wet weight, and moisture."
-        );
-
-        return null;
-      }
-
-      if(
-        moisture >= 100
-      ){
-
-        alert(
-          "Moisture must be less than 100%."
-        );
-
-        return null;
-      }
-
-      const standardWeight =
-        wetWeight *
-        (
-          (100 - moisture) /
-          (
-            100 -
-            crop.standardMoisture
-          )
-        );
-
-      const standardBushels =
-        standardWeight /
-        crop.poundsPerBushel;
-
-      const yieldBuAc =
-        standardBushels /
-        area;
-
-      return {
-
-        crop:
-          cropKey,
-
-        cropName:
-          crop.name,
-
-        cutWidthFt:
-          width,
-
-        cutLengthFt:
-          length,
-
-        acres:
-          area,
-
-        wetWeightLb:
-          wetWeight,
-
-        startMoisture:
-          moisture,
-
-        standardMoisture:
-          crop.standardMoisture,
-
-        poundsPerBushel:
-          crop.poundsPerBushel,
-
-        standardWeightLb:
-          standardWeight,
-
-        standardBushels:
-          standardBushels,
-
-        yieldBuAc:
-          yieldBuAc
-      };
-    }
-
-    function showCalculatedYield(
-      calc
-    ){
-
-      if(!calc){
-
-        cyRes.hidden =
-          true;
-
-        return;
-      }
-
-      tBu.textContent =
-        fmt(
-          calc.standardBushels,
-          2
-        );
-
-      tYield.textContent =
-        fmt(
-          calc.yieldBuAc,
-          2
-        );
-
-      cyRes.hidden =
-        false;
-    }
-
-    function clearCombineForm(){
-
-      cyLen.value = "";
-      cyAc.value = "";
-      cyWt.value = "";
-      cyM.value = "";
-
-      cyRes.hidden =
-        true;
-
-      tYield.textContent =
-        "-";
-
-      tBu.textContent =
-        "-";
-    }
-
-    function fillCombineForm(
-      calc
-    ){
-
-      if(!calc){
-
-        clearCombineForm();
-
-        return;
-      }
-
-      cyCrop.value =
-        calc.crop ||
-        "corn";
-
-      cyWid.value =
-        String(
-          calc.cutWidthFt ||
-          30
-        );
-
-      cyLen.value =
-        Number.isFinite(
-          calc.cutLengthFt
-        )
-          ? fmt(
-              calc.cutLengthFt,
-              2
-            )
-          : "";
-
-      cyAc.value =
-        Number.isFinite(
-          calc.acres
-        )
-          ? fmt(
-              calc.acres,
-              4
-            )
-          : "";
-
-      cyWt.value =
-        Number.isFinite(
-          calc.wetWeightLb
-        )
-          ? Math.round(
-              calc.wetWeightLb
-            ).toLocaleString()
-          : "";
-
-      cyM.value =
-        Number.isFinite(
-          calc.startMoisture
-        )
-          ? fmt(
-              calc.startMoisture,
-              2
-            )
-          : "";
-
-      showCalculatedYield(
-        calc
-      );
-    }
-
-    function openCombineYield(
-      row,
-      opener
-    ){
-
-      cyTargetRow =
-        row;
-
-      if(row._calc){
-
-        fillCombineForm(
-          row._calc
-        );
-      }
-      else{
-
-        clearCombineForm();
-
-        cyCrop.value =
-          "corn";
-
-        cyWid.value =
-          "30";
-      }
-
-      openModal(
-        cyModal,
-        opener
-      );
-
-      setTimeout(
-        ()=>{
-          upgradeCombos(
-            cyModal
-          );
-        },
-        0
-      );
-    }
-
-    $("cyClose")
-      .addEventListener(
-        "click",
-        ()=>closeModal(
-          cyModal
-        )
-      );
-
-    cyModal.addEventListener(
-      "click",
-      event=>{
-
-        if(
-          event.target ===
-          cyModal
-        ){
-          closeModal(
-            cyModal
-          );
-        }
-      }
-    );
-
-    $("cyCalc")
-      .addEventListener(
-        "click",
-        ()=>{
-
-          calculateArea();
-
-          const result =
-            calculateTrueYield();
-
-          showCalculatedYield(
-            result
-          );
-        }
-      );
-
-    $("cyUseBtn")
-      .addEventListener(
-        "click",
-        ()=>{
-
-          calculateArea();
-
-          const result =
-            calculateTrueYield();
-
-          if(!result){
-            return;
-          }
-
-          if(!cyTargetRow){
-            return;
-          }
-
-          cyTargetRow._calc =
-            result;
-
-          cyTargetRow
-            .querySelector(
-              '[data-k="yield"]'
-            )
-            .textContent =
-              fmt(
-                result.yieldBuAc,
-                2
-              ) +
-              " bu/ac";
-
-          cyTargetRow
-            .querySelector(
-              '[data-k="details"]'
-            )
-            .textContent =
-              `${result.cropName} | ` +
-              `${fmt(result.cutWidthFt,0)} ft x ` +
-              `${fmt(result.cutLengthFt,2)} ft | ` +
-              `${fmt(result.acres,3)} ac | ` +
-              `${fmt(result.wetWeightLb,0)} lb | ` +
-              `${fmt(result.startMoisture,2)}% moisture`;
-
-          refreshSummary();
-
-          closeModal(
-            cyModal
-          );
-        }
-      );
-
-    $("cyHelpBtn")
-      .addEventListener(
-        "click",
-        event=>{
-
-          openModal(
-            $("cyHelpModal"),
-            event.currentTarget
-          );
-        }
-      );
-
-    $("cyHelpClose")
-      .addEventListener(
-        "click",
-        ()=>closeModal(
-          $("cyHelpModal")
-        )
-      );
-
-    $("cyHelpModal")
-      .addEventListener(
-        "click",
-        event=>{
-
-          if(
-            event.target ===
-            $("cyHelpModal")
-          ){
-
-            closeModal(
-              $("cyHelpModal")
-            );
-          }
-        }
-      );
-
-    function average(
-      values
-    ){
-
-      const clean =
-        values.filter(
-          value =>
-            Number.isFinite(
-              Number(value)
-            )
-        );
-
-      if(!clean.length){
-        return null;
-      }
-
-      return (
-        clean.reduce(
-          (sum,value) =>
-            sum +
-            Number(value),
-          0
-        ) /
-        clean.length
-      );
-    }
-
-    function getCurrentStrips(){
-
-      return getStripRows()
-        .map(
-          (row,index)=>{
-
-            const type =
-              row.querySelector(
-                '[data-k="type"]'
-              ).value;
-
-            const notes =
-              row.querySelector(
-                '[data-k="notes"]'
-              ).value.trim();
-
-            return {
-
-              order:
-                index + 1,
-
-              type,
-
-              notes,
-
-              yieldBuAc:
-                row._calc
-                  ? row._calc
-                      .yieldBuAc
-                  : null,
-
-              calculation:
-                row._calc
-                  ? {
-                      ...row._calc
-                    }
-                  : null
-            };
-          }
-        );
-    }
-
-    function calculateSummary(
-      strips
-    ){
-
-      const trialStrips =
-        strips.filter(
-          strip =>
-            strip.type ===
-            "Trial"
-        );
-
-      const checkStrips =
-        strips.filter(
-          strip =>
-            strip.type ===
-            "Check"
-        );
-
-      const trialYields =
-        trialStrips
-          .map(
-            strip =>
-              strip.yieldBuAc
-          )
-          .filter(
-            Number.isFinite
-          );
-
-      const checkYields =
-        checkStrips
-          .map(
-            strip =>
-              strip.yieldBuAc
-          )
-          .filter(
-            Number.isFinite
-          );
-
-      const trialAverage =
-        average(
-          trialYields
-        );
-
-      const checkAverage =
-        average(
-          checkYields
-        );
-
-      let differenceBuAc =
-        null;
-
-      let differencePct =
-        null;
-
-      if(
-        Number.isFinite(
-          trialAverage
-        ) &&
-        Number.isFinite(
-          checkAverage
-        )
-      ){
-
-        differenceBuAc =
-          trialAverage -
-          checkAverage;
-
-        if(
-          checkAverage !== 0
-        ){
-
-          differencePct =
-            (
-              differenceBuAc /
-              checkAverage
-            ) *
-            100;
-        }
-      }
-
-      return {
-
-        trialStripCount:
-          trialStrips.length,
-
-        checkStripCount:
-          checkStrips.length,
-
-        trialYieldCount:
-          trialYields.length,
-
-        checkYieldCount:
-          checkYields.length,
-
-        trialAverage,
-
-        checkAverage,
-
-        differenceBuAc,
-
-        differencePct
-      };
-    }
-
-    function applyDifferenceClass(
-      element,
-      value
-    ){
-
-      element.classList.remove(
-        "adv-positive",
-        "adv-negative"
-      );
-
-      if(
-        !Number.isFinite(
-          value
-        )
-      ){
-        return;
-      }
-
-      if(value > 0){
-
-        element.classList.add(
-          "adv-positive"
-        );
-      }
-      else if(value < 0){
-
-        element.classList.add(
-          "adv-negative"
-        );
-      }
-    }
-
-    function refreshSummary(){
-
-      const summary =
-        calculateSummary(
-          getCurrentStrips()
-        );
-
-      $("trialCount")
-        .textContent =
-          String(
-            summary.trialStripCount
-          );
-
-      $("checkCount")
-        .textContent =
-          String(
-            summary.checkStripCount
-          );
-
-      $("trialAvg")
-        .textContent =
-          Number.isFinite(
-            summary.trialAverage
-          )
-            ? fmt(
-                summary.trialAverage,
-                2
-              ) +
-              " bu/ac"
-            : "- bu/ac";
-
-      $("checkAvg")
-        .textContent =
-          Number.isFinite(
-            summary.checkAverage
-          )
-            ? fmt(
-                summary.checkAverage,
-                2
-              ) +
-              " bu/ac"
-            : "- bu/ac";
-
-      const diffEl =
-        $("yieldDiff");
-
-      const pctEl =
-        $("yieldPct");
-
-      diffEl.textContent =
+      const differenceText =
         Number.isFinite(
           summary.differenceBuAc
         )
@@ -3932,1184 +3961,361 @@
             ) +
             fmt(
               summary.differenceBuAc,
-              2
-            ) +
-            " bu/ac"
-          : "- bu/ac";
-
-      pctEl.textContent =
-        Number.isFinite(
-          summary.differencePct
-        )
-          ? (
-              summary.differencePct >= 0
-                ? "+"
-                : ""
-            ) +
-            fmt(
-              summary.differencePct,
-              2
-            ) +
-            "%"
-          : "-%";
-
-      applyDifferenceClass(
-        diffEl,
-        summary.differenceBuAc
-      );
-
-      applyDifferenceClass(
-        pctEl,
-        summary.differencePct
-      );
-
-      return summary;
-    }
-
-    function clearCurrentTest(
-      askFirst=true
-    ){
-
-      if(
-        askFirst &&
-        !confirm(
-          "Clear the current test and all unsaved strips?"
-        )
-      ){
-        return;
-      }
-
-      selectField(
-        null,
-        {
-          keepOpen:true
-        }
-      );
-
-      selectTrial(
-        null,
-        {
-          keepOpen:true
-        }
-      );
-
-      stripList.innerHTML =
-        "";
-
-      createStrip(
-        "Trial"
-      );
-
-      createStrip(
-        "Check"
-      );
-
-      refreshSummary();
-    }
-
-    $("clearCurrent")
-      .addEventListener(
-        "click",
-        ()=>clearCurrentTest(
-          true
-        )
-      );
-
-    function getSelectedField(){
-
-      const fieldId =
-        testField.value;
-
-      const field =
-        FIELDS.find(
-          item =>
-            item.id ===
-            fieldId
-        );
-
-      return {
-
-        fieldId,
-
-        fieldName:
-          field
-            ? field.name
-            : "",
-
-        farmId:
-          field
-            ? field.farmId || ""
-            : "",
-
-        farmName:
-          field
-            ? field.farmName || ""
-            : ""
-      };
-    }
-
-    function validateCurrentTest(){
-
-      const {
-        fieldId
-      } =
-        getSelectedField();
-
-      const trial =
-        getSelectedTrial();
-
-      const strips =
-        getCurrentStrips();
-
-      const problems =
-        [];
-
-      if(!fieldId){
-
-        problems.push(
-          "Select a field."
-        );
-      }
-
-      if(!trial){
-
-        problems.push(
-          "Select an active trial."
-        );
-      }
-
-      if(
-        fieldId &&
-        trial &&
-        !trial.linkedFields.some(
-          link =>
-            link.fieldId ===
-            fieldId
-        )
-      ){
-
-        problems.push(
-          "The selected field is not linked to the selected trial."
-        );
-      }
-
-      if(!strips.length){
-
-        problems.push(
-          "Add at least one strip."
-        );
-      }
-
-      strips.forEach(
-        (strip,index)=>{
-
-          if(
-            !Number.isFinite(
-              strip.yieldBuAc
+              1
             )
-          ){
-
-            problems.push(
-              `Strip ${index + 1} needs a yield.`
-            );
-          }
-        }
-      );
-
-      const hasTrial =
-        strips.some(
-          strip =>
-            strip.type ===
-            "Trial"
-        );
-
-      const hasCheck =
-        strips.some(
-          strip =>
-            strip.type ===
-            "Check"
-        );
-
-      if(!hasTrial){
-
-        problems.push(
-          "Add at least one Trial strip."
-        );
-      }
-
-      if(!hasCheck){
-
-        problems.push(
-          "Add at least one Check strip."
-        );
-      }
-
-      return {
-
-        ok:
-          problems.length === 0,
-
-        problems
-      };
-    }
-
-    $("saveTrial")
-      .addEventListener(
-        "click",
-        async ()=>{
-
-          const validation =
-            validateCurrentTest();
-
-          if(
-            !validation.ok
-          ){
-
-            alert(
-              "Fix these before saving:\n\n- " +
-              validation.problems.join(
-                "\n- "
-              )
-            );
-
-            return;
-          }
-
-          const saveBtn =
-            $("saveTrial");
-
-          saveBtn.disabled =
-            true;
-
-          saveBtn.textContent =
-            "Saving...";
-
-          try{
-
-            const {
-              fieldId,
-              fieldName,
-              farmId,
-              farmName
-            } =
-              getSelectedField();
-
-            const selectedTrial =
-              getSelectedTrial();
-
-            const trialFieldLink =
-              getTrialFieldLink(
-                selectedTrial,
-                fieldId
-              );
-
-            const testName =
-              selectedTrial
-                ? selectedTrial.trialName
-                : "";
-
-            const strips =
-              getCurrentStrips();
-
-            const summary =
-              calculateSummary(
-                strips
-              );
-
-            const user =
-              auth &&
-              auth.currentUser
-                ? auth.currentUser
-                : null;
-
-            const now =
-              new Date();
-
-            const record = {
-
-              fieldId,
-
-              fieldName,
-
-              farmId:
-                trialFieldLink &&
-                trialFieldLink.farmId
-                  ? trialFieldLink.farmId
-                  : farmId,
-
-              farmName:
-                trialFieldLink &&
-                trialFieldLink.farmName
-                  ? trialFieldLink.farmName
-                  : farmName,
-
-              fieldTrialId:
-                selectedTrial.id,
-
-              trialName:
-                selectedTrial.trialName,
-
-              testName,
-
-              trialType:
-                selectedTrial.trialType,
-
-              treatmentProduct:
-                selectedTrial.treatmentProduct,
-
-              check:
-                selectedTrial.check,
-
-              crop:
-                selectedTrial.crop,
-
-              cropYear:
-                selectedTrial.cropYear,
-
-              operationTask:
-                selectedTrial.operationTask,
-
-              fieldTrialNotes:
-                selectedTrial.notes,
-
-              fieldTrialFieldDocId:
-                trialFieldLink
-                  ? trialFieldLink.id || ""
-                  : "",
-
-              fieldTrialFieldNotes:
-                trialFieldLink
-                  ? trialFieldLink.notes || ""
-                  : "",
-
-              tillable:
-                trialFieldLink
-                  ? trialFieldLink.tillable
-                  : null,
-
-              trialAcres:
-                trialFieldLink
-                  ? trialFieldLink.trialAcres
-                  : null,
-
-              strips,
-
-              summary,
-
-              trialStripCount:
-                summary.trialStripCount,
-
-              checkStripCount:
-                summary.checkStripCount,
-
-              trialAverage:
-                summary.trialAverage,
-
-              checkAverage:
-                summary.checkAverage,
-
-              differenceBuAc:
-                summary.differenceBuAc,
-
-              differencePct:
-                summary.differencePct,
-
-              createdAt:
-                typeof fb.serverTimestamp ===
-                "function"
-                  ? fb.serverTimestamp()
-                  : now,
-
-              createdAtMs:
-                Date.now(),
-
-              createdAtISO:
-                now.toISOString(),
-
-              createdByUid:
-                user
-                  ? user.uid || ""
-                  : "",
-
-              createdByEmail:
-                user
-                  ? user.email || ""
-                  : "",
-
-              createdByName:
-                user
-                  ? user.displayName || ""
-                  : ""
-            };
-
-            await fb.addDoc(
-              fb.collection(
-                db,
-                "trialYields"
-              ),
-              record
-            );
-
-            alert(
-              "Trial test saved to FarmVista."
-            );
-
-            clearCurrentTest(
-              false
-            );
-
-            await loadHistory();
-
-          }
-          catch(error){
-
-            console.error(
-              "[FV] Trial save failed",
-              error
-            );
-
-            alert(
-              "FarmVista could not save this test.\n\n" +
-              (
-                error &&
-                error.message
-                  ? error.message
-                  : "Unknown error"
-              )
-            );
-          }
-          finally{
-
-            saveBtn.disabled =
-              false;
-
-            saveBtn.textContent =
-              "Save Test";
-          }
-        }
-      );
-
-    let HISTORY = [];
-
-    async function loadHistory(){
-
-      const historyList =
-        $("historyList");
-
-      const empty =
-        $("historyEmpty");
-
-      historyList.innerHTML =
-        "";
-
-      empty.hidden =
-        false;
-
-      empty.textContent =
-        "Loading saved tests...";
-
-      try{
-
-        const snap =
-          await fb.getDocs(
-            fb.collection(
-              db,
-              "trialYields"
-            )
-          );
-
-        const rows = [];
-
-        snap.forEach(
-          docSnap=>{
-
-            rows.push({
-
-              id:
-                docSnap.id,
-
-              ...(
-                docSnap.data() ||
-                {}
-              )
-            });
-          }
-        );
-
-        rows.sort(
-          (a,b)=>
-            Number(
-              b.createdAtMs ||
-              0
-            ) -
-            Number(
-              a.createdAtMs ||
-              0
-            )
-        );
-
-        HISTORY =
-          rows;
-
-        renderHistory();
-
-      }
-      catch(error){
-
-        console.error(
-          "[FV] Trial history load failed",
-          error
-        );
-
-        HISTORY =
-          [];
-
-        historyList.innerHTML =
-          "";
-
-        empty.hidden =
-          false;
-
-        empty.textContent =
-          "Could not load saved tests.";
-      }
-    }
-
-    function renderHistory(){
-
-      const historyList =
-        $("historyList");
-
-      const empty =
-        $("historyEmpty");
-
-      historyList.innerHTML =
-        "";
-
-      if(
-        !HISTORY.length
-      ){
-
-        empty.hidden =
-          false;
-
-        empty.textContent =
-          "No saved tests yet.";
-
-        return;
-      }
-
-      empty.hidden =
-        true;
-
-      HISTORY.forEach(
-        record=>{
-
-          const summary =
-            record.summary ||
-            {
-
-              trialAverage:
-                record.trialAverage,
-
-              checkAverage:
-                record.checkAverage,
-
-              differenceBuAc:
-                record.differenceBuAc,
-
-              differencePct:
-                record.differencePct
-            };
-
-          const row =
-            document.createElement(
-              "div"
-            );
-
-          row.className =
-            "history-row";
-
-          const dateText =
-            record.createdAt
-              ? fmtDate(
-                  record.createdAt
+          : "-";
+
+      row.innerHTML = `
+
+        <div class="history-main">
+
+          <div class="history-info">
+
+            <div class="history-title">
+              ${esc(
+                record.testName ||
+                record.trialName ||
+                "Unnamed Test"
+              )}
+            </div>
+
+            <div class="history-sub">
+              ${esc(
+                record.fieldName ||
+                "Unknown Field"
+              )}
+              |
+              ${esc(
+                formatDate(
+                  record.createdAt ||
+                  record.createdAtISO
                 )
-              : record.createdAtISO
-                ? fmtDate(
-                    record.createdAtISO
-                  )
-                : "-";
+              )}
+            </div>
 
-          const trialText =
-            Number.isFinite(
-              summary.trialAverage
-            )
-              ? fmt(
+            <div class="history-sub">
+
+              Trial:
+              <strong>
+                ${fmt(
                   summary.trialAverage,
                   1
-                )
-              : "-";
+                )}
+              </strong>
+              bu/ac
 
-          const checkText =
-            Number.isFinite(
-              summary.checkAverage
-            )
-              ? fmt(
+              |
+
+              Check:
+              <strong>
+                ${fmt(
                   summary.checkAverage,
                   1
-                )
-              : "-";
+                )}
+              </strong>
+              bu/ac
 
-          const diffText =
-            Number.isFinite(
-              summary.differenceBuAc
-            )
-              ? (
-                  summary.differenceBuAc >=
-                  0
-                    ? "+"
-                    : ""
-                ) +
-                fmt(
-                  summary.differenceBuAc,
-                  1
-                )
-              : "-";
+              |
 
-          row.innerHTML = `
-
-            <div class="history-main">
-
-              <div class="history-info">
-
-                <div class="history-title">
-                  ${esc(
-                    record.trialName ||
-                    record.testName ||
-                    "Unnamed Test"
-                  )}
-                </div>
-
-                <div class="history-sub">
-                  ${esc(
-                    record.fieldName ||
-                    "Unknown Field"
-                  )}
-                  |
-                  ${esc(dateText)}
-                </div>
-
-                <div class="history-sub">
-
-                  Trial:
-                  <strong>
-                    ${trialText}
-                  </strong>
-                  bu/ac
-
-                  &nbsp;|
-
-                  Check:
-                  <strong>
-                    ${checkText}
-                  </strong>
-                  bu/ac
-
-                  &nbsp;|
-
-                  Difference:
-                  <strong>
-                    ${diffText}
-                  </strong>
-                  bu/ac
-
-                </div>
-
-              </div>
-
-              <button
-                class="btn"
-                type="button"
-                data-k="view"
-              >
-                View
-              </button>
+              Difference:
+              <strong>
+                ${differenceText}
+              </strong>
+              bu/ac
 
             </div>
-          `;
-
-          row.querySelector(
-            '[data-k="view"]'
-          ).addEventListener(
-            "click",
-            event=>{
-
-              openHistory(
-                record,
-                event.currentTarget
-              );
-            }
-          );
-
-          historyList.appendChild(
-            row
-          );
-        }
-      );
-    }
-
-    $("refreshHistory")
-      .addEventListener(
-        "click",
-        loadHistory
-      );
-
-    function openHistory(
-      record,
-      opener
-    ){
-
-      const strips =
-        Array.isArray(
-          record.strips
-        )
-          ? record.strips
-          : [];
-
-      const summary =
-        record.summary ||
-        calculateSummary(
-          strips
-        );
-
-      const dateText =
-        record.createdAt
-          ? fmtDate(
-              record.createdAt
-            )
-          : record.createdAtISO
-            ? fmtDate(
-                record.createdAtISO
-              )
-            : "-";
-
-      const trialAverage =
-        Number.isFinite(
-          summary.trialAverage
-        )
-          ? fmt(
-              summary.trialAverage,
-              2
-            ) +
-            " bu/ac"
-          : "-";
-
-      const checkAverage =
-        Number.isFinite(
-          summary.checkAverage
-        )
-          ? fmt(
-              summary.checkAverage,
-              2
-            ) +
-            " bu/ac"
-          : "-";
-
-      const difference =
-        Number.isFinite(
-          summary.differenceBuAc
-        )
-          ? (
-              summary.differenceBuAc >=
-              0
-                ? "+"
-                : ""
-            ) +
-            fmt(
-              summary.differenceBuAc,
-              2
-            ) +
-            " bu/ac"
-          : "-";
-
-      const percentage =
-        Number.isFinite(
-          summary.differencePct
-        )
-          ? (
-              summary.differencePct >=
-              0
-                ? "+"
-                : ""
-            ) +
-            fmt(
-              summary.differencePct,
-              2
-            ) +
-            "%"
-          : "-";
-
-      let html = `
-
-        <div class="detail-title">
-          ${esc(
-            record.trialName ||
-            record.testName ||
-            "Unnamed Test"
-          )}
-        </div>
-
-        <div class="detail-sub">
-          ${esc(
-            record.fieldName ||
-            "Unknown Field"
-          )}
-          |
-          ${esc(dateText)}
-        </div>
-
-        <div class="detail-summary">
-
-          <div>
-            Trial Average
-          </div>
-
-          <div class="value">
-            ${trialAverage}
-          </div>
-
-          <div>
-            Check Average
-          </div>
-
-          <div class="value">
-            ${checkAverage}
-          </div>
-
-          <div>
-            Trial vs Check
-          </div>
-
-          <div class="value">
-            ${difference}
-          </div>
-
-          <div>
-            Difference
-          </div>
-
-          <div class="value">
-            ${percentage}
-          </div>
-
-          <div>
-            Trial Strips
-          </div>
-
-          <div class="value">
-
-            ${
-              summary.trialStripCount ??
-              strips.filter(
-                item =>
-                  item.type ===
-                  "Trial"
-              ).length
-            }
 
           </div>
 
-          <div>
-            Check Strips
-          </div>
-
-          <div class="value">
-
-            ${
-              summary.checkStripCount ??
-              strips.filter(
-                item =>
-                  item.type ===
-                  "Check"
-              ).length
-            }
-
-          </div>
+          <button
+            class="btn"
+            type="button"
+          >
+            View
+          </button>
 
         </div>
-
-        <hr
-          style="
-            border:0;
-            border-top:1px solid var(--border);
-            margin:14px 0;
-          "
-        >
-
-        <strong>
-          Individual Strips
-        </strong>
       `;
 
-      strips.forEach(
-        (strip,index)=>{
-
-          const calc =
-            strip.calculation ||
-            {};
-
-          html += `
-
-            <div class="detail-strip">
-
-              <div class="detail-strip-head">
-
-                <strong>
-                  Strip ${index + 1}
-                </strong>
-
-                <span class="strip-badge">
-                  ${esc(
-                    strip.type ||
-                    "-"
-                  )}
-                </span>
-
-              </div>
-
-              <div>
-                <strong>
-                  Yield:
-                </strong>
-
-                ${
-                  Number.isFinite(
-                    strip.yieldBuAc
-                  )
-                    ? fmt(
-                        strip.yieldBuAc,
-                        2
-                      ) +
-                      " bu/ac"
-                    : "-"
-                }
-              </div>
-
-              <div>
-                <strong>
-                  Notes:
-                </strong>
-
-                ${esc(
-                  strip.notes ||
-                  "-"
-                )}
-              </div>
-
-              <div>
-                <strong>
-                  Crop:
-                </strong>
-
-                ${esc(
-                  calc.cropName ||
-                  "-"
-                )}
-              </div>
-
-              <div>
-                <strong>
-                  Width:
-                </strong>
-
-                ${
-                  Number.isFinite(
-                    calc.cutWidthFt
-                  )
-                    ? fmt(
-                        calc.cutWidthFt,
-                        0
-                      ) +
-                      " ft"
-                    : "-"
-                }
-              </div>
-
-              <div>
-                <strong>
-                  Length:
-                </strong>
-
-                ${
-                  Number.isFinite(
-                    calc.cutLengthFt
-                  )
-                    ? fmt(
-                        calc.cutLengthFt,
-                        2
-                      ) +
-                      " ft"
-                    : "-"
-                }
-              </div>
-
-              <div>
-                <strong>
-                  Area:
-                </strong>
-
-                ${
-                  Number.isFinite(
-                    calc.acres
-                  )
-                    ? fmt(
-                        calc.acres,
-                        3
-                      ) +
-                      " ac"
-                    : "-"
-                }
-              </div>
-
-              <div>
-                <strong>
-                  Wet Weight:
-                </strong>
-
-                ${
-                  Number.isFinite(
-                    calc.wetWeightLb
-                  )
-                    ? fmt(
-                        calc.wetWeightLb,
-                        0
-                      ) +
-                      " lb"
-                    : "-"
-                }
-              </div>
-
-              <div>
-                <strong>
-                  Moisture:
-                </strong>
-
-                ${
-                  Number.isFinite(
-                    calc.startMoisture
-                  )
-                    ? fmt(
-                        calc.startMoisture,
-                        2
-                      ) +
-                      "%"
-                    : "-"
-                }
-              </div>
-
-              <div>
-                <strong>
-                  Standard Bushels:
-                </strong>
-
-                ${
-                  Number.isFinite(
-                    calc.standardBushels
-                  )
-                    ? fmt(
-                        calc.standardBushels,
-                        2
-                      )
-                    : "-"
-                }
-              </div>
-
-            </div>
-          `;
+      row.querySelector(
+        "button"
+      ).addEventListener(
+        "click",
+        ()=>{
+          openHistory(
+            record
+          );
         }
       );
 
-      $("historyBody")
-        .innerHTML =
-          html;
-
-      openModal(
-        $("historyModal"),
-        opener
+      list.appendChild(
+        row
       );
     }
+  );
+}
 
-    $("historyClose")
-      .addEventListener(
-        "click",
-        ()=>closeModal(
-          $("historyModal")
+function openHistory(
+  record
+){
+
+  const summary =
+    record.summary ||
+    record;
+
+  const strips =
+    Array.isArray(
+      record.strips
+    )
+      ? record.strips
+      : [];
+
+  const value =
+    number =>
+      Number.isFinite(
+        number
+      )
+        ? fmt(
+            number,
+            2
+          )
+        : "-";
+
+  let html = `
+
+    <h3 style="margin-top:0;">
+      ${esc(
+        record.testName ||
+        record.trialName ||
+        "Unnamed Test"
+      )}
+    </h3>
+
+    <div class="history-sub">
+      ${esc(
+        record.fieldName ||
+        "Unknown Field"
+      )}
+      |
+      ${esc(
+        formatDate(
+          record.createdAt ||
+          record.createdAtISO
         )
-      );
+      )}
+    </div>
 
+    <p>
+
+      <strong>
+        Trial Average:
+      </strong>
+      ${value(
+        summary.trialAverage
+      )}
+      bu/ac
+
+      <br>
+
+      <strong>
+        Check Average:
+      </strong>
+      ${value(
+        summary.checkAverage
+      )}
+      bu/ac
+
+      <br>
+
+      <strong>
+        Difference:
+      </strong>
+      ${value(
+        summary.differenceBuAc
+      )}
+      bu/ac
+
+      <br>
+
+      <strong>
+        Difference %:
+      </strong>
+      ${value(
+        summary.differencePct
+      )}%
+
+    </p>
+
+    <strong>
+      Individual Strips
+    </strong>
+  `;
+
+  strips.forEach(
+    (strip,index)=>{
+
+      const calc =
+        strip.calculation ||
+        {};
+
+      html += `
+
+        <div class="detail-strip">
+
+          <strong>
+            Strip ${index + 1}
+            -
+            ${esc(
+              strip.type ||
+              "-"
+            )}
+          </strong>
+
+          <div>
+            Yield:
+            ${value(
+              strip.yieldBuAc
+            )}
+            bu/ac
+          </div>
+
+          <div>
+            Notes:
+            ${esc(
+              strip.notes ||
+              "-"
+            )}
+          </div>
+
+          <div>
+            Crop:
+            ${esc(
+              calc.cropName ||
+              "-"
+            )}
+          </div>
+
+          <div>
+            Width:
+            ${value(
+              calc.cutWidthFt
+            )}
+            ft
+          </div>
+
+          <div>
+            Length:
+            ${value(
+              calc.cutLengthFt
+            )}
+            ft
+          </div>
+
+          <div>
+            Area:
+            ${value(
+              calc.acres
+            )}
+            ac
+          </div>
+
+          <div>
+            Wet Weight:
+            ${value(
+              calc.wetWeightLb
+            )}
+            lb
+          </div>
+
+          <div>
+            Moisture:
+            ${value(
+              calc.startMoisture
+            )}%
+          </div>
+
+        </div>
+      `;
+    }
+  );
+
+  $("historyBody")
+    .innerHTML =
+      html;
+
+  openModal(
     $("historyModal")
-      .addEventListener(
-        "click",
-        event=>{
+  );
+}
 
-          if(
-            event.target ===
-            $("historyModal")
-          ){
+$("historyClose")
+  .addEventListener(
+    "click",
+    ()=>closeModal(
+      $("historyModal")
+    )
+  );
 
-            closeModal(
-              $("historyModal")
-            );
-          }
-        }
-      );
+$("refreshHistory")
+  .addEventListener(
+    "click",
+    loadHistory
+  );
 
-    try{
+/* =========================================================
+   BOOT
+========================================================= */
 
-      await initFirebase();
+try{
 
-      await loadFields();
+  await initFirebase();
 
-      await loadActiveTrials();
+  /*
+   * Loads every active field,
+   * regardless of whether the field is in a trial.
+   */
+  await loadFields();
 
-      createStrip(
-        "Trial"
-      );
+  /*
+   * Loads active fieldTrials and their field links.
+   */
+  await loadTrials();
 
-      createStrip(
-        "Check"
-      );
+  addStrip(
+    "Trial"
+  );
 
-      refreshSummary();
+  addStrip(
+    "Check"
+  );
 
-      upgradeCombos(
-        document
-      );
+  upgradeCombos(
+    document
+  );
 
-      await loadHistory();
+  await loadHistory();
 
-    }
-    catch(error){
+}
+catch(error){
 
-      console.error(
-        "[FV] Trial Yields boot failed",
-        error
-      );
+  console.error(
+    "[FV] Trial Yields boot failed",
+    error
+  );
 
-      alert(
-        "FarmVista could not initialize Trial Yields.\n\n" +
-        (
-          error &&
-          error.message
-            ? error.message
-            : "Unknown error"
-        )
-      );
-    }
+  alert(
+    "FarmVista could not initialize Trial Yields.\n\n" +
+    (
+      error &&
+      error.message
+        ? error.message
+        : "Unknown error"
+    )
+  );
+}
 
-  })();
-  </script>
+})();
+</script>
 
 </body>
 </html>
