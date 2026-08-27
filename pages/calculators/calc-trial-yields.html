@@ -883,7 +883,7 @@
             <h1>Trial Yields</h1>
 
             <div class="muted">
-              Pick a field and name the test, then add as many trial and check strips as needed.
+              Pick an active field trial and field, then add as many trial and check strips as needed.
             </div>
 
           </div>
@@ -962,18 +962,31 @@
 
             <div>
 
-              <label for="testName">
-                Test Name
+              <label for="testTrial">
+                Active Trial
               </label>
 
-              <div class="ctrl">
+              <select
+                id="testTrial"
+                class="select-box"
+              >
+                <option value="">
+                  Loading active trials…
+                </option>
+              </select>
 
-                <input
-                  id="testName"
-                  type="text"
-                  placeholder="e.g. Fungicide Trial"
-                >
+              <input
+                id="testName"
+                type="hidden"
+                value=""
+              >
 
+              <div
+                id="trialMeta"
+                class="muted"
+                style="font-size:12px; line-height:1.4; margin-top:6px;"
+              >
+                Pick a field to see trials in that field, or pick a trial to see its linked fields.
               </div>
 
             </div>
@@ -1595,8 +1608,8 @@
 
     "use strict";
 
-    if(window.__FV_TRIAL_YIELDS_V21__) return;
-    window.__FV_TRIAL_YIELDS_V21__ = true;
+    if(window.__FV_TRIAL_YIELDS_V22__) return;
+    window.__FV_TRIAL_YIELDS_V22__ = true;
 
 
     /* =========================================================
@@ -1777,10 +1790,11 @@
 
 
     /* =========================================================
-       FIELDS
+       FIELDS + ACTIVE FIELD TRIALS
     ========================================================== */
 
     let FIELDS = [];
+    let TRIALS = [];
 
 
     async function loadFields(){
@@ -1814,7 +1828,13 @@
             id:docSnap.id,
             name:
               data.name ||
-              "(Unnamed field)"
+              "(Unnamed field)",
+            farmId:
+              data.farmId ||
+              "",
+            farmName:
+              data.farmName ||
+              ""
           });
         }
       );
@@ -1832,9 +1852,481 @@
       );
 
       FIELDS = rows;
+    }
+
+
+    async function loadActiveTrials(){
+
+      const snap =
+        await fb.getDocs(
+          fb.collection(
+            db,
+            "fieldTrials"
+          )
+        );
+
+      const activeDocs = [];
+
+      snap.forEach(
+        docSnap => {
+
+          const data =
+            docSnap.data() || {};
+
+          if(
+            String(
+              data.status || ""
+            ).toLowerCase() !==
+            "active"
+          ){
+            return;
+          }
+
+          activeDocs.push({
+            docSnap,
+            data
+          });
+        }
+      );
+
+
+      const rows =
+        await Promise.all(
+          activeDocs.map(
+            async item => {
+
+              const trialId =
+                item.docSnap.id;
+
+              const data =
+                item.data;
+
+              const fieldSnap =
+                await fb.getDocs(
+                  fb.collection(
+                    db,
+                    "fieldTrials",
+                    trialId,
+                    "fields"
+                  )
+                );
+
+              const linkedFields = [];
+
+              fieldSnap.forEach(
+                fieldDoc => {
+
+                  const fieldData =
+                    fieldDoc.data() || {};
+
+                  const fieldId =
+                    String(
+                      fieldData.fieldId ||
+                      fieldDoc.id ||
+                      ""
+                    ).trim();
+
+                  if(!fieldId){
+                    return;
+                  }
+
+                  linkedFields.push({
+                    id:
+                      fieldDoc.id,
+                    fieldId,
+                    fieldName:
+                      fieldData.fieldName ||
+                      "",
+                    farmId:
+                      fieldData.farmId ||
+                      "",
+                    farmName:
+                      fieldData.farmName ||
+                      "",
+                    notes:
+                      fieldData.notes ||
+                      "",
+                    tillable:
+                      Number.isFinite(
+                        Number(fieldData.tillable)
+                      )
+                        ? Number(fieldData.tillable)
+                        : null,
+                    trialAcres:
+                      Number.isFinite(
+                        Number(fieldData.trialAcres)
+                      )
+                        ? Number(fieldData.trialAcres)
+                        : null
+                  });
+                }
+              );
+
+              return {
+                id:
+                  trialId,
+                trialName:
+                  data.trialName ||
+                  "(Unnamed Trial)",
+                trialType:
+                  data.trialType ||
+                  "",
+                treatmentProduct:
+                  data.treatmentProduct ||
+                  "",
+                check:
+                  data.check ||
+                  "",
+                crop:
+                  data.crop ||
+                  "",
+                cropYear:
+                  data.cropYear ?? null,
+                operationTask:
+                  data.operationTask ||
+                  "",
+                notes:
+                  data.notes ||
+                  "",
+                status:
+                  data.status ||
+                  "",
+                linkedFields
+              };
+            }
+          )
+        );
+
+
+      rows.sort(
+        (a,b) =>
+          String(a.trialName)
+            .localeCompare(
+              String(b.trialName),
+              undefined,
+              {
+                numeric:true
+              }
+            )
+      );
+
+      TRIALS = rows;
+
+      renderTrialOptions();
 
       renderFieldOptions("");
     }
+
+
+    function activeTrialFieldIds(){
+
+      return new Set(
+        TRIALS.flatMap(
+          trial =>
+            trial.linkedFields.map(
+              link =>
+                link.fieldId
+            )
+        )
+      );
+    }
+
+
+    function trialsForField(
+      fieldId
+    ){
+
+      if(!fieldId){
+        return TRIALS;
+      }
+
+      return TRIALS.filter(
+        trial =>
+          trial.linkedFields.some(
+            link =>
+              link.fieldId ===
+              fieldId
+          )
+      );
+    }
+
+
+    function fieldsForTrial(
+      trialId
+    ){
+
+      const activeIds =
+        activeTrialFieldIds();
+
+      let rows =
+        FIELDS.filter(
+          field =>
+            activeIds.has(
+              field.id
+            )
+        );
+
+      if(!trialId){
+        return rows;
+      }
+
+      const trial =
+        TRIALS.find(
+          item =>
+            item.id ===
+            trialId
+        );
+
+      if(!trial){
+        return [];
+      }
+
+      const linkedIds =
+        new Set(
+          trial.linkedFields.map(
+            link =>
+              link.fieldId
+          )
+        );
+
+      return rows.filter(
+        field =>
+          linkedIds.has(
+            field.id
+          )
+      );
+    }
+
+
+    function getSelectedTrial(){
+
+      const trialId =
+        $("testTrial").value;
+
+      return TRIALS.find(
+        trial =>
+          trial.id ===
+          trialId
+      ) || null;
+    }
+
+
+    function getTrialFieldLink(
+      trial,
+      fieldId
+    ){
+
+      if(
+        !trial ||
+        !fieldId
+      ){
+        return null;
+      }
+
+      return trial.linkedFields.find(
+        link =>
+          link.fieldId ===
+          fieldId
+      ) || null;
+    }
+
+
+    function renderTrialMeta(){
+
+      const trial =
+        getSelectedTrial();
+
+      const meta =
+        $("trialMeta");
+
+      if(!trial){
+
+        meta.textContent =
+          "Pick a field to see trials in that field, or pick a trial to see its linked fields.";
+
+        return;
+      }
+
+      const pieces = [];
+
+      if(trial.trialType){
+        pieces.push(
+          trial.trialType
+        );
+      }
+
+      if(trial.crop){
+        pieces.push(
+          trial.crop +
+          (
+            trial.cropYear !== null &&
+            trial.cropYear !== undefined
+              ? " " + trial.cropYear
+              : ""
+          )
+        );
+      }
+
+      if(trial.treatmentProduct){
+        pieces.push(
+          "Treatment: " +
+          trial.treatmentProduct
+        );
+      }
+
+      if(trial.check){
+        pieces.push(
+          "Check: " +
+          trial.check
+        );
+      }
+
+      meta.textContent =
+        pieces.join(" • ") ||
+        "Active field trial selected.";
+    }
+
+
+    function renderTrialOptions(){
+
+      const select =
+        $("testTrial");
+
+      const currentFieldId =
+        testField
+          ? testField.value
+          : "";
+
+      const currentTrialId =
+        select.value;
+
+      const available =
+        trialsForField(
+          currentFieldId
+        );
+
+      select.innerHTML = "";
+
+      const placeholder =
+        document.createElement(
+          "option"
+        );
+
+      placeholder.value = "";
+
+      placeholder.textContent =
+        currentFieldId
+          ? "— Select Trial In This Field —"
+          : "— Select Active Trial —";
+
+      select.appendChild(
+        placeholder
+      );
+
+
+      available.forEach(
+        trial => {
+
+          const option =
+            document.createElement(
+              "option"
+            );
+
+          option.value =
+            trial.id;
+
+          const suffix =
+            [
+              trial.crop,
+              trial.cropYear
+            ]
+              .filter(
+                value =>
+                  value !== "" &&
+                  value !== null &&
+                  value !== undefined
+              )
+              .join(" ");
+
+          option.textContent =
+            trial.trialName +
+            (
+              suffix
+                ? " — " + suffix
+                : ""
+            );
+
+          select.appendChild(
+            option
+          );
+        }
+      );
+
+
+      if(
+        currentTrialId &&
+        available.some(
+          trial =>
+            trial.id ===
+            currentTrialId
+        )
+      ){
+        select.value =
+          currentTrialId;
+      }
+      else{
+        select.value = "";
+      }
+
+      const selected =
+        getSelectedTrial();
+
+      $("testName").value =
+        selected
+          ? selected.trialName
+          : "";
+
+      renderTrialMeta();
+    }
+
+
+    $("testTrial")
+      .addEventListener(
+        "change",
+        ()=>{
+
+          const trial =
+            getSelectedTrial();
+
+          $("testName").value =
+            trial
+              ? trial.trialName
+              : "";
+
+          renderTrialMeta();
+
+          const currentFieldId =
+            testField.value;
+
+          if(
+            currentFieldId &&
+            trial &&
+            !trial.linkedFields.some(
+              link =>
+                link.fieldId ===
+                currentFieldId
+            )
+          ){
+            selectField(
+              null,
+              false
+            );
+          }
+          else{
+            renderFieldOptions("");
+          }
+        }
+      );
 
 
     /* =========================================================
@@ -1915,7 +2407,10 @@
     }
 
 
-    function selectField(field){
+    function selectField(
+      field,
+      syncTrial=true
+    ){
 
       testField.value =
         field
@@ -1942,8 +2437,11 @@
       }
 
       closeFieldPicker();
-    }
 
+      if(syncTrial){
+        renderTrialOptions();
+      }
+    }
 
     function renderFieldOptions(searchText){
 
@@ -1954,10 +2452,15 @@
           .trim()
           .toLowerCase();
 
+      const availableFields =
+        fieldsForTrial(
+          $("testTrial").value
+        );
+
       const filtered =
         !query
-          ? FIELDS
-          : FIELDS.filter(
+          ? availableFields
+          : availableFields.filter(
               field =>
                 String(field.name)
                   .toLowerCase()
@@ -1969,7 +2472,7 @@
       if(!filtered.length){
 
         fieldOptions.innerHTML =
-          '<div class="field-empty">No matching fields.</div>';
+          '<div class="field-empty">No matching linked fields.</div>';
 
         return;
       }
@@ -3461,12 +3964,20 @@
         return;
       }
 
-      selectField(
-        null
-      );
+      $("testTrial").value =
+        "";
 
       $("testName").value =
         "";
+
+      selectField(
+        null,
+        false
+      );
+
+      renderTrialOptions();
+
+      renderFieldOptions("");
 
       stripList.innerHTML =
         "";
@@ -3508,6 +4019,15 @@
             fieldId
         );
 
+      const trial =
+        getSelectedTrial();
+
+      const link =
+        getTrialFieldLink(
+          trial,
+          fieldId
+        );
+
       return {
 
         fieldId,
@@ -3515,10 +4035,45 @@
         fieldName:
           field
             ? field.name
-            : ""
+            : link
+              ? link.fieldName
+              : "",
+
+        farmId:
+          link
+            ? link.farmId
+            : field
+              ? field.farmId || ""
+              : "",
+
+        farmName:
+          link
+            ? link.farmName
+            : field
+              ? field.farmName || ""
+              : "",
+
+        trialFieldLinkId:
+          link
+            ? link.id
+            : "",
+
+        trialFieldNotes:
+          link
+            ? link.notes
+            : "",
+
+        tillable:
+          link
+            ? link.tillable
+            : null,
+
+        trialAcres:
+          link
+            ? link.trialAcres
+            : null
       };
     }
-
 
     function validateCurrentTest(){
 
@@ -3528,10 +4083,8 @@
         getSelectedField();
 
 
-      const testName =
-        $("testName")
-          .value
-          .trim();
+      const trial =
+        getSelectedTrial();
 
 
       const strips =
@@ -3550,10 +4103,25 @@
       }
 
 
-      if(!testName){
+      if(!trial){
 
         problems.push(
-          "Enter a test name."
+          "Select an active trial."
+        );
+      }
+
+
+      if(
+        fieldId &&
+        trial &&
+        !getTrialFieldLink(
+          trial,
+          fieldId
+        )
+      ){
+
+        problems.push(
+          "The selected field is not linked to the selected trial."
         );
       }
 
@@ -3666,17 +4234,34 @@
 
           try{
 
+            const selectedField =
+              getSelectedField();
+
             const {
               fieldId,
-              fieldName
+              fieldName,
+              farmId,
+              farmName,
+              trialFieldLinkId,
+              trialFieldNotes,
+              tillable,
+              trialAcres
             } =
-              getSelectedField();
+              selectedField;
+
+
+            const trial =
+              getSelectedTrial();
+
+            if(!trial){
+              throw new Error(
+                "No active trial selected."
+              );
+            }
 
 
             const testName =
-              $("testName")
-                .value
-                .trim();
+              trial.trialName;
 
 
             const strips =
@@ -3706,7 +4291,65 @@
 
               fieldName,
 
+              farmId,
+
+              farmName,
+
+              fieldTrialId:
+                trial.id,
+
+              trialName:
+                trial.trialName,
+
+              trialType:
+                trial.trialType,
+
+              treatmentProduct:
+                trial.treatmentProduct,
+
+              check:
+                trial.check,
+
+              crop:
+                trial.crop,
+
+              cropYear:
+                trial.cropYear,
+
+              operationTask:
+                trial.operationTask,
+
+              fieldTrialNotes:
+                trial.notes,
+
+              trialFieldLinkId,
+
+              trialFieldNotes,
+
+              tillable,
+
+              trialAcres,
+
               testName,
+
+              trialDefinition:{
+                fieldTrialId:
+                  trial.id,
+                trialName:
+                  trial.trialName,
+                trialType:
+                  trial.trialType,
+                treatmentProduct:
+                  trial.treatmentProduct,
+                check:
+                  trial.check,
+                crop:
+                  trial.crop,
+                cropYear:
+                  trial.cropYear,
+                operationTask:
+                  trial.operationTask
+              },
 
               strips,
 
@@ -4560,6 +5203,8 @@
       await initFirebase();
 
       await loadFields();
+
+      await loadActiveTrials();
 
       createStrip(
         "Trial"
