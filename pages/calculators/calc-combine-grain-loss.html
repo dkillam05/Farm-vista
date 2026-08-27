@@ -618,15 +618,69 @@
         combineNameEl.value = "Loading…";
       }
 
-      function initUserDefaults(){
-        submittedByEl.value = "";
-        submittedAtEl.value = toLocalDTInputValue(new Date());
+function initUserDefaults(){
+  submittedByEl.value = "";
+  submittedAtEl.value = toLocalDTInputValue(new Date());
 
-        onAuthStateChanged(__auth, (u)=>{
-          const name = (u && (u.displayName || u.email)) ? String(u.displayName || u.email) : "";
-          submittedByEl.value = name || "";
-        });
+  onAuthStateChanged(__auth, async (u)=>{
+    if(!u){
+      submittedByEl.value = "";
+      return;
+    }
+
+    let displayName = "";
+
+    try{
+      // First try employee document keyed by Firebase Auth UID
+      const employeeSnap = await getDoc(doc(__db, "employees", u.uid));
+
+      if(employeeSnap.exists()){
+        const d = employeeSnap.data() || {};
+
+        displayName =
+          String(d.displayName || "").trim() ||
+          [d.firstName, d.lastName].filter(Boolean).join(" ").trim() ||
+          String(d.name || "").trim();
       }
+    }catch(e){
+      console.warn("Could not load employee by UID:", e);
+    }
+
+    // If employee docs are not keyed by UID,
+    // match the logged-in user's email against employees.
+    if(!displayName && u.email){
+      try{
+        const employeeSnap = await getDocs(collection(__db, "employees"));
+        const loginEmail = String(u.email || "").trim().toLowerCase();
+
+        for(const ds of employeeSnap.docs){
+          const d = ds.data() || {};
+          const employeeEmail = String(d.email || "").trim().toLowerCase();
+
+          if(employeeEmail && employeeEmail === loginEmail){
+            displayName =
+              String(d.displayName || "").trim() ||
+              [d.firstName, d.lastName].filter(Boolean).join(" ").trim() ||
+              String(d.name || "").trim();
+
+            if(displayName) break;
+          }
+        }
+      }catch(e){
+        console.warn("Could not match employee by email:", e);
+      }
+    }
+
+    // Final Firebase Auth fallback
+    if(!displayName){
+      displayName =
+        String(u.displayName || "").trim() ||
+        String(u.email || "").trim();
+    }
+
+    submittedByEl.value = displayName;
+  });
+}
 
       function restrict2(el){
         if(!el) return;
@@ -922,49 +976,64 @@
         saveHist([]); renderHist();
       });
 
-      function initFarmFieldCombos(){
-        const farmCombo = makeCombo({
-          btn: farmBtn,
-          panel: farmPanel,
-          list: farmList,
-          searchInput: farmSearch,
-          items: state.farms,
-          formatter: x => x.name,
-          onPick: it=>{
-            state.farm = it;
-            farmBtn.textContent = it.name;
-            farmIdEl.value = it.id;
-            refreshFieldComboForFarm(it.id);
-            showCtxErr("");
-          }
-        });
+function initFarmFieldCombos(){
+  // IMPORTANT:
+  // Assign these to the OUTER farmCombo / fieldCombo variables.
+  // Do not redeclare them with const here.
+  // loadFarms() and loadFields() update these after Firestore loads.
 
-        const fieldCombo = makeCombo({
-          btn: fieldBtn,
-          panel: fieldPanel,
-          list: fieldList,
-          searchInput: fieldSearch,
-          items: state.fields,
-          formatter: x => x.name,
-          onPick: it=>{
-            state.field = it;
-            fieldBtn.textContent = it.name;
-            fieldIdEl.value = it.id;
+  farmCombo = makeCombo({
+    btn: farmBtn,
+    panel: farmPanel,
+    list: farmList,
+    searchInput: farmSearch,
+    items: [],
+    formatter: x => x.name,
+    onPick: it=>{
+      state.farm = it;
 
-            if(it.farmId){
-              selectFarmById(it.farmId);
-              farmIdEl.value = it.farmId;
-              refreshFieldComboForFarm(it.farmId);
-              fieldBtn.textContent = it.name;
-              fieldIdEl.value = it.id;
-            }
-            showCtxErr("");
-          }
-        });
+      farmBtn.textContent = it.name;
+      farmIdEl.value = it.id;
 
-        void farmCombo;
-        void fieldCombo;
+      // Reset field when changing farms
+      state.field = null;
+      fieldBtn.textContent = "Select field…";
+      fieldIdEl.value = "";
+
+      refreshFieldComboForFarm(it.id);
+      showCtxErr("");
+    }
+  });
+
+  fieldCombo = makeCombo({
+    btn: fieldBtn,
+    panel: fieldPanel,
+    list: fieldList,
+    searchInput: fieldSearch,
+    items: [],
+    formatter: x => x.name,
+    onPick: it=>{
+      state.field = it;
+      fieldBtn.textContent = it.name;
+      fieldIdEl.value = it.id;
+
+      // A field knows its farm, so automatically sync Farm.
+      if(it.farmId){
+        selectFarmById(it.farmId);
+        farmIdEl.value = it.farmId;
+
+        refreshFieldComboForFarm(it.farmId);
+
+        // Preserve selected field after refreshing list
+        state.field = it;
+        fieldBtn.textContent = it.name;
+        fieldIdEl.value = it.id;
       }
+
+      showCtxErr("");
+    }
+  });
+}
 
       function applyHubDefaultsAfterLoad(){
         if(HUB_FARM_ID){
