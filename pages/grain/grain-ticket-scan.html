@@ -9284,6 +9284,93 @@ async function saveScannedTicket(
     ocrResult.grainTicket;
 
 
+  /*
+    BUSHEL SANITY CHECK
+
+    OCR can occasionally reverse Shrink Bushels and Net Bushels.
+
+    Gross - Shrink = Net can still mathematically pass when the
+    two values are reversed, so we need an additional sanity check
+    before this ticket is allowed to save.
+  */
+
+  const grossBushels =
+    Number(
+      grainTicket.grossBushels
+    );
+
+  const shrinkBushels =
+    Number(
+      grainTicket.shrinkBushels ?? 0
+    );
+
+  const netBushels =
+    Number(
+      grainTicket.netBushels
+    );
+
+
+  if (
+    !Number.isFinite(grossBushels) ||
+    !Number.isFinite(shrinkBushels) ||
+    !Number.isFinite(netBushels) ||
+    grossBushels <= 0 ||
+    netBushels <= 0 ||
+    shrinkBushels < 0
+  ) {
+
+    throw new Error(
+      "The grain ticket has invalid bushel values. Please review the ticket."
+    );
+
+  }
+
+
+  /*
+    Gross - Shrink must equal Net.
+  */
+
+  if (
+    Math.abs(
+      (
+        grossBushels -
+        shrinkBushels
+      ) -
+      netBushels
+    ) >
+    0.02
+  ) {
+
+    throw new Error(
+      "Gross, shrink, and net bushels do not balance. Please review the ticket."
+    );
+
+  }
+
+
+  /*
+    CATCH LIKELY REVERSED SHRINK / NET VALUES
+
+    Net bushels should never reasonably be smaller than shrink,
+    and shrink should never consume half or more of the load.
+
+    Do NOT automatically swap the values.
+    Stop the ticket and require review instead.
+  */
+
+  if (
+    netBushels < shrinkBushels ||
+    netBushels < grossBushels * 0.50 ||
+    shrinkBushels > grossBushels * 0.50
+  ) {
+
+    throw new Error(
+      "Net Bushels and Shrink Bushels appear to be reversed. Please review the grain ticket."
+    );
+
+  }
+
+
   let matching =
     matchScannedTicket(
       grainTicket
