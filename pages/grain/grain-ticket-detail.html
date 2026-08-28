@@ -8531,89 +8531,159 @@ binNumber:
     }
 
 
-    function validateBushels() {
+function validateBushels() {
 
-      const gross =
-        numberOrNull(
-          elements.grossBushels.value
-        );
-
-
-      const shrink =
-        numberOrNull(
-          elements.shrinkBushels.value
-        ) ??
-        0;
+  const gross =
+    numberOrNull(
+      elements.grossBushels.value
+    );
 
 
-      const net =
-        numberOrNull(
-          elements.netBushels.value
-        );
+  const shrink =
+    numberOrNull(
+      elements.shrinkBushels.value
+    ) ??
+    0;
 
 
-      if (
-        gross === null ||
-        net === null
-      ) {
-
-        elements.bushelCheck.className =
-          "contract-box warning";
+  const net =
+    numberOrNull(
+      elements.netBushels.value
+    );
 
 
-        elements.bushelCheck.textContent =
-          "Bushel check incomplete.";
+  if (
+    gross === null ||
+    net === null
+  ) {
+
+    elements.bushelCheck.className =
+      "contract-box warning";
 
 
-        return false;
-
-      }
-
-
-      const expected =
-        Number(
-          (
-            gross -
-            shrink
-          )
-            .toFixed(2)
-        );
+    elements.bushelCheck.textContent =
+      "Bushel check incomplete.";
 
 
-      if (
-        Math.abs(
-          expected -
-          net
-        ) >
-        0.02
-      ) {
+    return false;
 
-        elements.bushelCheck.className =
-          "contract-box warning";
+  }
 
 
-        elements.bushelCheck.textContent =
-          `${gross.toFixed(2)} Gross - ${shrink.toFixed(2)} Shrink = ${expected.toFixed(2)} Net, but ticket shows ${net.toFixed(2)}.`;
+  /*
+    ==========================================================
+    BASIC RANGE VALIDATION
+    ==========================================================
+
+    Neither Shrink nor Net can be larger than Gross.
+  */
+
+  if (
+    gross <= 0 ||
+    shrink < 0 ||
+    net <= 0 ||
+    shrink > gross ||
+    net > gross
+  ) {
+
+    elements.bushelCheck.className =
+      "contract-box warning";
 
 
-        return false;
-
-      }
-
-
-      elements.bushelCheck.className =
-        "contract-box good";
+    elements.bushelCheck.textContent =
+      "Bushel values are not valid. Gross, Shrink, and Net need review.";
 
 
-      elements.bushelCheck.textContent =
-        `✓ ${gross.toFixed(2)} Gross - ${shrink.toFixed(2)} Shrink = ${net.toFixed(2)} Net Bushels.`;
+    return false;
+
+  }
 
 
-      return true;
+  /*
+    ==========================================================
+    SHRINK / NET SWAP VALIDATION
+    ==========================================================
 
-    }
+    A normal grain ticket cannot have more Shrink Bushels
+    than Net Bushels.
+
+    This specifically catches OCR cases like:
+
+      Gross = 1,000
+      Shrink = 986
+      Net = 14
+
+    Even though:
+      1,000 - 986 = 14
+
+    the values are clearly reversed.
+  */
+
+  if (
+    shrink > net
+  ) {
+
+    elements.bushelCheck.className =
+      "contract-box warning";
 
 
+    elements.bushelCheck.textContent =
+      `⚠ Shrink (${shrink.toFixed(2)}) is greater than Net Bushels (${net.toFixed(2)}). Shrink and Net may be reversed. Please review the ticket.`;
+
+
+    return false;
+
+  }
+
+
+  const expected =
+    Number(
+      (
+        gross -
+        shrink
+      )
+        .toFixed(2)
+    );
+
+
+  /*
+    ==========================================================
+    NORMAL GROSS - SHRINK = NET CHECK
+    ==========================================================
+  */
+
+  if (
+    Math.abs(
+      expected -
+      net
+    ) >
+    0.02
+  ) {
+
+    elements.bushelCheck.className =
+      "contract-box warning";
+
+
+    elements.bushelCheck.textContent =
+      `${gross.toFixed(2)} Gross - ${shrink.toFixed(2)} Shrink = ${expected.toFixed(2)} Net, but ticket shows ${net.toFixed(2)}.`;
+
+
+    return false;
+
+  }
+
+
+  elements.bushelCheck.className =
+    "contract-box good";
+
+
+  elements.bushelCheck.textContent =
+    `✓ ${gross.toFixed(2)} Gross - ${shrink.toFixed(2)} Shrink = ${net.toFixed(2)} Net Bushels.`;
+
+
+  return true;
+
+}
 
 
     function currentReviewReasons() {
