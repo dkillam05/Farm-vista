@@ -1141,7 +1141,7 @@
 
                 <div class="field full">
                   <label for="contractSelect">
-                    Contract
+                    Hauling Job
                   </label>
 
                   <select
@@ -1309,8 +1309,10 @@
                   <input
                     id="grossWeight"
                     class="control"
-                    type="text"
+                    type="number"
                     inputmode="numeric"
+                    min="30000"
+                    max="110000"
                     required
                   >
 
@@ -1326,8 +1328,10 @@
                   <input
                     id="tareWeight"
                     class="control"
-                    type="text"
+                    type="number"
                     inputmode="numeric"
+                    min="20000"
+                    max="40000"
                     required
                   >
 
@@ -1343,8 +1347,10 @@
                   <input
                     id="netWeight"
                     class="control"
-                    type="text"
+                    type="number"
                     inputmode="numeric"
+                    min="1000"
+                    max="80000"
                     required
                   >
 
@@ -4307,7 +4313,7 @@ async function chooseLoadNumber(
           getDocs(
             collection(
               db,
-              "grain_contracts"
+              "grain_hauling_jobs"
             )
           ),
 
@@ -7221,6 +7227,32 @@ function contractIsOpen(
           .filter(
             job => {
 
+              /*
+                Only show hauling jobs for the crop on this ticket.
+                Example: a Soybeans ticket must not show Corn hauling jobs.
+              */
+              const selectedCrop =
+                normalize(
+                  elements.crop.value
+                );
+
+              const jobCrop =
+                normalize(
+                  job?.crop ||
+                  job?.commodity
+                );
+
+              if (
+                selectedCrop &&
+                jobCrop !==
+                  selectedCrop
+              ) {
+
+                return false;
+
+              }
+
+
               if (
                 job?.active === false ||
                 job?.voided === true
@@ -7352,7 +7384,7 @@ function contractIsOpen(
 
 
         elements.contractStatus.textContent =
-          "No active hauling job is available for this ticket date.";
+          "No active hauling job is available for this crop and ticket date.";
 
 
         state.selectedContract =
@@ -8316,9 +8348,6 @@ binNumber:
         "";
 
 
-      formatAllWeightInputs();
-
-
       elements.testWeight.value =
         ticket.testWeight ??
         "";
@@ -8550,82 +8579,6 @@ binNumber:
     // ==========================================================
     // VALIDATION
     // ==========================================================
-
-
-    // ==========================================================
-    // LIVE WEIGHT COMMA FORMATTING
-    // 50000 -> 50,000 while typing
-    // ==========================================================
-
-    function formatWeightInput(
-      input
-    ) {
-
-      if (
-        !input
-      ) {
-
-        return;
-
-      }
-
-
-      const digits =
-        String(
-          input.value ||
-          ""
-        )
-          .replace(
-            /[^\d]/g,
-            ""
-          );
-
-
-      if (
-        !digits
-      ) {
-
-        input.value =
-          "";
-
-        return;
-
-      }
-
-
-      input.value =
-        Number(
-          digits
-        )
-          .toLocaleString(
-            "en-US"
-          );
-
-    }
-
-
-    function formatAllWeightInputs() {
-
-      [
-        elements.grossWeight,
-        elements.tareWeight,
-        elements.netWeight
-      ]
-        .filter(
-          Boolean
-        )
-        .forEach(
-          input => {
-
-            formatWeightInput(
-              input
-            );
-
-          }
-        );
-
-    }
-
 
     function validateWeights() {
 
