@@ -574,35 +574,51 @@
         }
       }
 
-      /* ====== ROLE PICKER ====== */
-      function populateRolePickerFromArray(arr){
-        const sel = $("rolePicker");
-        const keep = sel.value;
-        sel.innerHTML = "";
+function populateRolePickerFromArray(arr){
+  const sel = $("rolePicker");
+  if(!sel) return;
 
-        const addOpt = document.createElement("option");
-        addOpt.value = "";
-        addOpt.textContent = "Add New Role";
-        sel.appendChild(addOpt);
+  const roles = Array.isArray(arr) ? arr : [];
 
-        (arr||[]).forEach(r=>{
-          const o=document.createElement("option");
-          o.value=r.id;
-          o.textContent=r.name||"(unnamed)";
-          sel.appendChild(o);
-        });
+  sel.innerHTML = "";
 
-        if(keep && arr.some(r=>r.id===keep)){
-          sel.value = keep;
-        } else if((arr||[]).length > 0){
-          sel.value = arr[0].id;
-        } else {
-          sel.value = "";
-        }
+  const addOpt = document.createElement("option");
+  addOpt.value = "";
+  addOpt.textContent = "Add New Role";
+  sel.appendChild(addOpt);
 
-        showRoleNameField(sel.value === "");
-        updateHero();
-      }
+  roles.forEach(r=>{
+    const o = document.createElement("option");
+    o.value = r.id;
+    o.textContent = r.name || "(unnamed)";
+    sel.appendChild(o);
+  });
+
+  /*
+    IMPORTANT:
+    The permissions card is controlled by currentRoleId / roleDraft.
+
+    Therefore the dropdown MUST follow currentRoleId instead of
+    independently remembering whatever value happened to be in
+    the select when Firestore refreshed.
+  */
+
+  const currentStillExists =
+    currentRoleId &&
+    roles.some(r => r.id === currentRoleId);
+
+  if(currentStillExists){
+    sel.value = currentRoleId;
+  }
+  else if(roles.length > 0){
+    sel.value = roles[0].id;
+  }
+  else{
+    sel.value = "";
+  }
+
+  showRoleNameField(sel.value === "");
+}
 
       function newDraft(){
         currentRoleId = "";
