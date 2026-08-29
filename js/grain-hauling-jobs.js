@@ -504,7 +504,7 @@ function jobStatusLabel(job) {
 
 function jobStatusClass(job) {
 
-  return `status-${
+  return `status-job-${
     jobStatus(job)
   }`;
 
