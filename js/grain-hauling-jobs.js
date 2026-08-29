@@ -1,13 +1,17 @@
 // /js/grain-hauling-jobs.js
-// FarmVista — Hauling Jobs / Contract Planning Link
+// FarmVista — Hauling Jobs + Contract Planning Link
 //
-// PURPOSE
-// - Keeps Hauling Job planning separate from grain-contracts.js.
-// - Creates and renders grain_hauling_jobs.
-// - Lets a contract be linked to ONE hauling job.
-// - DOES NOT alter grain-ticket contract allocations.
-// - DOES NOT alter contract delivered/open bushels.
-// - DOES NOT alter ticket-to-contract reconciliation.
+// Separate from /js/grain-contracts.js on purpose.
+// This file owns ONLY:
+//   • Hauling Job create / edit / void
+//   • Hauling Job list + live ticketed / remaining bushels
+//   • Contract → Hauling Job planning links
+//   • Hauling Job DND workspace
+//   • Hauling Job label in the contracts table
+//
+// It DOES NOT change ticket-to-contract allocations, contract delivered/open
+// bushels, split-load logic, spot bushels, settlement logic, or void/reversal
+// accounting in grain-contracts.js.
 
 import {
   ready,
@@ -26,89 +30,55 @@ await ready;
 const db = getFirestore();
 const auth = getAuth();
 
-const JOB_COLLECTION = "grain_hauling_jobs";
-const CONTRACT_COLLECTION = "grain_contracts";
-const TICKET_COLLECTION = "grain_tickets";
-const BUYER_COLLECTION = "grain_buyers";
-const CUSTOMER_COLLECTION = "grain_customers";
-const LOCATION_COLLECTION = "grain_delivery_locations";
+const COLLECTIONS = {
+  jobs: "grain_hauling_jobs",
+  contracts: "grain_contracts",
+  tickets: "grain_tickets",
+  buyers: "grain_buyers",
+  customers: "grain_customers",
+  locations: "grain_delivery_locations"
+};
 
-const EPSILON = 0.005;
-
-const $ = id =>
-  document.getElementById(id);
+const $ = id => document.getElementById(id);
 
 const clean = value =>
   String(value ?? "").trim();
 
-const normalized = value =>
+const norm = value =>
   clean(value).toLowerCase();
 
-const numberValue = value => {
-  const number = Number(value);
+const num = value => {
+  const n =
+    Number(
+      String(value ?? "")
+        .replace(/,/g, "")
+    );
 
-  return Number.isFinite(number)
-    ? number
+  return Number.isFinite(n)
+    ? n
     : 0;
 };
 
-const roundBushels = value =>
+const round2 = value =>
   Number(
-    numberValue(value)
-      .toFixed(2)
+    num(value).toFixed(2)
   );
 
+const fmtBu = value =>
+  num(value).toLocaleString(
+    "en-US",
+    {
+      maximumFractionDigits: 2
+    }
+  );
 
-function escapeHtml(value) {
-
-  return String(value ?? "")
+const escapeHtml = value =>
+  clean(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
-
-}
-
-
-function formatBushels(value) {
-
-  return numberValue(value)
-    .toLocaleString(
-      "en-US",
-      {
-        maximumFractionDigits: 2
-      }
-    );
-
-}
-
-
-function formatDate(iso) {
-
-  const parts =
-    clean(iso)
-      .split("-");
-
-
-  if (
-    parts.length !== 3
-  ) {
-
-    return clean(iso) || "—";
-
-  }
-
-
-  return `${
-    Number(parts[1])
-  }/${
-    Number(parts[2])
-  }/${
-    parts[0]
-  }`;
-
-}
 
 
 function localISO(
@@ -136,26 +106,35 @@ function localISO(
 }
 
 
-function uniqueSorted(values) {
+function fmtDate(
+  iso
+) {
 
-  return [
-    ...new Set(
-      values
-        .map(clean)
-        .filter(Boolean)
-    )
-  ]
-    .sort(
-      (a, b) =>
-        a.localeCompare(
-          b,
-          undefined,
-          {
-            numeric: true,
-            sensitivity: "base"
-          }
-        )
-    );
+  const parts =
+    clean(iso)
+      .split("-")
+      .map(Number);
+
+
+  if (
+    parts.length !== 3 ||
+    !parts[0] ||
+    !parts[1] ||
+    !parts[2]
+  ) {
+
+    return clean(iso) || "—";
+
+  }
+
+
+  return `${
+    parts[1]
+  }/${
+    parts[2]
+  }/${
+    parts[0]
+  }`;
 
 }
 
@@ -174,92 +153,44 @@ const state = {
 
   locations: [],
 
-  draggingContractId: "",
-
   busy: false,
+
+  draggingContractId: "",
 
   contractObserver: null,
 
-  decorateQueued: false
+  decorateQueued: false,
+
+  touch: {
+
+    timer: null,
+
+    active: false,
+
+    contractId: "",
+
+    ghost: null,
+
+    source: null,
+
+    target: null,
+
+    startX: 0,
+
+    startY: 0
+
+  }
 
 };
 
 
 /* ============================================================
-   HAULING JOB HELPERS
+   DATA HELPERS
 ============================================================ */
 
-function jobStartingBushels(job) {
-
-  return Math.max(
-    0,
-    numberValue(
-      job?.startingBushels ??
-      job?.jobBushels ??
-      job?.bushels
-    )
-  );
-
-}
-
-
-function ticketBelongsToJob(
-  ticket,
-  jobId
+function jobBuyerId(
+  job
 ) {
-
-  return (
-    !ticket?.voided &&
-    clean(
-      ticket?.haulingJobId
-    ) ===
-    clean(jobId)
-  );
-
-}
-
-
-function jobTicketedBushels(job) {
-
-  return roundBushels(
-    state.tickets
-      .filter(
-        ticket =>
-          ticketBelongsToJob(
-            ticket,
-            job.id
-          )
-      )
-      .reduce(
-        (
-          total,
-          ticket
-        ) =>
-          total +
-          numberValue(
-            ticket.netBushels
-          ),
-        0
-      )
-  );
-
-}
-
-
-function jobRemainingBushels(job) {
-
-  return roundBushels(
-    Math.max(
-      0,
-      jobStartingBushels(job) -
-      jobTicketedBushels(job)
-    )
-  );
-
-}
-
-
-function jobBuyerId(job) {
 
   return clean(
     job?.buyerId
@@ -268,16 +199,9 @@ function jobBuyerId(job) {
 }
 
 
-function jobCustomerId(job) {
-
-  return clean(
-    job?.customerId
-  );
-
-}
-
-
-function jobLocationId(job) {
+function jobLocationId(
+  job
+) {
 
   return clean(
     job?.deliveryLocationId ||
@@ -288,7 +212,21 @@ function jobLocationId(job) {
 }
 
 
-function jobCrop(job) {
+function jobCustomerId(
+  job
+) {
+
+  return clean(
+    job?.customerId ||
+    job?.grainCustomerId
+  );
+
+}
+
+
+function jobCrop(
+  job
+) {
 
   return clean(
     job?.crop ||
@@ -298,7 +236,100 @@ function jobCrop(job) {
 }
 
 
-function jobDisplayName(job) {
+function jobStartingBushels(
+  job
+) {
+
+  return Math.max(
+    0,
+    num(
+      job?.startingBushels ??
+      job?.jobBushels ??
+      job?.bushels
+    )
+  );
+
+}
+
+
+function ticketIsVoided(
+  ticket
+) {
+
+  return (
+    ticket?.voided === true ||
+    norm(
+      ticket?.status
+    ).includes(
+      "void"
+    )
+  );
+
+}
+
+
+function jobTicketedBushels(
+  job
+) {
+
+  return round2(
+
+    state.tickets
+
+      .filter(
+        ticket =>
+          !ticketIsVoided(
+            ticket
+          ) &&
+          clean(
+            ticket?.haulingJobId
+          ) ===
+          clean(
+            job?.id
+          )
+      )
+
+      .reduce(
+        (
+          sum,
+          ticket
+        ) =>
+          sum +
+          num(
+            ticket?.netBushels ??
+            ticket?.netBu ??
+            ticket?.bushels
+          ),
+        0
+      )
+
+  );
+
+}
+
+
+function jobRemainingBushels(
+  job
+) {
+
+  return round2(
+    Math.max(
+      0,
+      jobStartingBushels(
+        job
+      ) -
+      jobTicketedBushels(
+        job
+      )
+    )
+  );
+
+}
+
+
+function jobName(
+  job
+) {
 
   const saved =
     clean(
@@ -308,7 +339,9 @@ function jobDisplayName(job) {
     );
 
 
-  if (saved) {
+  if (
+    saved
+  ) {
 
     return saved;
 
@@ -332,10 +365,10 @@ function jobDisplayName(job) {
   const place =
     buyer &&
     location &&
-    !normalized(
+    !norm(
       location
     ).startsWith(
-      normalized(
+      norm(
         buyer
       )
     )
@@ -354,7 +387,7 @@ function jobDisplayName(job) {
   return `${
     place
   } — ${
-    formatBushels(
+    fmtBu(
       jobStartingBushels(
         job
       )
@@ -364,52 +397,26 @@ function jobDisplayName(job) {
 }
 
 
-function jobDeliveryWindow(job) {
+function jobStatus(
+  job
+) {
 
-  const start =
-    clean(
-      job?.deliveryStartDate ||
-      job?.startDate
-    );
-
-
-  const end =
-    clean(
-      job?.deliveryEndDate ||
-      job?.endDate
+  const raw =
+    norm(
+      job?.status
     );
 
 
   if (
-    start &&
-    end
+    job?.active === false ||
+    raw.includes(
+      "void"
+    )
   ) {
 
-    return `${
-      formatDate(start)
-    } – ${
-      formatDate(end)
-    }`;
+    return "voided";
 
   }
-
-
-  return start
-    ? formatDate(start)
-    : end
-      ? formatDate(end)
-      : "—";
-
-}
-
-
-function jobStatus(job) {
-
-  const raw =
-    normalized(
-      job?.status ||
-      "active"
-    );
 
 
   if (
@@ -418,11 +425,7 @@ function jobStatus(job) {
     ) ||
     raw.includes(
       "cancel"
-    ) ||
-    raw.includes(
-      "void"
-    ) ||
-    job?.active === false
+    )
   ) {
 
     return "closed";
@@ -430,31 +433,23 @@ function jobStatus(job) {
   }
 
 
-  const starting =
-    jobStartingBushels(
-      job
-    );
-
-
-  const remaining =
-    jobRemainingBushels(
-      job
-    );
-
-
   if (
-    starting > 0 &&
-    remaining <=
-    EPSILON
+    raw.includes(
+      "complete"
+    ) ||
+    (
+      jobStartingBushels(
+        job
+      ) > 0 &&
+      jobRemainingBushels(
+        job
+      ) <= 0.005
+    )
   ) {
 
     return "complete";
 
   }
-
-
-  const today =
-    localISO();
 
 
   const start =
@@ -466,7 +461,8 @@ function jobStatus(job) {
 
   if (
     start &&
-    start > today
+    start >
+    localISO()
   ) {
 
     return "upcoming";
@@ -479,9 +475,11 @@ function jobStatus(job) {
 }
 
 
-function jobStatusLabel(job) {
+function jobStatusLabel(
+  job
+) {
 
-  return {
+  return ({
 
     active:
       "Active",
@@ -493,61 +491,36 @@ function jobStatusLabel(job) {
       "Completed",
 
     closed:
-      "Closed"
+      "Closed",
 
-  }[
-    jobStatus(job)
-  ] || "Active";
+    voided:
+      "Voided"
 
-}
-
-
-function jobStatusClass(job) {
-
-  return `status-job-${
-    jobStatus(job)
-  }`;
+  })[
+    jobStatus(
+      job
+    )
+  ] ||
+  "Active";
 
 }
 
 
-function contractsForJob(jobId) {
-
-  return state.contracts
-    .filter(
-      contract =>
-        clean(
-          contract.haulingJobId
-        ) ===
-        clean(jobId)
-    );
-
-}
-
-
-/* ============================================================
-   CONTRACT HELPERS
-============================================================ */
-
-function contractBuyerId(contract) {
+function contractBuyerId(
+  contract
+) {
 
   return clean(
-    contract?.buyerId
+    contract?.buyerId ||
+    contract?.grainBuyerId
   );
 
 }
 
 
-function contractCustomerId(contract) {
-
-  return clean(
-    contract?.customerId
-  );
-
-}
-
-
-function contractLocationId(contract) {
+function contractLocationId(
+  contract
+) {
 
   return clean(
     contract?.deliveryLocationId ||
@@ -558,7 +531,21 @@ function contractLocationId(contract) {
 }
 
 
-function contractCrop(contract) {
+function contractCustomerId(
+  contract
+) {
+
+  return clean(
+    contract?.customerId ||
+    contract?.grainCustomerId
+  );
+
+}
+
+
+function contractCrop(
+  contract
+) {
 
   return clean(
     contract?.crop ||
@@ -568,7 +555,7 @@ function contractCrop(contract) {
 }
 
 
-function contractDisplayNumber(
+function contractNumber(
   contract
 ) {
 
@@ -584,32 +571,171 @@ function contractDisplayNumber(
 }
 
 
-function linkedJob(contract) {
+function contractBushels(
+  contract
+) {
 
-  const jobId =
+  return Math.max(
+    0,
+    num(
+      contract?.contractBushels ??
+      contract?.bushels ??
+      contract?.quantity ??
+      contract?.totalBushels
+    )
+  );
+
+}
+
+
+function contractOpenBushels(
+  contract
+) {
+
+  const explicit =
+    contract?.openBushels ??
+    contract?.remainingBushels ??
+    contract?.bushelsRemaining ??
+    contract?.remainingBu;
+
+
+  if (
+    explicit !== undefined &&
+    explicit !== null &&
+    explicit !== ""
+  ) {
+
+    return Math.max(
+      0,
+      num(
+        explicit
+      )
+    );
+
+  }
+
+
+  return Math.max(
+    0,
+    contractBushels(
+      contract
+    ) -
+    num(
+      contract?.deliveredBushels
+    )
+  );
+
+}
+
+
+function contractIsVoided(
+  contract
+) {
+
+  return (
+    contract?.voided === true ||
+    norm(
+      contract?.status ||
+      contract?.contractStatus
+    ).includes(
+      "void"
+    )
+  );
+
+}
+
+
+function linkedJob(
+  contract
+) {
+
+  const id =
     clean(
       contract?.haulingJobId
     );
 
 
-  if (!jobId) {
+  return id
+    ? (
+        state.jobs.find(
+          job =>
+            job.id ===
+            id
+        ) ||
+        null
+      )
+    : null;
 
-    return null;
-
-  }
+}
 
 
-  return state.jobs.find(
-    job =>
-      job.id ===
-      jobId
+function contractsForJob(
+  jobId
+) {
+
+  return state.contracts
+    .filter(
+      contract =>
+        clean(
+          contract?.haulingJobId
+        ) ===
+        clean(
+          jobId
+        )
+    );
+
+}
+
+
+function matchingLocation(
+  locationId
+) {
+
+  return state.locations.find(
+    location =>
+      location.id ===
+      clean(
+        locationId
+      )
   ) ||
   null;
 
 }
 
 
-function validateContractJobMatch(
+function matchingBuyer(
+  buyerId
+) {
+
+  return state.buyers.find(
+    buyer =>
+      buyer.id ===
+      clean(
+        buyerId
+      )
+  ) ||
+  null;
+
+}
+
+
+function matchingCustomer(
+  customerId
+) {
+
+  return state.customers.find(
+    customer =>
+      customer.id ===
+      clean(
+        customerId
+      )
+  ) ||
+  null;
+
+}
+
+
+function validateContractJob(
   contract,
   job
 ) {
@@ -625,7 +751,9 @@ function validateContractJobMatch(
 
 
   if (
-    contract?.voided
+    contractIsVoided(
+      contract
+    )
   ) {
 
     return "Voided contracts cannot be linked to a hauling job.";
@@ -634,11 +762,17 @@ function validateContractJobMatch(
 
 
   if (
-    jobStatus(job) ===
-    "closed"
+    [
+      "voided",
+      "closed"
+    ].includes(
+      jobStatus(
+        job
+      )
+    )
   ) {
 
-    return "Closed hauling jobs cannot receive contracts.";
+    return "That hauling job is closed or voided.";
 
   }
 
@@ -672,6 +806,24 @@ function validateContractJobMatch(
 
 
   if (
+    norm(
+      contractCrop(
+        contract
+      )
+    ) !==
+    norm(
+      jobCrop(
+        job
+      )
+    )
+  ) {
+
+    return "Crop does not match this hauling job.";
+
+  }
+
+
+  if (
     contractLocationId(
       contract
     ) !==
@@ -685,84 +837,66 @@ function validateContractJobMatch(
   }
 
 
-  if (
-    normalized(
-      contractCrop(
-        contract
-      )
-    ) !==
-    normalized(
-      jobCrop(
-        job
-      )
-    )
-  ) {
-
-    return "Crop does not match this hauling job.";
-
-  }
-
-
   return "";
 
 }
 
 
 /* ============================================================
-   LOAD DATA
+   LOAD / REFRESH
 ============================================================ */
 
-async function loadData() {
+async function loadAllData() {
 
   const [
-    jobSnapshot,
-    contractSnapshot,
-    ticketSnapshot,
-    buyerSnapshot,
-    customerSnapshot,
-    locationSnapshot
+    jobSnap,
+    contractSnap,
+    ticketSnap,
+    buyerSnap,
+    customerSnap,
+    locationSnap
   ] =
     await Promise.all([
 
       getDocs(
         collection(
           db,
-          JOB_COLLECTION
+          COLLECTIONS.jobs
         )
       ),
 
       getDocs(
         collection(
           db,
-          CONTRACT_COLLECTION
+          COLLECTIONS.contracts
         )
       ),
 
       getDocs(
         collection(
           db,
-          TICKET_COLLECTION
+          COLLECTIONS.tickets
         )
       ),
 
       getDocs(
         collection(
           db,
-          BUYER_COLLECTION
+          COLLECTIONS.buyers
         )
       ),
 
       getDocs(
         collection(
           db,
-          CUSTOMER_COLLECTION
+          COLLECTIONS.customers
         )
       ),
 
       getDocs(
         collection(
           db,
-          LOCATION_COLLECTION
+          COLLECTIONS.locations
         )
       )
 
@@ -770,67 +904,68 @@ async function loadData() {
 
 
   state.jobs =
-    jobSnapshot.docs
-      .map(
-        snapshot => ({
+    jobSnap.docs.map(
+      snapshot => ({
 
-          id:
-            snapshot.id,
+        id:
+          snapshot.id,
 
-          ...snapshot.data()
+        ...snapshot.data()
 
-        })
-      );
+      })
+    );
 
 
   state.contracts =
-    contractSnapshot.docs
-      .map(
-        snapshot => ({
+    contractSnap.docs.map(
+      snapshot => ({
 
-          id:
-            snapshot.id,
+        id:
+          snapshot.id,
 
-          ...snapshot.data()
+        ...snapshot.data()
 
-        })
-      );
+      })
+    );
 
 
   state.tickets =
-    ticketSnapshot.docs
-      .map(
-        snapshot => ({
+    ticketSnap.docs.map(
+      snapshot => ({
 
-          id:
-            snapshot.id,
+        id:
+          snapshot.id,
 
-          ...snapshot.data()
+        ...snapshot.data()
 
-        })
-      );
+      })
+    );
 
 
   state.buyers =
-    buyerSnapshot.docs
+    buyerSnap.docs
+
       .map(
         snapshot => ({
 
           id:
             snapshot.id,
 
+          ...snapshot.data(),
+
           name:
             clean(
-              snapshot.data()
-                ?.name
+              snapshot.data()?.name
             )
 
         })
       )
+
       .filter(
         item =>
           item.name
       )
+
       .sort(
         (
           a,
@@ -840,33 +975,40 @@ async function loadData() {
             b.name,
             undefined,
             {
-              numeric: true,
-              sensitivity: "base"
+              numeric:
+                true,
+
+              sensitivity:
+                "base"
             }
           )
       );
 
 
   state.customers =
-    customerSnapshot.docs
+    customerSnap.docs
+
       .map(
         snapshot => ({
 
           id:
             snapshot.id,
 
+          ...snapshot.data(),
+
           name:
             clean(
-              snapshot.data()
-                ?.name
+              snapshot.data()?.name
             )
 
         })
       )
+
       .filter(
         item =>
           item.name
       )
+
       .sort(
         (
           a,
@@ -876,83 +1018,73 @@ async function loadData() {
             b.name,
             undefined,
             {
-              numeric: true,
-              sensitivity: "base"
+              numeric:
+                true,
+
+              sensitivity:
+                "base"
             }
           )
       );
 
 
   state.locations =
-    locationSnapshot.docs
+    locationSnap.docs
+
       .map(
-        snapshot => {
+        snapshot => ({
 
-          const data =
-            snapshot.data() ||
-            {};
+          id:
+            snapshot.id,
 
+          ...snapshot.data(),
 
-          return {
+          buyerId:
+            clean(
+              snapshot.data()?.buyerId
+            ),
 
-            id:
-              snapshot.id,
+          buyerName:
+            clean(
+              snapshot.data()?.buyerName
+            ),
 
-            buyerId:
-              clean(
-                data.buyerId
-              ),
+          locationName:
+            clean(
+              snapshot.data()?.locationName
+            )
 
-            buyerName:
-              clean(
-                data.buyerName
-              ),
-
-            locationName:
-              clean(
-                data.locationName
-              ),
-
-            street:
-              clean(
-                data.street
-              ),
-
-            city:
-              clean(
-                data.city
-              ),
-
-            state:
-              clean(
-                data.state
-              ),
-
-            zip:
-              clean(
-                data.zip
-              )
-
-          };
-
-        }
+        })
       )
+
       .filter(
         item =>
           item.locationName
       )
+
       .sort(
         (
           a,
           b
         ) =>
-          a.locationName
+          `${
+            a.buyerName
+          } ${
+            a.locationName
+          }`
             .localeCompare(
-              b.locationName,
+              `${
+                b.buyerName
+              } ${
+                b.locationName
+              }`,
               undefined,
               {
-                numeric: true,
-                sensitivity: "base"
+                numeric:
+                  true,
+
+                sensitivity:
+                  "base"
               }
             )
       );
@@ -960,16 +1092,102 @@ async function loadData() {
 }
 
 
+async function refreshHauling() {
+
+  if (
+    state.busy
+  ) {
+
+    return;
+
+  }
+
+
+  try {
+
+    await loadAllData();
+
+
+    populateJobFilters();
+
+
+    renderJobs();
+
+
+    populateLinkBuyer();
+
+
+    rebuildLinkFiltersFromCurrent();
+
+
+    renderLinkWorkspace();
+
+
+    queueContractTableDecoration();
+
+  }
+  catch (
+    error
+  ) {
+
+    console.warn(
+      "[Hauling Jobs] refresh failed:",
+      error
+    );
+
+  }
+
+}
+
+
 /* ============================================================
-   FILTER HELPERS
+   MAIN HAULING JOB TABLE
 ============================================================ */
 
-function populateSimpleFilter(
+function uniqueSorted(
+  values
+) {
+
+  return [
+    ...new Set(
+      values
+        .map(
+          clean
+        )
+        .filter(
+          Boolean
+        )
+    )
+  ]
+    .sort(
+      (
+        a,
+        b
+      ) =>
+        a.localeCompare(
+          b,
+          undefined,
+          {
+            numeric:
+              true,
+
+            sensitivity:
+              "base"
+          }
+        )
+    );
+
+}
+
+
+function refillSimpleSelect(
   select,
   values
 ) {
 
-  if (!select) {
+  if (
+    !select
+  ) {
 
     return;
 
@@ -991,7 +1209,9 @@ function populateSimpleFilter(
     "";
 
 
-  if (first) {
+  if (
+    first
+  ) {
 
     select.appendChild(
       first
@@ -1043,22 +1263,21 @@ function populateSimpleFilter(
 }
 
 
-function populateHaulingFilters() {
+function populateJobFilters() {
 
-  populateSimpleFilter(
+  refillSimpleSelect(
     $(
       "hauling-crop-filter"
     ),
     uniqueSorted(
       state.jobs.map(
-        job =>
-          jobCrop(job)
+        jobCrop
       )
     )
   );
 
 
-  populateSimpleFilter(
+  refillSimpleSelect(
     $(
       "hauling-buyer-filter"
     ),
@@ -1071,7 +1290,7 @@ function populateHaulingFilters() {
   );
 
 
-  populateSimpleFilter(
+  refillSimpleSelect(
     $(
       "hauling-customer-filter"
     ),
@@ -1089,7 +1308,7 @@ function populateHaulingFilters() {
 function filteredJobs() {
 
   const search =
-    normalized(
+    norm(
       $(
         "hauling-search-filter"
       )
@@ -1098,38 +1317,44 @@ function filteredJobs() {
 
 
   const statusFilter =
-    $(
-      "hauling-status-filter"
-    )
-      ?.value ||
-    "active";
+    clean(
+      $(
+        "hauling-status-filter"
+      )
+        ?.value ||
+      "active"
+    );
 
 
   const crop =
-    $(
-      "hauling-crop-filter"
-    )
-      ?.value ||
-    "";
+    clean(
+      $(
+        "hauling-crop-filter"
+      )
+        ?.value
+    );
 
 
   const buyer =
-    $(
-      "hauling-buyer-filter"
-    )
-      ?.value ||
-    "";
+    clean(
+      $(
+        "hauling-buyer-filter"
+      )
+        ?.value
+    );
 
 
   const customer =
-    $(
-      "hauling-customer-filter"
-    )
-      ?.value ||
-    "";
+    clean(
+      $(
+        "hauling-customer-filter"
+      )
+        ?.value
+    );
 
 
   return state.jobs
+
     .filter(
       job => {
 
@@ -1194,8 +1419,12 @@ function filteredJobs() {
         if (
           statusFilter ===
             "closed" &&
-          status !==
-            "closed"
+          ![
+            "closed",
+            "voided"
+          ].includes(
+            status
+          )
         ) {
 
           return false;
@@ -1219,7 +1448,7 @@ function filteredJobs() {
         if (
           buyer &&
           clean(
-            job.buyerName
+            job?.buyerName
           ) !==
           buyer
         ) {
@@ -1232,7 +1461,7 @@ function filteredJobs() {
         if (
           customer &&
           clean(
-            job.customerName
+            job?.customerName
           ) !==
           customer
         ) {
@@ -1242,22 +1471,36 @@ function filteredJobs() {
         }
 
 
-        if (search) {
+        if (
+          search
+        ) {
 
           const haystack =
-            [
-              jobDisplayName(
-                job
-              ),
-              job.buyerName,
-              job.deliveryLocationName,
-              job.customerName,
-              jobCrop(job),
-              job.deliveryStartDate,
-              job.deliveryEndDate
-            ]
-              .join(" ")
-              .toLowerCase();
+            norm(
+              [
+
+                jobName(
+                  job
+                ),
+
+                job?.buyerName,
+
+                job?.deliveryLocationName,
+
+                job?.customerName,
+
+                jobCrop(
+                  job
+                ),
+
+                job?.deliveryStartDate,
+
+                job?.deliveryEndDate
+
+              ].join(
+                " "
+              )
+            );
 
 
           if (
@@ -1277,6 +1520,7 @@ function filteredJobs() {
 
       }
     )
+
     .sort(
       (
         a,
@@ -1285,74 +1529,86 @@ function filteredJobs() {
 
         const order = {
 
-          active: 0,
+          active:
+            0,
 
-          upcoming: 1,
+          upcoming:
+            1,
 
-          complete: 2,
+          complete:
+            2,
 
-          closed: 3
+          closed:
+            3,
+
+          voided:
+            4
 
         };
 
 
-        const statusCompare =
+        const statusDiff =
           (
             order[
               jobStatus(
                 a
               )
-            ] ?? 9
+            ] ??
+            9
           ) -
           (
             order[
               jobStatus(
                 b
               )
-            ] ?? 9
+            ] ??
+            9
           );
 
 
         if (
-          statusCompare
+          statusDiff
         ) {
 
-          return statusCompare;
+          return statusDiff;
 
         }
 
 
-        const dateCompare =
+        const dateDiff =
           clean(
-            a.deliveryStartDate
+            a?.deliveryStartDate
           )
             .localeCompare(
               clean(
-                b.deliveryStartDate
+                b?.deliveryStartDate
               )
             );
 
 
         if (
-          dateCompare
+          dateDiff
         ) {
 
-          return dateCompare;
+          return dateDiff;
 
         }
 
 
-        return jobDisplayName(
+        return jobName(
           a
         )
           .localeCompare(
-            jobDisplayName(
+            jobName(
               b
             ),
             undefined,
             {
-              numeric: true,
-              sensitivity: "base"
+              numeric:
+                true,
+
+              sensitivity:
+                "base"
             }
           );
 
@@ -1362,15 +1618,11 @@ function filteredJobs() {
 }
 
 
-/* ============================================================
-   HAULING JOB SUMMARY
-============================================================ */
-
-function renderHaulingSummary(
+function renderJobSummary(
   jobs
 ) {
 
-  const totals =
+  const summary =
     jobs.reduce(
       (
         result,
@@ -1406,13 +1658,17 @@ function renderHaulingSummary(
       },
       {
 
-        starting: 0,
+        starting:
+          0,
 
-        ticketed: 0,
+        ticketed:
+          0,
 
-        remaining: 0,
+        remaining:
+          0,
 
-        contracts: 0
+        contracts:
+          0
 
       }
     );
@@ -1446,8 +1702,8 @@ function renderHaulingSummary(
       "hauling-summary-starting"
     )
       .textContent =
-        formatBushels(
-          totals.starting
+        fmtBu(
+          summary.starting
         );
 
   }
@@ -1463,8 +1719,8 @@ function renderHaulingSummary(
       "hauling-summary-delivered"
     )
       .textContent =
-        formatBushels(
-          totals.ticketed
+        fmtBu(
+          summary.ticketed
         );
 
   }
@@ -1480,8 +1736,8 @@ function renderHaulingSummary(
       "hauling-summary-remaining"
     )
       .textContent =
-        formatBushels(
-          totals.remaining
+        fmtBu(
+          summary.remaining
         );
 
   }
@@ -1497,7 +1753,7 @@ function renderHaulingSummary(
       "hauling-summary-contracts"
     )
       .textContent =
-        totals.contracts
+        summary.contracts
           .toLocaleString(
             "en-US"
           );
@@ -1507,11 +1763,7 @@ function renderHaulingSummary(
 }
 
 
-/* ============================================================
-   HAULING JOB TABLE
-============================================================ */
-
-function renderHaulingJobs() {
+function renderJobs() {
 
   const tbody =
     $(
@@ -1519,7 +1771,9 @@ function renderHaulingJobs() {
     );
 
 
-  if (!tbody) {
+  if (
+    !tbody
+  ) {
 
     return;
 
@@ -1530,7 +1784,7 @@ function renderHaulingJobs() {
     filteredJobs();
 
 
-  renderHaulingSummary(
+  renderJobSummary(
     jobs
   );
 
@@ -1572,12 +1826,6 @@ function renderHaulingJobs() {
   jobs.forEach(
     job => {
 
-      const linkedContracts =
-        contractsForJob(
-          job.id
-        );
-
-
       const row =
         document.createElement(
           "tr"
@@ -1592,16 +1840,20 @@ function renderHaulingJobs() {
         job.id;
 
 
+      row.tabIndex =
+        0;
+
+
       row.innerHTML = `
 
         <td>
-
-          <span class="status-pill ${
-            jobStatusClass(
-              job
+          <span class="status-pill status-job-${
+            escapeHtml(
+              jobStatus(
+                job
+              )
             )
           }">
-
             ${
               escapeHtml(
                 jobStatusLabel(
@@ -1609,58 +1861,47 @@ function renderHaulingJobs() {
                 )
               )
             }
-
           </span>
-
         </td>
 
-
         <td>
-
           <div class="hauling-job-name">
-
             ${
               escapeHtml(
-                jobDisplayName(
+                jobName(
                   job
                 )
               )
             }
-
           </div>
-
         </td>
-
 
         <td>
           ${
             escapeHtml(
-              job.buyerName ||
+              job?.buyerName ||
               "—"
             )
           }
         </td>
 
-
         <td>
           ${
             escapeHtml(
-              job.deliveryLocationName ||
+              job?.deliveryLocationName ||
               "—"
             )
           }
         </td>
 
-
         <td>
           ${
             escapeHtml(
-              job.customerName ||
+              job?.customerName ||
               "—"
             )
           }
         </td>
-
 
         <td>
           ${
@@ -1673,10 +1914,9 @@ function renderHaulingJobs() {
           }
         </td>
 
-
         <td class="number-cell">
           ${
-            formatBushels(
+            fmtBu(
               jobStartingBushels(
                 job
               )
@@ -1684,10 +1924,9 @@ function renderHaulingJobs() {
           }
         </td>
 
-
         <td class="number-cell">
           ${
-            formatBushels(
+            fmtBu(
               jobTicketedBushels(
                 job
               )
@@ -1695,10 +1934,9 @@ function renderHaulingJobs() {
           }
         </td>
 
-
         <td class="number-cell">
           ${
-            formatBushels(
+            fmtBu(
               jobRemainingBushels(
                 job
               )
@@ -1706,22 +1944,31 @@ function renderHaulingJobs() {
           }
         </td>
 
-
         <td class="center-cell">
           ${
-            linkedContracts.length
+            contractsForJob(
+              job.id
+            )
+              .length
               .toLocaleString(
                 "en-US"
               )
           }
         </td>
 
-
         <td>
           ${
             escapeHtml(
-              jobDeliveryWindow(
-                job
+              fmtDate(
+                job?.deliveryStartDate
+              )
+            )
+          }
+          –
+          ${
+            escapeHtml(
+              fmtDate(
+                job?.deliveryEndDate
               )
             )
           }
@@ -1730,9 +1977,36 @@ function renderHaulingJobs() {
       `;
 
 
-      setupJobDesktopDrop(
-        row,
-        job
+      row.addEventListener(
+        "click",
+        () =>
+          openEditJob(
+            job.id
+          )
+      );
+
+
+      row.addEventListener(
+        "keydown",
+        event => {
+
+          if (
+            event.key ===
+              "Enter" ||
+            event.key ===
+              " "
+          ) {
+
+            event.preventDefault();
+
+
+            openEditJob(
+              job.id
+            );
+
+          }
+
+        }
       );
 
 
@@ -1747,1866 +2021,13 @@ function renderHaulingJobs() {
 
 
 /* ============================================================
-   CONTRACT TABLE DECORATION
-
-   grain-contracts.js owns this table.
-
-   This file only:
-   - identifies the rendered contract
-   - adds the Hauling Job cell
-   - makes the row a hauling-job drag source
-============================================================ */
-
-function findContractForRenderedRow(
-  row
-) {
-
-  if (
-    !row ||
-    row.cells.length < 10
-  ) {
-
-    return null;
-
-  }
-
-
-  const contractNumber =
-    clean(
-      row.cells[1]
-        ?.textContent
-    );
-
-
-  const buyerName =
-    clean(
-      row.cells[2]
-        ?.textContent
-    );
-
-
-  const customerName =
-    clean(
-      row.cells[3]
-        ?.textContent
-    );
-
-
-  const crop =
-    clean(
-      row.cells[4]
-        ?.textContent
-    );
-
-
-  return state.contracts.find(
-    contract =>
-      clean(
-        contract.contractNumber
-      ) ===
-      contractNumber &&
-      clean(
-        contract.buyerName
-      ) ===
-      buyerName &&
-      clean(
-        contract.customerName
-      ) ===
-      customerName &&
-      clean(
-        contract.crop
-      ) ===
-      crop
-  ) ||
-  null;
-
-}
-
-
-function contractJobCellMarkup(
-  contract
-) {
-
-  const job =
-    linkedJob(
-      contract
-    );
-
-
-  if (!job) {
-
-    return `
-      <span
-        style="
-          opacity:.58;
-          font-weight:800;
-        "
-      >
-        Not Linked
-      </span>
-    `;
-
-  }
-
-
-  return `
-    <span
-      style="
-        font-weight:900;
-      "
-      title="${
-        escapeHtml(
-          jobDisplayName(
-            job
-          )
-        )
-      }"
-    >
-      ${
-        escapeHtml(
-          jobDisplayName(
-            job
-          )
-        )
-      }
-    </span>
-  `;
-
-}
-
-
-function decorateContractRows() {
-
-  const tbody =
-    $(
-      "contracts-table-body"
-    );
-
-
-  if (!tbody) {
-
-    return;
-
-  }
-
-
-  [
-    ...tbody.rows
-  ]
-    .forEach(
-      row => {
-
-        const contract =
-          findContractForRenderedRow(
-            row
-          );
-
-
-        if (!contract) {
-
-          return;
-
-        }
-
-
-        row.dataset.haulingContractId =
-          contract.id;
-
-
-        row.draggable =
-          !state.busy &&
-          !contract.voided;
-
-
-        let jobCell =
-          row.querySelector(
-            ":scope > td[data-hauling-job-cell]"
-          );
-
-
-        if (!jobCell) {
-
-          jobCell =
-            document.createElement(
-              "td"
-            );
-
-
-          jobCell.dataset.haulingJobCell =
-            "1";
-
-
-          /*
-            grain-contracts.js puts Delivery in the final cell.
-            Hauling Job belongs immediately before Delivery.
-          */
-          const deliveryCell =
-            row.lastElementChild;
-
-
-          if (
-            deliveryCell
-          ) {
-
-            row.insertBefore(
-              jobCell,
-              deliveryCell
-            );
-
-          }
-          else {
-
-            row.appendChild(
-              jobCell
-            );
-
-          }
-
-        }
-
-
-        jobCell.innerHTML =
-          contractJobCellMarkup(
-            contract
-          );
-
-
-        if (
-          row.dataset
-            .haulingDragBound !==
-          "1"
-        ) {
-
-          row.dataset.haulingDragBound =
-            "1";
-
-
-          setupContractDesktopDrag(
-            row,
-            contract
-          );
-
-        }
-
-      }
-    );
-
-}
-
-
-function queueDecorateContractRows() {
-
-  if (
-    state.decorateQueued
-  ) {
-
-    return;
-
-  }
-
-
-  state.decorateQueued =
-    true;
-
-
-  requestAnimationFrame(
-    () => {
-
-      state.decorateQueued =
-        false;
-
-
-      decorateContractRows();
-
-    }
-  );
-
-}
-
-
-function observeContractTable() {
-
-  const tbody =
-    $(
-      "contracts-table-body"
-    );
-
-
-  if (!tbody) {
-
-    return;
-
-  }
-
-
-  state.contractObserver
-    ?.disconnect();
-
-
-  state.contractObserver =
-    new MutationObserver(
-      queueDecorateContractRows
-    );
-
-
-  state.contractObserver
-    .observe(
-      tbody,
-      {
-        childList: true,
-        subtree: true
-      }
-    );
-
-
-  queueDecorateContractRows();
-
-}
-
-
-/* ============================================================
-   DESKTOP DRAG & DROP
-============================================================ */
-
-function clearDesktopHighlights() {
-
-  document
-    .querySelectorAll(
-      ".hauling-row.drag-over"
-    )
-    .forEach(
-      row =>
-        row.classList.remove(
-          "drag-over"
-        )
-    );
-
-
-  $(
-    "hauling-unassign-drop"
-  )
-    ?.classList
-    .remove(
-      "drag-over"
-    );
-
-}
-
-
-function setupContractDesktopDrag(
-  row,
-  contract
-) {
-
-  row.addEventListener(
-    "dragstart",
-    event => {
-
-      if (
-        state.busy ||
-        contract.voided
-      ) {
-
-        event.preventDefault();
-
-        return;
-
-      }
-
-
-      state.draggingContractId =
-        contract.id;
-
-
-      row.classList.add(
-        "dragging"
-      );
-
-
-      event.dataTransfer
-        .effectAllowed =
-          "move";
-
-
-      event.dataTransfer
-        .setData(
-          "text/plain",
-          JSON.stringify({
-            type:
-              "hauling-contract-link",
-
-            contractId:
-              contract.id
-          })
-        );
-
-    }
-  );
-
-
-  row.addEventListener(
-    "dragend",
-    () => {
-
-      state.draggingContractId =
-        "";
-
-
-      row.classList.remove(
-        "dragging"
-      );
-
-
-      clearDesktopHighlights();
-
-    }
-  );
-
-}
-
-
-function readContractDragId(
-  event
-) {
-
-  if (
-    state.draggingContractId
-  ) {
-
-    return state.draggingContractId;
-
-  }
-
-
-  const raw =
-    event.dataTransfer
-      ?.getData(
-        "text/plain"
-      ) ||
-    "";
-
-
-  try {
-
-    const parsed =
-      JSON.parse(
-        raw
-      );
-
-
-    if (
-      parsed?.type ===
-      "hauling-contract-link"
-    ) {
-
-      return clean(
-        parsed.contractId
-      );
-
-    }
-
-  }
-  catch {
-
-    return "";
-
-  }
-
-
-  return "";
-
-}
-
-
-function setupJobDesktopDrop(
-  row,
-  job
-) {
-
-  row.addEventListener(
-    "dragover",
-    event => {
-
-      const contractId =
-        state.draggingContractId;
-
-
-      if (
-        state.busy ||
-        !contractId
-      ) {
-
-        return;
-
-      }
-
-
-      const contract =
-        state.contracts.find(
-          item =>
-            item.id ===
-            contractId
-        );
-
-
-      if (
-        validateContractJobMatch(
-          contract,
-          job
-        )
-      ) {
-
-        return;
-
-      }
-
-
-      event.preventDefault();
-
-
-      clearDesktopHighlights();
-
-
-      row.classList.add(
-        "drag-over"
-      );
-
-    }
-  );
-
-
-  row.addEventListener(
-    "dragleave",
-    event => {
-
-      if (
-        event.relatedTarget &&
-        row.contains(
-          event.relatedTarget
-        )
-      ) {
-
-        return;
-
-      }
-
-
-      row.classList.remove(
-        "drag-over"
-      );
-
-    }
-  );
-
-
-  row.addEventListener(
-    "drop",
-    async event => {
-
-      event.preventDefault();
-
-
-      row.classList.remove(
-        "drag-over"
-      );
-
-
-      const contractId =
-        readContractDragId(
-          event
-        );
-
-
-      if (!contractId) {
-
-        return;
-
-      }
-
-
-      await linkContractToJob(
-        contractId,
-        job.id
-      );
-
-    }
-  );
-
-}
-
-
-function setupUnassignDesktopDrop() {
-
-  const zone =
-    $(
-      "hauling-unassign-drop"
-    );
-
-
-  if (!zone) {
-
-    return;
-
-  }
-
-
-  zone.addEventListener(
-    "dragover",
-    event => {
-
-      const contractId =
-        state.draggingContractId;
-
-
-      if (
-        state.busy ||
-        !contractId
-      ) {
-
-        return;
-
-      }
-
-
-      const contract =
-        state.contracts.find(
-          item =>
-            item.id ===
-            contractId
-        );
-
-
-      if (
-        !contract ||
-        !clean(
-          contract.haulingJobId
-        )
-      ) {
-
-        return;
-
-      }
-
-
-      event.preventDefault();
-
-
-      clearDesktopHighlights();
-
-
-      zone.classList.add(
-        "drag-over"
-      );
-
-    }
-  );
-
-
-  zone.addEventListener(
-    "dragleave",
-    () => {
-
-      zone.classList.remove(
-        "drag-over"
-      );
-
-    }
-  );
-
-
-  zone.addEventListener(
-    "drop",
-    async event => {
-
-      event.preventDefault();
-
-
-      zone.classList.remove(
-        "drag-over"
-      );
-
-
-      const contractId =
-        readContractDragId(
-          event
-        );
-
-
-      if (!contractId) {
-
-        return;
-
-      }
-
-
-      await unlinkContractFromJob(
-        contractId
-      );
-
-    }
-  );
-
-}
-
-
-/* ============================================================
-   LINK CONTRACT → HAULING JOB
-============================================================ */
-
-async function linkContractToJob(
-  contractId,
-  jobId
-) {
-
-  if (
-    state.busy
-  ) {
-
-    return;
-
-  }
-
-
-  const contract =
-    state.contracts.find(
-      item =>
-        item.id ===
-        contractId
-    );
-
-
-  const job =
-    state.jobs.find(
-      item =>
-        item.id ===
-        jobId
-    );
-
-
-  const validation =
-    validateContractJobMatch(
-      contract,
-      job
-    );
-
-
-  if (
-    validation
-  ) {
-
-    alert(
-      validation
-    );
-
-
-    return;
-
-  }
-
-
-  if (
-    clean(
-      contract.haulingJobId
-    ) ===
-    job.id
-  ) {
-
-    return;
-
-  }
-
-
-  const oldJob =
-    linkedJob(
-      contract
-    );
-
-
-  if (
-    oldJob
-  ) {
-
-    const confirmed =
-      window.confirm(
-        `Contract ${
-          contractDisplayNumber(
-            contract
-          )
-        } is currently linked to ${
-          jobDisplayName(
-            oldJob
-          )
-        }.\n\nMove it to ${
-          jobDisplayName(
-            job
-          )
-        }?`
-      );
-
-
-    if (
-      !confirmed
-    ) {
-
-      return;
-
-    }
-
-  }
-
-
-  state.busy =
-    true;
-
-
-  try {
-
-    const who =
-      auth.currentUser;
-
-
-    await updateDoc(
-      doc(
-        db,
-        CONTRACT_COLLECTION,
-        contract.id
-      ),
-      {
-
-        haulingJobId:
-          job.id,
-
-        haulingJobName:
-          jobDisplayName(
-            job
-          ),
-
-        haulingJobLinkedAt:
-          serverTimestamp(),
-
-        haulingJobLinkedByUid:
-          who?.uid ||
-          null,
-
-        haulingJobLinkedByName:
-          who?.displayName ||
-          who?.email ||
-          "FarmVista User",
-
-        haulingJobLinkedByEmail:
-          who?.email ||
-          null,
-
-        updatedAt:
-          serverTimestamp()
-
-      }
-    );
-
-
-    /*
-      IMPORTANT:
-      This changes ONLY the planning link on the contract.
-
-      It does NOT change:
-      - grain ticket contractAllocations
-      - contract deliveredBushels
-      - contract openBushels
-      - spotBushels
-      - unassignedBushels
-    */
-
-    contract.haulingJobId =
-      job.id;
-
-
-    contract.haulingJobName =
-      jobDisplayName(
-        job
-      );
-
-
-    renderHaulingJobs();
-
-
-    queueDecorateContractRows();
-
-  }
-  catch (error) {
-
-    console.error(
-      "[Hauling Jobs] Contract link failed:",
-      error
-    );
-
-
-    alert(
-      error?.message ||
-      "FarmVista could not link that contract to the hauling job."
-    );
-
-  }
-  finally {
-
-    state.busy =
-      false;
-
-
-    state.draggingContractId =
-      "";
-
-
-    clearDesktopHighlights();
-
-  }
-
-}
-
-
-/* ============================================================
-   UNLINK CONTRACT FROM HAULING JOB
-============================================================ */
-
-async function unlinkContractFromJob(
-  contractId
-) {
-
-  if (
-    state.busy
-  ) {
-
-    return;
-
-  }
-
-
-  const contract =
-    state.contracts.find(
-      item =>
-        item.id ===
-        contractId
-    );
-
-
-  if (
-    !contract ||
-    !clean(
-      contract.haulingJobId
-    )
-  ) {
-
-    return;
-
-  }
-
-
-  const job =
-    linkedJob(
-      contract
-    );
-
-
-  const confirmed =
-    window.confirm(
-      `Remove Contract ${
-        contractDisplayNumber(
-          contract
-        )
-      } from ${
-        job
-          ? jobDisplayName(
-              job
-            )
-          : "its hauling job"
-      }?\n\nThis only removes the planning link. Ticket-to-contract assignments are not changed.`
-    );
-
-
-  if (
-    !confirmed
-  ) {
-
-    return;
-
-  }
-
-
-  state.busy =
-    true;
-
-
-  try {
-
-    await updateDoc(
-      doc(
-        db,
-        CONTRACT_COLLECTION,
-        contract.id
-      ),
-      {
-
-        haulingJobId:
-          null,
-
-        haulingJobName:
-          null,
-
-        haulingJobLinkedAt:
-          null,
-
-        haulingJobLinkedByUid:
-          null,
-
-        haulingJobLinkedByName:
-          null,
-
-        haulingJobLinkedByEmail:
-          null,
-
-        updatedAt:
-          serverTimestamp()
-
-      }
-    );
-
-
-    contract.haulingJobId =
-      "";
-
-
-    contract.haulingJobName =
-      "";
-
-
-    renderHaulingJobs();
-
-
-    queueDecorateContractRows();
-
-  }
-  catch (error) {
-
-    console.error(
-      "[Hauling Jobs] Contract unlink failed:",
-      error
-    );
-
-
-    alert(
-      error?.message ||
-      "FarmVista could not remove that hauling-job link."
-    );
-
-  }
-  finally {
-
-    state.busy =
-      false;
-
-
-    state.draggingContractId =
-      "";
-
-
-    clearDesktopHighlights();
-
-  }
-
-}
-
-
-/* ============================================================
-   TOUCH DRAG & DROP
-   Contract → Hauling Job
-============================================================ */
-
-const touchLink = {
-
-  timer: null,
-
-  active: false,
-
-  contractId: "",
-
-  row: null,
-
-  ghost: null,
-
-  target: null,
-
-  startX: 0,
-
-  startY: 0,
-
-  previousUserSelect: ""
-
-};
-
-
-function cleanupTouchLink() {
-
-  if (
-    touchLink.timer
-  ) {
-
-    clearTimeout(
-      touchLink.timer
-    );
-
-  }
-
-
-  touchLink.timer =
-    null;
-
-
-  touchLink.row
-    ?.classList
-    .remove(
-      "dragging"
-    );
-
-
-  touchLink.ghost
-    ?.remove();
-
-
-  document
-    .querySelectorAll(
-      ".hauling-row.drag-over"
-    )
-    .forEach(
-      element =>
-        element.classList.remove(
-          "drag-over"
-        )
-    );
-
-
-  $(
-    "hauling-unassign-drop"
-  )
-    ?.classList
-    .remove(
-      "drag-over"
-    );
-
-
-  document.body.style
-    .userSelect =
-      touchLink.previousUserSelect;
-
-
-  touchLink.active =
-    false;
-
-
-  touchLink.contractId =
-    "";
-
-
-  touchLink.row =
-    null;
-
-
-  touchLink.ghost =
-    null;
-
-
-  touchLink.target =
-    null;
-
-
-  touchLink.startX =
-    0;
-
-
-  touchLink.startY =
-    0;
-
-
-  touchLink.previousUserSelect =
-    "";
-
-}
-
-
-function createTouchGhost(
-  contract
-) {
-
-  const ghost =
-    document.createElement(
-      "div"
-    );
-
-
-  ghost.className =
-    "fv-hauling-touch-ghost";
-
-
-  ghost.textContent =
-    `Contract ${
-      contractDisplayNumber(
-        contract
-      )
-    }`;
-
-
-  Object.assign(
-    ghost.style,
-    {
-
-      position:
-        "fixed",
-
-      left:
-        "0",
-
-      top:
-        "0",
-
-      zIndex:
-        "999999",
-
-      pointerEvents:
-        "none",
-
-      padding:
-        "10px 14px",
-
-      borderRadius:
-        "10px",
-
-      border:
-        "2px solid #4f718f",
-
-      background:
-        "var(--surface,#fff)",
-
-      color:
-        "inherit",
-
-      boxShadow:
-        "0 10px 30px rgba(0,0,0,.25)",
-
-      fontSize:
-        ".9rem",
-
-      fontWeight:
-        "900",
-
-      whiteSpace:
-        "nowrap",
-
-      opacity:
-        ".96",
-
-      transform:
-        "translate(-50%,-120%)"
-
-    }
-  );
-
-
-  document.body.appendChild(
-    ghost
-  );
-
-
-  touchLink.ghost =
-    ghost;
-
-}
-
-
-function moveTouchGhost(
-  x,
-  y
-) {
-
-  if (
-    !touchLink.ghost
-  ) {
-
-    return;
-
-  }
-
-
-  touchLink.ghost.style.left =
-    `${x}px`;
-
-
-  touchLink.ghost.style.top =
-    `${y}px`;
-
-}
-
-
-function touchDropTarget(
-  x,
-  y
-) {
-
-  if (
-    !touchLink.contractId
-  ) {
-
-    return null;
-
-  }
-
-
-  const contract =
-    state.contracts.find(
-      item =>
-        item.id ===
-        touchLink.contractId
-    );
-
-
-  if (
-    !contract
-  ) {
-
-    return null;
-
-  }
-
-
-  const element =
-    document.elementFromPoint(
-      x,
-      y
-    );
-
-
-  if (
-    !(element instanceof Element)
-  ) {
-
-    return null;
-
-  }
-
-
-  const unassign =
-    element.closest(
-      "#hauling-unassign-drop"
-    );
-
-
-  if (
-    unassign &&
-    clean(
-      contract.haulingJobId
-    )
-  ) {
-
-    return {
-
-      type:
-        "unassign",
-
-      element:
-        unassign
-
-    };
-
-  }
-
-
-  const jobRow =
-    element.closest(
-      "[data-hauling-job-id]"
-    );
-
-
-  if (
-    jobRow
-  ) {
-
-    const job =
-      state.jobs.find(
-        item =>
-          item.id ===
-          clean(
-            jobRow.dataset
-              .haulingJobId
-          )
-      );
-
-
-    if (
-      job &&
-      !validateContractJobMatch(
-        contract,
-        job
-      )
-    ) {
-
-      return {
-
-        type:
-          "job",
-
-        jobId:
-          job.id,
-
-        element:
-          jobRow
-
-      };
-
-    }
-
-  }
-
-
-  return null;
-
-}
-
-
-function highlightTouchTarget(
-  target
-) {
-
-  document
-    .querySelectorAll(
-      ".hauling-row.drag-over"
-    )
-    .forEach(
-      element =>
-        element.classList.remove(
-          "drag-over"
-        )
-    );
-
-
-  $(
-    "hauling-unassign-drop"
-  )
-    ?.classList
-    .remove(
-      "drag-over"
-    );
-
-
-  touchLink.target =
-    target;
-
-
-  target?.element
-    ?.classList
-    .add(
-      "drag-over"
-    );
-
-}
-
-
-function beginTouchLink(
-  row,
-  contract,
-  touch
-) {
-
-  if (
-    state.busy ||
-    contract.voided
-  ) {
-
-    return;
-
-  }
-
-
-  touchLink.active =
-    true;
-
-
-  touchLink.contractId =
-    contract.id;
-
-
-  touchLink.row =
-    row;
-
-
-  row.classList.add(
-    "dragging"
-  );
-
-
-  touchLink.previousUserSelect =
-    document.body.style
-      .userSelect;
-
-
-  document.body.style
-    .userSelect =
-      "none";
-
-
-  createTouchGhost(
-    contract
-  );
-
-
-  moveTouchGhost(
-    touch.clientX,
-    touch.clientY
-  );
-
-
-  highlightTouchTarget(
-    touchDropTarget(
-      touch.clientX,
-      touch.clientY
-    )
-  );
-
-}
-
-
-function setupTouchContractLinking() {
-
-  document.addEventListener(
-    "touchstart",
-    event => {
-
-      if (
-        state.busy ||
-        event.touches.length !==
-        1
-      ) {
-
-        return;
-
-      }
-
-
-      const target =
-        event.target;
-
-
-      if (
-        !(target instanceof Element)
-      ) {
-
-        return;
-
-      }
-
-
-      /*
-        Don't steal touch gestures from controls.
-      */
-      if (
-        target.closest(
-          "button,a,input,select,textarea,label"
-        )
-      ) {
-
-        return;
-
-      }
-
-
-      const row =
-        target.closest(
-          "tr[data-hauling-contract-id]"
-        );
-
-
-      if (!row) {
-
-        return;
-
-      }
-
-
-      const contract =
-        state.contracts.find(
-          item =>
-            item.id ===
-            clean(
-              row.dataset
-                .haulingContractId
-            )
-        );
-
-
-      if (
-        !contract ||
-        contract.voided
-      ) {
-
-        return;
-
-      }
-
-
-      const touch =
-        event.touches[0];
-
-
-      touchLink.startX =
-        touch.clientX;
-
-
-      touchLink.startY =
-        touch.clientY;
-
-
-      touchLink.contractId =
-        contract.id;
-
-
-      touchLink.row =
-        row;
-
-
-      if (
-        touchLink.timer
-      ) {
-
-        clearTimeout(
-          touchLink.timer
-        );
-
-      }
-
-
-      touchLink.timer =
-        setTimeout(
-          () => {
-
-            touchLink.timer =
-              null;
-
-
-            beginTouchLink(
-              row,
-              contract,
-              touch
-            );
-
-          },
-          350
-        );
-
-    },
-    {
-      passive:
-        true
-    }
-  );
-
-
-  document.addEventListener(
-    "touchmove",
-    event => {
-
-      if (
-        event.touches.length !==
-        1
-      ) {
-
-        cleanupTouchLink();
-
-        return;
-
-      }
-
-
-      const touch =
-        event.touches[0];
-
-
-      if (
-        !touchLink.active
-      ) {
-
-        const distance =
-          Math.hypot(
-            touch.clientX -
-            touchLink.startX,
-            touch.clientY -
-            touchLink.startY
-          );
-
-
-        if (
-          distance >
-            12 &&
-          touchLink.timer
-        ) {
-
-          clearTimeout(
-            touchLink.timer
-          );
-
-
-          touchLink.timer =
-            null;
-
-
-          touchLink.contractId =
-            "";
-
-
-          touchLink.row =
-            null;
-
-        }
-
-
-        return;
-
-      }
-
-
-      event.preventDefault();
-
-
-      moveTouchGhost(
-        touch.clientX,
-        touch.clientY
-      );
-
-
-      highlightTouchTarget(
-        touchDropTarget(
-          touch.clientX,
-          touch.clientY
-        )
-      );
-
-    },
-    {
-      passive:
-        false
-    }
-  );
-
-
-  document.addEventListener(
-    "touchend",
-    event => {
-
-      if (
-        !touchLink.active
-      ) {
-
-        if (
-          touchLink.timer
-        ) {
-
-          clearTimeout(
-            touchLink.timer
-          );
-
-        }
-
-
-        touchLink.timer =
-          null;
-
-
-        touchLink.contractId =
-          "";
-
-
-        touchLink.row =
-          null;
-
-
-        return;
-
-      }
-
-
-      const contractId =
-        touchLink.contractId;
-
-
-      const touch =
-        event.changedTouches[0];
-
-
-      const target =
-        touch
-          ? touchDropTarget(
-              touch.clientX,
-              touch.clientY
-            )
-          : touchLink.target;
-
-
-      cleanupTouchLink();
-
-
-      if (
-        !target
-      ) {
-
-        return;
-
-      }
-
-
-      if (
-        target.type ===
-        "job"
-      ) {
-
-        linkContractToJob(
-          contractId,
-          target.jobId
-        );
-
-      }
-      else if (
-        target.type ===
-        "unassign"
-      ) {
-
-        unlinkContractFromJob(
-          contractId
-        );
-
-      }
-
-    },
-    {
-      passive:
-        true
-    }
-  );
-
-
-  document.addEventListener(
-    "touchcancel",
-    cleanupTouchLink,
-    {
-      passive:
-        true
-    }
-  );
-
-}
-
-
-/* ============================================================
-   ADD HAULING JOB MODAL
+   ADD / EDIT / VOID HAULING JOB
 ============================================================ */
 
 function setJobMessage(
   message,
-  type = "error"
+  type =
+    "error"
 ) {
 
   const element =
@@ -3615,7 +2036,9 @@ function setJobMessage(
     );
 
 
-  if (!element) {
+  if (
+    !element
+  ) {
 
     return;
 
@@ -3637,7 +2060,10 @@ function setJobMessage(
 }
 
 
-function populateJobBuyerSelect() {
+function populateJobBuyerSelect(
+  selectedId =
+    ""
+) {
 
   const select =
     $(
@@ -3645,7 +2071,9 @@ function populateJobBuyerSelect() {
     );
 
 
-  if (!select) {
+  if (
+    !select
+  ) {
 
     return;
 
@@ -3680,10 +2108,19 @@ function populateJobBuyerSelect() {
     }
   );
 
+
+  select.value =
+    clean(
+      selectedId
+    );
+
 }
 
 
-function populateJobCustomerSelect() {
+function populateJobCustomerSelect(
+  selectedId =
+    ""
+) {
 
   const select =
     $(
@@ -3691,7 +2128,9 @@ function populateJobCustomerSelect() {
     );
 
 
-  if (!select) {
+  if (
+    !select
+  ) {
 
     return;
 
@@ -3726,10 +2165,19 @@ function populateJobCustomerSelect() {
     }
   );
 
+
+  select.value =
+    clean(
+      selectedId
+    );
+
 }
 
 
-function populateJobLocationSelect() {
+function populateJobLocationSelect(
+  selectedId =
+    ""
+) {
 
   const select =
     $(
@@ -3737,7 +2185,9 @@ function populateJobLocationSelect() {
     );
 
 
-  if (!select) {
+  if (
+    !select
+  ) {
 
     return;
 
@@ -3779,13 +2229,15 @@ function populateJobLocationSelect() {
 
 
   state.locations
+
     .filter(
       location =>
         clean(
-          location.buyerId
+          location?.buyerId
         ) ===
         buyerId
     )
+
     .forEach(
       location => {
 
@@ -3814,28 +2266,132 @@ function populateJobLocationSelect() {
   select.disabled =
     !buyerId;
 
+
+  if (
+    [
+      ...select.options
+    ].some(
+      option =>
+        option.value ===
+        clean(
+          selectedId
+        )
+    )
+  ) {
+
+    select.value =
+      clean(
+        selectedId
+      );
+
+  }
+
 }
 
 
-function openJobModal() {
+function setJobModalMode(
+  job =
+    null
+) {
 
-  const modal =
+  const editing =
+    !!job;
+
+
+  if (
     $(
-      "hauling-job-modal"
-    );
+      "hauling-job-edit-id"
+    )
+  ) {
 
-
-  if (!modal) {
-
-    return;
+    $(
+      "hauling-job-edit-id"
+    )
+      .value =
+        job?.id ||
+        "";
 
   }
 
 
-  $(
-    "hauling-job-form"
-  )
-    ?.reset();
+  if (
+    $(
+      "hauling-job-modal-title"
+    )
+  ) {
+
+    $(
+      "hauling-job-modal-title"
+    )
+      .textContent =
+        editing
+          ? "Edit Hauling Job"
+          : "Add Hauling Job";
+
+  }
+
+
+  if (
+    $(
+      "save-hauling-job-btn"
+    )
+  ) {
+
+    $(
+      "save-hauling-job-btn"
+    )
+      .textContent =
+        editing
+          ? "Save Changes"
+          : "Add Hauling Job";
+
+  }
+
+
+  if (
+    $(
+      "void-hauling-job-btn"
+    )
+  ) {
+
+    $(
+      "void-hauling-job-btn"
+    )
+      .hidden =
+        !editing ||
+        [
+          "voided",
+          "closed"
+        ].includes(
+          jobStatus(
+            job
+          )
+        );
+
+  }
+
+}
+
+
+function openAddJob() {
+
+  const form =
+    $(
+      "hauling-job-form"
+    );
+
+
+  form?.reset();
+
+
+  setJobMessage(
+    ""
+  );
+
+
+  setJobModalMode(
+    null
+  );
 
 
   populateJobBuyerSelect();
@@ -3877,14 +2433,13 @@ function openJobModal() {
   }
 
 
-  setJobMessage(
-    ""
-  );
-
-
-  modal.classList.add(
-    "open"
-  );
+  $(
+    "hauling-job-modal"
+  )
+    ?.classList
+    .add(
+      "open"
+    );
 
 
   document.body.style
@@ -3900,6 +2455,148 @@ function openJobModal() {
         ?.focus(),
     0
   );
+
+}
+
+
+function openEditJob(
+  jobId
+) {
+
+  const job =
+    state.jobs.find(
+      item =>
+        item.id ===
+        clean(
+          jobId
+        )
+    );
+
+
+  if (
+    !job
+  ) {
+
+    return;
+
+  }
+
+
+  setJobMessage(
+    ""
+  );
+
+
+  setJobModalMode(
+    job
+  );
+
+
+  populateJobBuyerSelect(
+    jobBuyerId(
+      job
+    )
+  );
+
+
+  populateJobLocationSelect(
+    jobLocationId(
+      job
+    )
+  );
+
+
+  populateJobCustomerSelect(
+    jobCustomerId(
+      job
+    )
+  );
+
+
+  if (
+    $(
+      "hauling-job-crop"
+    )
+  ) {
+
+    $(
+      "hauling-job-crop"
+    )
+      .value =
+        jobCrop(
+          job
+        );
+
+  }
+
+
+  if (
+    $(
+      "hauling-job-bushels"
+    )
+  ) {
+
+    $(
+      "hauling-job-bushels"
+    )
+      .value =
+        String(
+          jobStartingBushels(
+            job
+          )
+        );
+
+  }
+
+
+  if (
+    $(
+      "hauling-job-start-date"
+    )
+  ) {
+
+    $(
+      "hauling-job-start-date"
+    )
+      .value =
+        clean(
+          job?.deliveryStartDate ||
+          job?.startDate
+        );
+
+  }
+
+
+  if (
+    $(
+      "hauling-job-end-date"
+    )
+  ) {
+
+    $(
+      "hauling-job-end-date"
+    )
+      .value =
+        clean(
+          job?.deliveryEndDate ||
+          job?.endDate
+        );
+
+  }
+
+
+  $(
+    "hauling-job-modal"
+  )
+    ?.classList
+    .add(
+      "open"
+    );
+
+
+  document.body.style
+    .overflow =
+      "hidden";
 
 }
 
@@ -3943,6 +2640,15 @@ async function saveJob(
   }
 
 
+  const editId =
+    clean(
+      $(
+        "hauling-job-edit-id"
+      )
+        ?.value
+    );
+
+
   const buyerId =
     clean(
       $(
@@ -3980,7 +2686,7 @@ async function saveJob(
 
 
   const startingBushels =
-    numberValue(
+    num(
       $(
         "hauling-job-bushels"
       )
@@ -4007,26 +2713,20 @@ async function saveJob(
 
 
   const buyer =
-    state.buyers.find(
-      item =>
-        item.id ===
-        buyerId
+    matchingBuyer(
+      buyerId
     );
 
 
   const location =
-    state.locations.find(
-      item =>
-        item.id ===
-        locationId
+    matchingLocation(
+      locationId
     );
 
 
   const customer =
-    state.customers.find(
-      item =>
-        item.id ===
-        customerId
+    matchingCustomer(
+      customerId
     );
 
 
@@ -4065,14 +2765,190 @@ async function saveJob(
   }
 
 
-  const saveButton =
-    $(
-      "save-hauling-job-btn"
-    );
+  const oldJob =
+    editId
+      ? state.jobs.find(
+          job =>
+            job.id ===
+            editId
+        )
+      : null;
+
+
+  /*
+    Once contracts are linked, do not allow edits that would
+    make those existing links invalid.
+  */
+  if (
+    oldJob
+  ) {
+
+    const linkedContracts =
+      contractsForJob(
+        oldJob.id
+      );
+
+
+    if (
+      linkedContracts.length
+    ) {
+
+      const wouldBreak =
+        linkedContracts.some(
+          contract =>
+            contractBuyerId(
+              contract
+            ) !==
+              buyerId ||
+            contractCustomerId(
+              contract
+            ) !==
+              customerId ||
+            norm(
+              contractCrop(
+                contract
+              )
+            ) !==
+              norm(
+                crop
+              ) ||
+            contractLocationId(
+              contract
+            ) !==
+              locationId
+        );
+
+
+      if (
+        wouldBreak
+      ) {
+
+        setJobMessage(
+          "This job already has linked contracts. Unlink those contracts before changing Buyer, Location, Sold Under, or Crop."
+        );
+
+
+        return;
+
+      }
+
+    }
+
+  }
+
+
+  const jobNameValue =
+    `${
+      clean(
+        location?.buyerName ||
+        buyer.name
+      )
+    } ${
+      location.locationName
+    } — ${
+      Math.round(
+        startingBushels
+      ).toLocaleString(
+        "en-US"
+      )
+    } bu`
+      .trim();
+
+
+  const who =
+    auth.currentUser;
+
+
+  const payload = {
+
+    buyerId,
+
+    buyerName:
+      clean(
+        location?.buyerName ||
+        buyer.name
+      ),
+
+    deliveryLocationId:
+      locationId,
+
+    deliveryLocationName:
+      location.locationName,
+
+    customerId,
+
+    customerName:
+      customer.name,
+
+    crop,
+
+    startingBushels,
+
+    remainingBushels:
+      Math.max(
+        0,
+        round2(
+          startingBushels -
+          (
+            oldJob
+              ? jobTicketedBushels(
+                  oldJob
+                )
+              : 0
+          )
+        )
+      ),
+
+    deliveredBushels:
+      oldJob
+        ? jobTicketedBushels(
+            oldJob
+          )
+        : 0,
+
+    deliveryStartDate,
+
+    deliveryEndDate,
+
+    displayName:
+      jobNameValue,
+
+    jobName:
+      jobNameValue,
+
+    active:
+      true,
+
+    status:
+      "active",
+
+    updatedAt:
+      serverTimestamp(),
+
+    updatedByUid:
+      who?.uid ||
+      null,
+
+    updatedByName:
+      who?.displayName ||
+      who?.email ||
+      "FarmVista User",
+
+    updatedByEmail:
+      who?.email ||
+      null
+
+  };
 
 
   state.busy =
     true;
+
+
+  const saveButton =
+    $(
+      "save-hauling-job-btn"
+    );
 
 
   if (
@@ -4084,151 +2960,140 @@ async function saveJob(
 
 
     saveButton.textContent =
-      "Adding…";
+      editId
+        ? "Saving…"
+        : "Adding…";
 
   }
 
 
   try {
 
-    const place =
-      `${
-        buyer.name
-      } ${
-        location.locationName
-      }`
-        .trim();
+    if (
+      editId
+    ) {
 
-
-    const jobName =
-      `${
-        place
-      } — ${
-        Math.round(
-          startingBushels
-        ).toLocaleString(
-          "en-US"
-        )
-      } bu`;
-
-
-    const who =
-      auth.currentUser;
-
-
-    const payload = {
-
-      active:
-        true,
-
-      buyerId:
-        buyer.id,
-
-      buyerName:
-        buyer.name,
-
-      crop,
-
-      customerId:
-        customer.id,
-
-      customerName:
-        customer.name,
-
-      deliveredBushels:
-        0,
-
-      deliveryEndDate,
-
-      deliveryLocationId:
-        location.id,
-
-      deliveryLocationName:
-        location.locationName,
-
-      deliveryStartDate,
-
-      displayName:
-        jobName,
-
-      jobName,
-
-      remainingBushels:
-        startingBushels,
-
-      startingBushels,
-
-      status:
-        "active",
-
-      createdByUid:
-        who?.uid ||
-        null,
-
-      createdByName:
-        who?.displayName ||
-        who?.email ||
-        "FarmVista User",
-
-      createdByEmail:
-        who?.email ||
-        null,
-
-      createdAt:
-        serverTimestamp(),
-
-      updatedAt:
-        serverTimestamp()
-
-    };
-
-
-    const saved =
-      await addDoc(
-        collection(
+      await updateDoc(
+        doc(
           db,
-          JOB_COLLECTION
+          COLLECTIONS.jobs,
+          editId
         ),
         payload
       );
 
 
-    state.jobs.push({
+      const index =
+        state.jobs.findIndex(
+          job =>
+            job.id ===
+            editId
+        );
 
-      id:
-        saved.id,
 
-      ...payload
+      if (
+        index >= 0
+      ) {
 
-    });
+        state.jobs[
+          index
+        ] = {
+
+          ...state.jobs[
+            index
+          ],
+
+          ...payload
+
+        };
+
+      }
+
+    }
+    else {
+
+      const createPayload = {
+
+        ...payload,
+
+        deliveredBushels:
+          0,
+
+        remainingBushels:
+          startingBushels,
+
+        createdAt:
+          serverTimestamp(),
+
+        createdByUid:
+          who?.uid ||
+          null,
+
+        createdByName:
+          who?.displayName ||
+          who?.email ||
+          "FarmVista User",
+
+        createdByEmail:
+          who?.email ||
+          null
+
+      };
+
+
+      const saved =
+        await addDoc(
+          collection(
+            db,
+            COLLECTIONS.jobs
+          ),
+          createPayload
+        );
+
+
+      state.jobs.push({
+
+        id:
+          saved.id,
+
+        ...createPayload
+
+      });
+
+    }
 
 
     closeJobModal();
 
 
-    populateHaulingFilters();
+    populateJobFilters();
 
 
-    renderHaulingJobs();
+    renderJobs();
 
 
-    setTimeout(
-      queueDecorateContractRows,
-      0
-    );
+    rebuildLinkFiltersFromCurrent();
+
+
+    renderLinkWorkspace();
+
+
+    queueContractTableDecoration();
 
   }
-  catch (error) {
+  catch (
+    error
+  ) {
 
     console.error(
-      "[Hauling Jobs] Add hauling job failed:",
+      "[Hauling Jobs] save failed:",
       error
     );
 
 
     setJobMessage(
       error?.message ||
-      "FarmVista could not add the hauling job."
+      "FarmVista could not save the hauling job."
     );
 
   }
@@ -4247,7 +3112,9 @@ async function saveJob(
 
 
       saveButton.textContent =
-        "Add Hauling Job";
+        editId
+          ? "Save Changes"
+          : "Add Hauling Job";
 
     }
 
@@ -4256,14 +3123,2925 @@ async function saveJob(
 }
 
 
-function setupJobModal() {
+async function voidJob() {
+
+  if (
+    state.busy
+  ) {
+
+    return;
+
+  }
+
+
+  const jobId =
+    clean(
+      $(
+        "hauling-job-edit-id"
+      )
+        ?.value
+    );
+
+
+  const job =
+    state.jobs.find(
+      item =>
+        item.id ===
+        jobId
+    );
+
+
+  if (
+    !job
+  ) {
+
+    return;
+
+  }
+
+
+  const linked =
+    contractsForJob(
+      job.id
+    );
+
+
+  if (
+    linked.length
+  ) {
+
+    alert(
+      `This hauling job still has ${
+        linked.length
+      } linked contract${
+        linked.length === 1
+          ? ""
+          : "s"
+      }. Unlink those contracts before voiding the job.`
+    );
+
+
+    return;
+
+  }
+
+
+  if (
+    !window.confirm(
+      `Void ${
+        jobName(
+          job
+        )
+      }?\n\nThe job will stay in history but will no longer be available for new load-outs.`
+    )
+  ) {
+
+    return;
+
+  }
+
+
+  const who =
+    auth.currentUser;
+
+
+  state.busy =
+    true;
+
+
+  try {
+
+    await updateDoc(
+      doc(
+        db,
+        COLLECTIONS.jobs,
+        job.id
+      ),
+      {
+
+        active:
+          false,
+
+        status:
+          "voided",
+
+        voided:
+          true,
+
+        voidedAt:
+          serverTimestamp(),
+
+        voidedByUid:
+          who?.uid ||
+          null,
+
+        voidedByName:
+          who?.displayName ||
+          who?.email ||
+          "FarmVista User",
+
+        voidedByEmail:
+          who?.email ||
+          null,
+
+        updatedAt:
+          serverTimestamp()
+
+      }
+    );
+
+
+    job.active =
+      false;
+
+
+    job.status =
+      "voided";
+
+
+    job.voided =
+      true;
+
+
+    closeJobModal();
+
+
+    populateJobFilters();
+
+
+    renderJobs();
+
+
+    renderLinkWorkspace();
+
+  }
+  catch (
+    error
+  ) {
+
+    console.error(
+      "[Hauling Jobs] void failed:",
+      error
+    );
+
+
+    alert(
+      error?.message ||
+      "FarmVista could not void the hauling job."
+    );
+
+  }
+  finally {
+
+    state.busy =
+      false;
+
+  }
+
+}
+
+
+/* ============================================================
+   DEDICATED CONTRACT → HAULING JOB DND WORKSPACE
+============================================================ */
+
+function populateLinkBuyer() {
+
+  const select =
+    $(
+      "hauling-link-buyer"
+    );
+
+
+  if (
+    !select
+  ) {
+
+    return;
+
+  }
+
+
+  const current =
+    select.value;
+
+
+  select.innerHTML =
+    '<option value="">Select Buyer</option>';
+
+
+  const buyerIds =
+    new Set(
+      [
+
+        ...state.contracts
+          .filter(
+            contract =>
+              !contractIsVoided(
+                contract
+              )
+          )
+          .map(
+            contractBuyerId
+          ),
+
+        ...state.jobs
+          .filter(
+            job =>
+              ![
+                "voided",
+                "closed"
+              ].includes(
+                jobStatus(
+                  job
+                )
+              )
+          )
+          .map(
+            jobBuyerId
+          )
+
+      ].filter(
+        Boolean
+      )
+    );
+
+
+  state.buyers
+
+    .filter(
+      buyer =>
+        buyerIds.has(
+          buyer.id
+        )
+    )
+
+    .forEach(
+      buyer => {
+
+        const option =
+          document.createElement(
+            "option"
+          );
+
+
+        option.value =
+          buyer.id;
+
+
+        option.textContent =
+          buyer.name;
+
+
+        select.appendChild(
+          option
+        );
+
+      }
+    );
+
+
+  if (
+    [
+      ...select.options
+    ].some(
+      option =>
+        option.value ===
+        current
+    )
+  ) {
+
+    select.value =
+      current;
+
+  }
+
+}
+
+
+function populateLinkCustomer() {
+
+  const buyerId =
+    clean(
+      $(
+        "hauling-link-buyer"
+      )
+        ?.value
+    );
+
+
+  const select =
+    $(
+      "hauling-link-customer"
+    );
+
+
+  if (
+    !select
+  ) {
+
+    return;
+
+  }
+
+
+  const current =
+    select.value;
+
+
+  select.innerHTML =
+    "";
+
+
+  const blank =
+    document.createElement(
+      "option"
+    );
+
+
+  blank.value =
+    "";
+
+
+  blank.textContent =
+    buyerId
+      ? "Select Sold Under"
+      : "Select Buyer first";
+
+
+  select.appendChild(
+    blank
+  );
+
+
+  select.disabled =
+    !buyerId;
+
+
+  if (
+    !buyerId
+  ) {
+
+    populateLinkCrop();
+
+    return;
+
+  }
+
+
+  const ids =
+    new Set(
+      [
+
+        ...state.contracts
+          .filter(
+            contract =>
+              !contractIsVoided(
+                contract
+              ) &&
+              contractBuyerId(
+                contract
+              ) ===
+              buyerId
+          )
+          .map(
+            contractCustomerId
+          ),
+
+        ...state.jobs
+          .filter(
+            job =>
+              ![
+                "voided",
+                "closed"
+              ].includes(
+                jobStatus(
+                  job
+                )
+              ) &&
+              jobBuyerId(
+                job
+              ) ===
+              buyerId
+          )
+          .map(
+            jobCustomerId
+          )
+
+      ].filter(
+        Boolean
+      )
+    );
+
+
+  state.customers
+
+    .filter(
+      customer =>
+        ids.has(
+          customer.id
+        )
+    )
+
+    .forEach(
+      customer => {
+
+        const option =
+          document.createElement(
+            "option"
+          );
+
+
+        option.value =
+          customer.id;
+
+
+        option.textContent =
+          customer.name;
+
+
+        select.appendChild(
+          option
+        );
+
+      }
+    );
+
+
+  if (
+    [
+      ...select.options
+    ].some(
+      option =>
+        option.value ===
+        current
+    )
+  ) {
+
+    select.value =
+      current;
+
+  }
+
+
+  populateLinkCrop();
+
+}
+
+
+function populateLinkCrop() {
+
+  const buyerId =
+    clean(
+      $(
+        "hauling-link-buyer"
+      )
+        ?.value
+    );
+
+
+  const customerId =
+    clean(
+      $(
+        "hauling-link-customer"
+      )
+        ?.value
+    );
+
+
+  const select =
+    $(
+      "hauling-link-crop"
+    );
+
+
+  if (
+    !select
+  ) {
+
+    return;
+
+  }
+
+
+  const current =
+    select.value;
+
+
+  select.innerHTML =
+    "";
+
+
+  const blank =
+    document.createElement(
+      "option"
+    );
+
+
+  blank.value =
+    "";
+
+
+  blank.textContent =
+    customerId
+      ? "Select Crop"
+      : "Select customer first";
+
+
+  select.appendChild(
+    blank
+  );
+
+
+  select.disabled =
+    !buyerId ||
+    !customerId;
+
+
+  if (
+    !buyerId ||
+    !customerId
+  ) {
+
+    return;
+
+  }
+
+
+  const crops =
+    uniqueSorted(
+      [
+
+        ...state.contracts
+          .filter(
+            contract =>
+              !contractIsVoided(
+                contract
+              ) &&
+              contractBuyerId(
+                contract
+              ) ===
+              buyerId &&
+              contractCustomerId(
+                contract
+              ) ===
+              customerId
+          )
+          .map(
+            contractCrop
+          ),
+
+        ...state.jobs
+          .filter(
+            job =>
+              ![
+                "voided",
+                "closed"
+              ].includes(
+                jobStatus(
+                  job
+                )
+              ) &&
+              jobBuyerId(
+                job
+              ) ===
+              buyerId &&
+              jobCustomerId(
+                job
+              ) ===
+              customerId
+          )
+          .map(
+            jobCrop
+          )
+
+      ]
+    );
+
+
+  crops.forEach(
+    crop => {
+
+      const option =
+        document.createElement(
+          "option"
+        );
+
+
+      option.value =
+        crop;
+
+
+      option.textContent =
+        crop;
+
+
+      select.appendChild(
+        option
+      );
+
+    }
+  );
+
+
+  if (
+    [
+      ...select.options
+    ].some(
+      option =>
+        option.value ===
+        current
+    )
+  ) {
+
+    select.value =
+      current;
+
+  }
+
+}
+
+
+function rebuildLinkFiltersFromCurrent() {
+
+  populateLinkBuyer();
+
+
+  populateLinkCustomer();
+
+}
+
+
+function linkFilterValues() {
+
+  return {
+
+    buyerId:
+      clean(
+        $(
+          "hauling-link-buyer"
+        )
+          ?.value
+      ),
+
+    customerId:
+      clean(
+        $(
+          "hauling-link-customer"
+        )
+          ?.value
+      ),
+
+    crop:
+      clean(
+        $(
+          "hauling-link-crop"
+        )
+          ?.value
+      )
+
+  };
+
+}
+
+
+function currentUnlinkedContracts() {
+
+  const {
+    buyerId,
+    customerId,
+    crop
+  } =
+    linkFilterValues();
+
+
+  if (
+    !buyerId ||
+    !customerId ||
+    !crop
+  ) {
+
+    return [];
+
+  }
+
+
+  return state.contracts
+
+    .filter(
+      contract =>
+        !contractIsVoided(
+          contract
+        ) &&
+        !clean(
+          contract?.haulingJobId
+        ) &&
+        contractBuyerId(
+          contract
+        ) ===
+          buyerId &&
+        contractCustomerId(
+          contract
+        ) ===
+          customerId &&
+        norm(
+          contractCrop(
+            contract
+          )
+        ) ===
+          norm(
+            crop
+          )
+    )
+
+    .sort(
+      (
+        a,
+        b
+      ) =>
+        contractNumber(
+          a
+        )
+          .localeCompare(
+            contractNumber(
+              b
+            ),
+            undefined,
+            {
+              numeric:
+                true,
+
+              sensitivity:
+                "base"
+            }
+          )
+    );
+
+}
+
+
+function currentMatchingJobs() {
+
+  const {
+    buyerId,
+    customerId,
+    crop
+  } =
+    linkFilterValues();
+
+
+  if (
+    !buyerId ||
+    !customerId ||
+    !crop
+  ) {
+
+    return [];
+
+  }
+
+
+  return state.jobs
+
+    .filter(
+      job =>
+        ![
+          "voided",
+          "closed"
+        ].includes(
+          jobStatus(
+            job
+          )
+        ) &&
+        jobBuyerId(
+          job
+        ) ===
+          buyerId &&
+        jobCustomerId(
+          job
+        ) ===
+          customerId &&
+        norm(
+          jobCrop(
+            job
+          )
+        ) ===
+          norm(
+            crop
+          )
+    )
+
+    .sort(
+      (
+        a,
+        b
+      ) =>
+        clean(
+          a?.deliveryStartDate
+        )
+          .localeCompare(
+            clean(
+              b?.deliveryStartDate
+            )
+          ) ||
+        jobName(
+          a
+        )
+          .localeCompare(
+            jobName(
+              b
+            )
+          )
+    );
+
+}
+
+
+function setLinkMessage(
+  message,
+  ready =
+    false
+) {
+
+  const element =
+    $(
+      "hauling-link-message"
+    );
+
+
+  if (
+    !element
+  ) {
+
+    return;
+
+  }
+
+
+  element.textContent =
+    message;
+
+
+  element.classList.toggle(
+    "ready",
+    !!ready
+  );
+
+}
+
+
+function renderLinkWorkspace() {
+
+  const contractList =
+    $(
+      "hauling-unlinked-contract-list"
+    );
+
+
+  const jobList =
+    $(
+      "hauling-job-drop-list"
+    );
+
+
+  if (
+    !contractList ||
+    !jobList
+  ) {
+
+    return;
+
+  }
+
+
+  const {
+    buyerId,
+    customerId,
+    crop
+  } =
+    linkFilterValues();
+
+
+  if (
+    !buyerId ||
+    !customerId ||
+    !crop
+  ) {
+
+    contractList.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-title">
+          Select Filters
+        </div>
+        <div class="empty-sub">
+          Unlinked matching contracts will appear here.
+        </div>
+      </div>
+    `;
+
+
+    jobList.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-title">
+          Select Filters
+        </div>
+        <div class="empty-sub">
+          Matching hauling jobs will appear here as drop zones.
+        </div>
+      </div>
+    `;
+
+
+    if (
+      $(
+        "hauling-unlinked-contract-count"
+      )
+    ) {
+
+      $(
+        "hauling-unlinked-contract-count"
+      )
+        .textContent =
+          "0 contracts";
+
+    }
+
+
+    if (
+      $(
+        "hauling-link-job-count"
+      )
+    ) {
+
+      $(
+        "hauling-link-job-count"
+      )
+        .textContent =
+          "0 jobs";
+
+    }
+
+
+    setLinkMessage(
+      "Select Buyer, Sold Under, and Crop to show matching unlinked contracts and hauling jobs."
+    );
+
+
+    return;
+
+  }
+
+
+  const contracts =
+    currentUnlinkedContracts();
+
+
+  const jobs =
+    currentMatchingJobs();
+
+
+  if (
+    $(
+      "hauling-unlinked-contract-count"
+    )
+  ) {
+
+    $(
+      "hauling-unlinked-contract-count"
+    )
+      .textContent =
+        `${
+          contracts.length
+        } contract${
+          contracts.length === 1
+            ? ""
+            : "s"
+        }`;
+
+  }
+
+
+  if (
+    $(
+      "hauling-link-job-count"
+    )
+  ) {
+
+    $(
+      "hauling-link-job-count"
+    )
+      .textContent =
+        `${
+          jobs.length
+        } job${
+          jobs.length === 1
+            ? ""
+            : "s"
+        }`;
+
+  }
+
+
+  setLinkMessage(
+    jobs.length
+      ? "Drag a contract from the left onto the correct hauling job. Location is checked when you drop it."
+      : "No active hauling jobs match those Buyer / Sold Under / Crop filters.",
+    !!jobs.length
+  );
+
+
+  if (
+    !contracts.length
+  ) {
+
+    contractList.innerHTML = `
+      <div class="empty-state">
+
+        <div class="empty-title">
+          No Unlinked Contracts
+        </div>
+
+        <div class="empty-sub">
+          All matching contracts are already linked, or no contracts match these filters.
+        </div>
+
+      </div>
+    `;
+
+  }
+  else {
+
+    contractList.innerHTML =
+      "";
+
+
+    contracts.forEach(
+      contract => {
+
+        const card =
+          document.createElement(
+            "div"
+          );
+
+
+        card.className =
+          "hauling-contract-card";
+
+
+        card.draggable =
+          true;
+
+
+        card.dataset.haulingContractId =
+          contract.id;
+
+
+        card.innerHTML = `
+
+          <div class="hauling-dnd-card-title">
+            Contract ${
+              escapeHtml(
+                contractNumber(
+                  contract
+                )
+              )
+            }
+          </div>
+
+          <div class="hauling-dnd-card-meta">
+
+            ${
+              escapeHtml(
+                contract?.deliveryLocationName ||
+                "No location"
+              )
+            }
+            •
+            ${
+              escapeHtml(
+                contractCrop(
+                  contract
+                )
+              )
+            }
+
+            <br>
+
+            ${
+              fmtBu(
+                contractBushels(
+                  contract
+                )
+              )
+            }
+            bu contract
+            •
+            ${
+              fmtBu(
+                contractOpenBushels(
+                  contract
+                )
+              )
+            }
+            bu open
+
+          </div>
+
+        `;
+
+
+        bindContractDragSource(
+          card,
+          contract.id
+        );
+
+
+        contractList.appendChild(
+          card
+        );
+
+      }
+    );
+
+  }
+
+
+  if (
+    !jobs.length
+  ) {
+
+    jobList.innerHTML = `
+      <div class="empty-state">
+
+        <div class="empty-title">
+          No Matching Hauling Jobs
+        </div>
+
+        <div class="empty-sub">
+          Create a hauling job or change the filters.
+        </div>
+
+      </div>
+    `;
+
+  }
+  else {
+
+    jobList.innerHTML =
+      "";
+
+
+    jobs.forEach(
+      job => {
+
+        const linked =
+          contractsForJob(
+            job.id
+          );
+
+
+        const card =
+          document.createElement(
+            "div"
+          );
+
+
+        card.className =
+          "hauling-job-drop-card";
+
+
+        card.dataset.haulingJobDropId =
+          job.id;
+
+
+        const linkedMarkup =
+          linked.length
+            ? `
+
+              <div
+                style="
+                  margin-top:9px;
+                  padding-top:8px;
+                  border-top:1px solid var(--border,#ddd);
+                "
+              >
+
+                <div
+                  style="
+                    font-size:.72rem;
+                    font-weight:800;
+                    opacity:.65;
+                    margin-bottom:5px;
+                  "
+                >
+                  Linked Contracts
+                </div>
+
+                ${
+                  linked.map(
+                    contract => `
+
+                      <div
+                        class="hauling-linked-contract-item"
+                        draggable="true"
+                        data-hauling-contract-id="${
+                          escapeHtml(
+                            contract.id
+                          )
+                        }"
+                        style="
+                          padding:6px 8px;
+                          margin-top:4px;
+                          border:1px solid var(--border,#ddd);
+                          border-radius:7px;
+                          background:var(--surface-2,#f4f4f4);
+                          font-size:.76rem;
+                          font-weight:800;
+                          cursor:grab;
+                        "
+                      >
+                        Contract ${
+                          escapeHtml(
+                            contractNumber(
+                              contract
+                            )
+                          )
+                        }
+                        •
+                        ${
+                          fmtBu(
+                            contractBushels(
+                              contract
+                            )
+                          )
+                        }
+                        bu
+                      </div>
+
+                    `
+                  ).join(
+                    ""
+                  )
+                }
+
+              </div>
+
+            `
+            : `
+
+              <div
+                style="
+                  margin-top:8px;
+                  font-size:.74rem;
+                  opacity:.6;
+                "
+              >
+                No contracts linked yet.
+              </div>
+
+            `;
+
+
+        card.innerHTML = `
+
+          <div class="hauling-dnd-card-title">
+            ${
+              escapeHtml(
+                jobName(
+                  job
+                )
+              )
+            }
+          </div>
+
+          <div class="hauling-dnd-card-meta">
+
+            ${
+              escapeHtml(
+                job?.deliveryLocationName ||
+                "No location"
+              )
+            }
+
+            • Delivery
+
+            ${
+              escapeHtml(
+                fmtDate(
+                  job?.deliveryStartDate
+                )
+              )
+            }
+
+            –
+
+            ${
+              escapeHtml(
+                fmtDate(
+                  job?.deliveryEndDate
+                )
+              )
+            }
+
+            <br>
+
+            ${
+              fmtBu(
+                jobRemainingBushels(
+                  job
+                )
+              )
+            }
+            bu remaining
+
+            •
+
+            ${
+              linked.length
+            }
+            linked contract${
+              linked.length === 1
+                ? ""
+                : "s"
+            }
+
+          </div>
+
+          ${
+            linkedMarkup
+          }
+
+        `;
+
+
+        bindJobDropTarget(
+          card,
+          job.id
+        );
+
+
+        card
+          .querySelectorAll(
+            ".hauling-linked-contract-item"
+          )
+          .forEach(
+            item =>
+              bindContractDragSource(
+                item,
+                clean(
+                  item.dataset
+                    .haulingContractId
+                )
+              )
+          );
+
+
+        jobList.appendChild(
+          card
+        );
+
+      }
+    );
+
+  }
+
+}
+
+
+/* ============================================================
+   DESKTOP + TOUCH DND
+============================================================ */
+
+function clearDndHighlights() {
+
+  document
+    .querySelectorAll(
+      ".hauling-job-drop-card.drag-over"
+    )
+    .forEach(
+      element =>
+        element.classList.remove(
+          "drag-over"
+        )
+    );
+
+
+  $(
+    "hauling-unassign-drop"
+  )
+    ?.classList
+    .remove(
+      "drag-over"
+    );
+
+}
+
+
+function bindContractDragSource(
+  element,
+  contractId
+) {
+
+  if (
+    !element ||
+    element.dataset.haulingDragBound ===
+      "1"
+  ) {
+
+    return;
+
+  }
+
+
+  element.dataset.haulingDragBound =
+    "1";
+
+
+  element.addEventListener(
+    "dragstart",
+    event => {
+
+      if (
+        state.busy
+      ) {
+
+        event.preventDefault();
+
+        return;
+
+      }
+
+
+      state.draggingContractId =
+        contractId;
+
+
+      element.classList.add(
+        "dragging"
+      );
+
+
+      event.dataTransfer
+        .effectAllowed =
+          "move";
+
+
+      event.dataTransfer
+        .setData(
+          "text/plain",
+          contractId
+        );
+
+    }
+  );
+
+
+  element.addEventListener(
+    "dragend",
+    () => {
+
+      state.draggingContractId =
+        "";
+
+
+      element.classList.remove(
+        "dragging"
+      );
+
+
+      clearDndHighlights();
+
+    }
+  );
+
+
+  element.addEventListener(
+    "pointerdown",
+    event =>
+      beginPointerHold(
+        event,
+        element,
+        contractId
+      )
+  );
+
+}
+
+
+function bindJobDropTarget(
+  element,
+  jobId
+) {
+
+  element.addEventListener(
+    "dragover",
+    event => {
+
+      const contract =
+        state.contracts.find(
+          item =>
+            item.id ===
+            state.draggingContractId
+        );
+
+
+      const job =
+        state.jobs.find(
+          item =>
+            item.id ===
+            jobId
+        );
+
+
+      if (
+        !contract ||
+        !job ||
+        validateContractJob(
+          contract,
+          job
+        )
+      ) {
+
+        return;
+
+      }
+
+
+      event.preventDefault();
+
+
+      clearDndHighlights();
+
+
+      element.classList.add(
+        "drag-over"
+      );
+
+    }
+  );
+
+
+  element.addEventListener(
+    "dragleave",
+    event => {
+
+      if (
+        !event.relatedTarget ||
+        !element.contains(
+          event.relatedTarget
+        )
+      ) {
+
+        element.classList.remove(
+          "drag-over"
+        );
+
+      }
+
+    }
+  );
+
+
+  element.addEventListener(
+    "drop",
+    async event => {
+
+      event.preventDefault();
+
+
+      const contractId =
+        state.draggingContractId ||
+        clean(
+          event.dataTransfer
+            ?.getData(
+              "text/plain"
+            )
+        );
+
+
+      clearDndHighlights();
+
+
+      if (
+        contractId
+      ) {
+
+        await linkContractToJob(
+          contractId,
+          jobId
+        );
+
+      }
+
+    }
+  );
+
+}
+
+
+function setupUnassignDrop() {
+
+  const zone =
+    $(
+      "hauling-unassign-drop"
+    );
+
+
+  if (
+    !zone
+  ) {
+
+    return;
+
+  }
+
+
+  zone.addEventListener(
+    "dragover",
+    event => {
+
+      const contract =
+        state.contracts.find(
+          item =>
+            item.id ===
+            state.draggingContractId
+        );
+
+
+      if (
+        !contract ||
+        !clean(
+          contract?.haulingJobId
+        )
+      ) {
+
+        return;
+
+      }
+
+
+      event.preventDefault();
+
+
+      clearDndHighlights();
+
+
+      zone.classList.add(
+        "drag-over"
+      );
+
+    }
+  );
+
+
+  zone.addEventListener(
+    "dragleave",
+    () =>
+      zone.classList.remove(
+        "drag-over"
+      )
+  );
+
+
+  zone.addEventListener(
+    "drop",
+    async event => {
+
+      event.preventDefault();
+
+
+      const contractId =
+        state.draggingContractId ||
+        clean(
+          event.dataTransfer
+            ?.getData(
+              "text/plain"
+            )
+        );
+
+
+      clearDndHighlights();
+
+
+      if (
+        contractId
+      ) {
+
+        await unlinkContract(
+          contractId
+        );
+
+      }
+
+    }
+  );
+
+}
+
+
+function beginPointerHold(
+  event,
+  element,
+  contractId
+) {
+
+  if (
+    event.pointerType ===
+      "mouse" ||
+    state.busy
+  ) {
+
+    return;
+
+  }
+
+
+  if (
+    event.target.closest(
+      "button,a,input,select,textarea,label"
+    )
+  ) {
+
+    return;
+
+  }
+
+
+  cancelTouchDrag();
+
+
+  state.touch.contractId =
+    contractId;
+
+
+  state.touch.source =
+    element;
+
+
+  state.touch.startX =
+    event.clientX;
+
+
+  state.touch.startY =
+    event.clientY;
+
+
+  state.touch.timer =
+    setTimeout(
+      () => {
+
+        state.touch.timer =
+          null;
+
+
+        state.touch.active =
+          true;
+
+
+        element.classList.add(
+          "dragging"
+        );
+
+
+        const contract =
+          state.contracts.find(
+            item =>
+              item.id ===
+              contractId
+          );
+
+
+        const ghost =
+          document.createElement(
+            "div"
+          );
+
+
+        ghost.textContent =
+          `Contract ${
+            contract
+              ? contractNumber(
+                  contract
+                )
+              : ""
+          }`;
+
+
+        Object.assign(
+          ghost.style,
+          {
+
+            position:
+              "fixed",
+
+            zIndex:
+              "999999",
+
+            pointerEvents:
+              "none",
+
+            padding:
+              "9px 12px",
+
+            borderRadius:
+              "9px",
+
+            border:
+              "2px solid #4f718f",
+
+            background:
+              "var(--surface,#fff)",
+
+            color:
+              "inherit",
+
+            boxShadow:
+              "0 10px 28px rgba(0,0,0,.24)",
+
+            fontWeight:
+              "900",
+
+            fontSize:
+              ".82rem",
+
+            whiteSpace:
+              "nowrap"
+
+          }
+        );
+
+
+        document.body.appendChild(
+          ghost
+        );
+
+
+        state.touch.ghost =
+          ghost;
+
+
+        moveTouchGhost(
+          event.clientX,
+          event.clientY
+        );
+
+
+        navigator.vibrate?.(
+          25
+        );
+
+      },
+      400
+    );
+
+
+  const move =
+    moveEvent => {
+
+      if (
+        !state.touch.contractId
+      ) {
+
+        return;
+
+      }
+
+
+      if (
+        !state.touch.active
+      ) {
+
+        const distance =
+          Math.hypot(
+            moveEvent.clientX -
+            state.touch.startX,
+            moveEvent.clientY -
+            state.touch.startY
+          );
+
+
+        if (
+          distance >
+            12 &&
+          state.touch.timer
+        ) {
+
+          clearTimeout(
+            state.touch.timer
+          );
+
+
+          state.touch.timer =
+            null;
+
+        }
+
+
+        return;
+
+      }
+
+
+      moveEvent.preventDefault();
+
+
+      moveTouchGhost(
+        moveEvent.clientX,
+        moveEvent.clientY
+      );
+
+
+      updateTouchTarget(
+        moveEvent.clientX,
+        moveEvent.clientY
+      );
+
+    };
+
+
+  const up =
+    async upEvent => {
+
+      element.removeEventListener(
+        "pointermove",
+        move
+      );
+
+
+      element.removeEventListener(
+        "pointerup",
+        up
+      );
+
+
+      element.removeEventListener(
+        "pointercancel",
+        cancelTouchDrag
+      );
+
+
+      if (
+        !state.touch.active
+      ) {
+
+        cancelTouchDrag();
+
+        return;
+
+      }
+
+
+      upEvent.preventDefault();
+
+
+      const contractIdValue =
+        state.touch.contractId;
+
+
+      const target =
+        state.touch.target;
+
+
+      cancelTouchDrag();
+
+
+      if (
+        target?.type ===
+          "job"
+      ) {
+
+        await linkContractToJob(
+          contractIdValue,
+          target.jobId
+        );
+
+      }
+
+
+      if (
+        target?.type ===
+          "unassign"
+      ) {
+
+        await unlinkContract(
+          contractIdValue
+        );
+
+      }
+
+    };
+
+
+  element.addEventListener(
+    "pointermove",
+    move,
+    {
+      passive:
+        false
+    }
+  );
+
+
+  element.addEventListener(
+    "pointerup",
+    up
+  );
+
+
+  element.addEventListener(
+    "pointercancel",
+    cancelTouchDrag
+  );
+
+}
+
+
+function moveTouchGhost(
+  x,
+  y
+) {
+
+  if (
+    !state.touch.ghost
+  ) {
+
+    return;
+
+  }
+
+
+  state.touch.ghost.style.left =
+    `${
+      x + 14
+    }px`;
+
+
+  state.touch.ghost.style.top =
+    `${
+      y + 14
+    }px`;
+
+}
+
+
+function updateTouchTarget(
+  x,
+  y
+) {
+
+  clearDndHighlights();
+
+
+  state.touch.target =
+    null;
+
+
+  if (
+    state.touch.ghost
+  ) {
+
+    state.touch.ghost.style.display =
+      "none";
+
+  }
+
+
+  const targetElement =
+    document.elementFromPoint(
+      x,
+      y
+    );
+
+
+  if (
+    state.touch.ghost
+  ) {
+
+    state.touch.ghost.style.display =
+      "";
+
+  }
+
+
+  if (
+    !(
+      targetElement instanceof
+      Element
+    )
+  ) {
+
+    return;
+
+  }
+
+
+  const unassign =
+    targetElement.closest(
+      "#hauling-unassign-drop"
+    );
+
+
+  if (
+    unassign
+  ) {
+
+    const contract =
+      state.contracts.find(
+        item =>
+          item.id ===
+          state.touch.contractId
+      );
+
+
+    if (
+      contract &&
+      clean(
+        contract?.haulingJobId
+      )
+    ) {
+
+      unassign.classList.add(
+        "drag-over"
+      );
+
+
+      state.touch.target = {
+
+        type:
+          "unassign"
+
+      };
+
+
+      return;
+
+    }
+
+  }
+
+
+  const jobCard =
+    targetElement.closest(
+      "[data-hauling-job-drop-id]"
+    );
+
+
+  if (
+    jobCard
+  ) {
+
+    const jobId =
+      clean(
+        jobCard.dataset
+          .haulingJobDropId
+      );
+
+
+    const job =
+      state.jobs.find(
+        item =>
+          item.id ===
+          jobId
+      );
+
+
+    const contract =
+      state.contracts.find(
+        item =>
+          item.id ===
+          state.touch.contractId
+      );
+
+
+    if (
+      job &&
+      contract &&
+      !validateContractJob(
+        contract,
+        job
+      )
+    ) {
+
+      jobCard.classList.add(
+        "drag-over"
+      );
+
+
+      state.touch.target = {
+
+        type:
+          "job",
+
+        jobId
+
+      };
+
+    }
+
+  }
+
+}
+
+
+function cancelTouchDrag() {
+
+  if (
+    state.touch.timer
+  ) {
+
+    clearTimeout(
+      state.touch.timer
+    );
+
+  }
+
+
+  state.touch.timer =
+    null;
+
+
+  state.touch.source
+    ?.classList
+    .remove(
+      "dragging"
+    );
+
+
+  state.touch.ghost
+    ?.remove();
+
+
+  state.touch.active =
+    false;
+
+
+  state.touch.contractId =
+    "";
+
+
+  state.touch.ghost =
+    null;
+
+
+  state.touch.source =
+    null;
+
+
+  state.touch.target =
+    null;
+
+
+  clearDndHighlights();
+
+}
+
+
+/* ============================================================
+   SAVE / REMOVE CONTRACT PLANNING LINK
+============================================================ */
+
+async function linkContractToJob(
+  contractId,
+  jobId
+) {
+
+  if (
+    state.busy
+  ) {
+
+    return;
+
+  }
+
+
+  const contract =
+    state.contracts.find(
+      item =>
+        item.id ===
+        clean(
+          contractId
+        )
+    );
+
+
+  const job =
+    state.jobs.find(
+      item =>
+        item.id ===
+        clean(
+          jobId
+        )
+    );
+
+
+  const validation =
+    validateContractJob(
+      contract,
+      job
+    );
+
+
+  if (
+    validation
+  ) {
+
+    alert(
+      validation
+    );
+
+
+    return;
+
+  }
+
+
+  const oldJob =
+    linkedJob(
+      contract
+    );
+
+
+  if (
+    oldJob?.id ===
+    job.id
+  ) {
+
+    return;
+
+  }
+
+
+  if (
+    oldJob &&
+    !window.confirm(
+      `Contract ${
+        contractNumber(
+          contract
+        )
+      } is currently linked to ${
+        jobName(
+          oldJob
+        )
+      }.\n\nMove it to ${
+        jobName(
+          job
+        )
+      }?`
+    )
+  ) {
+
+    return;
+
+  }
+
+
+  const who =
+    auth.currentUser;
+
+
+  state.busy =
+    true;
+
+
+  try {
+
+    await updateDoc(
+      doc(
+        db,
+        COLLECTIONS.contracts,
+        contract.id
+      ),
+      {
+
+        haulingJobId:
+          job.id,
+
+        haulingJobName:
+          jobName(
+            job
+          ),
+
+        haulingJobLinkedAt:
+          serverTimestamp(),
+
+        haulingJobLinkedByUid:
+          who?.uid ||
+          null,
+
+        haulingJobLinkedByName:
+          who?.displayName ||
+          who?.email ||
+          "FarmVista User",
+
+        haulingJobLinkedByEmail:
+          who?.email ||
+          null,
+
+        updatedAt:
+          serverTimestamp()
+
+      }
+    );
+
+
+    contract.haulingJobId =
+      job.id;
+
+
+    contract.haulingJobName =
+      jobName(
+        job
+      );
+
+
+    renderJobs();
+
+
+    renderLinkWorkspace();
+
+
+    queueContractTableDecoration();
+
+  }
+  catch (
+    error
+  ) {
+
+    console.error(
+      "[Hauling Jobs] contract link failed:",
+      error
+    );
+
+
+    alert(
+      error?.message ||
+      "FarmVista could not link that contract to the hauling job."
+    );
+
+  }
+  finally {
+
+    state.busy =
+      false;
+
+
+    state.draggingContractId =
+      "";
+
+
+    clearDndHighlights();
+
+  }
+
+}
+
+
+async function unlinkContract(
+  contractId
+) {
+
+  if (
+    state.busy
+  ) {
+
+    return;
+
+  }
+
+
+  const contract =
+    state.contracts.find(
+      item =>
+        item.id ===
+        clean(
+          contractId
+        )
+    );
+
+
+  if (
+    !contract ||
+    !clean(
+      contract?.haulingJobId
+    )
+  ) {
+
+    return;
+
+  }
+
+
+  const job =
+    linkedJob(
+      contract
+    );
+
+
+  if (
+    !window.confirm(
+      `Remove Contract ${
+        contractNumber(
+          contract
+        )
+      } from ${
+        job
+          ? jobName(
+              job
+            )
+          : "its hauling job"
+      }?\n\nThis does not change ticket-to-contract assignments.`
+    )
+  ) {
+
+    return;
+
+  }
+
+
+  state.busy =
+    true;
+
+
+  try {
+
+    await updateDoc(
+      doc(
+        db,
+        COLLECTIONS.contracts,
+        contract.id
+      ),
+      {
+
+        haulingJobId:
+          null,
+
+        haulingJobName:
+          null,
+
+        haulingJobLinkedAt:
+          null,
+
+        haulingJobLinkedByUid:
+          null,
+
+        haulingJobLinkedByName:
+          null,
+
+        haulingJobLinkedByEmail:
+          null,
+
+        updatedAt:
+          serverTimestamp()
+
+      }
+    );
+
+
+    contract.haulingJobId =
+      null;
+
+
+    contract.haulingJobName =
+      null;
+
+
+    renderJobs();
+
+
+    renderLinkWorkspace();
+
+
+    queueContractTableDecoration();
+
+  }
+  catch (
+    error
+  ) {
+
+    console.error(
+      "[Hauling Jobs] contract unlink failed:",
+      error
+    );
+
+
+    alert(
+      error?.message ||
+      "FarmVista could not remove that hauling-job link."
+    );
+
+  }
+  finally {
+
+    state.busy =
+      false;
+
+
+    state.draggingContractId =
+      "";
+
+
+    clearDndHighlights();
+
+  }
+
+}
+
+
+/* ============================================================
+   CONTRACT TABLE HAULING JOB COLUMN
+
+   grain-contracts.js still owns the rest of the row.
+============================================================ */
+
+function findContractForTableRow(
+  row
+) {
+
+  if (
+    !row ||
+    row.cells.length <
+      10
+  ) {
+
+    return null;
+
+  }
+
+
+  const numberText =
+    clean(
+      row.cells[1]
+        ?.textContent
+    );
+
+
+  const buyerText =
+    clean(
+      row.cells[2]
+        ?.textContent
+    );
+
+
+  const customerText =
+    clean(
+      row.cells[3]
+        ?.textContent
+    );
+
+
+  const cropText =
+    clean(
+      row.cells[4]
+        ?.textContent
+    );
+
+
+  return state.contracts.find(
+    contract =>
+      clean(
+        contractNumber(
+          contract
+        )
+      ) ===
+        numberText &&
+      clean(
+        contract?.buyerName
+      ) ===
+        buyerText &&
+      clean(
+        contract?.customerName
+      ) ===
+        customerText &&
+      clean(
+        contractCrop(
+          contract
+        )
+      ) ===
+        cropText
+  ) ||
+  null;
+
+}
+
+
+function decorateContractTable() {
+
+  const tbody =
+    $(
+      "contracts-table-body"
+    );
+
+
+  if (
+    !tbody
+  ) {
+
+    return;
+
+  }
+
+
+  [
+    ...tbody.rows
+  ]
+    .forEach(
+      row => {
+
+        const contract =
+          findContractForTableRow(
+            row
+          );
+
+
+        if (
+          !contract
+        ) {
+
+          return;
+
+        }
+
+
+        let cell =
+          row.querySelector(
+            ':scope > td[data-hauling-job-cell="1"]'
+          );
+
+
+        if (
+          !cell
+        ) {
+
+          cell =
+            document.createElement(
+              "td"
+            );
+
+
+          cell.dataset.haulingJobCell =
+            "1";
+
+
+          /*
+            Existing grain-contracts.js ends with Delivery,
+            so insert the Hauling Job column directly before it.
+          */
+          const deliveryCell =
+            row.lastElementChild;
+
+
+          if (
+            deliveryCell
+          ) {
+
+            row.insertBefore(
+              cell,
+              deliveryCell
+            );
+
+          }
+          else {
+
+            row.appendChild(
+              cell
+            );
+
+          }
+
+        }
+
+
+        const job =
+          linkedJob(
+            contract
+          );
+
+
+        cell.innerHTML =
+          job
+            ? `
+
+              <span
+                class="planning-link-pill"
+                title="${
+                  escapeHtml(
+                    jobName(
+                      job
+                    )
+                  )
+                }"
+              >
+                ${
+                  escapeHtml(
+                    jobName(
+                      job
+                    )
+                  )
+                }
+              </span>
+
+            `
+            : `
+
+              <span class="planning-link-pill none">
+                Not Linked
+              </span>
+
+            `;
+
+      }
+    );
+
+}
+
+
+function queueContractTableDecoration() {
+
+  if (
+    state.decorateQueued
+  ) {
+
+    return;
+
+  }
+
+
+  state.decorateQueued =
+    true;
+
+
+  requestAnimationFrame(
+    () => {
+
+      state.decorateQueued =
+        false;
+
+
+      decorateContractTable();
+
+    }
+  );
+
+}
+
+
+function observeContractTable() {
+
+  const tbody =
+    $(
+      "contracts-table-body"
+    );
+
+
+  if (
+    !tbody
+  ) {
+
+    return;
+
+  }
+
+
+  state.contractObserver
+    ?.disconnect();
+
+
+  state.contractObserver =
+    new MutationObserver(
+      queueContractTableDecoration
+    );
+
+
+  state.contractObserver
+    .observe(
+      tbody,
+      {
+        childList:
+          true,
+
+        subtree:
+          true
+      }
+    );
+
+
+  queueContractTableDecoration();
+
+}
+
+
+/* ============================================================
+   EVENTS / START
+============================================================ */
+
+function setupEvents() {
 
   $(
     "add-hauling-job-btn"
   )
     ?.addEventListener(
       "click",
-      openJobModal
+      openAddJob
     );
 
 
@@ -4286,11 +6064,11 @@ function setupJobModal() {
 
 
   $(
-    "hauling-job-buyer"
+    "void-hauling-job-btn"
   )
     ?.addEventListener(
-      "change",
-      populateJobLocationSelect
+      "click",
+      voidJob
     );
 
 
@@ -4300,6 +6078,16 @@ function setupJobModal() {
     ?.addEventListener(
       "submit",
       saveJob
+    );
+
+
+  $(
+    "hauling-job-buyer"
+  )
+    ?.addEventListener(
+      "change",
+      () =>
+        populateJobLocationSelect()
     );
 
 
@@ -4325,209 +6113,137 @@ function setupJobModal() {
     );
 
 
+  [
+
+    "hauling-search-filter",
+
+    "hauling-status-filter",
+
+    "hauling-crop-filter",
+
+    "hauling-buyer-filter",
+
+    "hauling-customer-filter"
+
+  ]
+    .forEach(
+      id => {
+
+        const element =
+          $(
+            id
+          );
+
+
+        element
+          ?.addEventListener(
+            id ===
+              "hauling-search-filter"
+              ? "input"
+              : "change",
+            renderJobs
+          );
+
+      }
+    );
+
+
+  $(
+    "hauling-link-buyer"
+  )
+    ?.addEventListener(
+      "change",
+      () => {
+
+        populateLinkCustomer();
+
+
+        renderLinkWorkspace();
+
+      }
+    );
+
+
+  $(
+    "hauling-link-customer"
+  )
+    ?.addEventListener(
+      "change",
+      () => {
+
+        populateLinkCrop();
+
+
+        renderLinkWorkspace();
+
+      }
+    );
+
+
+  $(
+    "hauling-link-crop"
+  )
+    ?.addEventListener(
+      "change",
+      renderLinkWorkspace
+    );
+
+
+  $(
+    "refresh-hauling-link-btn"
+  )
+    ?.addEventListener(
+      "click",
+      refreshHauling
+    );
+
+
   document.addEventListener(
     "keydown",
     event => {
 
       if (
         event.key ===
-          "Escape" &&
-        $(
-          "hauling-job-modal"
-        )
-          ?.classList
-          .contains(
-            "open"
-          )
+          "Escape"
       ) {
 
         closeJobModal();
+
+
+        cancelTouchDrag();
 
       }
 
     }
   );
 
-}
 
-
-/* ============================================================
-   FILTER EVENTS
-============================================================ */
-
-function setupHaulingFilters() {
-
-  [
-    "hauling-search-filter",
-    "hauling-status-filter",
-    "hauling-crop-filter",
-    "hauling-buyer-filter",
-    "hauling-customer-filter"
-  ]
-    .forEach(
-      id => {
-
-        const element =
-          $(id);
-
-
-        if (!element) {
-
-          return;
-
-        }
-
-
-        element.addEventListener(
-          id ===
-            "hauling-search-filter"
-            ? "input"
-            : "change",
-          renderHaulingJobs
-        );
-
-      }
-    );
+  setupUnassignDrop();
 
 }
 
-
-/* ============================================================
-   REFRESH
-============================================================ */
-
-async function refreshHaulingData() {
-
-  if (
-    state.busy
-  ) {
-
-    return;
-
-  }
-
-
-  try {
-
-    const [
-      jobSnapshot,
-      contractSnapshot,
-      ticketSnapshot
-    ] =
-      await Promise.all([
-
-        getDocs(
-          collection(
-            db,
-            JOB_COLLECTION
-          )
-        ),
-
-        getDocs(
-          collection(
-            db,
-            CONTRACT_COLLECTION
-          )
-        ),
-
-        getDocs(
-          collection(
-            db,
-            TICKET_COLLECTION
-          )
-        )
-
-      ]);
-
-
-    state.jobs =
-      jobSnapshot.docs
-        .map(
-          snapshot => ({
-
-            id:
-              snapshot.id,
-
-            ...snapshot.data()
-
-          })
-        );
-
-
-    state.contracts =
-      contractSnapshot.docs
-        .map(
-          snapshot => ({
-
-            id:
-              snapshot.id,
-
-            ...snapshot.data()
-
-          })
-        );
-
-
-    state.tickets =
-      ticketSnapshot.docs
-        .map(
-          snapshot => ({
-
-            id:
-              snapshot.id,
-
-            ...snapshot.data()
-
-          })
-        );
-
-
-    populateHaulingFilters();
-
-
-    renderHaulingJobs();
-
-
-    queueDecorateContractRows();
-
-  }
-  catch (error) {
-
-    console.warn(
-      "[Hauling Jobs] Background refresh failed:",
-      error
-    );
-
-  }
-
-}
-
-
-/* ============================================================
-   START
-============================================================ */
 
 async function start() {
 
-  setupJobModal();
+  setupEvents();
 
 
-  setupHaulingFilters();
+  await loadAllData();
 
 
-  setupUnassignDesktopDrop();
+  populateJobFilters();
 
 
-  setupTouchContractLinking();
+  renderJobs();
 
 
-  await loadData();
+  populateLinkBuyer();
 
 
-  populateHaulingFilters();
+  populateLinkCustomer();
 
 
-  renderHaulingJobs();
+  renderLinkWorkspace();
 
 
   observeContractTable();
@@ -4539,10 +6255,10 @@ async function start() {
 
       if (
         document.visibilityState ===
-        "visible"
+          "visible"
       ) {
 
-        refreshHaulingData();
+        refreshHauling();
 
       }
 
@@ -4558,7 +6274,7 @@ async function start() {
         event.persisted
       ) {
 
-        refreshHaulingData();
+        refreshHauling();
 
       }
 
@@ -4573,7 +6289,7 @@ start()
     error => {
 
       console.error(
-        "[Hauling Jobs] Startup failed:",
+        "[Hauling Jobs] startup failed:",
         error
       );
 
@@ -4589,8 +6305,8 @@ start()
       ) {
 
         tbody.innerHTML = `
-          <tr>
 
+          <tr>
             <td colspan="11">
 
               <div class="empty-state">
@@ -4606,8 +6322,8 @@ start()
               </div>
 
             </td>
-
           </tr>
+
         `;
 
       }
