@@ -1768,42 +1768,6 @@ function ensureCompactReconciliationStyles() {
       background:rgba(154,103,0,.10);
     }
 
-    .ticket-unassign-drop-zone{
-      margin:0 0 12px;
-      padding:14px 16px;
-      border:2px dashed rgba(154,70,70,.48);
-      border-radius:11px;
-      background:rgba(154,70,70,.045);
-      text-align:center;
-      font-size:.82rem;
-      font-weight:900;
-      color:#9a4646;
-      transition:
-        background .15s ease,
-        border-color .15s ease,
-        transform .15s ease;
-    }
-
-    .ticket-unassign-drop-zone strong{
-      display:block;
-      font-size:.9rem;
-      margin-bottom:3px;
-    }
-
-    .ticket-unassign-drop-zone span{
-      display:block;
-      font-size:.72rem;
-      font-weight:700;
-      opacity:.78;
-    }
-
-    #unassigned-ticket-list.drag-over-unassign
-    .ticket-unassign-drop-zone{
-      background:rgba(154,70,70,.14);
-      border-color:#9a4646;
-      transform:scale(1.01);
-    }
-
     @media (max-width:760px){
       .reconciliation-compact-card .contract-drop-toggle{
         grid-template-columns:minmax(0,1fr) auto;
@@ -4754,7 +4718,7 @@ function setupReconciliationControls() {
 
 
   const unassigned =
-    $("unassigned-ticket-list");
+    $("ticket-unassign-drop");
 
   if (!unassigned) {
     return;
@@ -4796,7 +4760,7 @@ function setupReconciliationControls() {
       event.preventDefault();
 
       unassigned.classList.add(
-        "drag-over-unassign"
+        "drag-over"
       );
     }
   );
@@ -4815,7 +4779,7 @@ function setupReconciliationControls() {
       }
 
       unassigned.classList.remove(
-        "drag-over-unassign"
+        "drag-over"
       );
     }
   );
@@ -4827,7 +4791,7 @@ function setupReconciliationControls() {
       event.preventDefault();
 
       unassigned.classList.remove(
-        "drag-over-unassign"
+        "drag-over"
       );
 
       const payload =
@@ -5114,10 +5078,10 @@ function clearTouchDropHighlights() {
     );
 
 
-  $("unassigned-ticket-list")
+  $("ticket-unassign-drop")
     ?.classList
     .remove(
-      "drag-over-unassign"
+      "drag-over"
     );
 
 
@@ -5288,7 +5252,7 @@ function getTouchDropTarget(
   */
   const unassigned =
     element.closest(
-      "#unassigned-ticket-list"
+      "#ticket-unassign-drop"
     );
 
 
@@ -5460,7 +5424,7 @@ function highlightTouchDropTarget(
     target.element
       .classList
       .add(
-        "drag-over-unassign"
+        "drag-over"
       );
 
     return;
@@ -6221,54 +6185,27 @@ function renderTicketCards(
     return;
   }
 
-  container.classList.remove(
-    "drag-over-unassign"
-  );
+  $("ticket-unassign-drop")
+    ?.classList
+    .remove(
+      "drag-over"
+    );
 
   container.innerHTML = "";
 
 
-  /*
-    Visible unassign target.
-
-    The parent #unassigned-ticket-list already owns the
-    desktop + touch unassign logic, so this strip does not
-    create any new accounting behavior.
-  */
-  container.insertAdjacentHTML(
-    "beforeend",
-    `
-      <div
-        class="ticket-unassign-drop-zone"
-        aria-label="Drop assigned grain ticket here to unassign"
-      >
-        <strong>
-          ↓ Drop Here to Unassign Ticket
-        </strong>
-
-        <span>
-          Drag a ticket from a Contract or Spot back here
-        </span>
-      </div>
-    `
-  );
-
-
   if (!tickets.length) {
-    container.insertAdjacentHTML(
-      "beforeend",
-      `
-        <div class="empty-state">
-          <div class="empty-title">
-            No Unassigned Bushels
-          </div>
-
-          <div class="empty-sub">
-            Everything matching these filters is allocated.
-          </div>
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-title">
+          No Unassigned Bushels
         </div>
-      `
-    );
+
+        <div class="empty-sub">
+          Everything matching these filters is allocated.
+        </div>
+      </div>
+    `;
 
     return;
   }
