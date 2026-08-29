@@ -1211,6 +1211,25 @@
 }
 
 
+.assist-foot-actions {
+  display: grid;
+  grid-template-columns:
+    repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+
+.assist-foot-actions.single {
+  grid-template-columns: 1fr;
+}
+
+
+.assist-foot-actions
+.assist-skip {
+  width: 100%;
+}
+
+
 /* ============================================================
    SKIP / NOT SURE
    Intentionally subtle secondary action
@@ -1603,16 +1622,31 @@
 
       <div class="assist-foot">
 
-        <button
-          id="assistSkipBtn"
-          class="assist-skip"
-          type="button"
+        <div
+          id="assistFootActions"
+          class="assist-foot-actions"
         >
-          Skip / Not Sure
-        </button>
+
+          <button
+            id="assistBackBtn"
+            class="assist-skip"
+            type="button"
+          >
+            ← Back
+          </button>
+
+          <button
+            id="assistSkipBtn"
+            class="assist-skip"
+            type="button"
+          >
+            Skip / Not Sure
+          </button>
+
+        </div>
 
         <div class="assist-note">
-          You can skip a question. FarmVista will save the ticket for office review.
+          Back returns to the previous choice. Skip / Not Sure saves the ticket for office review.
         </div>
 
       </div>
@@ -2002,6 +2036,18 @@ const assistBody =
   );
 
 
+const assistBackBtn =
+  document.getElementById(
+    "assistBackBtn"
+  );
+
+
+const assistFootActions =
+  document.getElementById(
+    "assistFootActions"
+  );
+
+
 const assistSkipBtn =
   document.getElementById(
     "assistSkipBtn"
@@ -2108,6 +2154,10 @@ let contracts =
 
 
 let haulingJobs =
+  [];
+
+
+let grainTickets =
   [];
 
 
@@ -2330,6 +2380,7 @@ const [
   locationSnapshot,
   contractSnapshot,
   haulingJobSnapshot,
+  ticketSnapshot,
   employeeSnapshot,
   aliasSnapshot,
   fieldSnapshot,
@@ -2372,6 +2423,13 @@ const [
           HAULING_JOB_COLLECTION
         )
       ),
+
+getDocs(
+  collection(
+    db,
+    TICKET_COLLECTION
+  )
+),
 
 getDocs(
   collection(
@@ -2580,6 +2638,12 @@ deliveryLocations =
     );
 
 
+grainTickets =
+  snapshotToArray(
+    ticketSnapshot
+  );
+
+
 employees =
   snapshotToArray(
     employeeSnapshot
@@ -2695,6 +2759,9 @@ console.log(
 
       haulingJobs:
         haulingJobs.length,
+
+      grainTickets:
+        grainTickets.length,
 
       employees:
   employees.length,
@@ -5388,6 +5455,62 @@ function matchScannedTicket(
 // DRIVER ASSIST
 // ==========================================================
 
+const DRIVER_ASSIST_BACK =
+  "__driver_assist_back__";
+
+
+function syncDriverAssistFooter(
+  allowBack,
+  allowSkip
+) {
+
+  if (
+    assistBackBtn
+  ) {
+
+    assistBackBtn.style.display =
+      allowBack
+        ? ""
+        : "none";
+
+  }
+
+
+  if (
+    assistSkipBtn
+  ) {
+
+    assistSkipBtn.style.display =
+      allowSkip
+        ? ""
+        : "none";
+
+  }
+
+
+  if (
+    assistFootActions
+  ) {
+
+    const visibleCount =
+      Number(
+        !!allowBack
+      ) +
+      Number(
+        !!allowSkip
+      );
+
+
+    assistFootActions.classList.toggle(
+      "single",
+      visibleCount <= 1
+    );
+
+  }
+
+}
+
+
 function closeDriverAssist(
   value
 ) {
@@ -5427,7 +5550,8 @@ function askDriverButtons({
   title,
   text = "",
   choices = [],
-  allowSkip = true
+  allowSkip = true,
+  allowBack = false
 }) {
 
   return new Promise(
@@ -5453,10 +5577,10 @@ function askDriverButtons({
         "";
 
 
-      assistSkipBtn.style.display =
+      syncDriverAssistFooter(
+        allowBack,
         allowSkip
-          ? ""
-          : "none";
+      );
 
 
       const list =
@@ -5554,7 +5678,8 @@ function askDriverSearchList({
   placeholder = "Search…",
   items = [],
   groups = null,
-  allowSkip = true
+  allowSkip = true,
+  allowBack = false
 }) {
 
   return new Promise(
@@ -5576,10 +5701,10 @@ function askDriverSearchList({
         text;
 
 
-      assistSkipBtn.style.display =
+      syncDriverAssistFooter(
+        allowBack,
         allowSkip
-          ? ""
-          : "none";
+      );
 
 
       assistBody.innerHTML =
@@ -6182,6 +6307,15 @@ const useDropdown =
   );
 
 }
+
+
+assistBackBtn?.addEventListener(
+  "click",
+  () =>
+    closeDriverAssist(
+      DRIVER_ASSIST_BACK
+    )
+);
 
 
 assistSkipBtn.addEventListener(
@@ -6963,7 +7097,7 @@ function haulingJobIsActive(
     );
 
 
-  return !(
+  if (
     status.includes(
       "closed"
     ) ||
@@ -6976,7 +7110,34 @@ function haulingJobIsActive(
     status.includes(
       "void"
     )
-  );
+  ) {
+
+    return false;
+
+  }
+
+
+  const starting =
+    haulingJobStartingBushels(
+      job
+    );
+
+
+  if (
+    starting >
+      0 &&
+    haulingJobRemainingBushels(
+      job
+    ) <=
+      0.005
+  ) {
+
+    return false;
+
+  }
+
+
+  return true;
 
 }
 
@@ -7045,68 +7206,330 @@ function haulingJobStartingBushels(
 }
 
 
-function haulingJobRemainingBushels(
+function haulingJobTicketedBushels(
   job
 ) {
 
-  const explicit =
-    job?.remainingBushels ??
-    job?.bushelsRemaining ??
-    job?.remainingBu;
+  const jobId =
+    String(
+      job?.id ||
+      ""
+    ).trim();
 
 
   if (
-    explicit !== undefined &&
-    explicit !== null &&
-    explicit !== ""
+    !jobId
   ) {
 
-    const value =
-      Number(
-        explicit
-      );
-
-
-    if (
-      Number.isFinite(
-        value
-      )
-    ) {
-
-      return Math.max(
-        0,
-        value
-      );
-
-    }
+    return 0;
 
   }
 
 
-  const starting =
-    haulingJobStartingBushels(
-      job
-    );
+  return grainTickets
+    .filter(
+      ticket => {
+
+        const status =
+          normalizeAliasText(
+            ticket?.status ||
+            ""
+          );
 
 
-  const delivered =
-    Number(
-      job?.deliveredBushels ||
+        const voided =
+          ticket?.voided ===
+            true ||
+          status.includes(
+            "void"
+          );
+
+
+        const ticketJobId =
+          String(
+            ticket?.haulingJobId ||
+            ticket?.grainHaulingJobId ||
+            ""
+          ).trim();
+
+
+        return (
+          !voided &&
+          ticketJobId ===
+            jobId
+        );
+
+      }
+    )
+    .reduce(
+      (
+        total,
+        ticket
+      ) => {
+
+        const bushels =
+          Number(
+            ticket?.netBushels ??
+            ticket?.netBu ??
+            ticket?.bushels ??
+            0
+          );
+
+
+        return total +
+          (
+            Number.isFinite(
+              bushels
+            )
+              ? bushels
+              : 0
+          );
+
+      },
       0
     );
 
+}
+
+
+function haulingJobRemainingBushels(
+  job
+) {
 
   return Math.max(
     0,
-    starting -
-      (
-        Number.isFinite(
-          delivered
-        )
-          ? delivered
-          : 0
-      )
+    haulingJobStartingBushels(
+      job
+    ) -
+    haulingJobTicketedBushels(
+      job
+    )
   );
+
+}
+
+
+function normalizedTicketDateISO(
+  value
+) {
+
+  const raw =
+    String(
+      value ||
+      ""
+    ).trim();
+
+
+  if (
+    !raw
+  ) {
+
+    return "";
+
+  }
+
+
+  if (
+    /^\d{4}-\d{2}-\d{2}$/.test(
+      raw
+    )
+  ) {
+
+    return raw;
+
+  }
+
+
+  const usMatch =
+    raw.match(
+      /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/
+    );
+
+
+  if (
+    usMatch
+  ) {
+
+    return [
+      usMatch[3],
+
+      String(
+        usMatch[1]
+      ).padStart(
+        2,
+        "0"
+      ),
+
+      String(
+        usMatch[2]
+      ).padStart(
+        2,
+        "0"
+      )
+    ].join(
+      "-"
+    );
+
+  }
+
+
+  const parsed =
+    new Date(
+      raw
+    );
+
+
+  if (
+    Number.isNaN(
+      parsed.getTime()
+    )
+  ) {
+
+    return "";
+
+  }
+
+
+  return [
+    parsed.getFullYear(),
+
+    String(
+      parsed.getMonth() +
+      1
+    ).padStart(
+      2,
+      "0"
+    ),
+
+    String(
+      parsed.getDate()
+    ).padStart(
+      2,
+      "0"
+    )
+  ].join(
+    "-"
+  );
+
+}
+
+
+function haulingJobMatchesTicketDate(
+  job,
+  ticketDate
+) {
+
+  const date =
+    normalizedTicketDateISO(
+      ticketDate
+    );
+
+
+  if (
+    !date
+  ) {
+
+    return true;
+
+  }
+
+
+  const start =
+    normalizedTicketDateISO(
+      job?.deliveryStartDate ||
+      job?.startDate
+    );
+
+
+  const end =
+    normalizedTicketDateISO(
+      job?.deliveryEndDate ||
+      job?.endDate
+    );
+
+
+  if (
+    start &&
+    date <
+      start
+  ) {
+
+    return false;
+
+  }
+
+
+  if (
+    end &&
+    date >
+      end
+  ) {
+
+    return false;
+
+  }
+
+
+  return true;
+
+}
+
+
+function matchingActiveHaulingJobsForTicket(
+  grainTicket
+) {
+
+  const crop =
+    normalizeScannedCrop(
+      grainTicket?.crop
+    );
+
+
+  if (
+    !crop
+  ) {
+
+    return [];
+
+  }
+
+
+  return haulingJobs
+    .filter(
+      haulingJobIsActive
+    )
+    .filter(
+      job =>
+        haulingJobCrop(
+          job
+        ) ===
+          crop
+    )
+    .filter(
+      job =>
+        haulingJobMatchesTicketDate(
+          job,
+          grainTicket?.ticketDate
+        )
+    );
+
+}
+
+
+function automaticHaulingJobForTicket(
+  grainTicket
+) {
+
+  const matches =
+    matchingActiveHaulingJobsForTicket(
+      grainTicket
+    );
+
+
+  return matches.length ===
+    1
+      ? matches[0]
+      : null;
 
 }
 
@@ -7193,12 +7616,22 @@ function haulingJobDisplayLabel(
 }
 
 
-function activeHaulingJobChoices() {
+function activeHaulingJobChoices(
+  grainTicket =
+    null
+) {
 
-  return haulingJobs
-    .filter(
-      haulingJobIsActive
-    )
+  const jobs =
+    grainTicket
+      ? matchingActiveHaulingJobsForTicket(
+          grainTicket
+        )
+      : haulingJobs.filter(
+          haulingJobIsActive
+        );
+
+
+  return jobs
     .map(
       job => {
 
@@ -7438,182 +7871,11 @@ function rebuildMatchingAfterDriverAssist(
 }
 
 
-async function runDriverAssistQuestions(
-  grainTicket,
-  ocrResult,
-  matching
+async function askDriverForGrainSource(
+  crop
 ) {
 
-  if (
-    isGuestScan
-  ) {
-
-    return matching;
-
-  }
-
-
-  const skippedReasons =
-    [];
-
-
-  let source =
-    null;
-
-
-  let haulingJob =
-    null;
-
-
-  let location =
-    matching?.locationMatch?.location ||
-    null;
-
-
-  let buyer =
-    matching?.buyerMatch?.buyer ||
-    null;
-
-
-  let customer =
-    matching?.customerMatch?.customer ||
-    null;
-
-
-  let crop =
-    normalizeScannedCrop(
-      grainTicket.crop
-    );
-
-
-  processingScreen.classList.remove(
-    "show"
-  );
-
-
-  haulingJob =
-    await askDriverSearchList({
-      step:
-        "Hauling Job",
-
-      title:
-        "Which hauling job is this ticket for?",
-
-      text:
-        "The hauling job supplies Crop, Destination, and Sold Under for this ticket.",
-
-      placeholder:
-        "Search hauling jobs…",
-
-      items:
-        activeHaulingJobChoices(),
-
-      allowSkip:
-        true
-    });
-
-
-  if (
-    haulingJob
-  ) {
-
-    const jobLocationId =
-      haulingJobLocationId(
-        haulingJob
-      );
-
-
-    const jobCustomerId =
-      haulingJobCustomerId(
-        haulingJob
-      );
-
-
-    const jobCrop =
-      haulingJobCrop(
-        haulingJob
-      );
-
-
-    location =
-      deliveryLocations.find(
-        item =>
-          item.id ===
-          jobLocationId
-      ) ||
-      null;
-
-
-    buyer =
-      location
-        ? buyers.find(
-            item =>
-              String(
-                item.id
-              ) ===
-              String(
-                location.buyerId
-              )
-          ) ||
-          null
-        : null;
-
-
-    customer =
-      customers.find(
-        item =>
-          String(
-            item.id
-          ) ===
-          jobCustomerId
-      ) ||
-      null;
-
-
-    crop =
-      jobCrop ||
-      crop;
-
-
-    if (
-      crop
-    ) {
-
-      grainTicket.crop =
-        crop;
-
-    }
-
-
-    ocrResult.driverContext = {
-      ...(
-        ocrResult.driverContext ||
-        {}
-      ),
-
-      haulingJob: {
-        id:
-          haulingJob.id,
-
-        name:
-          haulingJobDisplayLabel(haulingJob).label,
-
-        source:
-          "driver_selection"
-      }
-    };
-
-  }
-  else {
-
-    skippedReasons.push(
-      "hauling_job_not_selected"
-    );
-
-  }
-
-
-  if (
+  while (
     crop
   ) {
 
@@ -7626,7 +7888,7 @@ async function runDriverAssistQuestions(
           `Where did this load of ${crop} come from?`,
 
         text:
-          "Choose Field or Grain Storage. FarmVista will only ask for the information the driver should know.",
+          "Choose the source the driver knows. If you open the wrong section, use Back.",
 
         choices: [
           {
@@ -7653,15 +7915,28 @@ async function runDriverAssistQuestions(
         ],
 
         allowSkip:
-          true
+          true,
+
+        allowBack:
+          false
       });
 
-        if (
+
+    if (
+      !sourceType
+    ) {
+
+      return null;
+
+    }
+
+
+    if (
       sourceType ===
         "active_field_harvest"
     ) {
 
-      source = {
+      return {
 
         type:
           "active_field_harvest",
@@ -7692,7 +7967,6 @@ async function runDriverAssistQuestions(
       };
 
     }
-    else
 
 
     if (
@@ -7732,53 +8006,64 @@ async function runDriverAssistQuestions(
             ),
 
           allowSkip:
+            true,
+
+          allowBack:
             true
         });
 
 
       if (
-        selectedField
+        selectedField ===
+          DRIVER_ASSIST_BACK
       ) {
 
-        source = {
-          type:
-            "field",
-
-          sourceScope:
-            "field",
-
-          id:
-            selectedField.id,
-
-          fieldId:
-            selectedField.id,
-
-          fieldName:
-            String(
-              selectedField.name ||
-              ""
-            ).trim(),
-
-          siteName:
-            String(
-              selectedField.name ||
-              ""
-            ).trim(),
-
-          crop
-        };
+        continue;
 
       }
-      else {
 
-        skippedReasons.push(
-          "grain_source_not_selected"
-        );
+
+      if (
+        !selectedField
+      ) {
+
+        return null;
 
       }
+
+
+      return {
+        type:
+          "field",
+
+        sourceScope:
+          "field",
+
+        id:
+          selectedField.id,
+
+        fieldId:
+          selectedField.id,
+
+        fieldName:
+          String(
+            selectedField.name ||
+            ""
+          ).trim(),
+
+        siteName:
+          String(
+            selectedField.name ||
+            ""
+          ).trim(),
+
+        crop
+      };
 
     }
-    else if (
+
+
+    if (
       sourceType ===
         "storage"
     ) {
@@ -7836,28 +8121,246 @@ async function runDriverAssistQuestions(
           ],
 
           allowSkip:
+            true,
+
+          allowBack:
             true
         });
 
 
       if (
-        selectedStorage
+        selectedStorage ===
+          DRIVER_ASSIST_BACK
       ) {
 
-        source =
-          selectedStorage;
+        continue;
 
       }
-      else {
 
-        skippedReasons.push(
-          "grain_source_not_selected"
-        );
+
+      if (
+        !selectedStorage
+      ) {
+
+        return null;
 
       }
+
+
+      return selectedStorage;
 
     }
-    else {
+
+  }
+
+
+  return null;
+
+}
+
+
+async function runDriverAssistQuestions(
+  grainTicket,
+  ocrResult,
+  matching
+) {
+
+  if (
+    isGuestScan
+  ) {
+
+    return matching;
+
+  }
+
+
+  const skippedReasons =
+    [];
+
+
+  let source =
+    null;
+
+
+  let haulingJob =
+    null;
+
+
+  let location =
+    matching?.locationMatch?.location ||
+    null;
+
+
+  let buyer =
+    matching?.buyerMatch?.buyer ||
+    null;
+
+
+  let customer =
+    matching?.customerMatch?.customer ||
+    null;
+
+
+  let crop =
+    normalizeScannedCrop(
+      grainTicket.crop
+    );
+
+
+  processingScreen.classList.remove(
+    "show"
+  );
+
+
+  /*
+    HAULING JOB IS AN OFFICE CONCEPT.
+
+    Drivers are never asked to choose one.
+
+    Auto-assign only when FarmVista can prove there is exactly ONE
+    active hauling job matching:
+
+      - scanned / driver-confirmed crop
+      - ticket date inside the hauling-job delivery window
+
+    If zero or multiple jobs match, haulingJob stays blank and the
+    office can assign it later.
+  */
+
+  haulingJob =
+    automaticHaulingJobForTicket(
+      grainTicket
+    );
+
+
+  if (
+    haulingJob
+  ) {
+
+    const jobLocationId =
+      haulingJobLocationId(
+        haulingJob
+      );
+
+
+    const jobCustomerId =
+      haulingJobCustomerId(
+        haulingJob
+      );
+
+
+    const jobCrop =
+      haulingJobCrop(
+        haulingJob
+      );
+
+
+    location =
+      deliveryLocations.find(
+        item =>
+          item.id ===
+            jobLocationId
+      ) ||
+      location;
+
+
+    buyer =
+      location
+        ? buyers.find(
+            item =>
+              String(
+                item.id
+              ) ===
+              String(
+                location.buyerId
+              )
+          ) ||
+          buyer
+        : buyer;
+
+
+    customer =
+      customers.find(
+        item =>
+          String(
+            item.id
+          ) ===
+          jobCustomerId
+      ) ||
+      customer;
+
+
+    crop =
+      jobCrop ||
+      crop;
+
+
+    if (
+      crop
+    ) {
+
+      grainTicket.crop =
+        crop;
+
+    }
+
+
+    ocrResult.driverContext = {
+      ...(
+        ocrResult.driverContext ||
+        {}
+      ),
+
+      haulingJob: {
+        id:
+          haulingJob.id,
+
+        name:
+          haulingJobDisplayLabel(
+            haulingJob
+          ).label,
+
+        source:
+          "automatic_crop_date_match"
+      }
+    };
+
+  }
+  else {
+
+    /*
+      This is not a driver error. It simply means FarmVista could
+      not uniquely determine the office hauling-job bucket.
+    */
+
+    skippedReasons.push(
+      "hauling_job_not_auto_assigned"
+    );
+
+  }
+
+
+  /*
+    GRAIN SOURCE
+
+    This is operational information the driver actually knows.
+    Back works inside Field / Grain Storage so a mistaken tap can
+    return to the source-type choice.
+  */
+
+  if (
+    crop
+  ) {
+
+    source =
+      await askDriverForGrainSource(
+        crop
+      );
+
+
+    if (
+      !source
+    ) {
 
       skippedReasons.push(
         "grain_source_not_selected"
@@ -7876,11 +8379,21 @@ async function runDriverAssistQuestions(
 
 
   /*
-    Destination: only ask if FarmVista's existing matcher failed.
+    DESTINATION
+
+    Usually OCR or the unique hauling job supplies this.
+    Ask only when FarmVista still does not know it.
+
+    Back returns the driver to Grain Source so they can correct
+    the prior operational choice.
   */
 
-  if (
-    !location
+  let destinationNeedsQuestion =
+    !location;
+
+
+  while (
+    destinationNeedsQuestion
   ) {
 
     const selectedLocation =
@@ -7978,8 +8491,43 @@ async function runDriverAssistQuestions(
             ),
 
         allowSkip:
+          true,
+
+        allowBack:
           true
       });
+
+
+    if (
+      selectedLocation ===
+        DRIVER_ASSIST_BACK
+    ) {
+
+      if (
+        crop
+      ) {
+
+        const correctedSource =
+          await askDriverForGrainSource(
+            crop
+          );
+
+
+        if (
+          correctedSource
+        ) {
+
+          source =
+            correctedSource;
+
+        }
+
+      }
+
+
+      continue;
+
+    }
 
 
     if (
@@ -8057,165 +8605,420 @@ async function runDriverAssistQuestions(
 
     }
 
+
+    destinationNeedsQuestion =
+      false;
+
   }
 
 
-/*
-  Sold Under: re-run the EXISTING smart customer matcher after a
-  driver-selected destination before asking another question.
-*/
+  /*
+    SOLD UNDER
 
-if (
-  location &&
-  buyer &&
-  !customer
-) {
-
-  const refreshedCustomerMatch =
-    findCustomerMatch(
-      grainTicket,
-      {
-        matched:
-          true,
-
-        matchType:
-          "driver_selected",
-
-        location
-      },
-      {
-        matched:
-          true,
-
-        matchType:
-          "location_buyer",
-
-        buyer
-      }
-    );
-
-
-  customer =
-    refreshedCustomerMatch.customer ||
-    null;
-
-}
-
-
-if (
-  !customer &&
-  location &&
-  grainTicket?.crop
-) {
-
-  const eligibleCustomers =
-    getDriverAssistCustomers(
-      grainTicket,
-      location,
-      buyer
-    );
-
-
-  let selectedCustomer =
-    null;
-
-
-  selectedCustomer =
-    await askDriverSearchList({
-      step:
-        "Sold Under",
-
-      title:
-        "Who is this load sold under?",
-
-      text:
-        `Only customers with an open ${grainTicket.crop} contract for ${getLocationName(location)} are shown.`,
-
-      placeholder:
-        "Search Sold Under…",
-
-      items:
-        eligibleCustomers.map(
-          item => ({
-            label:
-              getCustomerName(
-                item
-              ),
-
-            searchText:
-              getCustomerName(
-                item
-              ),
-
-            value:
-              item
-          })
-        ),
-
-      allowSkip:
-        true
-    });
-
+    Re-run the smart customer matcher after a driver-selected
+    destination before asking another question.
+  */
 
   if (
-    selectedCustomer
+    location &&
+    buyer &&
+    !customer
   ) {
 
+    const refreshedCustomerMatch =
+      findCustomerMatch(
+        grainTicket,
+        {
+          matched:
+            true,
+
+          matchType:
+            "driver_selected",
+
+          location
+        },
+        {
+          matched:
+            true,
+
+          matchType:
+            "location_buyer",
+
+          buyer
+        }
+      );
+
+
     customer =
-      selectedCustomer;
+      refreshedCustomerMatch.customer ||
+      null;
+
+  }
 
 
-    const originalEvidence =
-      String(
-        grainTicket.customerText ||
-        ""
-      ).trim();
+  while (
+    !customer &&
+    location &&
+    grainTicket?.crop
+  ) {
+
+    const eligibleCustomers =
+      getDriverAssistCustomers(
+        grainTicket,
+        location,
+        buyer
+      );
 
 
-    ocrResult.manualCorrections = {
-      ...(
-        ocrResult.manualCorrections ||
-        {}
-      ),
+    const selectedCustomer =
+      await askDriverSearchList({
+        step:
+          "Sold Under",
 
-      customer: {
-        originalValue:
-          originalEvidence ||
-          null,
+        title:
+          "Who is this load sold under?",
 
-        selectedId:
-          selectedCustomer.id,
+        text:
+          `Only customers with an open ${grainTicket.crop} contract for ${getLocationName(location)} are shown.`,
 
-        selectedValue:
-          getCustomerName(
-            selectedCustomer
+        placeholder:
+          "Search Sold Under…",
+
+        items:
+          eligibleCustomers.map(
+            item => ({
+              label:
+                getCustomerName(
+                  item
+                ),
+
+              searchText:
+                getCustomerName(
+                  item
+                ),
+
+              value:
+                item
+            })
           ),
 
-        source:
-          "driver_selection",
+        allowSkip:
+          true,
 
-        learningEligible:
-          Boolean(
-            originalEvidence
-          ),
+        allowBack:
+          true
+      });
 
-        learningReason:
-          originalEvidence
-            ? "ocr_evidence_confirmed"
-            : "driver_supplied_missing_value"
+
+    if (
+      selectedCustomer ===
+        DRIVER_ASSIST_BACK
+    ) {
+
+      /*
+        If destination was driver-supplied, let them choose it again.
+        Otherwise go back to Grain Source, because the matched
+        destination did not require a driver question.
+      */
+
+      if (
+        ocrResult.manualCorrections
+          ?.destination
+      ) {
+
+        location =
+          null;
+
+        buyer =
+          null;
+
+        customer =
+          null;
+
+        destinationNeedsQuestion =
+          true;
+
+
+        while (
+          destinationNeedsQuestion
+        ) {
+
+          const replacementLocation =
+            await askDriverSearchList({
+              step:
+                "Destination",
+
+              title:
+                "Where was this load delivered?",
+
+              text:
+                "Choose the correct destination.",
+
+              placeholder:
+                "Search elevator, location, or city…",
+
+              items:
+                deliveryLocations
+                  .map(
+                    item => ({
+                      label:
+                        [
+                          item.buyerName,
+                          getLocationName(
+                            item
+                          ),
+                          [
+                            getLocationCity(
+                              item
+                            ),
+                            getLocationState(
+                              item
+                            )
+                          ]
+                            .filter(
+                              Boolean
+                            )
+                            .join(
+                              ", "
+                            )
+                        ]
+                          .filter(
+                            Boolean
+                          )
+                          .join(
+                            " — "
+                          ),
+
+                      searchText:
+                        [
+                          item.buyerName,
+                          getLocationName(
+                            item
+                          ),
+                          getLocationStreet(
+                            item
+                          ),
+                          getLocationCity(
+                            item
+                          ),
+                          getLocationState(
+                            item
+                          ),
+                          getLocationZip(
+                            item
+                          )
+                        ]
+                          .filter(
+                            Boolean
+                          )
+                          .join(
+                            " "
+                          ),
+
+                      value:
+                        item
+                    })
+                  ),
+
+              allowSkip:
+                true,
+
+              allowBack:
+                true
+            });
+
+
+          if (
+            replacementLocation ===
+              DRIVER_ASSIST_BACK
+          ) {
+
+            if (
+              crop
+            ) {
+
+              const correctedSource =
+                await askDriverForGrainSource(
+                  crop
+                );
+
+
+              if (
+                correctedSource
+              ) {
+
+                source =
+                  correctedSource;
+
+              }
+
+            }
+
+
+            continue;
+
+          }
+
+
+          if (
+            replacementLocation
+          ) {
+
+            location =
+              replacementLocation;
+
+
+            buyer =
+              buyers.find(
+                item =>
+                  String(
+                    item.id
+                  ) ===
+                  String(
+                    replacementLocation.buyerId ||
+                    ""
+                  )
+              ) ||
+              null;
+
+          }
+
+
+          destinationNeedsQuestion =
+            false;
+
+        }
+
+
+        if (
+          location &&
+          buyer
+        ) {
+
+          const refreshedCustomerMatch =
+            findCustomerMatch(
+              grainTicket,
+              {
+                matched:
+                  true,
+
+                matchType:
+                  "driver_selected",
+
+                location
+              },
+              {
+                matched:
+                  true,
+
+                matchType:
+                  "location_buyer",
+
+                buyer
+              }
+            );
+
+
+          customer =
+            refreshedCustomerMatch.customer ||
+            null;
+
+        }
+
+
+        continue;
+
       }
-    };
+
+
+      if (
+        crop
+      ) {
+
+        const correctedSource =
+          await askDriverForGrainSource(
+            crop
+          );
+
+
+        if (
+          correctedSource
+        ) {
+
+          source =
+            correctedSource;
+
+        }
+
+      }
+
+
+      continue;
+
+    }
+
+
+    if (
+      selectedCustomer
+    ) {
+
+      customer =
+        selectedCustomer;
+
+
+      const originalEvidence =
+        String(
+          grainTicket.customerText ||
+          ""
+        ).trim();
+
+
+      ocrResult.manualCorrections = {
+        ...(
+          ocrResult.manualCorrections ||
+          {}
+        ),
+
+        customer: {
+          originalValue:
+            originalEvidence ||
+            null,
+
+          selectedId:
+            selectedCustomer.id,
+
+          selectedValue:
+            getCustomerName(
+              selectedCustomer
+            ),
+
+          source:
+            "driver_selection",
+
+          learningEligible:
+            Boolean(
+              originalEvidence
+            ),
+
+          learningReason:
+            originalEvidence
+              ? "ocr_evidence_confirmed"
+              : "driver_supplied_missing_value"
+        }
+      };
+
+    }
+    else {
+
+      skippedReasons.push(
+        "customer_not_selected"
+      );
+
+      break;
+
+    }
 
   }
-  else {
-
-    skippedReasons.push(
-      "customer_not_selected"
-    );
-
-  }
-
-}
 
 
   if (
