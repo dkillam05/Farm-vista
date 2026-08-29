@@ -2884,28 +2884,6 @@ async function saveJob(
 
     startingBushels,
 
-    remainingBushels:
-      Math.max(
-        0,
-        round2(
-          startingBushels -
-          (
-            oldJob
-              ? jobTicketedBushels(
-                  oldJob
-                )
-              : 0
-          )
-        )
-      ),
-
-    deliveredBushels:
-      oldJob
-        ? jobTicketedBushels(
-            oldJob
-          )
-        : 0,
-
     deliveryStartDate,
 
     deliveryEndDate,
@@ -3015,12 +2993,6 @@ async function saveJob(
       const createPayload = {
 
         ...payload,
-
-        deliveredBushels:
-          0,
-
-        remainingBushels:
-          startingBushels,
 
         createdAt:
           serverTimestamp(),
