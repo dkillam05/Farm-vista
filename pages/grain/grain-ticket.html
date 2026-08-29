@@ -6970,6 +6970,7 @@ const LOADOUT_ETA_FUNCTION_URL =
     locations: [],
     contracts: [],
     haulingJobs: [],
+    tickets: [],
     loads: [],
     binSources: [],
     bagSources: [],
@@ -8775,12 +8776,27 @@ function loRenderSourceSelector(
     if (!job || job.active === false || job.isActive === false) return false;
 
     const status = loNorm(job.status || "active");
-    return !(
+
+    if (
       status.includes("closed") ||
       status.includes("complete") ||
       status.includes("cancel") ||
       status.includes("void")
-    );
+    ) {
+      return false;
+    }
+
+    const starting =
+      loHaulingJobStartingBushels(job);
+
+    if (
+      starting > 0 &&
+      loHaulingJobRemainingBushels(job) <= 0.005
+    ) {
+      return false;
+    }
+
+    return true;
   }
 
   function loHaulingJobLocationId(job){
@@ -8812,20 +8828,62 @@ function loRenderSourceSelector(
     return Number.isFinite(value) ? Math.max(0,value) : 0;
   }
 
-  function loHaulingJobRemainingBushels(job){
-    const explicit =
-      job.remainingBushels ??
-      job.bushelsRemaining ??
-      job.remainingBu;
+  function loHaulingJobTicketedBushels(job){
+    const jobId = loClean(job?.id);
 
-    if (explicit !== undefined && explicit !== null && explicit !== "") {
-      const value = Number(explicit);
-      if (Number.isFinite(value)) return Math.max(0,value);
+    if (!jobId) {
+      return 0;
     }
 
-    const starting = loHaulingJobStartingBushels(job);
-    const delivered = Number(job.deliveredBushels || 0);
-    return Math.max(0,starting - (Number.isFinite(delivered) ? delivered : 0));
+    return loState.tickets
+      .filter(ticket => {
+        const status = loNorm(ticket?.status);
+
+        const voided =
+          ticket?.voided === true ||
+          status.includes("void");
+
+        const ticketJobId =
+          loClean(
+            ticket?.haulingJobId ||
+            ticket?.grainHaulingJobId
+          );
+
+        return (
+          !voided &&
+          ticketJobId === jobId
+        );
+      })
+      .reduce((sum,ticket) => {
+        const value =
+          Number(
+            ticket?.netBushels ??
+            ticket?.netBu ??
+            ticket?.bushels ??
+            0
+          );
+
+        return sum +
+          (
+            Number.isFinite(value)
+              ? value
+              : 0
+          );
+      },0);
+  }
+
+
+  function loHaulingJobRemainingBushels(job){
+    const starting =
+      loHaulingJobStartingBushels(job);
+
+    const ticketed =
+      loHaulingJobTicketedBushels(job);
+
+    return Math.max(
+      0,
+      starting - ticketed
+    );
   }
 
   function loHaulingJobMatchesSelection(job){
@@ -9103,8 +9161,6 @@ function loRenderSourceSelector(
         customerName:customer.name,
         crop,
         startingBushels,
-        remainingBushels:startingBushels,
-        deliveredBushels:0,
         deliveryStartDate,
         deliveryEndDate,
         status:"active",
@@ -11691,6 +11747,7 @@ function loLiveGrainSourceLabel(load){
       locationSnapshot,
       contractSnapshot,
       haulingJobSnapshot,
+      ticketSnapshot,
       loadSnapshot,
       binSiteSnapshot,
       bagEventSnapshot,
@@ -11703,6 +11760,7 @@ function loLiveGrainSourceLabel(load){
       getDocs(collection(db,"grain_delivery_locations")),
       getDocs(collection(db,"grain_contracts")),
       getDocs(collection(db,"grain_hauling_jobs")),
+      getDocs(collection(db,"grain_tickets")),
       getDocs(collection(db,LOADOUT_COLLECTION)),
       getDocs(collection(db,"binSites")),
       getDocs(collection(db,"grain_bag_events")),
@@ -11841,6 +11899,12 @@ loState.drivers = employeeSnapshot.docs
       }));
 
     loState.haulingJobs = haulingJobSnapshot.docs
+      .map(snapshot => ({
+        id:snapshot.id,
+        ...snapshot.data()
+      }));
+
+    loState.tickets = ticketSnapshot.docs
       .map(snapshot => ({
         id:snapshot.id,
         ...snapshot.data()
