@@ -2039,30 +2039,38 @@ section[data-hide-for-now]{ display:none !important; }
             </div>
           </div>
 
-<div class="loadout-field">
-            <label for="loadout-crop">Crop</label>
-            <select id="loadout-crop" class="loadout-select" required>
-              <option value="">Select crop</option>
+<div class="loadout-field full">
+            <label for="loadout-hauling-job">Hauling Job</label>
+            <select id="loadout-hauling-job" class="loadout-select">
+              <option value="">Select hauling job</option>
             </select>
+            <div id="loadout-hauling-job-note" class="loadout-contract-note"></div>
           </div>
 
           <div class="loadout-field full">
             <label for="loadout-source-button">Grain Source</label>
             <div id="loadout-source-picker" class="loadout-source-picker">
-              <button id="loadout-source-button" type="button" class="loadout-source-button" aria-haspopup="listbox" aria-expanded="false">
-                <span id="loadout-source-button-text">Select crop first</span>
+              <button id="loadout-source-button" type="button" class="loadout-source-button" aria-haspopup="listbox" aria-expanded="false" disabled>
+                <span id="loadout-source-button-text">Select hauling job first</span>
               </button>
               <div id="loadout-source-menu" class="loadout-source-menu" role="listbox" aria-label="Grain source"></div>
               <input id="loadout-source" type="hidden" value="">
             </div>
-            <div class="loadout-help">Only bins and grain bags with available inventory for the selected crop are shown.</div>
+            <div class="loadout-help">Only bins and grain bags with available inventory for the hauling job crop are shown.</div>
+          </div>
+
+          <div class="loadout-field">
+            <label for="loadout-crop">Crop</label>
+            <select id="loadout-crop" class="loadout-select" required disabled>
+              <option value="">Filled by hauling job</option>
+            </select>
           </div>
 
           <div class="loadout-field full">
             <label for="loadout-destination-button">Destination / Elevator</label>
             <div id="loadout-destination-picker" class="loadout-source-picker">
-              <button id="loadout-destination-button" type="button" class="loadout-source-button" aria-haspopup="listbox" aria-expanded="false">
-                <span id="loadout-destination-button-text">Select grain source first</span>
+              <button id="loadout-destination-button" type="button" class="loadout-source-button" aria-haspopup="listbox" aria-expanded="false" disabled>
+                <span id="loadout-destination-button-text">Filled by hauling job</span>
               </button>
               <div id="loadout-destination-menu" class="loadout-source-menu" role="listbox" aria-label="Destination or elevator"></div>
               <input id="loadout-destination" type="hidden" value="">
@@ -2072,20 +2080,12 @@ section[data-hide-for-now]{ display:none !important; }
           <div class="loadout-field full">
             <label for="loadout-customer-button">Sold Under / Customer</label>
             <div id="loadout-customer-picker" class="loadout-source-picker">
-              <button id="loadout-customer-button" type="button" class="loadout-source-button" aria-haspopup="listbox" aria-expanded="false">
-                <span id="loadout-customer-button-text">Select destination first</span>
+              <button id="loadout-customer-button" type="button" class="loadout-source-button" aria-haspopup="listbox" aria-expanded="false" disabled>
+                <span id="loadout-customer-button-text">Filled by hauling job</span>
               </button>
               <div id="loadout-customer-menu" class="loadout-source-menu" role="listbox" aria-label="Sold under customer"></div>
               <input id="loadout-customer" type="hidden" value="">
             </div>
-          </div>
-
-          <div class="loadout-field full">
-            <label for="loadout-hauling-job">Hauling Job</label>
-            <select id="loadout-hauling-job" class="loadout-select" disabled>
-              <option value="">Select sold under first</option>
-            </select>
-            <div id="loadout-hauling-job-note" class="loadout-contract-note"></div>
           </div>
 
           <div class="loadout-field full">
@@ -2158,22 +2158,30 @@ section[data-hide-for-now]{ display:none !important; }
         <div class="loadout-form-grid">
           <div class="loadout-field">
             <label for="hauling-job-buyer">Buyer</label>
-            <input id="hauling-job-buyer" class="loadout-input" type="text" readonly>
+            <select id="hauling-job-buyer" class="loadout-select" required>
+              <option value="">Select buyer</option>
+            </select>
           </div>
 
           <div class="loadout-field">
             <label for="hauling-job-destination">Location</label>
-            <input id="hauling-job-destination" class="loadout-input" type="text" readonly>
+            <select id="hauling-job-destination" class="loadout-select" required disabled>
+              <option value="">Select buyer first</option>
+            </select>
           </div>
 
           <div class="loadout-field">
             <label for="hauling-job-customer">Sold Under</label>
-            <input id="hauling-job-customer" class="loadout-input" type="text" readonly>
+            <select id="hauling-job-customer" class="loadout-select" required>
+              <option value="">Select customer</option>
+            </select>
           </div>
 
           <div class="loadout-field">
             <label for="hauling-job-crop">Crop</label>
-            <input id="hauling-job-crop" class="loadout-input" type="text" readonly>
+            <select id="hauling-job-crop" class="loadout-select" required>
+              <option value="">Select crop</option>
+            </select>
           </div>
 
           <div class="loadout-field">
@@ -8963,59 +8971,28 @@ function loRenderSourceSelector(
   function loRenderHaulingJobs(preferredJobId=""){
     if (!loEls.haulingJob || !loEls.haulingJobNote) return;
 
-    const destination = loSelectedLocation();
-    const customer = loSelectedCustomer();
-    const crop = loNorm(loEls.crop?.value);
     const wanted = loClean(preferredJobId || loEls.haulingJob.value);
-
     loEls.haulingJob.innerHTML = "";
+    loEls.haulingJob.disabled = false;
     loEls.haulingJobNote.className = "loadout-contract-note";
     loEls.haulingJobNote.textContent = "";
 
+    const activeJobs = loState.haulingJobs
+      .filter(loHaulingJobIsActive)
+      .sort((a,b) => {
+        const aStart = loClean(a.deliveryStartDate || a.startDate);
+        const bStart = loClean(b.deliveryStartDate || b.startDate);
+        return aStart.localeCompare(bStart) || loHaulingJobLabel(a).localeCompare(
+          loHaulingJobLabel(b), undefined, {numeric:true,sensitivity:"base"}
+        );
+      });
+
     const blank = document.createElement("option");
     blank.value = "";
-
-    if (!crop) {
-      loEls.haulingJob.disabled = true;
-      blank.textContent = "Select crop first";
-      loEls.haulingJob.appendChild(blank);
-      return;
-    }
-
-    if (!destination) {
-      loEls.haulingJob.disabled = true;
-      blank.textContent = "Select destination first";
-      loEls.haulingJob.appendChild(blank);
-      return;
-    }
-
-    if (!customer) {
-      loEls.haulingJob.disabled = true;
-      blank.textContent = "Select sold under first";
-      loEls.haulingJob.appendChild(blank);
-      return;
-    }
-
-    const matches = loState.haulingJobs
-      .filter(loHaulingJobMatchesSelection)
-      .sort((a,b) =>
-        loHaulingJobLabel(a).localeCompare(
-          loHaulingJobLabel(b),
-          undefined,
-          {numeric:true,sensitivity:"base"}
-        )
-      );
-
-    loEls.haulingJob.disabled = false;
-
-    blank.textContent =
-      matches.length
-        ? "Select hauling job"
-        : "No matching hauling jobs yet";
-
+    blank.textContent = activeJobs.length ? "Select hauling job" : "No active hauling jobs yet";
     loEls.haulingJob.appendChild(blank);
 
-    matches.forEach(job => {
+    activeJobs.forEach(job => {
       const option = document.createElement("option");
       option.value = job.id;
       option.textContent = `${loHaulingJobLabel(job)} • ${loHaulingJobNote(job)}`;
@@ -9027,25 +9004,63 @@ function loRenderSourceSelector(
     addNew.textContent = "+ Add New Hauling Job";
     loEls.haulingJob.appendChild(addNew);
 
-    if (wanted && matches.some(job => job.id === wanted)) {
+    if (wanted && activeJobs.some(job => job.id === wanted)) {
       loEls.haulingJob.value = wanted;
-    }
-
-    const selected = loSelectedHaulingJob();
-
-    if (selected) {
+      const selected = loSelectedHaulingJob();
       loEls.haulingJobNote.className = "loadout-contract-note good";
       loEls.haulingJobNote.textContent = loHaulingJobNote(selected);
     }
-    else if (!matches.length) {
-      loEls.haulingJobNote.className = "loadout-contract-note warn";
-      loEls.haulingJobNote.textContent =
-        "No hauling job matches this crop, destination, and sold-under customer. Add one here.";
+  }
+
+  function loApplyHaulingJobToLoad(job){
+    loEls.source.value = "";
+    loState.etaAt = null;
+    loState.etaMinutes = null;
+    loState.etaDistanceText = "";
+
+    if (!job) {
+      loEls.destination.value = "";
+      loEls.customer.value = "";
+      loRenderCropOptions("");
+      loEls.crop.value = "";
+      loRenderSourceSelector("");
+      loSyncSourceButton();
+      loSyncDestinationButton();
+      loSyncCustomerButton();
+      if (loEls.sourceButton) loEls.sourceButton.disabled = true;
+      if (loEls.crop) loEls.crop.disabled = true;
+      if (loEls.destinationButton) loEls.destinationButton.disabled = true;
+      if (loEls.customerButton) loEls.customerButton.disabled = true;
+      return;
     }
-    else {
-      loEls.haulingJobNote.textContent =
-        `${matches.length} matching hauling job${matches.length === 1 ? "" : "s"}.`;
-    }
+
+    const destinationId = loHaulingJobLocationId(job);
+    const customerId = loHaulingJobCustomerId(job);
+    const cropValue = loClean(job.crop || job.commodity);
+
+    loEls.destination.value = destinationId;
+    loSyncDestinationButton();
+
+    loRenderCustomerPicker();
+    loEls.customer.value = customerId;
+    loSyncCustomerButton();
+
+    loRenderCropOptions(cropValue);
+    const cropMatch = Array.from(loEls.crop.options || []).find(option =>
+      option.value && loNorm(option.value) === loNorm(cropValue)
+    );
+    loEls.crop.value = cropMatch ? cropMatch.value : cropValue;
+
+    loRenderSourceSelector("");
+    loSyncSourceButton();
+
+    if (loEls.sourceButton) loEls.sourceButton.disabled = !loEls.crop.value;
+    if (loEls.crop) loEls.crop.disabled = true;
+    if (loEls.destinationButton) loEls.destinationButton.disabled = true;
+    if (loEls.customerButton) loEls.customerButton.disabled = true;
+
+    loEls.haulingJobNote.className = "loadout-contract-note good";
+    loEls.haulingJobNote.textContent = loHaulingJobNote(job);
   }
 
   function loSetJobMessage(text,type=""){
@@ -9056,25 +9071,44 @@ function loRenderSourceSelector(
   }
 
   function loOpenHaulingJobModal(){
-    const destination = loSelectedLocation();
-    const customer = loSelectedCustomer();
-    const crop = loClean(loEls.crop?.value);
-
-    if (!destination || !customer || !crop) {
-      loShowMessage(
-        "Select Crop, Destination, and Sold Under before adding a hauling job.",
-        "error"
-      );
-      loRenderHaulingJobs();
-      return;
-    }
-
     loSetJobMessage("");
 
-    loEls.jobBuyer.value = destination.buyerName || "";
-    loEls.jobDestination.value = destination.locationName || "";
-    loEls.jobCustomer.value = customer.name || "";
-    loEls.jobCrop.value = crop;
+    loEls.jobBuyer.innerHTML = '<option value="">Select buyer</option>';
+    loState.buyers.slice().sort((a,b) =>
+      loClean(a.name).localeCompare(loClean(b.name),undefined,{sensitivity:"base"})
+    ).forEach(buyer => {
+      const option = document.createElement("option");
+      option.value = buyer.id;
+      option.textContent = buyer.name;
+      loEls.jobBuyer.appendChild(option);
+    });
+
+    loEls.jobDestination.innerHTML = '<option value="">Select buyer first</option>';
+    loEls.jobDestination.disabled = true;
+
+    loEls.jobCustomer.innerHTML = '<option value="">Select customer</option>';
+    loState.customers.slice().sort((a,b) =>
+      loClean(a.name).localeCompare(loClean(b.name),undefined,{sensitivity:"base"})
+    ).forEach(customer => {
+      const option = document.createElement("option");
+      option.value = customer.id;
+      option.textContent = customer.name;
+      loEls.jobCustomer.appendChild(option);
+    });
+
+    loEls.jobCrop.innerHTML = '<option value="">Select crop</option>';
+    const crops = new Set(["Corn","Soybeans"]);
+    loState.contracts.forEach(item => {
+      const crop = loClean(item.crop || item.commodity);
+      if (crop) crops.add(crop);
+    });
+    Array.from(crops).sort().forEach(crop => {
+      const option = document.createElement("option");
+      option.value = crop;
+      option.textContent = crop;
+      loEls.jobCrop.appendChild(option);
+    });
+
     loEls.jobBushels.value = "";
     loEls.jobStartDate.value = loLocalISO();
     loEls.jobEndDate.value = loLocalISO();
@@ -9082,7 +9116,7 @@ function loRenderSourceSelector(
     loEls.jobEndDate.min = loLocalISO();
 
     loEls.jobBackdrop?.classList.add("open");
-    setTimeout(() => loEls.jobBushels?.focus(),0);
+    setTimeout(() => loEls.jobBuyer?.focus(),0);
   }
 
   function loCloseHaulingJobModal(){
@@ -9097,34 +9131,29 @@ function loRenderSourceSelector(
   async function loSaveHaulingJob(event){
     event.preventDefault();
 
-    const destination = loSelectedLocation();
-    const customer = loSelectedCustomer();
-    const crop = loClean(loEls.crop?.value);
+    const buyerId = loClean(loEls.jobBuyer?.value);
+    const destinationId = loClean(loEls.jobDestination?.value);
+    const customerId = loClean(loEls.jobCustomer?.value);
+    const crop = loClean(loEls.jobCrop?.value);
+    const destination = loState.locations.find(item => item.id === destinationId) || null;
+    const customer = loState.customers.find(item => item.id === customerId) || null;
+    const buyer = loState.buyers.find(item => item.id === buyerId) || null;
     const startingBushels = Number(loEls.jobBushels?.value || 0);
     const deliveryStartDate = loClean(loEls.jobStartDate?.value);
     const deliveryEndDate = loClean(loEls.jobEndDate?.value);
 
-    if (
-      !destination ||
-      !customer ||
-      !crop ||
-      !Number.isFinite(startingBushels) ||
-      startingBushels <= 0 ||
-      !deliveryStartDate ||
-      !deliveryEndDate
-    ) {
+    if (!buyer || !destination || !customer || !crop ||
+        !Number.isFinite(startingBushels) || startingBushels <= 0 ||
+        !deliveryStartDate || !deliveryEndDate) {
       loSetJobMessage(
-        "Enter starting bushels and both delivery dates.",
+        "Select Buyer, Location, Sold Under, Crop, starting bushels, and both delivery dates.",
         "error"
       );
       return;
     }
 
     if (deliveryEndDate < deliveryStartDate) {
-      loSetJobMessage(
-        "Delivery end date cannot be before the start date.",
-        "error"
-      );
+      loSetJobMessage("Delivery end date cannot be before the start date.","error");
       return;
     }
 
@@ -9132,66 +9161,39 @@ function loRenderSourceSelector(
     loEls.jobSaveBtn.textContent = "Adding…";
 
     try {
-      const jobName =
-        `${destination.buyerName ? `${destination.buyerName} ` : ""}${destination.locationName} — ${Math.round(startingBushels).toLocaleString("en-US")} bu`;
-
+      const jobName = `${destination.buyerName || buyer.name || ""} ${destination.locationName} — ${Math.round(startingBushels).toLocaleString("en-US")} bu`.trim();
       const payload = {
         jobName,
         displayName:jobName,
-
-        buyerId:destination.buyerId || null,
-        buyerName:destination.buyerName || null,
-
+        buyerId:destination.buyerId || buyer.id,
+        buyerName:destination.buyerName || buyer.name,
         deliveryLocationId:destination.id,
         deliveryLocationName:destination.locationName,
-
         customerId:customer.id,
         customerName:customer.name,
-
         crop,
-
         startingBushels,
         remainingBushels:startingBushels,
         deliveredBushels:0,
-
         deliveryStartDate,
         deliveryEndDate,
-
         status:"active",
         active:true,
-
         createdByUid:auth.currentUser?.uid || null,
-        createdByName:
-          auth.currentUser?.displayName ||
-          auth.currentUser?.email ||
-          "FarmVista User",
+        createdByName:auth.currentUser?.displayName || auth.currentUser?.email || "FarmVista User",
         createdByEmail:auth.currentUser?.email || null,
-
         createdAt:serverTimestamp(),
         updatedAt:serverTimestamp()
       };
 
-      const saved = await addDoc(
-        collection(db,"grain_hauling_jobs"),
-        payload
-      );
-
-      const createdJob = {
-        id:saved.id,
-        ...payload
-      };
-
+      const saved = await addDoc(collection(db,"grain_hauling_jobs"),payload);
+      const createdJob = {id:saved.id,...payload};
       loState.haulingJobs.push(createdJob);
       loCloseHaulingJobModal();
       loRenderHaulingJobs(saved.id);
       loEls.haulingJob.value = saved.id;
-      loEls.haulingJobNote.className = "loadout-contract-note good";
-      loEls.haulingJobNote.textContent = loHaulingJobNote(createdJob);
-
-      loShowMessage(
-        `${jobName} added and selected.`,
-        "good"
-      );
+      loApplyHaulingJobToLoad(createdJob);
+      loShowMessage(`${jobName} added and selected.`,"good");
     }
     catch (error) {
       console.error("[grain loadout] hauling job save failed:",error);
@@ -9231,14 +9233,14 @@ function loResetModalBase(){
   loEls.form.reset();
 
   loEls.driver.value = "";
+  loEls.haulingJob.value = "";
   loEls.destination.value = "";
   loEls.customer.value = "";
   loEls.source.value = "";
 
   loSyncDriverButton();
-  loSyncDestinationButton();
-  loSyncCustomerButton();
-  loSyncSourceButton();
+  loRenderHaulingJobs();
+  loApplyHaulingJobToLoad(null);
 
   loCloseDriverMenu();
   loCloseDestinationMenu();
@@ -9246,11 +9248,8 @@ function loResetModalBase(){
   loCloseSourceMenu();
   loResetAddDriverPanel();
   loRenderSubdriverSelect();
-  loRenderCropOptions();
-  loRenderSourceSelector("");
-  loRenderDestinationPicker();
-  loRenderCustomerPicker();
   loRenderHaulingJobs();
+  loApplyHaulingJobToLoad(null);
 
   loState.etaAt = null;
   loState.etaMinutes = null;
@@ -9455,32 +9454,41 @@ function loOpenEditModal(load){
 
 
   /* ============================================================
-     DESTINATION → CUSTOMER → CROP → HAULING JOB
-     Restore in cascade order so every saved value is validated
-     against the same matching rules used for a new load.
+     HAULING JOB → CROP / DESTINATION / SOLD UNDER
+     The hauling job is now the source of truth for these fields.
   ============================================================ */
-
-  const destinationId = loClean(load.destinationId);
-  loEls.destination.value = destinationId;
-  loSyncDestinationButton();
-  loRenderCustomerPicker();
-
-  const customerId = loClean(load.customerId);
-  loEls.customer.value = customerId;
-  loSyncCustomerButton();
-
-  const savedCrop = loClean(load.crop);
-  loRenderCropOptions(savedCrop);
-
-  const cropMatch = Array.from(loEls.crop.options).find(option =>
-    option.value && loNorm(option.value) === loNorm(savedCrop)
-  );
-
-  loEls.crop.value = cropMatch ? cropMatch.value : "";
 
   const haulingJobId = loClean(load.haulingJobId);
   loRenderHaulingJobs(haulingJobId);
   loEls.haulingJob.value = haulingJobId;
+
+  const savedJob = loSelectedHaulingJob();
+
+  if (savedJob) {
+    loApplyHaulingJobToLoad(savedJob);
+  }
+  else {
+    /* Legacy fallback for older loads without a hauling job. */
+    const destinationId = loClean(load.destinationId);
+    loEls.destination.value = destinationId;
+    loSyncDestinationButton();
+    loRenderCustomerPicker();
+
+    const customerId = loClean(load.customerId);
+    loEls.customer.value = customerId;
+    loSyncCustomerButton();
+
+    const savedCrop = loClean(load.crop);
+    loRenderCropOptions(savedCrop);
+    const cropMatch = Array.from(loEls.crop.options).find(option =>
+      option.value && loNorm(option.value) === loNorm(savedCrop)
+    );
+    loEls.crop.value = cropMatch ? cropMatch.value : "";
+
+    if (loEls.crop) loEls.crop.disabled = true;
+    if (loEls.destinationButton) loEls.destinationButton.disabled = true;
+    if (loEls.customerButton) loEls.customerButton.disabled = true;
+  }
 
 
   /* ============================================================
@@ -12144,11 +12152,8 @@ loState.drivers = employeeSnapshot.docs
 
     loRenderDriverSelector();
     loRenderSubdriverSelect();
-    loRenderDestinationPicker();
-    loRenderCustomerPicker();
-    loRenderCropOptions();
     loRenderHaulingJobs();
-    loRenderSourceSelector("");
+    loApplyHaulingJobToLoad(null);
 
     loRenderTable();
   }
@@ -12420,7 +12425,7 @@ loState.drivers = employeeSnapshot.docs
       loShowMessage(
         needsSubDriver
           ? "Select or add a driver for this trucking subcontractor."
-          : "Complete Crop → Grain Source → Destination → Sold Under → Hauling Job. Every choice must match.",
+          : "Complete Driver → Hauling Job → Grain Source. Crop, Destination, and Sold Under come from the hauling job.",
         "error"
       );
       return;
@@ -12913,6 +12918,27 @@ loState.drivers = employeeSnapshot.docs
   loEls.form?.addEventListener("submit",loAssignLoad);
 
   loEls.jobForm?.addEventListener("submit",loSaveHaulingJob);
+
+  loEls.jobBuyer?.addEventListener("change",() => {
+    const buyerId = loClean(loEls.jobBuyer.value);
+    const locations = loState.locations
+      .filter(location => loClean(location.buyerId) === buyerId)
+      .sort((a,b) => loClean(a.locationName).localeCompare(loClean(b.locationName),undefined,{sensitivity:"base"}));
+
+    loEls.jobDestination.innerHTML = "";
+    const blank = document.createElement("option");
+    blank.value = "";
+    blank.textContent = buyerId ? "Select location" : "Select buyer first";
+    loEls.jobDestination.appendChild(blank);
+    loEls.jobDestination.disabled = !buyerId;
+
+    locations.forEach(location => {
+      const option = document.createElement("option");
+      option.value = location.id;
+      option.textContent = location.locationName;
+      loEls.jobDestination.appendChild(option);
+    });
+  });
   loEls.jobCloseX?.addEventListener("click",loCloseHaulingJobModal);
   loEls.jobCancelBtn?.addEventListener("click",loCloseHaulingJobModal);
   loEls.jobBackdrop?.addEventListener("click",event => {
@@ -13184,23 +13210,13 @@ loEls.addSubdriverBtn?.addEventListener("click",loOpenAddDriverPanel);
   loEls.resendBtn?.addEventListener("click",loResendCurrentLoad);
 
   loEls.crop?.addEventListener("change",() => {
+    /* Crop is filled by Hauling Job on this page. */
     loEls.source.value = "";
-    loEls.destination.value = "";
-    loEls.customer.value = "";
-    loEls.haulingJob.value = "";
     loRenderSourceSelector("");
-    loRenderDestinationPicker();
-    loRenderCustomerPicker();
-    loRenderHaulingJobs();
     loSyncSourceButton();
-    loSyncDestinationButton();
-    loSyncCustomerButton();
   });
 
-  loEls.source?.addEventListener("change",() => {
-    loEls.destination.value = "";
-    loEls.customer.value = "";
-    loEls.haulingJob.value = "";
+  loEls.source?.addEventListener("change", async () => {
     loState.etaAt = null;
     loState.etaMinutes = null;
     loState.etaDistanceText = "";
@@ -13209,23 +13225,33 @@ loEls.addSubdriverBtn?.addEventListener("click",loOpenAddDriverPanel);
       loEls.eta.value = "N/A";
       loEls.etaHelp.textContent =
         "Estimated arrival is N/A for preloads until FarmVista has a real departure-time source.";
+      return;
     }
-    else {
-      loEls.eta.value = "—";
 
-      const source = loSelectedSource();
+    loEls.eta.value = "—";
 
+    const source = loSelectedSource();
+    if (!source) {
+      loEls.etaHelp.textContent = "Select a grain source.";
+      return;
+    }
+
+    if (!loSelectedSourceLatLng()) {
       loEls.etaHelp.textContent =
-        source && loSelectedSourceLatLng()
-          ? "Select a destination to calculate ETA from this grain source."
-          : "The selected grain source needs GPS latitude/longitude before ETA can be calculated.";
+        "The selected grain source needs GPS latitude/longitude before ETA can be calculated.";
+      return;
     }
 
-    loRenderDestinationPicker();
-    loRenderCustomerPicker();
-    loRenderHaulingJobs();
-    loSyncDestinationButton();
-    loSyncCustomerButton();
+    if (!loSelectedLocation()) {
+      loEls.etaHelp.textContent = "The selected hauling job does not have a valid destination.";
+      return;
+    }
+
+    loEls.saveBtn.disabled = true;
+    loEls.eta.value = "Calculating…";
+    const ok = await loUpdateEta();
+    if (!ok && loEls.eta.value === "Calculating…") loEls.eta.value = "—";
+    if (!loState.saving) loEls.saveBtn.disabled = false;
   });
 
   loEls.haulingJob?.addEventListener("change",() => {
@@ -13235,36 +13261,21 @@ loEls.addSubdriverBtn?.addEventListener("click",loOpenAddDriverPanel);
     }
 
     const selected = loSelectedHaulingJob();
-    loEls.haulingJobNote.className =
-      `loadout-contract-note${selected ? " good" : ""}`;
-    loEls.haulingJobNote.textContent =
-      selected ? loHaulingJobNote(selected) : "";
+    loApplyHaulingJobToLoad(selected);
   });
 
   loEls.destination?.addEventListener("change", async () => {
-    loEls.customer.value = "";
-    loEls.haulingJob.value = "";
-
-    loRenderCustomerPicker();
-    loRenderHaulingJobs();
-    loSyncCustomerButton();
-
+    /* Destination is filled by Hauling Job on this page. */
     if (loEls.preload?.checked) {
       loApplyPreloadUI();
       return;
     }
 
-    loEls.saveBtn.disabled = true;
-    loEls.eta.value = "Calculating…";
-
-    const ok = await loUpdateEta();
-
-    if (!ok && loEls.eta.value === "Calculating…") {
-      loEls.eta.value = "—";
-    }
-
-    if (!loState.saving) {
-      loEls.saveBtn.disabled = false;
+    if (loSelectedSource() && loSelectedLocation()) {
+      loEls.saveBtn.disabled = true;
+      const ok = await loUpdateEta();
+      if (!ok && loEls.eta.value === "Calculating…") loEls.eta.value = "—";
+      if (!loState.saving) loEls.saveBtn.disabled = false;
     }
   });
 
