@@ -1845,6 +1845,10 @@ const CONTRACT_COLLECTION =
   "grain_contracts";
 
 
+const HAULING_JOB_COLLECTION =
+  "grain_hauling_jobs";
+
+
 const TICKET_COLLECTION =
   "grain_tickets";
 
@@ -2103,6 +2107,10 @@ let contracts =
   [];
 
 
+let haulingJobs =
+  [];
+
+
 let employees =
   [];
 
@@ -2321,6 +2329,7 @@ const [
   customerSnapshot,
   locationSnapshot,
   contractSnapshot,
+  haulingJobSnapshot,
   employeeSnapshot,
   aliasSnapshot,
   fieldSnapshot,
@@ -2354,6 +2363,13 @@ const [
         collection(
           db,
           CONTRACT_COLLECTION
+        )
+      ),
+
+      getDocs(
+        collection(
+          db,
+          HAULING_JOB_COLLECTION
         )
       ),
 
@@ -2558,6 +2574,12 @@ deliveryLocations =
     );
 
 
+  haulingJobs =
+    snapshotToArray(
+      haulingJobSnapshot
+    );
+
+
 employees =
   snapshotToArray(
     employeeSnapshot
@@ -2670,6 +2692,9 @@ console.log(
 
       contracts:
         contracts.length,
+
+      haulingJobs:
+        haulingJobs.length,
 
       employees:
   employees.length,
@@ -6916,8 +6941,310 @@ function buildDriverAssistBagSiteChoices(
 }
 
 
+function haulingJobIsActive(
+  job
+) {
+
+  if (
+    !job ||
+    job.active === false ||
+    job.isActive === false
+  ) {
+
+    return false;
+
+  }
+
+
+  const status =
+    normalizeAliasText(
+      job.status ||
+      "active"
+    );
+
+
+  return !(
+    status.includes(
+      "closed"
+    ) ||
+    status.includes(
+      "complete"
+    ) ||
+    status.includes(
+      "cancel"
+    ) ||
+    status.includes(
+      "void"
+    )
+  );
+
+}
+
+
+function haulingJobLocationId(
+  job
+) {
+
+  return String(
+    job?.deliveryLocationId ||
+    job?.locationId ||
+    job?.destinationId ||
+    ""
+  ).trim();
+
+}
+
+
+function haulingJobCustomerId(
+  job
+) {
+
+  return String(
+    job?.customerId ||
+    job?.grainCustomerId ||
+    ""
+  ).trim();
+
+}
+
+
+function haulingJobCrop(
+  job
+) {
+
+  return normalizeScannedCrop(
+    job?.crop ||
+    job?.commodity
+  );
+
+}
+
+
+function haulingJobStartingBushels(
+  job
+) {
+
+  const value =
+    Number(
+      job?.startingBushels ??
+      job?.jobBushels ??
+      job?.bushels ??
+      0
+    );
+
+
+  return Number.isFinite(
+    value
+  )
+    ? Math.max(
+        0,
+        value
+      )
+    : 0;
+
+}
+
+
+function haulingJobRemainingBushels(
+  job
+) {
+
+  const explicit =
+    job?.remainingBushels ??
+    job?.bushelsRemaining ??
+    job?.remainingBu;
+
+
+  if (
+    explicit !== undefined &&
+    explicit !== null &&
+    explicit !== ""
+  ) {
+
+    const value =
+      Number(
+        explicit
+      );
+
+
+    if (
+      Number.isFinite(
+        value
+      )
+    ) {
+
+      return Math.max(
+        0,
+        value
+      );
+
+    }
+
+  }
+
+
+  const starting =
+    haulingJobStartingBushels(
+      job
+    );
+
+
+  const delivered =
+    Number(
+      job?.deliveredBushels ||
+      0
+    );
+
+
+  return Math.max(
+    0,
+    starting -
+      (
+        Number.isFinite(
+          delivered
+        )
+          ? delivered
+          : 0
+      )
+  );
+
+}
+
+
+function haulingJobDisplayLabel(
+  job
+) {
+
+  const location =
+    deliveryLocations.find(
+      item =>
+        item.id ===
+        haulingJobLocationId(
+          job
+        )
+    ) ||
+    null;
+
+
+  const buyerName =
+    String(
+      job?.buyerName ||
+      location?.buyerName ||
+      ""
+    ).trim();
+
+
+  const locationName =
+    String(
+      job?.deliveryLocationName ||
+      job?.locationName ||
+      job?.destinationName ||
+      location?.locationName ||
+      "Hauling Job"
+    ).trim();
+
+
+  const destination =
+    buyerName &&
+    !cleanCompare(
+      locationName
+    ).startsWith(
+      cleanCompare(
+        buyerName
+      )
+    )
+      ? `${buyerName} ${locationName}`
+      : locationName;
+
+
+  const start =
+    String(
+      job?.deliveryStartDate ||
+      job?.startDate ||
+      ""
+    ).trim();
+
+
+  const end =
+    String(
+      job?.deliveryEndDate ||
+      job?.endDate ||
+      ""
+    ).trim();
+
+
+  const dateText =
+    start || end
+      ? `${start || "?"} to ${end || "?"}`
+      : "";
+
+
+  return {
+    label:
+      `${destination} — ${haulingJobStartingBushels(job).toLocaleString("en-US")} bu`,
+
+    searchText:
+      `${destination} ${buyerName} ${haulingJobCrop(job) || ""} ${dateText}`,
+
+    detail:
+      `${dateText ? `${dateText} • ` : ""}Remaining ${haulingJobRemainingBushels(job).toLocaleString("en-US")} bu`
+  };
+
+}
+
+
+function activeHaulingJobChoices() {
+
+  return haulingJobs
+    .filter(
+      haulingJobIsActive
+    )
+    .map(
+      job => {
+
+        const display =
+          haulingJobDisplayLabel(
+            job
+          );
+
+
+        return {
+          label:
+            `${display.label} • ${display.detail}`,
+
+          searchText:
+            display.searchText,
+
+          value:
+            job
+        };
+
+      }
+    )
+    .sort(
+      (
+        a,
+        b
+      ) =>
+        a.label.localeCompare(
+          b.label,
+          undefined,
+          {
+            numeric:
+              true,
+
+            sensitivity:
+              "base"
+          }
+        )
+    );
+
+}
+
+
 function rebuildMatchingAfterDriverAssist(
   grainTicket,
+  haulingJob,
   location,
   buyer,
   customer,
@@ -7009,6 +7336,17 @@ function rebuildMatchingAfterDriverAssist(
 
 
   if (
+    !haulingJob
+  ) {
+
+    reviewReasons.push(
+      "hauling_job_not_assigned"
+    );
+
+  }
+
+
+  if (
     !location
   ) {
 
@@ -7090,6 +7428,10 @@ function rebuildMatchingAfterDriverAssist(
 
     grainSource:
       source ||
+      null,
+
+    haulingJob:
+      haulingJob ||
       null
   };
 
@@ -7119,6 +7461,10 @@ async function runDriverAssistQuestions(
     null;
 
 
+  let haulingJob =
+    null;
+
+
   let location =
     matching?.locationMatch?.location ||
     null;
@@ -7134,7 +7480,7 @@ async function runDriverAssistQuestions(
     null;
 
 
-  const crop =
+  let crop =
     normalizeScannedCrop(
       grainTicket.crop
     );
@@ -7143,6 +7489,128 @@ async function runDriverAssistQuestions(
   processingScreen.classList.remove(
     "show"
   );
+
+
+  haulingJob =
+    await askDriverSearchList({
+      step:
+        "Hauling Job",
+
+      title:
+        "Which hauling job is this ticket for?",
+
+      text:
+        "The hauling job supplies Crop, Destination, and Sold Under for this ticket.",
+
+      placeholder:
+        "Search hauling jobs…",
+
+      items:
+        activeHaulingJobChoices(),
+
+      allowSkip:
+        true
+    });
+
+
+  if (
+    haulingJob
+  ) {
+
+    const jobLocationId =
+      haulingJobLocationId(
+        haulingJob
+      );
+
+
+    const jobCustomerId =
+      haulingJobCustomerId(
+        haulingJob
+      );
+
+
+    const jobCrop =
+      haulingJobCrop(
+        haulingJob
+      );
+
+
+    location =
+      deliveryLocations.find(
+        item =>
+          item.id ===
+          jobLocationId
+      ) ||
+      null;
+
+
+    buyer =
+      location
+        ? buyers.find(
+            item =>
+              String(
+                item.id
+              ) ===
+              String(
+                location.buyerId
+              )
+          ) ||
+          null
+        : null;
+
+
+    customer =
+      customers.find(
+        item =>
+          String(
+            item.id
+          ) ===
+          jobCustomerId
+      ) ||
+      null;
+
+
+    crop =
+      jobCrop ||
+      crop;
+
+
+    if (
+      crop
+    ) {
+
+      grainTicket.crop =
+        crop;
+
+    }
+
+
+    ocrResult.driverContext = {
+      ...(
+        ocrResult.driverContext ||
+        {}
+      ),
+
+      haulingJob: {
+        id:
+          haulingJob.id,
+
+        name:
+          haulingJobDisplayLabel(haulingJob).label,
+
+        source:
+          "driver_selection"
+      }
+    };
+
+  }
+  else {
+
+    skippedReasons.push(
+      "hauling_job_not_selected"
+    );
+
+  }
 
 
   if (
@@ -7784,6 +8252,7 @@ if (
 
   return rebuildMatchingAfterDriverAssist(
     grainTicket,
+    haulingJob,
     location,
     buyer,
     customer,
@@ -9579,6 +10048,46 @@ const driverName =
 
 
     // ----------------------------------------------------------
+    // HAULING JOB
+    // ----------------------------------------------------------
+
+    haulingJobId:
+      matching.haulingJob?.id ||
+      null,
+
+    haulingJobName:
+      matching.haulingJob
+        ? haulingJobDisplayLabel(
+            matching.haulingJob
+          ).label
+        : null,
+
+    haulingJobLabel:
+      matching.haulingJob
+        ? haulingJobDisplayLabel(
+            matching.haulingJob
+          ).label
+        : null,
+
+    haulingJobStartingBushels:
+      matching.haulingJob
+        ? haulingJobStartingBushels(
+            matching.haulingJob
+          )
+        : null,
+
+    haulingJobDeliveryStartDate:
+      matching.haulingJob?.deliveryStartDate ||
+      matching.haulingJob?.startDate ||
+      null,
+
+    haulingJobDeliveryEndDate:
+      matching.haulingJob?.deliveryEndDate ||
+      matching.haulingJob?.endDate ||
+      null,
+
+
+    // ----------------------------------------------------------
     // GRAIN SOURCE
     // Driver selects the field or storage SITE.
     // ----------------------------------------------------------
@@ -9858,8 +10367,8 @@ foreignMaterial:
 // CONTRACT RECONCILIATION
 //
 // Scanned tickets are intentionally NOT assigned to a
-// grain contract here. Contract assignment happens later
-// from the reconciliation page.
+// grain contract here. The ticket belongs to its Hauling Job.
+// Contract assignment happens later from the job workflow.
 // ----------------------------------------------------------
 
 contractId:
@@ -9871,7 +10380,7 @@ contractNumber:
 reconciliationStatus:
   matching.validationStatus ===
     "verified"
-      ? "needs_contract"
+      ? "hauling_job_assigned"
       : "needs_review",
 
 
@@ -11421,24 +11930,15 @@ if (
   /*
     NORMAL FARMVISTA SCAN
 
-    No crop was readable, so ask the driver.
+    Do NOT ask for Crop here anymore.
+
+    The driver selects the Hauling Job during Driver Assist,
+    and that job supplies the authoritative Crop, Destination,
+    Buyer, and Sold Under values.
   */
 
-  processingScreen.classList.remove(
-    "show"
-  );
-
-
-  scannedCrop =
-    await askDriverForCrop();
-
-
-  cropSelectedByDriver =
-    true;
-
-
-  showProcessing(
-    "Finishing grain ticket…"
+  console.log(
+    "[Grain Ticket] OCR did not identify crop. Hauling Job will supply crop."
   );
 
 }
@@ -11636,16 +12136,16 @@ if (
 }
 
 /*
-  GUEST / SMS CROP RECOVERY
+  DEFERRED CROP RECOVERY
 
-  A secure guest scan already has an authoritative load-out crop.
-  If OCR failed ONLY because crop was missing, remove just the crop
-  error so the guest backend can use the assigned load crop.
-  Never clear weight, ticket-number, grade, or other scan errors.
+  If OCR failed ONLY because Crop was missing, remove just the crop
+  error here. A normal FarmVista scan gets its authoritative Crop from
+  the selected Hauling Job. A guest/SMS scan gets Crop from its assigned
+  load-out backend. Never clear weight, ticket-number, grade, or other
+  scan errors.
 */
 
 if (
-  isGuestScan &&
   !scannedCrop &&
   Array.isArray(
     result.scanErrors
@@ -11720,14 +12220,14 @@ const validScannedCrops =
 
 
 if (
-  !isGuestScan &&
+  scannedCrop &&
   !validScannedCrops.includes(
     scannedCrop
   )
 ) {
 
   throw new Error(
-    "A crop must be selected before this grain ticket can be saved."
+    "The scanned crop is not supported by FarmVista."
   );
 
 }
