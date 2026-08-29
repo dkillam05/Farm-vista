@@ -1119,12 +1119,12 @@ section[data-hide-for-now]{ display:none !important; }
   margin-right:auto;
 }
 
-.ticket-status.contract{
+.ticket-status.job{
   background:#D9F0FF;
   color:#155C7A;
 }
 
-.ticket-kpi.contract .ticket-kpi-value{
+.ticket-kpi.job .ticket-kpi-value{
   color:#155C7A;
 }
 
@@ -1672,10 +1672,10 @@ section[data-hide-for-now]{ display:none !important; }
     </div>
 
 
-    <div class="ticket-kpi contract">
+    <div class="ticket-kpi job">
 
       <div class="ticket-kpi-label">
-        Needs Contract
+        Needs Hauling Job
       </div>
 
       <div
@@ -1745,9 +1745,9 @@ section[data-hide-for-now]{ display:none !important; }
       <button
         type="button"
         class="ticket-filter-btn"
-        data-ticket-filter="needs_contract"
+        data-ticket-filter="needs_job"
       >
-        Needs Contract
+        Needs Hauling Job
       </button>
 
       <button
@@ -2707,66 +2707,19 @@ const filterButtons =
   }
 
 
-function ticketHasContract(
+function ticketHasHaulingJob(
     ticket
   ) {
 
-    const allocations =
-      Array.isArray(
-        ticket?.contractAllocations
-      )
-        ? ticket.contractAllocations
-        : [];
-
-
-    const allocatedBushels =
-      allocations.reduce(
-        (
-          total,
-          allocation
-        ) =>
-          total +
-          Math.max(
-            0,
-            numberValue(
-              allocation?.bushels
-            )
-          ),
-        0
-      );
-
-
-    /*
-      New split-allocation model is the source of truth.
-
-      A stale legacy contractId does NOT mean the ticket
-      is fully assigned when unassignedBushels still exist.
-    */
-    if (
-      numberValue(
-        ticket?.allocationModelVersion
-      ) >= 2
-    ) {
-
-      return allocatedBushels > 0;
-
-    }
-
-
-    /*
-      Legacy fallback for older tickets that have not yet
-      been migrated into contractAllocations.
-    */
     return !!String(
-      ticket.contractId ||
-      ticket.grainContractId ||
+      ticket?.haulingJobId ||
+      ticket?.grainHaulingJobId ||
       ""
     ).trim();
 
   }
 
-
-  function isNeedsContract(
+  function isNeedsHaulingJob(
     ticket
   ) {
 
@@ -2781,36 +2734,11 @@ function ticketHasContract(
     }
 
 
-    /*
-      Split-allocation model:
-      if ANY bushels remain unassigned,
-      this ticket still Needs Contract.
-    */
-    if (
-      numberValue(
-        ticket?.allocationModelVersion
-      ) >= 2
-    ) {
-
-      return (
-        numberValue(
-          ticket?.unassignedBushels
-        ) >
-        0.005
-      );
-
-    }
-
-
-    /*
-      Legacy fallback.
-    */
-    return !ticketHasContract(
+    return !ticketHasHaulingJob(
       ticket
     );
 
   }
-
 
 
 
@@ -6256,7 +6184,7 @@ else {
         1) It is one of the newest 50 tickets.
         2) It is from today.
         3) It still Needs Review.
-        4) It still Needs Contract assignment.
+        4) It still Needs Hauling Job assignment.
         5) It is Good and its ticket date is within
            today + the previous 2 calendar days.
 
@@ -6307,7 +6235,7 @@ else {
       isNeedsReview(
         ticket
       ) ||
-      isNeedsContract(
+      isNeedsHaulingJob(
         ticket
       )
     ) {
@@ -6422,14 +6350,14 @@ else {
       todayTickets.filter(
         ticket =>
           !isNeedsReview(ticket) &&
-          !isNeedsContract(ticket)
+          !isNeedsHaulingJob(ticket)
       );
 
 
-    const needsContract =
+    const needsHaulingJob =
       todayTickets.filter(
         ticket =>
-          isNeedsContract(ticket)
+          isNeedsHaulingJob(ticket)
       );
 
 
@@ -6471,7 +6399,7 @@ else {
 
 
     contractCountEl.textContent =
-      needsContract.length
+      needsHaulingJob.length
         .toLocaleString(
           "en-US"
         );
@@ -6509,7 +6437,7 @@ else {
 
           if (
             activeFilter === "verified" &&
-            (isNeedsReview(ticket) || isNeedsContract(ticket))
+            (isNeedsReview(ticket) || isNeedsHaulingJob(ticket))
           ) {
 
             return false;
@@ -6518,8 +6446,8 @@ else {
 
 
           if (
-            activeFilter === "needs_contract" &&
-            !isNeedsContract(ticket)
+            activeFilter === "needs_job" &&
+            !isNeedsHaulingJob(ticket)
           ) {
 
             return false;
@@ -6553,7 +6481,9 @@ else {
               ticket.buyerName,
               ticket.ocrElevatorName,
               ticket.crop,
-              ticket.driverName
+              ticket.driverName,
+              ticket.haulingJobName,
+              ticket.haulingJobLabel
             ]
               .map(
                 value =>
@@ -6633,8 +6563,8 @@ else {
         const review =
           isNeedsReview(ticket);
 
-        const needsContract =
-          isNeedsContract(ticket);
+        const needsHaulingJob =
+          isNeedsHaulingJob(ticket);
 
 
         const elevator =
@@ -6670,16 +6600,16 @@ else {
                 class="ticket-status ${
                   review
                     ? "review"
-                    : needsContract
-                      ? "contract"
+                    : needsHaulingJob
+                      ? "job"
                       : "good"
                 }"
               >
                 ${
                   review
                     ? "Review"
-                    : needsContract
-                      ? "Needs Assigned to Contract"
+                    : needsHaulingJob
+                      ? "Needs Hauling Job"
                       : "Good"
                 }
               </span>
@@ -6929,10 +6859,10 @@ else {
     - Ticket table
     - Today's Tickets
     - Verified
-    - Needs Contract
+    - Needs Hauling Job
     - Needs Review
     - Today's Net Bushels
-    - Verified ticket posting to inventory + contract
+    - Verified ticket posting remains contract-controlled later
 
     No page reload.
   */
