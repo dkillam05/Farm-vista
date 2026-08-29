@@ -1791,6 +1791,119 @@ function ensureCompactReconciliationStyles() {
         grid-row:1;
       }
     }
+
+
+    /*
+      PHONE LANDSCAPE
+
+      Keep desktop/tablet compact rows unchanged.
+      On a phone turned sideways, give each contract the same
+      readable stacked-card feel as the Hauling Job cards:
+        title
+        crop/type/location
+        contract / remaining / tickets / status
+    */
+    @media
+      (orientation:landscape)
+      and (max-height:500px)
+      and (max-width:1000px){
+
+      .reconciliation-compact-card
+      .contract-drop-toggle{
+        display:grid;
+        grid-template-columns:minmax(0,1fr) auto;
+        grid-template-areas:
+          "main chevron"
+          "numbers numbers";
+        align-items:start;
+        gap:8px 10px;
+        padding:11px 12px;
+      }
+
+      .reconciliation-compact-card
+      .compact-contract-main{
+        grid-area:main;
+        min-width:0;
+      }
+
+      .reconciliation-compact-card
+      .compact-contract-title{
+        font-size:.92rem;
+        line-height:1.2;
+        white-space:normal;
+        overflow:visible;
+        text-overflow:clip;
+      }
+
+      .reconciliation-compact-card
+      .compact-contract-meta{
+        margin-top:4px;
+        font-size:.75rem;
+        line-height:1.3;
+        white-space:normal;
+        overflow:visible;
+        text-overflow:clip;
+      }
+
+      .reconciliation-compact-card
+      .compact-contract-chevron{
+        grid-area:chevron;
+        align-self:start;
+        justify-self:end;
+        width:24px;
+        height:24px;
+      }
+
+      .reconciliation-compact-card
+      .compact-contract-numbers{
+        grid-area:numbers;
+        width:100%;
+        display:grid;
+        grid-template-columns:
+          minmax(0,1fr)
+          minmax(0,1fr)
+          minmax(0,.75fr)
+          auto;
+        align-items:end;
+        justify-content:stretch;
+        gap:8px;
+        padding-top:5px;
+      }
+
+      .reconciliation-compact-card
+      .compact-contract-number{
+        min-width:0;
+        align-items:flex-start;
+      }
+
+      .reconciliation-compact-card
+      .compact-contract-number strong{
+        font-size:.86rem;
+        white-space:nowrap;
+      }
+
+      .reconciliation-compact-card
+      .compact-contract-number span{
+        font-size:.61rem;
+        white-space:nowrap;
+      }
+
+      .reconciliation-compact-card
+      .compact-contract-numbers
+      .status-pill{
+        align-self:center;
+        justify-self:end;
+        white-space:nowrap;
+      }
+
+      .reconciliation-compact-card.spot-drop-card
+      .compact-contract-numbers{
+        grid-template-columns:
+          minmax(0,1fr)
+          minmax(0,1fr)
+          auto;
+      }
+    }
   `;
 
   document.head.appendChild(
