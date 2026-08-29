@@ -1322,7 +1322,7 @@ function filteredJobs() {
         "hauling-status-filter"
       )
         ?.value ||
-      "active"
+      "all"
     );
 
 
@@ -3327,7 +3327,7 @@ function populateLinkBuyer() {
 
 
   select.innerHTML =
-    '<option value="">Select Buyer</option>';
+    '<option value="">All Buyers</option>';
 
 
   const buyerIds =
@@ -3450,43 +3450,11 @@ function populateLinkCustomer() {
 
 
   select.innerHTML =
-    "";
-
-
-  const blank =
-    document.createElement(
-      "option"
-    );
-
-
-  blank.value =
-    "";
-
-
-  blank.textContent =
-    buyerId
-      ? "Select Sold Under"
-      : "Select Buyer first";
-
-
-  select.appendChild(
-    blank
-  );
+    '<option value="">All Sold Under</option>';
 
 
   select.disabled =
-    !buyerId;
-
-
-  if (
-    !buyerId
-  ) {
-
-    populateLinkCrop();
-
-    return;
-
-  }
+    false;
 
 
   const ids =
@@ -3499,10 +3467,13 @@ function populateLinkCustomer() {
               !contractIsVoided(
                 contract
               ) &&
-              contractBuyerId(
-                contract
-              ) ===
-              buyerId
+              (
+                !buyerId ||
+                contractBuyerId(
+                  contract
+                ) ===
+                buyerId
+              )
           )
           .map(
             contractCustomerId
@@ -3519,10 +3490,13 @@ function populateLinkCustomer() {
                   job
                 )
               ) &&
-              jobBuyerId(
-                job
-              ) ===
-              buyerId
+              (
+                !buyerId ||
+                jobBuyerId(
+                  job
+                ) ===
+                buyerId
+              )
           )
           .map(
             jobCustomerId
@@ -3629,43 +3603,11 @@ function populateLinkCrop() {
 
 
   select.innerHTML =
-    "";
-
-
-  const blank =
-    document.createElement(
-      "option"
-    );
-
-
-  blank.value =
-    "";
-
-
-  blank.textContent =
-    customerId
-      ? "Select Crop"
-      : "Select customer first";
-
-
-  select.appendChild(
-    blank
-  );
+    '<option value="">All Crops</option>';
 
 
   select.disabled =
-    !buyerId ||
-    !customerId;
-
-
-  if (
-    !buyerId ||
-    !customerId
-  ) {
-
-    return;
-
-  }
+    false;
 
 
   const crops =
@@ -3678,14 +3620,20 @@ function populateLinkCrop() {
               !contractIsVoided(
                 contract
               ) &&
-              contractBuyerId(
-                contract
-              ) ===
-              buyerId &&
-              contractCustomerId(
-                contract
-              ) ===
-              customerId
+              (
+                !buyerId ||
+                contractBuyerId(
+                  contract
+                ) ===
+                buyerId
+              ) &&
+              (
+                !customerId ||
+                contractCustomerId(
+                  contract
+                ) ===
+                customerId
+              )
           )
           .map(
             contractCrop
@@ -3702,14 +3650,20 @@ function populateLinkCrop() {
                   job
                 )
               ) &&
-              jobBuyerId(
-                job
-              ) ===
-              buyerId &&
-              jobCustomerId(
-                job
-              ) ===
-              customerId
+              (
+                !buyerId ||
+                jobBuyerId(
+                  job
+                ) ===
+                buyerId
+              ) &&
+              (
+                !customerId ||
+                jobCustomerId(
+                  job
+                ) ===
+                customerId
+              )
           )
           .map(
             jobCrop
@@ -3815,17 +3769,6 @@ function currentUnlinkedContracts() {
     linkFilterValues();
 
 
-  if (
-    !buyerId ||
-    !customerId ||
-    !crop
-  ) {
-
-    return [];
-
-  }
-
-
   return state.contracts
 
     .filter(
@@ -3836,22 +3779,31 @@ function currentUnlinkedContracts() {
         !clean(
           contract?.haulingJobId
         ) &&
-        contractBuyerId(
-          contract
-        ) ===
-          buyerId &&
-        contractCustomerId(
-          contract
-        ) ===
-          customerId &&
-        norm(
-          contractCrop(
+        (
+          !buyerId ||
+          contractBuyerId(
             contract
-          )
-        ) ===
+          ) ===
+          buyerId
+        ) &&
+        (
+          !customerId ||
+          contractCustomerId(
+            contract
+          ) ===
+          customerId
+        ) &&
+        (
+          !crop ||
+          norm(
+            contractCrop(
+              contract
+            )
+          ) ===
           norm(
             crop
           )
+        )
     )
 
     .sort(
@@ -3890,17 +3842,6 @@ function currentMatchingJobs() {
     linkFilterValues();
 
 
-  if (
-    !buyerId ||
-    !customerId ||
-    !crop
-  ) {
-
-    return [];
-
-  }
-
-
   return state.jobs
 
     .filter(
@@ -3913,22 +3854,31 @@ function currentMatchingJobs() {
             job
           )
         ) &&
-        jobBuyerId(
-          job
-        ) ===
-          buyerId &&
-        jobCustomerId(
-          job
-        ) ===
-          customerId &&
-        norm(
-          jobCrop(
+        (
+          !buyerId ||
+          jobBuyerId(
             job
-          )
-        ) ===
+          ) ===
+          buyerId
+        ) &&
+        (
+          !customerId ||
+          jobCustomerId(
+            job
+          ) ===
+          customerId
+        ) &&
+        (
+          !crop ||
+          norm(
+            jobCrop(
+              job
+            )
+          ) ===
           norm(
             crop
           )
+        )
     )
 
     .sort(
@@ -4022,76 +3972,6 @@ function renderLinkWorkspace() {
     linkFilterValues();
 
 
-  if (
-    !buyerId ||
-    !customerId ||
-    !crop
-  ) {
-
-    contractList.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-title">
-          Select Filters
-        </div>
-        <div class="empty-sub">
-          Unlinked matching contracts will appear here.
-        </div>
-      </div>
-    `;
-
-
-    jobList.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-title">
-          Select Filters
-        </div>
-        <div class="empty-sub">
-          Matching hauling jobs will appear here as drop zones.
-        </div>
-      </div>
-    `;
-
-
-    if (
-      $(
-        "hauling-unlinked-contract-count"
-      )
-    ) {
-
-      $(
-        "hauling-unlinked-contract-count"
-      )
-        .textContent =
-          "0 contracts";
-
-    }
-
-
-    if (
-      $(
-        "hauling-link-job-count"
-      )
-    ) {
-
-      $(
-        "hauling-link-job-count"
-      )
-        .textContent =
-          "0 jobs";
-
-    }
-
-
-    setLinkMessage(
-      "Select Buyer, Sold Under, and Crop to show matching unlinked contracts and hauling jobs."
-    );
-
-
-    return;
-
-  }
-
-
   const contracts =
     currentUnlinkedContracts();
 
@@ -4142,11 +4022,58 @@ function renderLinkWorkspace() {
   }
 
 
+  const activeFilters =
+    [];
+
+
+  if (
+    buyerId
+  ) {
+
+    activeFilters.push(
+      matchingBuyer(
+        buyerId
+      )?.name ||
+      "Buyer"
+    );
+
+  }
+
+
+  if (
+    customerId
+  ) {
+
+    activeFilters.push(
+      matchingCustomer(
+        customerId
+      )?.name ||
+      "Sold Under"
+    );
+
+  }
+
+
+  if (
+    crop
+  ) {
+
+    activeFilters.push(
+      crop
+    );
+
+  }
+
+
   setLinkMessage(
-    jobs.length
-      ? "Drag a contract from the left onto the correct hauling job. Location is checked when you drop it."
-      : "No active hauling jobs match those Buyer / Sold Under / Crop filters.",
-    !!jobs.length
+    activeFilters.length
+      ? `Filtered to ${
+          activeFilters.join(
+            " • "
+          )
+        }. Drag a contract from the left onto the correct hauling job. Location is checked when you drop it.`
+      : "Showing all unlinked contracts and hauling jobs. Drag a contract from the left onto the correct hauling job. Location is checked when you drop it.",
+    true
   );
 
 
@@ -4162,7 +4089,7 @@ function renderLinkWorkspace() {
         </div>
 
         <div class="empty-sub">
-          All matching contracts are already linked, or no contracts match these filters.
+          All matching contracts are already linked, or no contracts match the current filters.
         </div>
 
       </div>
@@ -4212,8 +4139,15 @@ function renderLinkWorkspace() {
 
             ${
               escapeHtml(
-                contract?.deliveryLocationName ||
-                "No location"
+                contract?.buyerName ||
+                "Unknown buyer"
+              )
+            }
+            •
+            ${
+              escapeHtml(
+                contract?.customerName ||
+                "Unknown customer"
               )
             }
             •
@@ -4221,12 +4155,20 @@ function renderLinkWorkspace() {
               escapeHtml(
                 contractCrop(
                   contract
-                )
+                ) ||
+                "Unknown crop"
               )
             }
 
             <br>
 
+            ${
+              escapeHtml(
+                contract?.deliveryLocationName ||
+                "No location"
+              )
+            }
+            •
             ${
               fmtBu(
                 contractBushels(
@@ -4274,11 +4216,11 @@ function renderLinkWorkspace() {
       <div class="empty-state">
 
         <div class="empty-title">
-          No Matching Hauling Jobs
+          No Hauling Jobs
         </div>
 
         <div class="empty-sub">
-          Create a hauling job or change the filters.
+          No active hauling jobs match the current filters.
         </div>
 
       </div>
@@ -4418,11 +4360,35 @@ function renderLinkWorkspace() {
 
             ${
               escapeHtml(
+                job?.buyerName ||
+                "Unknown buyer"
+              )
+            }
+            •
+            ${
+              escapeHtml(
+                job?.customerName ||
+                "Unknown customer"
+              )
+            }
+            •
+            ${
+              escapeHtml(
+                jobCrop(
+                  job
+                ) ||
+                "Unknown crop"
+              )
+            }
+
+            <br>
+
+            ${
+              escapeHtml(
                 job?.deliveryLocationName ||
                 "No location"
               )
             }
-
             • Delivery
 
             ${
@@ -4453,9 +4419,7 @@ function renderLinkWorkspace() {
               )
             }
             bu remaining
-
             •
-
             ${
               linked.length
             }
