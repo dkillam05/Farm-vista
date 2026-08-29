@@ -58,6 +58,10 @@ const state = {
   haulingJobs:
     [],
 
+
+  tickets:
+    [],
+
   binSources:
     [],
 
@@ -940,7 +944,7 @@ function haulingJobIsActive(job) {
     );
 
 
-  return !(
+  if (
     status.includes(
       "closed"
     ) ||
@@ -953,7 +957,34 @@ function haulingJobIsActive(job) {
     status.includes(
       "void"
     )
-  );
+  ) {
+
+    return false;
+
+  }
+
+
+  const starting =
+    haulingJobStartingBushels(
+      job
+    );
+
+
+  if (
+    starting >
+      0 &&
+    haulingJobRemainingBushels(
+      job
+    ) <=
+      0.005
+  ) {
+
+    return false;
+
+  }
+
+
+  return true;
 
 }
 
@@ -1008,43 +1039,95 @@ function haulingJobStartingBushels(
 }
 
 
-function haulingJobRemainingBushels(
+function haulingJobTicketedBushels(
   job
 ) {
 
-  const explicit =
-    job?.remainingBushels ??
-    job?.bushelsRemaining ??
-    job?.remainingBu;
+  const jobId =
+    clean(
+      job?.id
+    );
 
 
   if (
-    explicit !== undefined &&
-    explicit !== null &&
-    explicit !== ""
+    !jobId
   ) {
 
-    const value =
-      Number(
-        explicit
-      );
-
-
-    if (
-      Number.isFinite(
-        value
-      )
-    ) {
-
-      return Math.max(
-        0,
-        value
-      );
-
-    }
+    return 0;
 
   }
 
+
+  return state.tickets
+
+    .filter(
+      ticket => {
+
+        const status =
+          normalize(
+            ticket?.status ||
+            ""
+          );
+
+
+        const voided =
+          ticket?.voided ===
+            true ||
+          status.includes(
+            "void"
+          );
+
+
+        const ticketJobId =
+          clean(
+            ticket?.haulingJobId ||
+            ticket?.grainHaulingJobId
+          );
+
+
+        return (
+          !voided &&
+          ticketJobId ===
+            jobId
+        );
+
+      }
+    )
+
+    .reduce(
+      (
+        sum,
+        ticket
+      ) => {
+
+        const value =
+          Number(
+            ticket?.netBushels ??
+            ticket?.netBu ??
+            ticket?.bushels ??
+            0
+          );
+
+
+        return sum +
+          (
+            Number.isFinite(
+              value
+            )
+              ? value
+              : 0
+          );
+
+      },
+      0
+    );
+
+}
+
+
+function haulingJobRemainingBushels(
+  job
+) {
 
   const starting =
     haulingJobStartingBushels(
@@ -1052,23 +1135,16 @@ function haulingJobRemainingBushels(
     );
 
 
-  const delivered =
-    Number(
-      job?.deliveredBushels ||
-      0
+  const ticketed =
+    haulingJobTicketedBushels(
+      job
     );
 
 
   return Math.max(
     0,
     starting -
-      (
-        Number.isFinite(
-          delivered
-        )
-          ? delivered
-          : 0
-      )
+      ticketed
   );
 
 }
@@ -2060,14 +2136,7 @@ async function saveHaulingJob(
       crop,
 
       startingBushels,
-
-      remainingBushels:
-        startingBushels,
-
-      deliveredBushels:
-        0,
-
-      deliveryStartDate,
+deliveryStartDate,
 
       deliveryEndDate,
 
@@ -5442,6 +5511,7 @@ async function loadReferenceData() {
     locationSnap,
     contractSnap,
     haulingJobSnap,
+    ticketSnap,
     binSnap,
     bagSnap,
     employeeSnap,
@@ -5481,6 +5551,13 @@ async function loadReferenceData() {
         collection(
           db,
           "grain_hauling_jobs"
+        )
+      ),
+
+      getDocs(
+        collection(
+          db,
+          "grain_tickets"
         )
       ),
 
@@ -5687,6 +5764,21 @@ async function loadReferenceData() {
 
   state.contracts =
     contractSnap.docs
+      .map(
+        snapshot => ({
+
+          id:
+            snapshot.id,
+
+          ...snapshot.data()
+
+        })
+      );
+
+
+
+  state.tickets =
+    ticketSnap.docs
       .map(
         snapshot => ({
 
