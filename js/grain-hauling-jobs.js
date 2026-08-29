@@ -5435,6 +5435,88 @@ async function linkContractToJob(
   }
 
 
+  /* ==========================================================
+     HAULING JOB CONTRACT BUSHEL LIMIT
+
+     Total linked contract bushels may not exceed the
+     hauling job's starting bushels.
+  ========================================================== */
+
+  const jobBushels =
+    jobStartingBushels(
+      job
+    );
+
+
+  const alreadyLinkedContractBushels =
+    contractsForJob(
+      job.id
+    )
+      .filter(
+        linkedContract =>
+          linkedContract.id !==
+          contract.id &&
+          !contractIsVoided(
+            linkedContract
+          )
+      )
+      .reduce(
+        (
+          total,
+          linkedContract
+        ) =>
+          total +
+          contractBushels(
+            linkedContract
+          ),
+        0
+      );
+
+
+  const incomingContractBushels =
+    contractBushels(
+      contract
+    );
+
+
+  const newLinkedTotal =
+    alreadyLinkedContractBushels +
+    incomingContractBushels;
+
+
+  if (
+    newLinkedTotal >
+    jobBushels + 0.005
+  ) {
+
+    const overBy =
+      newLinkedTotal -
+      jobBushels;
+
+
+    const availableBushels =
+      Math.max(
+        0,
+        jobBushels -
+        alreadyLinkedContractBushels
+      );
+
+
+    alert(
+      `This contract cannot be linked to ${jobName(job)}.\n\n` +
+      `Hauling Job: ${fmtBu(jobBushels)} bu\n` +
+      `Already Linked: ${fmtBu(alreadyLinkedContractBushels)} bu\n` +
+      `This Contract: ${fmtBu(incomingContractBushels)} bu\n` +
+      `Available: ${fmtBu(availableBushels)} bu\n\n` +
+      `This would exceed the hauling job by ${fmtBu(overBy)} bu.`
+    );
+
+
+    return;
+
+  }
+
+
   if (
     oldJob &&
     !window.confirm(
