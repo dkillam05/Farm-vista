@@ -5000,6 +5000,80 @@ async function saveSubcontractorDriver() {
 }
 
 
+
+function formatWeightField(
+  input
+) {
+
+  if (
+    !input
+  ) {
+
+    return;
+
+  }
+
+
+  const raw =
+    String(
+      input.value ??
+      ""
+    );
+
+
+  const digits =
+    raw.replace(
+      /\D/g,
+      ""
+    );
+
+
+  if (
+    !digits
+  ) {
+
+    input.value =
+      "";
+
+    return;
+
+  }
+
+
+  input.value =
+    Number(
+      digits
+    )
+      .toLocaleString(
+        "en-US"
+      );
+
+}
+
+
+function formatAllWeightFields() {
+
+  [
+    el.grossWeight,
+    el.tareWeight,
+    el.netWeight
+  ]
+    .filter(
+      Boolean
+    )
+    .forEach(
+      input => {
+
+        formatWeightField(
+          input
+        );
+
+      }
+    );
+
+}
+
+
 function validateWeights() {
 
   const gross =
@@ -7413,6 +7487,11 @@ function setupEvents() {
           "input",
           () => {
 
+            formatWeightField(
+              input
+            );
+
+
             validateWeights();
 
 
@@ -7529,6 +7608,9 @@ async function start() {
 
 
   renderDriverSelector();
+
+
+  formatAllWeightFields();
 
 
   validateWeights();
