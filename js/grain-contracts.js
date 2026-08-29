@@ -62,6 +62,15 @@ const state = {
 
   selectedTicketIds: new Set(),
 
+  /*
+    Compact reconciliation cards:
+    contracts and Spot start collapsed, then expand when clicked.
+    These values intentionally live only in page state — nothing
+    about expansion is written to Firestore.
+  */
+  expandedContractDropIds: new Set(),
+  spotDropExpanded: false,
+
   draggingTicketId: "",
   draggingSourceType: "",
   draggingSourceId: "",
@@ -1615,6 +1624,181 @@ function bagSourceId(
 
 
 /* ============================================================
+   COMPACT RECONCILIATION CARD STYLES
+   Injected here so this full JS replacement does not require
+   another grain-contracts.html edit.
+============================================================ */
+
+function ensureCompactReconciliationStyles() {
+  if (
+    document.getElementById(
+      "fv-compact-reconciliation-styles"
+    )
+  ) {
+    return;
+  }
+
+  const style =
+    document.createElement(
+      "style"
+    );
+
+  style.id =
+    "fv-compact-reconciliation-styles";
+
+  style.textContent = `
+    .reconciliation-compact-card{
+      padding:0 !important;
+      overflow:hidden;
+    }
+
+    .reconciliation-compact-card .contract-drop-toggle{
+      appearance:none;
+      -webkit-appearance:none;
+      width:100%;
+      border:0;
+      background:transparent;
+      color:inherit;
+      font:inherit;
+      text-align:left;
+      padding:10px 12px;
+      cursor:pointer;
+      display:grid;
+      grid-template-columns:minmax(0,1fr) auto auto;
+      align-items:center;
+      gap:10px;
+    }
+
+    .reconciliation-compact-card .contract-drop-toggle:hover,
+    .reconciliation-compact-card .contract-drop-toggle:focus-visible{
+      background:rgba(59,126,70,.06);
+      outline:none;
+    }
+
+    .reconciliation-compact-card.spot-drop-card .contract-drop-toggle:hover,
+    .reconciliation-compact-card.spot-drop-card .contract-drop-toggle:focus-visible{
+      background:rgba(154,103,0,.07);
+    }
+
+    .compact-contract-main{
+      min-width:0;
+    }
+
+    .compact-contract-title{
+      font-size:.92rem;
+      font-weight:900;
+      line-height:1.2;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
+    .compact-contract-meta{
+      margin-top:3px;
+      font-size:.75rem;
+      font-weight:700;
+      line-height:1.25;
+      opacity:.7;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
+    .compact-contract-numbers{
+      display:flex;
+      align-items:center;
+      justify-content:flex-end;
+      gap:12px;
+      white-space:nowrap;
+      font-size:.78rem;
+    }
+
+    .compact-contract-number{
+      display:flex;
+      flex-direction:column;
+      align-items:flex-end;
+      line-height:1.08;
+    }
+
+    .compact-contract-number strong{
+      font-size:.86rem;
+      font-weight:900;
+    }
+
+    .compact-contract-number span{
+      margin-top:2px;
+      font-size:.64rem;
+      font-weight:800;
+      opacity:.58;
+      text-transform:uppercase;
+      letter-spacing:.03em;
+    }
+
+    .compact-contract-chevron{
+      width:24px;
+      height:24px;
+      flex:0 0 24px;
+      display:grid;
+      place-items:center;
+      border-radius:6px;
+      font-size:15px;
+      font-weight:900;
+      transition:transform .15s ease;
+      opacity:.72;
+    }
+
+    .reconciliation-compact-card.expanded .compact-contract-chevron{
+      transform:rotate(180deg);
+    }
+
+    .contract-drop-expanded{
+      border-top:1px solid var(--border,rgba(0,0,0,.12));
+      padding:12px;
+    }
+
+    .contract-drop-expanded[hidden]{
+      display:none !important;
+    }
+
+    .reconciliation-compact-card.drag-over .contract-drop-toggle{
+      background:rgba(59,126,70,.10);
+    }
+
+    .reconciliation-compact-card.spot-drop-card.drag-over .contract-drop-toggle{
+      background:rgba(154,103,0,.10);
+    }
+
+    @media (max-width:760px){
+      .reconciliation-compact-card .contract-drop-toggle{
+        grid-template-columns:minmax(0,1fr) auto;
+        gap:8px;
+      }
+
+      .compact-contract-numbers{
+        grid-column:1 / -1;
+        justify-content:flex-start;
+        gap:16px;
+        padding-top:3px;
+      }
+
+      .compact-contract-number{
+        align-items:flex-start;
+      }
+
+      .compact-contract-chevron{
+        grid-column:2;
+        grid-row:1;
+      }
+    }
+  `;
+
+  document.head.appendChild(
+    style
+  );
+}
+
+
+/* ============================================================
    STARTUP
 ============================================================ */
 
@@ -1639,6 +1823,7 @@ function onReady(fn) {
 
 onReady(
   async () => {
+    ensureCompactReconciliationStyles();
     setupFilters();
     setupReconciliationControls();
     setupModal();
@@ -6461,6 +6646,11 @@ function calculateContractGradeAverages(
 
 /* ============================================================
    CONTRACT DROP CARDS
+
+   Compact by default:
+   - The whole compact row remains a valid DND target.
+   - Click the row to expand/collapse details and assigned tickets.
+   - Expansion is UI-only and is never written to Firestore.
 ============================================================ */
 
 function renderContractDropCards(
@@ -6494,6 +6684,12 @@ function renderContractDropCards(
         calculateContractGradeAverages(
           contract
         );
+
+      const expanded =
+        state.expandedContractDropIds
+          .has(
+            contract.id
+          );
 
       /*
         IMPORTANT WITH "ALL" FILTERS:
@@ -6532,14 +6728,18 @@ function renderContractDropCards(
         );
 
       card.className =
-        "contract-drop-card";
+        `contract-drop-card reconciliation-compact-card${
+          expanded
+            ? " expanded"
+            : ""
+        }`;
 
 
       /*
         Touch DND target ID.
 
-        This lets iPad / touchscreen dragging determine
-        exactly which contract is underneath the finger.
+        The compact row is still the same contract drop target,
+        so iPad / touchscreen dragging continues to work.
       */
       card.dataset.touchContractId =
         contract.id;
@@ -6552,15 +6752,20 @@ function renderContractDropCards(
 
 
       card.innerHTML = `
-        <div class="contract-drop-head">
+        <button
+          type="button"
+          class="contract-drop-toggle"
+          aria-expanded="${expanded ? "true" : "false"}"
+          title="${expanded ? "Collapse contract tickets" : "Expand contract tickets"}"
+        >
 
-          <div>
+          <div class="compact-contract-main">
 
-            <div class="contract-drop-title">
+            <div class="compact-contract-title">
               Contract ${escapeHtml(contract.contractNumber || contract.id)}
             </div>
 
-            <div class="contract-drop-meta">
+            <div class="compact-contract-meta">
               ${escapeHtml(contract.crop || "—")}
               •
               ${escapeHtml(contract.contractType || "—")}
@@ -6570,166 +6775,245 @@ function renderContractDropCards(
 
           </div>
 
-          <span class="status-pill ${getStatusClass(contract)}">
-            ${getStatusLabel(contract)}
+
+          <div class="compact-contract-numbers">
+
+            <div class="compact-contract-number">
+              <strong>
+                ${formatBushels(contract.contractBushels)}
+              </strong>
+              <span>
+                Contract
+              </span>
+            </div>
+
+            <div class="compact-contract-number">
+              <strong>
+                ${formatBushels(contract.openBushels)}
+              </strong>
+              <span>
+                Remaining
+              </span>
+            </div>
+
+            <div class="compact-contract-number">
+              <strong>
+                ${contract.loadCount}
+              </strong>
+              <span>
+                Tickets
+              </span>
+            </div>
+
+            <span class="status-pill ${getStatusClass(contract)}">
+              ${getStatusLabel(contract)}
+            </span>
+
+          </div>
+
+
+          <span
+            class="compact-contract-chevron"
+            aria-hidden="true"
+          >
+            ▼
           </span>
 
-        </div>
+        </button>
 
 
-        <div class="contract-stats">
+        <div
+          class="contract-drop-expanded"
+          ${expanded ? "" : "hidden"}
+        >
 
-          <div class="contract-stat">
-            <div class="contract-stat-label">
-              Contract
-            </div>
+          <div class="contract-stats">
 
-            <div class="contract-stat-value">
-              ${formatBushels(contract.contractBushels)}
-            </div>
-          </div>
-
-
-          <div class="contract-stat">
-            <div class="contract-stat-label">
-              Assigned
-            </div>
-
-            <div class="contract-stat-value">
-              ${formatBushels(contract.deliveredBushels)}
-            </div>
-          </div>
-
-
-          <div class="contract-stat">
-            <div class="contract-stat-label">
-              Remaining
-            </div>
-
-            <div class="contract-stat-value">
-              ${formatBushels(contract.openBushels)}
-            </div>
-          </div>
-
-
-          <div class="contract-stat">
-            <div class="contract-stat-label">
-              Loads
-            </div>
-
-            <div class="contract-stat-value">
-              ${contract.loadCount}
-            </div>
-          </div>
-
-        </div>
-
-
-        <div class="contract-average-block">
-
-          <div class="contract-average-title">
-            Average
-          </div>
-
-          <div class="contract-average-grid">
-
-            <div class="contract-average-item">
-              <div class="contract-average-label">
-                Moisture
+            <div class="contract-stat">
+              <div class="contract-stat-label">
+                Contract
               </div>
 
-              <div class="contract-average-value">
-                ${
-                  averages.moisture ===
-                  null
-                    ? "—"
-                    : `${averages.moisture.toFixed(2)}%`
-                }
+              <div class="contract-stat-value">
+                ${formatBushels(contract.contractBushels)}
               </div>
             </div>
 
 
-            <div class="contract-average-item">
-              <div class="contract-average-label">
-                Damage
+            <div class="contract-stat">
+              <div class="contract-stat-label">
+                Assigned
               </div>
 
-              <div class="contract-average-value">
-                ${
-                  averages.damage ===
-                  null
-                    ? "—"
-                    : `${averages.damage.toFixed(2)}%`
-                }
+              <div class="contract-stat-value">
+                ${formatBushels(contract.deliveredBushels)}
               </div>
             </div>
 
 
-            <div class="contract-average-item">
-              <div class="contract-average-label">
-                FM
+            <div class="contract-stat">
+              <div class="contract-stat-label">
+                Remaining
               </div>
 
-              <div class="contract-average-value">
-                ${
-                  averages.fm ===
-                  null
-                    ? "—"
-                    : `${averages.fm.toFixed(2)}%`
-                }
+              <div class="contract-stat-value">
+                ${formatBushels(contract.openBushels)}
+              </div>
+            </div>
+
+
+            <div class="contract-stat">
+              <div class="contract-stat-label">
+                Loads
+              </div>
+
+              <div class="contract-stat-value">
+                ${contract.loadCount}
               </div>
             </div>
 
           </div>
 
-        </div>
+
+          <div class="contract-average-block">
+
+            <div class="contract-average-title">
+              Average
+            </div>
+
+            <div class="contract-average-grid">
+
+              <div class="contract-average-item">
+                <div class="contract-average-label">
+                  Moisture
+                </div>
+
+                <div class="contract-average-value">
+                  ${
+                    averages.moisture ===
+                    null
+                      ? "—"
+                      : `${averages.moisture.toFixed(2)}%`
+                  }
+                </div>
+              </div>
 
 
-        ${assignedTicketMarkup(contract)}
+              <div class="contract-average-item">
+                <div class="contract-average-label">
+                  Damage
+                </div>
+
+                <div class="contract-average-value">
+                  ${
+                    averages.damage ===
+                    null
+                      ? "—"
+                      : `${averages.damage.toFixed(2)}%`
+                  }
+                </div>
+              </div>
 
 
-        <div class="contract-actions">
+              <div class="contract-average-item">
+                <div class="contract-average-label">
+                  FM
+                </div>
 
-          <button
-            type="button"
-            class="btn btn-primary btn-small assign-selected-btn"
+                <div class="contract-average-value">
+                  ${
+                    averages.fm ===
+                    null
+                      ? "—"
+                      : `${averages.fm.toFixed(2)}%`
+                  }
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+
+
+          ${assignedTicketMarkup(contract)}
+
+
+          <div class="contract-actions">
+
+            <button
+              type="button"
+              class="btn btn-primary btn-small assign-selected-btn"
+              ${
+                selectedTickets.length &&
+                !full &&
+                !state.busy
+                  ? ""
+                  : "disabled"
+              }
+            >
+              Assign Selected (${selectedTickets.length})
+            </button>
+
+
+            <button
+              type="button"
+              class="btn btn-secondary btn-small assign-all-btn"
+              ${
+                matchingTickets.length &&
+                !full &&
+                !state.busy
+                  ? ""
+                  : "disabled"
+              }
+            >
+              Assign All ${escapeHtml(contract.crop || "")} (${matchingTickets.length})
+            </button>
+
+          </div>
+
+
+          <div class="contract-drop-helper">
             ${
-              selectedTickets.length &&
-              !full &&
-              !state.busy
-                ? ""
-                : "disabled"
+              full
+                ? "Contract is full — no more bushels can be assigned"
+                : "Drop ticket bushels on the compact row or anywhere in this card — FarmVista stops exactly at the contract limit"
             }
-          >
-            Assign Selected (${selectedTickets.length})
-          </button>
+          </div>
 
-
-          <button
-            type="button"
-            class="btn btn-secondary btn-small assign-all-btn"
-            ${
-              matchingTickets.length &&
-              !full &&
-              !state.busy
-                ? ""
-                : "disabled"
-            }
-          >
-            Assign All ${escapeHtml(contract.crop || "")} (${matchingTickets.length})
-          </button>
-
-        </div>
-
-
-        <div class="contract-drop-helper">
-          ${
-            full
-              ? "Contract is full — no more bushels can be assigned"
-              : "Drop ticket bushels here — FarmVista stops exactly at the contract limit"
-          }
         </div>
       `;
+
+
+      card
+        .querySelector(
+          ".contract-drop-toggle"
+        )
+        ?.addEventListener(
+          "click",
+          event => {
+            event.stopPropagation();
+
+            if (
+              state.expandedContractDropIds
+                .has(
+                  contract.id
+                )
+            ) {
+              state.expandedContractDropIds
+                .delete(
+                  contract.id
+                );
+            }
+            else {
+              state.expandedContractDropIds
+                .add(
+                  contract.id
+                );
+            }
+
+            renderReconciliation();
+          }
+        );
 
 
       card
@@ -6937,6 +7221,10 @@ function renderContractDropCards(
 
 /* ============================================================
    SPOT BUSHEL CARD
+
+   Spot follows the exact same compact / expandable pattern
+   as a grain contract. The collapsed Spot row is still a
+   valid drag-and-drop target.
 ============================================================ */
 
 function renderSpotCard(
@@ -6974,6 +7262,11 @@ function renderSpotCard(
       )
     );
 
+  const expanded =
+    Boolean(
+      state.spotDropExpanded
+    );
+
 
   const card =
     document.createElement(
@@ -6981,113 +7274,177 @@ function renderSpotCard(
     );
 
   card.className =
-    "contract-drop-card spot-drop-card";
+    `contract-drop-card spot-drop-card reconciliation-compact-card${
+      expanded
+        ? " expanded"
+        : ""
+    }`;
 
   card.style.borderColor =
     "rgba(154,103,0,.6)";
 
 
   card.innerHTML = `
-    <div class="contract-drop-head">
+    <button
+      type="button"
+      class="contract-drop-toggle"
+      aria-expanded="${expanded ? "true" : "false"}"
+      title="${expanded ? "Collapse Spot tickets" : "Expand Spot tickets"}"
+    >
 
-      <div>
+      <div class="compact-contract-main">
 
-        <div class="contract-drop-title">
+        <div class="compact-contract-title">
           Spot Bushels
         </div>
 
-        <div class="contract-drop-meta">
+        <div class="compact-contract-meta">
           Bushels sold Spot instead of applied to a contract
         </div>
 
       </div>
 
-      <span class="status-pill status-near">
-        SPOT
+
+      <div class="compact-contract-numbers">
+
+        <div class="compact-contract-number">
+          <strong>
+            ${formatBushels(total)}
+          </strong>
+          <span>
+            Spot Bu
+          </span>
+        </div>
+
+        <div class="compact-contract-number">
+          <strong>
+            ${tickets.length}
+          </strong>
+          <span>
+            Tickets
+          </span>
+        </div>
+
+        <span class="status-pill status-near">
+          SPOT
+        </span>
+
+      </div>
+
+
+      <span
+        class="compact-contract-chevron"
+        aria-hidden="true"
+      >
+        ▼
       </span>
 
-    </div>
+    </button>
 
 
     <div
-      class="contract-stats"
-      style="grid-template-columns:repeat(2,minmax(0,1fr));"
+      class="contract-drop-expanded"
+      ${expanded ? "" : "hidden"}
     >
 
-      <div class="contract-stat">
+      <div
+        class="contract-stats"
+        style="grid-template-columns:repeat(2,minmax(0,1fr));"
+      >
 
-        <div class="contract-stat-label">
-          Spot Bushels
+        <div class="contract-stat">
+
+          <div class="contract-stat-label">
+            Spot Bushels
+          </div>
+
+          <div class="contract-stat-value">
+            ${formatBushels(total)}
+          </div>
+
         </div>
 
-        <div class="contract-stat-value">
-          ${formatBushels(total)}
+
+        <div class="contract-stat">
+
+          <div class="contract-stat-label">
+            Tickets
+          </div>
+
+          <div class="contract-stat-value">
+            ${tickets.length}
+          </div>
+
         </div>
 
       </div>
 
 
-      <div class="contract-stat">
+      <div class="assigned-ticket-section">
 
-        <div class="contract-stat-label">
-          Tickets
-        </div>
+        <div class="assigned-ticket-list">
 
-        <div class="contract-stat-value">
-          ${tickets.length}
-        </div>
+          ${
+            tickets.length
+              ? tickets.map(
+                  ticket => `
+                    <button
+                      type="button"
+                      class="assigned-ticket-item"
+                      data-spot-ticket="${escapeHtml(ticket.id)}"
+                      draggable="${state.busy ? "false" : "true"}"
+                    >
 
-      </div>
+                      <div class="assigned-ticket-top">
 
-    </div>
+                        <div class="assigned-ticket-number">
+                          Ticket ${escapeHtml(ticket.ticketNumber || ticket.id)}
+                        </div>
 
+                        <div class="assigned-ticket-bu">
+                          ${formatBushels(getSpotBushels(ticket))} bu
+                        </div>
 
-    <div class="assigned-ticket-section">
-
-      <div class="assigned-ticket-list">
-
-        ${
-          tickets.length
-            ? tickets.map(
-                ticket => `
-                  <button
-                    type="button"
-                    class="assigned-ticket-item"
-                    data-spot-ticket="${escapeHtml(ticket.id)}"
-                    draggable="${state.busy ? "false" : "true"}"
-                  >
-
-                    <div class="assigned-ticket-top">
-
-                      <div class="assigned-ticket-number">
-                        Ticket ${escapeHtml(ticket.ticketNumber || ticket.id)}
                       </div>
 
-                      <div class="assigned-ticket-bu">
-                        ${formatBushels(getSpotBushels(ticket))} bu
-                      </div>
-
-                    </div>
-
-                  </button>
+                    </button>
+                  `
+                ).join("")
+              : `
+                  <div class="assigned-ticket-empty">
+                    Drop ticket bushels here to record them as Spot.
+                  </div>
                 `
-              ).join("")
-            : `
-                <div class="assigned-ticket-empty">
-                  Drop ticket bushels here to record them as Spot.
-                </div>
-              `
-        }
+          }
+
+        </div>
 
       </div>
 
-    </div>
 
+      <div class="contract-drop-helper">
+        Drop ticket bushels on the compact Spot row or anywhere in this card to record as Spot
+      </div>
 
-    <div class="contract-drop-helper">
-      Drop ticket bushels here to record as Spot
     </div>
   `;
+
+
+  card
+    .querySelector(
+      ".contract-drop-toggle"
+    )
+    ?.addEventListener(
+      "click",
+      event => {
+        event.stopPropagation();
+
+        state.spotDropExpanded =
+          !state.spotDropExpanded;
+
+        renderReconciliation();
+      }
+    );
 
 
   card
