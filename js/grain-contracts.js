@@ -72,6 +72,7 @@ const state = {
   spotDropExpanded: false,
 
   draggingTicketId: "",
+  draggingTicketIds: [],
   draggingSourceType: "",
   draggingSourceId: "",
 
@@ -4825,6 +4826,74 @@ function setupReconciliationControls() {
    DRAG HELPERS
 ============================================================ */
 
+function selectedDragTicketIds(
+  ticketId,
+  type
+) {
+  const id =
+    clean(
+      ticketId
+    );
+
+
+  /*
+    Group dragging only applies to UNASSIGNED ticket cards.
+
+    If the ticket being dragged is checked, every checked
+    unassigned ticket becomes part of the drag group.
+  */
+  if (
+    type ===
+      "unassigned" &&
+    state.selectedTicketIds
+      .has(
+        id
+      )
+  ) {
+    const ids =
+      [
+        ...state.selectedTicketIds
+      ]
+        .filter(
+          selectedId => {
+
+            const ticket =
+              state.tickets.find(
+                item =>
+                  item.id ===
+                    selectedId
+              );
+
+
+            return (
+              !!ticket &&
+              !ticket.voided &&
+              getUnassignedBushels(
+                ticket
+              ) >
+                EPSILON
+            );
+
+          }
+        );
+
+
+    if (
+      ids.length
+    ) {
+      return ids;
+    }
+  }
+
+
+  return id
+    ? [
+        id
+      ]
+    : [];
+}
+
+
 function dragStart(
   ticketId,
   type,
@@ -4833,6 +4902,12 @@ function dragStart(
   state.draggingTicketId =
     clean(
       ticketId
+    );
+
+  state.draggingTicketIds =
+    selectedDragTicketIds(
+      ticketId,
+      type
     );
 
   state.draggingSourceType =
@@ -4847,6 +4922,7 @@ function dragStart(
 
 function dragClear() {
   state.draggingTicketId = "";
+  state.draggingTicketIds = [];
   state.draggingSourceType = "";
   state.draggingSourceId = "";
 }
@@ -4857,8 +4933,16 @@ function dragPayload(
   type,
   sourceId = ""
 ) {
+  const ticketIds =
+    selectedDragTicketIds(
+      ticketId,
+      type
+    );
+
+
   return JSON.stringify({
     ticketId,
+    ticketIds,
     type,
     sourceId
   });
@@ -4881,11 +4965,39 @@ function parseDragPayload(
         raw
       );
 
+    const parsedIds =
+      Array.isArray(
+        parsed.ticketIds
+      )
+        ? parsed.ticketIds
+            .map(
+              clean
+            )
+            .filter(
+              Boolean
+            )
+        : [];
+
+
+    const ticketId =
+      clean(
+        parsed.ticketId
+      );
+
+
     return {
-      ticketId:
-        clean(
-          parsed.ticketId
-        ),
+      ticketId,
+
+      ticketIds:
+        parsedIds.length
+          ? parsedIds
+          : (
+              ticketId
+                ? [
+                    ticketId
+                  ]
+                : []
+            ),
 
       type:
         clean(
@@ -4899,12 +5011,29 @@ function parseDragPayload(
     };
   }
   catch {
+    const ticketId =
+      clean(
+        raw ||
+        state.draggingTicketId
+      );
+
+
     return {
-      ticketId:
-        clean(
-          raw ||
-          state.draggingTicketId
-        ),
+      ticketId,
+
+      ticketIds:
+        state.draggingTicketIds
+          .length
+          ? [
+              ...state.draggingTicketIds
+            ]
+          : (
+              ticketId
+                ? [
+                    ticketId
+                  ]
+                : []
+            ),
 
       type:
         state.draggingSourceType,
@@ -4914,6 +5043,88 @@ function parseDragPayload(
     };
   }
 }
+
+
+function validateTicketGroupAgainstContract(
+  ticketIds,
+  contract
+) {
+  const ids =
+    Array.isArray(
+      ticketIds
+    )
+      ? ticketIds
+      : [];
+
+
+  for (
+    const ticketId
+    of ids
+  ) {
+    const ticket =
+      state.tickets.find(
+        item =>
+          item.id ===
+            ticketId
+      );
+
+
+    const validation =
+      validateTicketAgainstContract(
+        ticket,
+        contract
+      );
+
+
+    if (
+      validation
+    ) {
+      return {
+        ok:
+          false,
+
+        ticket,
+
+        message:
+          validation
+      };
+    }
+  }
+
+
+  return {
+    ok:
+      true,
+
+    ticket:
+      null,
+
+    message:
+      ""
+  };
+}
+
+
+function selectedDragFailureMessage(
+  result
+) {
+  if (
+    !result ||
+    result.ok
+  ) {
+    return "";
+  }
+
+
+  const ticketLabel =
+    result.ticket?.ticketNumber ||
+    result.ticket?.id ||
+    "Unknown";
+
+
+  return `Selected tickets were not moved. Ticket ${ticketLabel} failed: ${result.message}`;
+}
+
 
 /* ============================================================
    TOUCH DRAG & DROP
@@ -5051,6 +5262,13 @@ function getTouchDragSource(
               .touchTicketId
           ),
 
+        ticketIds:
+          selectedDragTicketIds(
+            unassignedCard.dataset
+              .touchTicketId,
+            "unassigned"
+          ),
+
         type:
           "unassigned",
 
@@ -5111,11 +5329,22 @@ function createTouchDragGhost(
     "fv-touch-drag-ghost";
 
 
+  const groupCount =
+    Array.isArray(
+      payload.ticketIds
+    )
+      ? payload.ticketIds.length
+      : 0;
+
+
   ghost.textContent =
-    `Ticket ${
-      ticket?.ticketNumber ||
-      payload.ticketId
-    }`;
+    groupCount >
+      1
+      ? `${groupCount} selected tickets`
+      : `Ticket ${
+          ticket?.ticketNumber ||
+          payload.ticketId
+        }`;
 
 
   Object.assign(
@@ -5373,14 +5602,36 @@ function getTouchDropTarget(
     }
 
 
-    const validation =
-      validateTicketAgainstContract(
-        ticket,
+    const dragIds =
+      Array.isArray(
+        payload.ticketIds
+      ) &&
+      payload.ticketIds.length
+        ? payload.ticketIds
+        : [
+            payload.ticketId
+          ];
+
+
+    const groupValidation =
+      validateTicketGroupAgainstContract(
+        dragIds,
         contract
       );
 
 
-    if (validation) {
+    /*
+      A selected group is still allowed to reach the drop handler
+      when one item is invalid so FarmVista can explain WHY the
+      entire group was rejected.
+
+      Single-ticket touch dragging keeps the old behavior.
+    */
+    if (
+      !groupValidation.ok &&
+      dragIds.length <=
+        1
+    ) {
       return null;
     }
 
@@ -5466,6 +5717,24 @@ function beginTouchDrag(
     source.payload.type,
     source.payload.sourceId
   );
+
+
+  if (
+    Array.isArray(
+      source.payload.ticketIds
+    ) &&
+    source.payload.ticketIds.length
+  ) {
+    state.draggingTicketIds =
+      [
+        ...source.payload.ticketIds
+      ];
+
+    touchDrag.payload.ticketIds =
+      [
+        ...source.payload.ticketIds
+      ];
+  }
 
 
   source.element
@@ -5614,6 +5883,60 @@ function performTouchDrop(
     target.type ===
     "contract"
   ) {
+    const ticketIds =
+      Array.isArray(
+        payload.ticketIds
+      ) &&
+      payload.ticketIds.length
+        ? payload.ticketIds
+        : [
+            payload.ticketId
+          ];
+
+
+    if (
+      payload.type ===
+        "unassigned" &&
+      ticketIds.length >
+        1
+    ) {
+      const contract =
+        state.contracts.find(
+          item =>
+            item.id ===
+              target.id
+        );
+
+
+      const validation =
+        validateTicketGroupAgainstContract(
+          ticketIds,
+          contract
+        );
+
+
+      if (
+        !validation.ok
+      ) {
+        alert(
+          selectedDragFailureMessage(
+            validation
+          )
+        );
+
+        return;
+      }
+
+
+      assignTicketsToContract(
+        ticketIds,
+        target.id
+      );
+
+      return;
+    }
+
+
     moveTicketToContract(
       payload.ticketId,
       target.id,
@@ -7137,13 +7460,39 @@ function renderContractDropCards(
             return;
           }
 
-          const validation =
-            validateTicketAgainstContract(
-              ticket,
+          const dragIds =
+            state.draggingTicketIds
+              .length
+              ? state.draggingTicketIds
+              : [
+                  ticket.id
+                ];
+
+
+          const groupValidation =
+            validateTicketGroupAgainstContract(
+              dragIds,
               contract
             );
 
-          if (validation) {
+
+          /*
+            For a checked multi-ticket drag, allow the drop event
+            even when one ticket fails so we can display the exact
+            reason and move NONE of them.
+          */
+          if (
+            !groupValidation.ok
+          ) {
+            if (
+              state.draggingSourceType ===
+                "unassigned" &&
+              dragIds.length >
+                1
+            ) {
+              event.preventDefault();
+            }
+
             return;
           }
 
@@ -7197,6 +7546,52 @@ function renderContractDropCards(
             parseDragPayload(
               event
             );
+
+          const ticketIds =
+            Array.isArray(
+              payload.ticketIds
+            ) &&
+            payload.ticketIds.length
+              ? payload.ticketIds
+              : [
+                  payload.ticketId
+                ];
+
+
+          if (
+            payload.type ===
+              "unassigned" &&
+            ticketIds.length >
+              1
+          ) {
+            const validation =
+              validateTicketGroupAgainstContract(
+                ticketIds,
+                contract
+              );
+
+
+            if (
+              !validation.ok
+            ) {
+              alert(
+                selectedDragFailureMessage(
+                  validation
+                )
+              );
+
+              return;
+            }
+
+
+            assignTicketsToContract(
+              ticketIds,
+              contract.id
+            );
+
+            return;
+          }
+
 
           moveTicketToContract(
             payload.ticketId,
@@ -7546,6 +7941,31 @@ function renderSpotCard(
         parseDragPayload(
           event
         );
+
+      const ticketIds =
+        Array.isArray(
+          payload.ticketIds
+        ) &&
+        payload.ticketIds.length
+          ? payload.ticketIds
+          : [
+              payload.ticketId
+            ];
+
+
+      if (
+        payload.type ===
+          "unassigned" &&
+        ticketIds.length >
+          1
+      ) {
+        alert(
+          "Multiple selected tickets can be dragged together onto a grain contract. For Spot, drag tickets one at a time."
+        );
+
+        return;
+      }
+
 
       moveTicketBushelsToSpot(
         payload.ticketId,
