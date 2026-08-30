@@ -11751,6 +11751,7 @@ function loLiveGrainSourceLabel(load){
       loadSnapshot,
       binSiteSnapshot,
       bagEventSnapshot,
+      bagMovementSnapshot,
       companySnapshot
     ] = await Promise.all([
       getDocs(collection(db,"employees")),
@@ -11764,6 +11765,7 @@ function loLiveGrainSourceLabel(load){
       getDocs(collection(db,LOADOUT_COLLECTION)),
       getDocs(collection(db,"binSites")),
       getDocs(collection(db,"grain_bag_events")),
+      getDocs(collection(db,"inventoryGrainBagMovements")),
       getDoc(doc(db,"company","main"))
     ]);
 
@@ -12006,135 +12008,588 @@ loState.drivers = employeeSnapshot.docs
         )
       );
 
-    const loBagFactor = crop => {
+    /*
+      Grain bag products are not always linked directly through
+      bagSku.id on older putDown records.
+
+      Match the Inventory page behavior by also resolving the
+      productsGrainBags document through inventoryGrainBagMovements.
+    */
+    const loMakeBagKey = (
+      brand,
+      diameterFt,
+      lengthFt
+    ) => {
+      return [
+        loNorm(brand),
+        Number(diameterFt) || 0,
+        Number(lengthFt) || 0
+      ].join("|");
+    };
+
+    const loRefDocId = ref => {
+      if (!ref) return "";
+
       try {
-        const api = window.FVGrainCapacity;
-        if (api && typeof api.getFactor === "function") {
-          const factor = Number(api.getFactor(crop));
-          if (Number.isFinite(factor) && factor > 0) return factor;
+        if (
+          typeof ref.id === "string" &&
+          ref.id
+        ) {
+          return ref.id;
         }
       }
       catch (_) {}
+
+      const parts =
+        String(ref || "")
+          .split("/")
+          .filter(Boolean);
+
+      return parts.length
+        ? parts[parts.length - 1]
+        : "";
+    };
+
+    const grainBagMovementByKey =
+      new Map();
+
+    bagMovementSnapshot.docs.forEach(
+      snapshot => {
+        const data =
+          snapshot.data() ||
+          {};
+
+        const key =
+          loMakeBagKey(
+            data.brand,
+            data.diameterFt,
+            data.lengthFt
+          );
+
+        const existing =
+          grainBagMovementByKey.get(
+            key
+          );
+
+        const existingMs =
+          existing?.updatedAt?.toDate
+            ? existing.updatedAt
+                .toDate()
+                .getTime()
+            : Number(
+                existing?.updatedAt ||
+                0
+              );
+
+        const newMs =
+          data?.updatedAt?.toDate
+            ? data.updatedAt
+                .toDate()
+                .getTime()
+            : Number(
+                data?.updatedAt ||
+                0
+              );
+
+        if (
+          !existing ||
+          newMs >= existingMs
+        ) {
+          grainBagMovementByKey.set(
+            key,
+            data
+          );
+        }
+      }
+    );
+
+    const loResolveBagProduct = event => {
+      const sku =
+        event?.bagSku ||
+        {};
+
+      /*
+        First choice:
+        direct product document ID.
+      */
+      const directId =
+        loClean(
+          sku.id
+        );
+
+      if (
+        directId &&
+        grainBagProductsById.has(
+          directId
+        )
+      ) {
+        return grainBagProductsById.get(
+          directId
+        );
+      }
+
+      /*
+        Fallback:
+        match brand + diameter + length through
+        inventoryGrainBagMovements, just like the
+        Grain Inventory page.
+      */
+      const key =
+        loMakeBagKey(
+          sku.brand,
+          Number(
+            sku.diameterFt ||
+            sku.diameter ||
+            0
+          ),
+          Number(
+            sku.sizeFeet ||
+            sku.lengthFt ||
+            0
+          )
+        );
+
+      const movement =
+        grainBagMovementByKey.get(
+          key
+        );
+
+      const productId =
+        loRefDocId(
+          movement?.productRef
+        );
+
+      if (
+        productId &&
+        grainBagProductsById.has(
+          productId
+        )
+      ) {
+        return grainBagProductsById.get(
+          productId
+        );
+      }
+
+      return null;
+    };
+
+    const loBagFactor = crop => {
+      try {
+        const api =
+          window.FVGrainCapacity;
+
+        if (
+          api &&
+          typeof api.getFactor ===
+            "function"
+        ) {
+          const factor =
+            Number(
+              api.getFactor(
+                crop
+              )
+            );
+
+          if (
+            Number.isFinite(
+              factor
+            ) &&
+            factor >
+              0
+          ) {
+            return factor;
+          }
+        }
+      }
+      catch (_) {}
+
       return 1;
     };
 
     const loFallbackBuPerFoot = diameter => {
-      const d = Number(diameter) || 0;
+      const d =
+        Number(
+          diameter
+        ) ||
+        0;
+
       if (d >= 12) return 60;
       if (d >= 11) return 50;
       if (d >= 10) return 39;
       if (d >= 9) return 30;
       if (d > 0) return 25;
+
       return 0;
     };
 
-    loState.bagSources = bagEventSnapshot.docs
-      .map(snapshot => ({
-        id:snapshot.id,
-        ...snapshot.data()
-      }))
-      .filter(event => loNorm(event.type) === "putdown")
-      .filter(event => loNorm(event.status) !== "pickedup")
-      .map(event => {
-        const counts = event.counts || {};
-        const full = Math.max(0,Number(counts.full || 0));
-        const partial = Math.max(0,Number(counts.partial || 0));
+    loState.bagSources =
+      bagEventSnapshot.docs
 
-        const fieldName = loClean(event.field?.name) || "Unknown Field";
-        const crop = loClean(event.cropType || event.crop);
-        const year = loClean(event.cropYear);
-        const brand = loClean(event.bagSku?.brand);
-        const diameter = Number(event.bagSku?.diameterFt || 0);
-        const sizeFeet = Number(event.bagSku?.sizeFeet || event.bagSku?.lengthFt || 0);
-        const bagLocation = loClean(event.bagSku?.location);
+        .map(
+          snapshot => ({
+            id:
+              snapshot.id,
 
-        const partialFeetList =
-          Array.isArray(event.partialFeet)
-            ? event.partialFeet
-            : Array.isArray(counts.partialFeet)
-              ? counts.partialFeet
-              : [];
+            ...snapshot.data()
+          })
+        )
 
-        let partialFeetTotal =
-          partialFeetList.reduce(
-            (sum,value) => sum + Math.max(0,Number(value) || 0),
-            0
-          );
+        .filter(
+          event =>
+            loNorm(
+              event.type
+            ) ===
+            "putdown"
+        )
 
-        if (partial > 0 && partialFeetTotal <= 0 && sizeFeet > 0) {
-          partialFeetTotal = partial * 0.5 * sizeFeet;
-        }
+        .filter(
+          event =>
+            loNorm(
+              event.status
+            ) !==
+            "pickedup"
+        )
 
-        const totalFeet =
-          (full * sizeFeet) +
-          partialFeetTotal;
+        .map(
+          event => {
 
-        if (!(totalFeet > 0)) return null;
+            const counts =
+              event.counts ||
+              {};
 
-        const product =
-          grainBagProductsById.get(
-            loClean(event.bagSku?.id)
-          ) || null;
+            const full =
+              Math.max(
+                0,
+                Number(
+                  counts.full ||
+                  0
+                )
+              );
 
-        const productLength =
-          Number(product?.lengthFt || sizeFeet || 0);
+            const partial =
+              Math.max(
+                0,
+                Number(
+                  counts.partial ||
+                  0
+                )
+              );
 
-        const cornBushels =
-          Number(product?.bushels || 0);
+            const fieldName =
+              loClean(
+                event.field?.name
+              ) ||
+              "Unknown Field";
 
-        let cornBuPerFoot =
-          cornBushels > 0 && productLength > 0
-            ? cornBushels / productLength
-            : loFallbackBuPerFoot(diameter);
+            const crop =
+              loClean(
+                event.cropType ||
+                event.crop
+              );
 
-        const availableBushels =
-          Math.max(
-            0,
-            totalFeet *
-            cornBuPerFoot *
-            loBagFactor(crop)
-          );
+            const year =
+              loClean(
+                event.cropYear
+              );
 
-        if (!(availableBushels > 0)) return null;
+            const brand =
+              loClean(
+                event.bagSku?.brand
+              );
 
-        const details = [
-          crop,
-          year ? `CY ${year}` : "",
-          brand,
-          diameter ? `${diameter}'` : "",
-          sizeFeet ? `${sizeFeet}'` : "",
-          bagLocation,
-          `${Math.round(availableBushels).toLocaleString("en-US")} bu`
-        ].filter(Boolean);
+            const diameter =
+              Number(
+                event.bagSku?.diameterFt ||
+                event.bagSku?.diameter ||
+                0
+              );
 
-        const bagGps =
-          loReadLatLng(event) ||
-          loReadLatLng(event.field);
+            const sizeFeet =
+              Number(
+                event.bagSku?.sizeFeet ||
+                event.bagSku?.lengthFt ||
+                0
+              );
 
-        return {
-          type:"grain_bag",
-          value:`bag:${event.id}`,
-          id:event.id,
-          crop,
-          fieldId:loClean(event.field?.id),
-          fieldName,
-          cropYear:year,
-          latitude:bagGps?.latitude ?? null,
-          longitude:bagGps?.longitude ?? null,
-          brand,
-          diameterFt:diameter || null,
-          sizeFeet:sizeFeet || null,
-          bagLocation,
-          counts:{full,partial},
-          availableBushels,
-          label:`${fieldName}${details.length ? ` — ${details.join(" • ")}` : ""}`,
-          searchText:`${fieldName} ${crop} ${year} ${brand} ${bagLocation}`
-        };
-      })
-      .filter(Boolean)
-      .sort((a,b) =>
-        a.label.localeCompare(b.label,undefined,{numeric:true,sensitivity:"base"})
-      );
+            const bagLocation =
+              loClean(
+                event.bagSku?.location
+              );
+
+            /*
+              Resolve the real product first.
+
+              This is the important difference:
+              if bagSku.id is missing/old, use the
+              inventory movement mapping.
+            */
+            const product =
+              loResolveBagProduct(
+                event
+              );
+
+            const productLength =
+              Number(
+                product?.lengthFt ||
+                sizeFeet ||
+                0
+              );
+
+            /*
+              Use the resolved product length as the
+              authoritative length when available.
+            */
+            const effectiveLength =
+              productLength >
+                0
+                ? productLength
+                : sizeFeet;
+
+            const partialFeetList =
+              Array.isArray(
+                event.partialFeet
+              )
+                ? event.partialFeet
+
+                : Array.isArray(
+                    counts.partialFeet
+                  )
+                  ? counts.partialFeet
+                  : [];
+
+            let partialFeetTotal =
+              partialFeetList.reduce(
+                (
+                  sum,
+                  value
+                ) =>
+                  sum +
+                  Math.max(
+                    0,
+                    Number(
+                      value
+                    ) ||
+                    0
+                  ),
+                0
+              );
+
+            /*
+              Preserve the FarmVista legacy rule:
+              a partial bag without exact footage
+              counts as half a bag.
+            */
+            if (
+              partial >
+                0 &&
+              partialFeetTotal <=
+                0 &&
+              effectiveLength >
+                0
+            ) {
+              partialFeetTotal =
+                partial *
+                0.5 *
+                effectiveLength;
+            }
+
+            const totalFeet =
+              (
+                full *
+                effectiveLength
+              ) +
+              partialFeetTotal;
+
+            if (
+              !(totalFeet > 0)
+            ) {
+              return null;
+            }
+
+            /*
+              productsGrainBags.bushels is stored as
+              CORN-RATED capacity.
+
+              Example:
+                Up North
+                10'
+                500'
+                21,500 corn bu
+
+              21,500 / 500 = 43 corn bu/ft
+            */
+            const cornBushels =
+              Number(
+                product?.bushels ||
+                0
+              );
+
+            const cornBuPerFoot =
+              cornBushels >
+                0 &&
+              effectiveLength >
+                0
+
+                ? cornBushels /
+                  effectiveLength
+
+                : loFallbackBuPerFoot(
+                    diameter
+                  );
+
+            /*
+              Convert corn-rated capacity to the
+              actual crop through grain-capacity.js.
+
+              Soybeans currently use:
+                0.93
+
+              Six 21,500 bu corn-rated bags:
+                21,500 × 6 × 0.93
+                = 119,970 soybean bushels.
+            */
+            const availableBushels =
+              Math.max(
+                0,
+
+                totalFeet *
+
+                cornBuPerFoot *
+
+                loBagFactor(
+                  crop
+                )
+              );
+
+            if (
+              !(availableBushels > 0)
+            ) {
+              return null;
+            }
+
+            const details = [
+              crop,
+
+              year
+                ? `CY ${year}`
+                : "",
+
+              brand,
+
+              diameter
+                ? `${diameter}'`
+                : "",
+
+              effectiveLength
+                ? `${effectiveLength}'`
+                : "",
+
+              bagLocation,
+
+              `${Math.round(
+                availableBushels
+              ).toLocaleString(
+                "en-US"
+              )} bu`
+
+            ].filter(
+              Boolean
+            );
+
+            const bagGps =
+              loReadLatLng(
+                event
+              ) ||
+              loReadLatLng(
+                event.field
+              );
+
+            return {
+              type:
+                "grain_bag",
+
+              value:
+                `bag:${event.id}`,
+
+              id:
+                event.id,
+
+              crop,
+
+              fieldId:
+                loClean(
+                  event.field?.id
+                ),
+
+              fieldName,
+
+              cropYear:
+                year,
+
+              latitude:
+                bagGps?.latitude ??
+                null,
+
+              longitude:
+                bagGps?.longitude ??
+                null,
+
+              brand,
+
+              diameterFt:
+                diameter ||
+                null,
+
+              sizeFeet:
+                effectiveLength ||
+                null,
+
+              bagLocation,
+
+              counts: {
+                full,
+                partial
+              },
+
+              availableBushels,
+
+              label:
+                `${fieldName}${
+                  details.length
+                    ? ` — ${details.join(
+                        " • "
+                      )}`
+                    : ""
+                }`,
+
+              searchText:
+                `${fieldName} ${crop} ${year} ${brand} ${bagLocation}`
+            };
+
+          }
+        )
+
+        .filter(
+          Boolean
+        )
+
+        .sort(
+          (
+            a,
+            b
+          ) =>
+            a.label.localeCompare(
+              b.label,
+              undefined,
+              {
+                numeric:
+                  true,
+
+                sensitivity:
+                  "base"
+              }
+            )
+        );
 
     loState.company =
       companySnapshot.exists()
