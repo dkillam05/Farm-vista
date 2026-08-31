@@ -11767,24 +11767,90 @@ async function startCamera() {
     );
 
 
-    cameraStream =
-      await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: {
-            ideal:
-              "environment"
-          }
-        },
+cameraStream =
+  await navigator.mediaDevices.getUserMedia({
 
-        audio:
-          false
-      });
+    video: {
+
+      facingMode: {
+        ideal:
+          "environment"
+      },
+
+      width: {
+        ideal:
+          3840
+      },
+
+      height: {
+        ideal:
+          2160
+      }
+
+    },
+
+    audio:
+      false
+
+  });
 
 
     cameraTrack =
       cameraStream
         .getVideoTracks()[0] ||
       null;
+      
+      /*
+  CAMERA FOCUS
+
+  Ask the rear camera to continuously focus on the grain ticket.
+  Only request the feature when the device reports support.
+*/
+
+try {
+
+  const capabilities =
+    cameraTrack.getCapabilities
+      ? cameraTrack.getCapabilities()
+      : {};
+
+
+  if (
+    Array.isArray(
+      capabilities.focusMode
+    ) &&
+    capabilities.focusMode.includes(
+      "continuous"
+    )
+  ) {
+
+    await cameraTrack.applyConstraints({
+
+      advanced: [
+        {
+          focusMode:
+            "continuous"
+        }
+      ]
+
+    });
+
+
+    console.log(
+      "[Grain Ticket] Continuous autofocus enabled."
+    );
+
+  }
+
+}
+catch (focusErr) {
+
+  console.warn(
+    "[Grain Ticket] Autofocus request was not supported:",
+    focusErr
+  );
+
+}
 
 
     if (
@@ -12611,6 +12677,142 @@ if (
 
           const result =
             await response.json();
+            
+            /*
+  OCR GRADE FIELD SAFETY
+
+  fvOcr may return the correctly recognized value in result.fields
+  while grainTicket contains an older/default/parser value.
+
+  result.fields is the direct structured OCR result, so when it
+  contains a valid numeric grade value, copy that exact value into
+  grainTicket before FarmVista validates or saves the ticket.
+*/
+
+function getOcrNumericField(field) {
+
+  if (
+    field === null ||
+    field === undefined ||
+    field === ""
+  ) {
+    return null;
+  }
+
+  let rawValue =
+    field;
+
+  if (
+    typeof field === "object"
+  ) {
+
+    rawValue =
+      field.value ??
+      field.normalizedValue ??
+      field.text ??
+      field.rawValue ??
+      null;
+
+  }
+
+  const cleaned =
+    String(
+      rawValue ?? ""
+    )
+      .replace(
+        /[^0-9.-]/g,
+        ""
+      )
+      .trim();
+
+  if (
+    !cleaned
+  ) {
+    return null;
+  }
+
+  const number =
+    Number(
+      cleaned
+    );
+
+  return Number.isFinite(
+    number
+  )
+    ? number
+    : null;
+
+}
+
+
+if (
+  result.grainTicket &&
+  result.fields
+) {
+
+  const directFields = [
+    [
+      "testWeight",
+      "testWeight"
+    ],
+    [
+      "moisture",
+      "moisture"
+    ],
+    [
+      "damage",
+      "damage"
+    ],
+    [
+      "foreignMaterial",
+      "foreignMaterial"
+    ]
+  ];
+
+
+  directFields.forEach(
+    ([
+      fieldName,
+      ticketName
+    ]) => {
+
+      const value =
+        getOcrNumericField(
+          result.fields[
+            fieldName
+          ]
+        );
+
+
+      if (
+        value !== null
+      ) {
+
+        console.log(
+          `[Grain Ticket] OCR direct field ${fieldName}:`,
+          {
+            directOcrValue:
+              value,
+
+            parserValue:
+              result.grainTicket[
+                ticketName
+              ]
+          }
+        );
+
+
+        result.grainTicket[
+          ticketName
+        ] =
+          value;
+
+      }
+
+    }
+  );
+
+}
 
 
           console.log(
@@ -12665,6 +12867,60 @@ if (
             );
 
           }
+          
+          /*
+  TEST WEIGHT SANITY CHECK
+
+  Do not silently save a suspicious OCR reading.
+
+  Example:
+    actual ticket = 57.2
+    blurry OCR     = 67.2
+
+  We do NOT auto-change 67.2 to 57.2.
+  We require another picture instead.
+*/
+
+const scannedTestWeight =
+  Number(
+    result.grainTicket
+      ?.testWeight
+  );
+
+
+const scannedCropForGradeCheck =
+  String(
+    result.grainTicket
+      ?.crop ||
+    ""
+  )
+    .trim()
+    .toLowerCase();
+
+
+if (
+  Number.isFinite(
+    scannedTestWeight
+  ) &&
+  (
+    scannedCropForGradeCheck ===
+      "corn" ||
+    scannedCropForGradeCheck ===
+      "yellow corn"
+  ) &&
+  (
+    scannedTestWeight <
+      45 ||
+    scannedTestWeight >
+      65
+  )
+) {
+
+  throw new Error(
+    `Test Weight ${scannedTestWeight.toFixed(1)} looks unusual for corn. Please take a clearer picture of the ticket.`
+  );
+
+}
 
 
 const documentText =
