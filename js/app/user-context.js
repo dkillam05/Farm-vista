@@ -3848,13 +3848,146 @@ updatedAt:
   }
 
 
-  window.FVUserContext = {
-    get,
-    ready,
-    refresh,
-    onChange,
-    clear
+// ==========================================================
+// UNIVERSAL FARMVISTA USER IDENTITY
+// ==========================================================
+
+async function currentEmployee(){
+
+  const ctx =
+    await ready();
+
+  return (
+    ctx?.employee ||
+    ctx?.profile ||
+    null
+  );
+
+}
+
+
+async function currentUserIdentity(){
+
+  const ctx =
+    await ready();
+
+
+  const employee =
+    ctx?.employee ||
+    ctx?.profile ||
+    {};
+
+
+  const firstName =
+    String(
+      employee.firstName ||
+      employee.first ||
+      ''
+    ).trim();
+
+
+  const lastName =
+    String(
+      employee.lastName ||
+      employee.last ||
+      ''
+    ).trim();
+
+
+  const employeeFullName =
+    String(
+      employee.fullName ||
+      ''
+    ).trim();
+
+
+  const calculatedName =
+    `${firstName} ${lastName}`.trim();
+
+
+  const displayName =
+    employeeFullName ||
+    calculatedName ||
+    String(
+      ctx?.displayName ||
+      ''
+    ).trim() ||
+    String(
+      ctx?.email ||
+      ''
+    ).trim() ||
+    String(
+      ctx?.phoneNumber ||
+      ''
+    ).trim() ||
+    'FarmVista User';
+
+
+  return {
+
+    uid:
+      ctx?.uid ||
+      null,
+
+    employeeId:
+      employee?.id ||
+      null,
+
+    displayName,
+
+    firstName:
+      firstName ||
+      null,
+
+    lastName:
+      lastName ||
+      null,
+
+    email:
+      ctx?.email ||
+      employee?.email ||
+      null,
+
+    phoneNumber:
+      ctx?.phoneNumber ||
+      employee?.phoneE164 ||
+      employee?.phone ||
+      null,
+
+    employee,
+
+    context:
+      ctx ||
+      null
+
   };
+
+}
+
+
+async function currentUserName(){
+
+  const identity =
+    await currentUserIdentity();
+
+  return (
+    identity?.displayName ||
+    'FarmVista User'
+  );
+
+}
+
+
+window.FVUserContext = {
+  get,
+  ready,
+  refresh,
+  currentEmployee,
+  currentUserIdentity,
+  currentUserName,
+  onChange,
+  clear
+};
 
 
   // ==========================================================
