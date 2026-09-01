@@ -1735,6 +1735,7 @@
 
 
 <script src="/js/firebase-config.js"></script>
+<script src="/js/app/user-context.js"></script>
 
 
 <script type="module">
@@ -2298,7 +2299,88 @@ function getEmployeeDisplayName(
 }
 
 
-function findSignedInEmployee() {
+async function findSignedInEmployee() {
+
+  /*
+    CENTRAL FARMVISTA USER RESOLUTION
+
+    FVUserContext already knows how to resolve:
+      1. Firebase UID
+      2. Phone-login user
+      3. Email-login user
+
+    Pages should not recreate that identity logic.
+  */
+
+  try {
+
+    if (
+      window.FVUserContext &&
+      typeof window.FVUserContext.currentUserIdentity ===
+        "function"
+    ) {
+
+      const identity =
+        await window.FVUserContext.currentUserIdentity();
+
+
+      if (
+        identity?.employee
+      ) {
+
+        return identity.employee;
+
+      }
+
+
+      if (
+        identity?.employeeId
+      ) {
+
+        const employeeById =
+          employees.find(
+            employee =>
+              String(
+                employee?.id ||
+                ""
+              ) ===
+              String(
+                identity.employeeId
+              )
+          );
+
+
+        if (
+          employeeById
+        ) {
+
+          return employeeById;
+
+        }
+
+      }
+
+    }
+
+  }
+  catch (
+    error
+  ) {
+
+    console.warn(
+      "[Grain Ticket] FVUserContext employee lookup failed:",
+      error
+    );
+
+  }
+
+
+  /*
+    FALLBACK
+
+    Keep the old UID/email lookup so existing email users
+    continue working even if UserContext is unavailable.
+  */
 
   if (
     !signedInUser
@@ -2327,16 +2409,16 @@ function findSignedInEmployee() {
 
       const employeeUid =
         String(
-          employee.uid ||
-          employee.userUid ||
-          employee.authUid ||
+          employee?.uid ||
+          employee?.userUid ||
+          employee?.authUid ||
           ""
         );
 
 
       const employeeEmail =
         cleanCompare(
-          employee.email
+          employee?.email
         );
 
 
@@ -2744,7 +2826,7 @@ grainBagEvents =
   );
 
 const employee =
-  findSignedInEmployee();
+  await findSignedInEmployee();
 
 
 console.log(
@@ -11071,8 +11153,14 @@ foreignMaterial:
       driverName,
 
     driverEmail:
-      signedInUser.email ||
-      employee.email ||
+      signedInUser?.email ||
+      employee?.email ||
+      null,
+
+    driverPhone:
+      signedInUser?.phoneNumber ||
+      employee?.phoneE164 ||
+      employee?.phone ||
       null,
 
 
@@ -11082,13 +11170,21 @@ foreignMaterial:
     // ----------------------------------------------------------
 
     enteredByUid:
-      signedInUser.uid,
+      signedInUser?.uid ||
+      null,
 
     enteredByName:
       driverName,
 
     enteredByEmail:
-      signedInUser.email ||
+      signedInUser?.email ||
+      employee?.email ||
+      null,
+
+    enteredByPhone:
+      signedInUser?.phoneNumber ||
+      employee?.phoneE164 ||
+      employee?.phone ||
       null,
 
 
