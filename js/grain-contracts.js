@@ -4044,10 +4044,24 @@ function renderContractTable() {
             "tr"
           );
 
-        row.className =
-          contract.voided
-            ? "contract-row voided-record"
-            : "contract-row";
+const fullyAssigned =
+  !contract.voided &&
+  numberValue(
+    contract.contractBushels
+  ) > EPSILON &&
+  numberValue(
+    contract.openBushels
+  ) <= EPSILON;
+
+
+row.className =
+  contract.voided
+    ? "contract-row voided-record"
+    : (
+        fullyAssigned
+          ? "contract-row fully-assigned"
+          : "contract-row"
+      );
 
         row.tabIndex = 0;
 
@@ -7165,12 +7179,16 @@ function renderContractDropCards(
           "div"
         );
 
-      card.className =
-        `contract-drop-card reconciliation-compact-card${
-          expanded
-            ? " expanded"
-            : ""
-        }`;
+card.className =
+  `contract-drop-card reconciliation-compact-card${
+    full
+      ? " fully-assigned"
+      : ""
+  }${
+    expanded
+      ? " expanded"
+      : ""
+  }`;
 
 
       /*
