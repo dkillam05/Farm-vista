@@ -1749,6 +1749,8 @@
       query,
       where,
       addDoc,
+      doc,
+      setDoc,
       serverTimestamp,
       getStorage,
       ref,
@@ -1808,6 +1810,304 @@ if (
 
 const OCR_URL =
   "https://fv-ocr-300398089669.us-central1.run.app/fvOcr";
+
+
+/*
+  ==========================================================
+  BAD CELL DATA / NETWORK RETRY
+  ==========================================================
+
+  Grain-ticket scanning is commonly used from trucks,
+  elevators, and rural areas where the phone may technically
+  have service but individual requests still fail.
+
+  Retry temporary/network failures automatically instead of
+  immediately throwing the driver to the error screen.
+
+  IMPORTANT:
+  We retry only operations that are safe to repeat.
+*/
+
+const NETWORK_RETRY_DELAYS =
+  [
+    1200,
+    2500,
+    4500,
+    7000,
+    10000,
+    15000
+  ];
+
+
+function wait(
+  milliseconds
+) {
+
+  return new Promise(
+    resolve =>
+      setTimeout(
+        resolve,
+        milliseconds
+      )
+  );
+
+}
+
+
+function isRetryableHttpStatus(
+  status
+) {
+
+  return (
+    status === 408 ||
+    status === 425 ||
+    status === 429 ||
+    status === 500 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504
+  );
+
+}
+
+
+async function fetchWithCellRetry(
+  url,
+  options,
+  label =
+    "Connecting to FarmVista"
+) {
+
+  let lastError =
+    null;
+
+
+  for (
+    let attempt = 0;
+    attempt <= NETWORK_RETRY_DELAYS.length;
+    attempt++
+  ) {
+
+    try {
+
+      const response =
+        await fetch(
+          url,
+          options
+        );
+
+
+      /*
+        Successful response OR a permanent HTTP error.
+
+        Permanent errors such as 400/401/403 should NOT
+        continually retry because better cell service will
+        not fix them.
+      */
+
+      if (
+        response.ok ||
+        !isRetryableHttpStatus(
+          response.status
+        )
+      ) {
+
+        return response;
+
+      }
+
+
+      lastError =
+        new Error(
+          `${label} returned ${response.status}.`
+        );
+
+
+      console.warn(
+        "[Grain Ticket] Temporary network/server error:",
+        {
+          label,
+          attempt:
+            attempt + 1,
+          status:
+            response.status
+        }
+      );
+
+    }
+    catch (
+      error
+    ) {
+
+      lastError =
+        error;
+
+
+      console.warn(
+        "[Grain Ticket] Network request failed:",
+        {
+          label,
+          attempt:
+            attempt + 1,
+          error
+        }
+      );
+
+    }
+
+
+    if (
+      attempt >=
+      NETWORK_RETRY_DELAYS.length
+    ) {
+
+      break;
+
+    }
+
+
+    const delay =
+      NETWORK_RETRY_DELAYS[
+        attempt
+      ];
+
+
+    processingText.textContent =
+      `${label}… weak connection. Retrying automatically.`;
+
+
+    await wait(
+      delay
+    );
+
+  }
+
+
+  throw (
+    lastError ||
+    new Error(
+      `${label} failed because of the network connection.`
+    )
+  );
+
+}
+
+
+async function retryNetworkAction(
+  action,
+  label =
+    "Saving grain ticket"
+) {
+
+  let lastError =
+    null;
+
+
+  for (
+    let attempt = 0;
+    attempt <= NETWORK_RETRY_DELAYS.length;
+    attempt++
+  ) {
+
+    try {
+
+      return await action();
+
+    }
+    catch (
+      error
+    ) {
+
+      lastError =
+        error;
+
+
+      const code =
+        String(
+          error?.code ||
+          ""
+        ).toLowerCase();
+
+
+      /*
+        Do not retry errors that clearly mean the request
+        itself is invalid or the user does not have access.
+      */
+
+      const permanentError =
+        (
+          code.includes(
+            "permission-denied"
+          ) ||
+          code.includes(
+            "unauthenticated"
+          ) ||
+          code.includes(
+            "unauthorized"
+          ) ||
+          code.includes(
+            "invalid-argument"
+          ) ||
+          code.includes(
+            "storage/unauthorized"
+          )
+        );
+
+
+      if (
+        permanentError
+      ) {
+
+        throw error;
+
+      }
+
+
+      console.warn(
+        "[Grain Ticket] Temporary save/upload failure:",
+        {
+          label,
+          attempt:
+            attempt + 1,
+          code,
+          error
+        }
+      );
+
+
+      if (
+        attempt >=
+        NETWORK_RETRY_DELAYS.length
+      ) {
+
+        break;
+
+      }
+
+
+      processingText.textContent =
+        `${label}… weak connection. Retrying automatically.`;
+
+
+      await wait(
+        NETWORK_RETRY_DELAYS[
+          attempt
+        ]
+      );
+
+    }
+
+  }
+
+
+  throw (
+    lastError ||
+    new Error(
+      `${label} could not complete.`
+    )
+  );
+
+}
 
 
 /*
@@ -9413,15 +9713,31 @@ async function uploadGrainTicketImage(
     );
 
 
-  const timestamp =
-    Date.now();
+  const elevator =
+    safeFilePart(
+      grainTicket?.elevatorName ||
+      "elevator"
+    );
 
+
+  /*
+    IMPORTANT:
+
+    Do NOT use Date.now() in this filename.
+
+    The same elevator + date + ticket number always gets
+    the same Storage path.
+
+    That means a retry overwrites/reuses the same image
+    instead of creating ticket-123-111.jpg,
+    ticket-123-222.jpg, ticket-123-333.jpg, etc.
+  */
 
   const imagePath =
     [
       "grain-tickets",
       ticketDate,
-      `${ticketNumber}-${timestamp}.jpg`
+      `${elevator}-${ticketNumber}.jpg`
     ]
       .join(
         "/"
@@ -9435,40 +9751,52 @@ async function uploadGrainTicketImage(
     );
 
 
-  await uploadBytes(
-    imageRef,
-    file,
-    {
-      contentType:
-        file.type ||
-        "image/jpeg",
+  await retryNetworkAction(
+    () =>
+      uploadBytes(
+        imageRef,
+        file,
+        {
+          contentType:
+            file.type ||
+            "image/jpeg",
 
-      customMetadata: {
-        ticketNumber:
-          String(
-            grainTicket?.ticketNumber ||
-            ""
-          ),
+          customMetadata: {
 
-        ticketDate:
-          String(
-            grainTicket?.ticketDate ||
-            ""
-          ),
+            ticketNumber:
+              String(
+                grainTicket?.ticketNumber ||
+                ""
+              ),
 
-        crop:
-          String(
-            grainTicket?.crop ||
-            ""
-          )
-      }
-    }
+            ticketDate:
+              String(
+                grainTicket?.ticketDate ||
+                ""
+              ),
+
+            crop:
+              String(
+                grainTicket?.crop ||
+                ""
+              )
+
+          }
+        }
+      ),
+
+    "Saving ticket image"
   );
 
 
   const imageUrl =
-    await getDownloadURL(
-      imageRef
+    await retryNetworkAction(
+      () =>
+        getDownloadURL(
+          imageRef
+        ),
+
+      "Confirming ticket image"
     );
 
 
@@ -11337,14 +11665,59 @@ reconciliationStatus:
   );
 
 
-  const savedTicket =
-    await addDoc(
-      collection(
-        db,
-        TICKET_COLLECTION
-      ),
-      payload
+  /*
+    IDEMPOTENT TICKET SAVE
+
+    Use a stable Firestore document ID based on:
+
+      buyer/elevator + ticket number
+
+    If cell service disappears after Firestore received the
+    write but before the phone receives the acknowledgement,
+    retrying writes to THIS SAME DOCUMENT instead of creating
+    another grain-ticket document.
+  */
+
+  const ticketIdentityBuyer =
+    String(
+      buyer?.id ||
+      normalizeMatchText(
+        grainTicket.elevatorName
+      ) ||
+      "unknown-elevator"
     );
+
+
+  const ticketIdentityNumber =
+    String(
+      grainTicket.ticketNumber ||
+      ""
+    ).trim();
+
+
+  const stableTicketId =
+    encodeURIComponent(
+      `${ticketIdentityBuyer}__${ticketIdentityNumber}`
+    );
+
+
+  const savedTicket =
+    doc(
+      db,
+      TICKET_COLLECTION,
+      stableTicketId
+    );
+
+
+  await retryNetworkAction(
+    () =>
+      setDoc(
+        savedTicket,
+        payload
+      ),
+
+    "Saving grain ticket"
+  );
 
 
   console.log(
@@ -13266,7 +13639,7 @@ if (
 
 
           const response =
-            await fetch(
+            await fetchWithCellRetry(
               OCR_URL,
               {
                 method:
@@ -13289,7 +13662,9 @@ if (
                       file.type ||
                       "image/jpeg"
                   })
-              }
+              },
+
+              "Reading grain ticket"
             );
 
 
