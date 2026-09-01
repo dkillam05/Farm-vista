@@ -2129,11 +2129,44 @@ const tryAgainBtn =
         false;
 
 
-      let ticketFrameLocked =
-        false;
+let ticketFrameLocked =
+  false;
 
 
-      let signedInUser =
+/*
+  CAMERA IMAGE QUALITY GATE
+
+  FarmVista will not enable the shutter until the live camera
+  has produced several consecutive sharp frames.
+*/
+let focusCheckTimer =
+  null;
+
+let focusStableFrames =
+  0;
+
+let lastSharpnessScore =
+  0;
+
+const FOCUS_CHECK_INTERVAL =
+  250;
+
+const FOCUS_REQUIRED_STABLE_FRAMES =
+  3;
+
+/*
+  Starting point for grain tickets.
+
+  Lower = easier to enable shutter.
+  Higher = requires a sharper image.
+
+  We can tune this after testing on the driver's phone.
+*/
+const FOCUS_SHARPNESS_THRESHOLD =
+  11;
+
+
+let signedInUser =
   null;
 
 
@@ -11714,7 +11747,508 @@ function lockTicketFramePosition() {
 
 }
 
+// ==========================================================
+// CAMERA IMAGE QUALITY / FOCUS CHECK
+// ==========================================================
 
+function stopFocusQualityCheck() {
+
+  if (
+    focusCheckTimer
+  ) {
+
+    clearInterval(
+      focusCheckTimer
+    );
+
+  }
+
+
+  focusCheckTimer =
+    null;
+
+
+  focusStableFrames =
+    0;
+
+
+  lastSharpnessScore =
+    0;
+
+}
+
+
+function calculateCameraSharpness() {
+
+  if (
+    !cameraVideo ||
+    !cameraVideo.videoWidth ||
+    !cameraVideo.videoHeight
+  ) {
+
+    return 0;
+
+  }
+
+
+  /*
+    Use a small canvas so this check stays very lightweight.
+
+    We only need enough resolution to tell whether printed
+    ticket text has strong edges or is blurry.
+  */
+  const sampleWidth =
+    180;
+
+
+  const sampleHeight =
+    240;
+
+
+  const canvas =
+    document.createElement(
+      "canvas"
+    );
+
+
+  canvas.width =
+    sampleWidth;
+
+
+  canvas.height =
+    sampleHeight;
+
+
+  const ctx =
+    canvas.getContext(
+      "2d",
+      {
+        willReadFrequently:
+          true
+      }
+    );
+
+
+  if (
+    !ctx
+  ) {
+
+    return 0;
+
+  }
+
+
+  const videoWidth =
+    cameraVideo.videoWidth;
+
+
+  const videoHeight =
+    cameraVideo.videoHeight;
+
+
+  /*
+    Analyze the center portion of the camera.
+
+    This is approximately where the grain ticket sits inside
+    the FarmVista ticket frame.
+  */
+  const sourceWidth =
+    Math.round(
+      videoWidth *
+      0.72
+    );
+
+
+  const sourceHeight =
+    Math.round(
+      videoHeight *
+      0.82
+    );
+
+
+  const sourceX =
+    Math.round(
+      (
+        videoWidth -
+        sourceWidth
+      ) /
+      2
+    );
+
+
+  const sourceY =
+    Math.round(
+      (
+        videoHeight -
+        sourceHeight
+      ) /
+      2
+    );
+
+
+  ctx.drawImage(
+    cameraVideo,
+
+    sourceX,
+    sourceY,
+    sourceWidth,
+    sourceHeight,
+
+    0,
+    0,
+    sampleWidth,
+    sampleHeight
+  );
+
+
+  const imageData =
+    ctx.getImageData(
+      0,
+      0,
+      sampleWidth,
+      sampleHeight
+    );
+
+
+  const data =
+    imageData.data;
+
+
+  /*
+    Edge-strength measurement.
+
+    Sharp printed numbers and letters have rapid brightness
+    changes from one pixel to the next.
+
+    Blurred text has much weaker changes.
+  */
+  let totalDifference =
+    0;
+
+
+  let comparisons =
+    0;
+
+
+  for (
+    let y = 1;
+    y < sampleHeight - 1;
+    y += 2
+  ) {
+
+    for (
+      let x = 1;
+      x < sampleWidth - 1;
+      x += 2
+    ) {
+
+      const index =
+        (
+          y *
+          sampleWidth +
+          x
+        ) *
+        4;
+
+
+      const rightIndex =
+        (
+          y *
+          sampleWidth +
+          x +
+          1
+        ) *
+        4;
+
+
+      const downIndex =
+        (
+          (
+            y +
+            1
+          ) *
+          sampleWidth +
+          x
+        ) *
+        4;
+
+
+      const gray =
+        (
+          data[index] *
+          0.299
+        ) +
+        (
+          data[index + 1] *
+          0.587
+        ) +
+        (
+          data[index + 2] *
+          0.114
+        );
+
+
+      const rightGray =
+        (
+          data[rightIndex] *
+          0.299
+        ) +
+        (
+          data[rightIndex + 1] *
+          0.587
+        ) +
+        (
+          data[rightIndex + 2] *
+          0.114
+        );
+
+
+      const downGray =
+        (
+          data[downIndex] *
+          0.299
+        ) +
+        (
+          data[downIndex + 1] *
+          0.587
+        ) +
+        (
+          data[downIndex + 2] *
+          0.114
+        );
+
+
+      totalDifference +=
+        Math.abs(
+          gray -
+          rightGray
+        );
+
+
+      totalDifference +=
+        Math.abs(
+          gray -
+          downGray
+        );
+
+
+      comparisons +=
+        2;
+
+    }
+
+  }
+
+
+  if (
+    !comparisons
+  ) {
+
+    return 0;
+
+  }
+
+
+  return (
+    totalDifference /
+    comparisons
+  );
+
+}
+
+
+function startFocusQualityCheck() {
+
+  stopFocusQualityCheck();
+
+
+  captureBtn.disabled =
+    true;
+
+
+  ticketFrame.classList.remove(
+    "ready"
+  );
+
+
+  const cameraTip =
+    document.querySelector(
+      ".camera-tip"
+    );
+
+
+  if (
+    cameraTip
+  ) {
+
+    cameraTip.textContent =
+      "Hold steady — focusing…";
+
+  }
+
+
+  const checkQuality =
+    () => {
+
+      if (
+        processing ||
+        !cameraTrack ||
+        cameraTrack.readyState !==
+          "live" ||
+        !cameraVideo.videoWidth ||
+        !cameraVideo.videoHeight
+      ) {
+
+        captureBtn.disabled =
+          true;
+
+
+        focusStableFrames =
+          0;
+
+
+        return;
+
+      }
+
+
+      let sharpness =
+        0;
+
+
+      try {
+
+        sharpness =
+          calculateCameraSharpness();
+
+      }
+      catch (err) {
+
+        console.warn(
+          "[Grain Ticket] Sharpness check failed:",
+          err
+        );
+
+
+        captureBtn.disabled =
+          true;
+
+
+        focusStableFrames =
+          0;
+
+
+        return;
+
+      }
+
+
+      lastSharpnessScore =
+        sharpness;
+
+
+      const sharpEnough =
+        sharpness >=
+          FOCUS_SHARPNESS_THRESHOLD;
+
+
+      if (
+        sharpEnough
+      ) {
+
+        focusStableFrames++;
+
+      }
+      else {
+
+        focusStableFrames =
+          0;
+
+      }
+
+
+      const focusReady =
+        focusStableFrames >=
+          FOCUS_REQUIRED_STABLE_FRAMES;
+
+
+      captureBtn.disabled =
+        !focusReady;
+
+
+      ticketFrame.classList.toggle(
+        "ready",
+        focusReady
+      );
+
+
+      if (
+        cameraTip
+      ) {
+
+        cameraTip.textContent =
+          focusReady
+            ? "Ready — take photo."
+            : "Hold steady — focusing…";
+
+      }
+
+
+      console.log(
+        "[Grain Ticket] Camera quality:",
+        {
+          sharpness:
+            Number(
+              sharpness.toFixed(
+                2
+              )
+            ),
+
+          threshold:
+            FOCUS_SHARPNESS_THRESHOLD,
+
+          stableFrames:
+            focusStableFrames,
+
+          ready:
+            focusReady
+        }
+      );
+
+    };
+
+
+  /*
+    Give autofocus, exposure and flashlight a moment to settle.
+  */
+  setTimeout(
+    () => {
+
+      if (
+        !cameraTrack ||
+        cameraTrack.readyState !==
+          "live"
+      ) {
+
+        return;
+
+      }
+
+
+      checkQuality();
+
+
+      focusCheckTimer =
+        setInterval(
+          checkQuality,
+          FOCUS_CHECK_INTERVAL
+        );
+
+    },
+    700
+  );
+
+}
       // ==========================================================
       // CAMERA
       // ==========================================================
@@ -11905,20 +12439,20 @@ catch (focusErr) {
       The existing FarmVista behavior automatically turns it on.
     */
 
-    await setupTorch();
+await setupTorch();
 
 
-    ticketFrame.classList.add(
-      "ready"
-    );
+/*
+  Do NOT enable Capture simply because the camera started.
+
+  FarmVista now waits until the live ticket image has remained
+  acceptably sharp for several consecutive checks.
+*/
+startFocusQualityCheck();
 
 
-    captureBtn.disabled =
-      false;
-
-
-    console.log(
-      "[Grain Ticket] Camera ready.",
+console.log(
+  "[Grain Ticket] Camera ready — waiting for sharp image.",
       {
         width:
           cameraVideo.videoWidth,
@@ -11979,11 +12513,18 @@ catch (focusErr) {
 
 }
 
-      function stopCamera() {
+function stopCamera() {
 
-        if (
-          cameraStream
-        ) {
+  stopFocusQualityCheck();
+
+
+  captureBtn.disabled =
+    true;
+
+
+  if (
+    cameraStream
+  ) {
 
           cameraStream
             .getTracks()
@@ -12172,11 +12713,12 @@ if (
 
       async function capturePhoto() {
 
-        if (
-          processing ||
-          !cameraVideo.videoWidth ||
-          !cameraVideo.videoHeight
-        ) {
+if (
+  processing ||
+  captureBtn.disabled ||
+  !cameraVideo.videoWidth ||
+  !cameraVideo.videoHeight
+) {
           return;
         }
 
