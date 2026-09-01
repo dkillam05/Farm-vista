@@ -2513,52 +2513,94 @@ elements.remarks.value = "";
     }
 
 async function initializeUser() {
-  elements.driverName.value = "Loading driver…";
+  elements.driverName.value =
+    "Loading driver…";
 
-  let attempts = 0;
-  const maxAttempts = 40;
+  try {
 
-  return new Promise(resolve => {
-    const checkUser = () => {
-      attempts += 1;
+    /*
+      fv-shell loads user-context.js globally.
 
-      const user = auth?.currentUser || null;
+      This identity works whether the employee signed in
+      with email/password OR phone authentication.
+    */
 
-      if (user) {
-        state.user = user;
+    const identity =
+      await window.FVUserContext
+        .currentUserIdentity();
 
-        elements.driverName.value =
-          user.displayName ||
-          user.email ||
-          "FarmVista User";
 
-        console.log(
-          "[Logistics] Driver loaded:",
-          elements.driverName.value
-        );
+    if (
+      !identity ||
+      !identity.uid
+    ) {
 
-        resolve(user);
-        return;
+      throw new Error(
+        "FarmVista user identity was not available."
+      );
+
+    }
+
+
+    state.user =
+      identity;
+
+
+    elements.driverName.value =
+      identity.displayName;
+
+
+    console.log(
+      "[Logistics] Driver loaded:",
+      {
+        name:
+          identity.displayName,
+
+        uid:
+          identity.uid,
+
+        employeeId:
+          identity.employeeId,
+
+        email:
+          identity.email,
+
+        phone:
+          identity.phoneNumber
       }
+    );
 
-      if (attempts >= maxAttempts) {
-        state.user = null;
-        elements.driverName.value = "Not signed in";
 
-        showMessage(
-          "Your FarmVista user account could not be loaded. Refresh the page or sign in again.",
-          "error"
-        );
+    return identity;
 
-        resolve(null);
-        return;
-      }
+  }
+  catch (
+    error
+  ) {
 
-      setTimeout(checkUser, 250);
-    };
+    console.error(
+      "[Logistics] Driver identity load failed:",
+      error
+    );
 
-    checkUser();
-  });
+
+    state.user =
+      null;
+
+
+    elements.driverName.value =
+      "Not signed in";
+
+
+    showMessage(
+      "Your FarmVista employee account could not be loaded. Refresh the page or sign in again.",
+      "error"
+    );
+
+
+    return null;
+
+  }
 }
 
 elements.checklist.addEventListener("click", event => {
