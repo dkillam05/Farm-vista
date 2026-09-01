@@ -1906,13 +1906,7 @@ function renderJobs() {
 
 
 row.className =
-  `hauling-row${
-    jobIsFullyAssigned(
-      job
-    )
-      ? " fully-assigned"
-      : ""
-  }`;
+  "hauling-row";
 
 
       row.dataset.haulingJobId =
