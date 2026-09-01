@@ -11774,12 +11774,28 @@ elements.ticketImageWrap
       setupEvents();
 
 
-      state.user =
-        auth.currentUser;
+      /*
+        UNIVERSAL FARMVISTA USER
+
+        Works for:
+        - Email login
+        - Phone login
+        - FarmVista employee identity
+
+        Do not rely directly on auth.currentUser here.
+      */
+
+      const identity =
+        await window.FVUserContext
+          ?.currentUserIdentity?.();
 
 
       if (
-        !state.user
+        !identity ||
+        (
+          !identity.uid &&
+          !identity.employeeId
+        )
       ) {
 
         throw new Error(
@@ -11787,6 +11803,29 @@ elements.ticketImageWrap
         );
 
       }
+
+
+      state.user = {
+        uid:
+          identity.uid ||
+          null,
+
+        employeeId:
+          identity.employeeId ||
+          null,
+
+        displayName:
+          identity.displayName ||
+          "FarmVista User",
+
+        email:
+          identity.email ||
+          null,
+
+        phoneNumber:
+          identity.phoneNumber ||
+          null
+      };
 
 
       await Promise.all([
