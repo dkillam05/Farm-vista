@@ -13694,6 +13694,7 @@ if (
             await response.json();
             
             /*
+/*
   OCR GRADE FIELD SAFETY
 
   fvOcr may return the correctly recognized value in result.fields
@@ -13702,6 +13703,12 @@ if (
   result.fields is the direct structured OCR result, so when it
   contains a valid numeric grade value, copy that exact value into
   grainTicket before FarmVista validates or saves the ticket.
+
+  ADM FALLBACK:
+  Some ADM tickets OCR the FM value correctly in the raw document
+  text (example 00.8) while the structured foreignMaterial field
+  comes back as 0. This fallback only runs for ADM tickets and only
+  replaces FM when the structured/parser result is zero or missing.
 */
 
 function getOcrNumericField(field) {
@@ -13826,6 +13833,144 @@ if (
 
     }
   );
+
+}
+
+
+/*
+  ADM FOREIGN MATERIAL FALLBACK
+
+  Example ADM OCR text can contain:
+
+    ... IF 0.0 MH 00.8 CO 0.0 ...
+
+  or:
+
+    ... M 00.8 CO ...
+
+  The actual FM value is present in the OCR text even when the
+  structured foreignMaterial result incorrectly becomes 0.
+*/
+
+const ocrDocumentText =
+  String(
+    result.document?.text ||
+    result.grainTicket?.rawText ||
+    ""
+  );
+
+
+const isAdmTicket =
+  /\bADM\b|ARCHER\s+DANIELS\s+MIDLAND/i.test(
+    ocrDocumentText
+  ) ||
+  /\bADM\b/i.test(
+    String(
+      result.grainTicket?.elevatorName ||
+      ""
+    )
+  );
+
+
+if (
+  isAdmTicket &&
+  result.grainTicket
+) {
+
+  const currentFm =
+    Number(
+      result.grainTicket
+        .foreignMaterial
+    );
+
+
+  if (
+    !Number.isFinite(
+      currentFm
+    ) ||
+    currentFm === 0
+  ) {
+
+    const admFmPatterns = [
+
+      /\b(?:FM|BCFM)\s*[:\-]?\s*(\d{1,2}\.\d)\b/i,
+
+      /\bM\s+(0\d\.\d|\d\.\d)\s+CO\b/i,
+
+      /\b(?:MH|M)\s+(0\d\.\d|\d\.\d)\s+CO\b/i
+
+    ];
+
+
+    let admFmValue =
+      null;
+
+
+    for (
+      const pattern
+      of admFmPatterns
+    ) {
+
+      const match =
+        ocrDocumentText.match(
+          pattern
+        );
+
+
+      if (
+        match
+      ) {
+
+        const value =
+          Number(
+            match[1]
+          );
+
+
+        if (
+          Number.isFinite(
+            value
+          ) &&
+          value >= 0 &&
+          value <= 30
+        ) {
+
+          admFmValue =
+            value;
+
+          break;
+
+        }
+
+      }
+
+    }
+
+
+    if (
+      admFmValue !== null
+    ) {
+
+      console.log(
+        "[Grain Ticket] ADM FM raw-text fallback:",
+        {
+          previousValue:
+            result.grainTicket
+              .foreignMaterial,
+
+          correctedValue:
+            admFmValue
+        }
+      );
+
+
+      result.grainTicket
+        .foreignMaterial =
+          admFmValue;
+
+    }
+
+  }
 
 }
 
