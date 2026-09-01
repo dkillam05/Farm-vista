@@ -687,6 +687,79 @@ function contractsForJob(
 }
 
 
+/* ============================================================
+   HAULING JOB CONTRACT ASSIGNMENT TOTALS
+
+   This is intentionally based on LINKED CONTRACT BUSHELS,
+   not grain tickets hauled against the job.
+
+   Example:
+   300,000 bu hauling job
+   + 300,000 bu linked contracts
+   = fully assigned
+============================================================ */
+
+function jobAssignedContractBushels(
+  job
+) {
+
+  return round2(
+    contractsForJob(
+      job?.id
+    )
+
+      .filter(
+        contract =>
+          !contractIsVoided(
+            contract
+          )
+      )
+
+      .reduce(
+        (
+          total,
+          contract
+        ) =>
+          total +
+          contractBushels(
+            contract
+          ),
+        0
+      )
+  );
+
+}
+
+
+function jobIsFullyAssigned(
+  job
+) {
+
+  const target =
+    jobStartingBushels(
+      job
+    );
+
+
+  if (
+    !(target > 0)
+  ) {
+
+    return false;
+
+  }
+
+
+  return (
+    jobAssignedContractBushels(
+      job
+    ) >=
+    target - 0.005
+  );
+
+}
+
+
 function matchingLocation(
   locationId
 ) {
@@ -1832,8 +1905,14 @@ function renderJobs() {
         );
 
 
-      row.className =
-        "hauling-row";
+row.className =
+  `hauling-row${
+    jobIsFullyAssigned(
+      job
+    )
+      ? " fully-assigned"
+      : ""
+  }`;
 
 
       row.dataset.haulingJobId =
@@ -4220,8 +4299,14 @@ function renderLinkWorkspace() {
           );
 
 
-        card.className =
-          "hauling-job-drop-card";
+card.className =
+  `hauling-job-drop-card${
+    jobIsFullyAssigned(
+      job
+    )
+      ? " fully-assigned"
+      : ""
+  }`;
 
 
         card.dataset.haulingJobDropId =
