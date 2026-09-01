@@ -536,8 +536,8 @@ PRETRIP: "logistics-pre-trip",
      */
 const maintenanceQuickLinkAllowed =
   can(
-    CAP.QL_MAINT_ADD,
-    "view"
+    CAP.MAINTENANCE,
+    "add"
   );
 
 const equipmentServiceRequestAllowed =
