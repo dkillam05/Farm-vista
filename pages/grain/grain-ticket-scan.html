@@ -8696,20 +8696,74 @@ async function runDriverAssistQuestions(
         : buyer;
 
 
-    customer =
-      customers.find(
-        item =>
-          String(
-            item.id
-          ) ===
-          jobCustomerId
-      ) ||
-      customer;
+/*
+  SOLD UNDER SAFETY
+
+  A hauling job may supply operational context such as
+  destination and crop, but it must NOT silently override
+  the customer identity read from the actual scale ticket.
+
+  If OCR already matched the same customer, keep it.
+
+  If OCR did not match a customer, or the hauling-job customer
+  conflicts with the OCR customer evidence, leave Sold Under
+  unresolved so the ticket is saved as Needs Review.
+*/
+
+const haulingJobCustomer =
+  customers.find(
+    item =>
+      String(
+        item.id
+      ) ===
+      jobCustomerId
+  ) ||
+  null;
 
 
-    crop =
-      jobCrop ||
-      crop;
+const ocrMatchedCustomer =
+  matching?.customerMatch
+    ?.customer ||
+  null;
+
+
+if (
+  ocrMatchedCustomer &&
+  haulingJobCustomer &&
+  String(
+    ocrMatchedCustomer.id
+  ) ===
+    String(
+      haulingJobCustomer.id
+    )
+) {
+
+  customer =
+    ocrMatchedCustomer;
+
+}
+else {
+
+  customer =
+    null;
+
+
+  if (
+    haulingJobCustomer
+  ) {
+
+    skippedReasons.push(
+      "sold_under_requires_review"
+    );
+
+  }
+
+}
+
+
+crop =
+  jobCrop ||
+  crop;
 
 
     if (
