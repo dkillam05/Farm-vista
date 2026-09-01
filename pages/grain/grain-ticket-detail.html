@@ -7465,7 +7465,7 @@ function contractIsOpen(
     }
 
 
-    function applySelectedHaulingJob() {
+function applySelectedHaulingJob() {
 
       const job =
         state.contracts.find(
@@ -7599,31 +7599,75 @@ function contractIsOpen(
         "";
 
 
-      const customerId =
+      /*
+        IMPORTANT:
+
+        A hauling job does NOT determine Sold Under.
+
+        One hauling job may eventually contain contracts for
+        multiple Sold Under customers.
+
+        Preserve a customer only when that customer is actually
+        eligible for this crop + destination.
+
+        Otherwise leave Sold Under blank so the ticket remains
+        Needs Review.
+      */
+
+      const currentCustomerId =
         clean(
-          job.customerId ||
-          job.grainCustomerId
+          elements.customerSelect.value
         );
 
 
-      state.selectedCustomer =
-        state.customers.find(
-          customer =>
-            customer.id ===
-            customerId
-        ) ||
-        null;
+      const eligibleCustomerIds =
+        new Set(
+          contractsForDestination()
+            .map(
+              contract =>
+                contractCustomerId(
+                  contract
+                )
+            )
+            .filter(
+              Boolean
+            )
+        );
 
 
-      elements.customerSelect.value =
-        state.selectedCustomer?.id ||
-        customerId ||
-        "";
+      if (
+        currentCustomerId &&
+        eligibleCustomerIds.has(
+          currentCustomerId
+        )
+      ) {
+
+        state.selectedCustomer =
+          state.customers.find(
+            customer =>
+              customer.id ===
+              currentCustomerId
+          ) ||
+          null;
+
+      }
+      else {
+
+        state.selectedCustomer =
+          null;
+
+
+        elements.customerSelect.value =
+          "";
+
+      }
 
 
       syncDestinationButton();
 
       syncCustomerButton();
+
+      renderCustomerOptions();
 
       renderGrainSourceOptions();
 
@@ -7640,32 +7684,72 @@ function contractIsOpen(
     // AUTOMATIC MATCHING FOR EXISTING TICKET
     // ==========================================================
 
-    function autoMatchCustomer() {
+function autoMatchCustomer() {
 
-      const savedCustomerId =
+      const ticket =
+        state.ticket ||
+        {};
+
+
+      const ocrCustomer =
         clean(
-          state.loadout?.customerId ||
-          state.ticket.customerId
+          ticket.ocrCustomerText
+        );
+
+
+      /*
+        If this OCR ticket was deliberately saved for review
+        because Sold Under could not be confirmed, do NOT use
+        a previously supplied customerId to silently resolve it.
+
+        The OCR customer must actually correspond to a FarmVista
+        customer that is eligible for this destination/crop.
+      */
+
+      const ticketNeedsCustomerReview =
+        Array.isArray(
+          ticket.reviewReasons
+        ) &&
+        (
+          ticket.reviewReasons.includes(
+            "customer_not_matched"
+          ) ||
+          ticket.reviewReasons.includes(
+            "sold_under_requires_review"
+          )
         );
 
 
       if (
-        savedCustomerId
+        !ticketNeedsCustomerReview
       ) {
 
-        const byId =
-          state.customers.find(
-            customer =>
-              customer.id ===
-              savedCustomerId
+        const savedCustomerId =
+          clean(
+            state.loadout?.customerId ||
+            ticket.customerId
           );
 
 
         if (
-          byId
+          savedCustomerId
         ) {
 
-          return byId;
+          const byId =
+            state.customers.find(
+              customer =>
+                customer.id ===
+                savedCustomerId
+          );
+
+
+          if (
+            byId
+          ) {
+
+            return byId;
+
+          }
 
         }
 
@@ -7675,8 +7759,8 @@ function contractIsOpen(
       const source =
         clean(
           state.loadout?.customerName ||
-          state.ticket.ocrCustomerText ||
-          state.ticket.customerName
+          ocrCustomer ||
+          ticket.customerName
         );
 
 
@@ -7710,16 +7794,20 @@ function contractIsOpen(
       }
 
 
-      return state.customers.find(
-        customer =>
-          normalizeNameWords(
-            customer.name
-          ) ===
-          normalizeNameWords(
-            source
-          )
-      ) ||
-      null;
+      const wordMatch =
+        state.customers.find(
+          customer =>
+            normalizeNameWords(
+              customer.name
+            ) ===
+            normalizeNameWords(
+              source
+            )
+        ) ||
+        null;
+
+
+      return wordMatch;
 
     }
 
