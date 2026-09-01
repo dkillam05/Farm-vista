@@ -4044,24 +4044,10 @@ function renderContractTable() {
             "tr"
           );
 
-const fullyAssigned =
-  !contract.voided &&
-  numberValue(
-    contract.contractBushels
-  ) > EPSILON &&
-  numberValue(
-    contract.openBushels
-  ) <= EPSILON;
-
-
 row.className =
   contract.voided
     ? "contract-row voided-record"
-    : (
-        fullyAssigned
-          ? "contract-row fully-assigned"
-          : "contract-row"
-      );
+    : "contract-row";
 
         row.tabIndex = 0;
 
