@@ -8011,6 +8011,7 @@ function loOpenDestinationMenu(){
 
 
 
+
 /* ============================================================
    CUSTOMER PICKER
 ============================================================ */
@@ -8021,6 +8022,7 @@ function loCloseCustomerMenu(){
     ?.classList.remove(
       "open"
     );
+
 
   loEls.customerButton
     ?.setAttribute(
@@ -8076,7 +8078,7 @@ function loSyncCustomerButton(){
 
   loEls.customerMenu
     ?.querySelectorAll(
-      ".loadout-source-choice"
+      "[data-customer-value]"
     )
     .forEach(
       button => {
@@ -8097,6 +8099,15 @@ function loChooseCustomerValue(
   value
 ){
 
+  /*
+    IMPORTANT:
+
+    Sold Under belongs UNDER the selected hauling job.
+
+    Selecting a customer must NEVER rebuild,
+    clear, or change the hauling job.
+  */
+
   loEls.customer.value =
     value ||
     "";
@@ -8109,16 +8120,493 @@ function loChooseCustomerValue(
 
 
   /*
-    Changing customer immediately refreshes matching hauling jobs.
+    DO NOT dispatch a customer "change" event here.
+
+    The old listener elsewhere on this page does this:
+
+      loEls.haulingJob.value = "";
+      loRenderHaulingJobs();
+
+    That is why choosing Sold Under was clearing
+    the hauling job.
+
+    We intentionally leave the hauling job untouched.
   */
-  loEls.customer.dispatchEvent(
-    new Event(
-      "change",
+
+  loShowMessage("");
+
+}
+
+
+/* ============================================================
+   ADD SOLD UNDER
+============================================================ */
+
+async function loAddSoldUnder(){
+
+  const entered =
+    window.prompt(
+      "Enter the new Sold Under / Customer name:"
+    );
+
+
+  if (
+    entered ===
+    null
+  ) {
+    return;
+  }
+
+
+  const name =
+    loClean(
+      entered
+    );
+
+
+  if (
+    !name
+  ) {
+    return;
+  }
+
+
+  const duplicate =
+    loState.customers.find(
+      customer =>
+        loNorm(
+          customer.name
+        ) ===
+        loNorm(
+          name
+        )
+    ) ||
+    null;
+
+
+  if (
+    duplicate
+  ) {
+
+    loShowMessage(
+      `${duplicate.name} already exists.`,
+      "error"
+    );
+
+    return;
+
+  }
+
+
+  /*
+    Preserve current load selections while
+    the customer document is created.
+  */
+
+  const haulingJobId =
+    loClean(
+      loEls.haulingJob.value
+    );
+
+
+  const destinationId =
+    loClean(
+      loEls.destination.value
+    );
+
+
+  const crop =
+    loClean(
+      loEls.crop.value
+    );
+
+
+  const sourceValue =
+    loClean(
+      loEls.source.value
+    );
+
+
+  try {
+
+    const saved =
+      await addDoc(
+        collection(
+          db,
+          "grain_customers"
+        ),
+        {
+
+          name,
+
+          createdAt:
+            serverTimestamp(),
+
+          updatedAt:
+            serverTimestamp()
+
+        }
+      );
+
+
+    loState.customers.push(
       {
-        bubbles:true
+        id:
+          saved.id,
+
+        name
       }
-    )
-  );
+    );
+
+
+    loState.customers.sort(
+      (
+        a,
+        b
+      ) =>
+        a.name.localeCompare(
+          b.name,
+          undefined,
+          {
+            numeric:
+              true,
+
+            sensitivity:
+              "base"
+          }
+        )
+    );
+
+
+    /*
+      Restore existing selections explicitly.
+
+      A brand-new customer is NOT automatically
+      a valid Sold Under for this hauling job.
+
+      It becomes eligible after a contract for
+      that customer is linked to this hauling job.
+    */
+
+    loEls.haulingJob.value =
+      haulingJobId;
+
+
+    loEls.destination.value =
+      destinationId;
+
+
+    loEls.crop.value =
+      crop;
+
+
+    loEls.source.value =
+      sourceValue;
+
+
+    loRenderCustomerPicker();
+
+
+    loShowMessage(
+      `${name} was added. Link one of that customer's contracts to this hauling job before selecting it here.`,
+      "good"
+    );
+
+  }
+  catch (
+    error
+  ) {
+
+    console.error(
+      "[grain loadout] add Sold Under failed:",
+      error
+    );
+
+
+    loShowMessage(
+      "Sold Under / Customer could not be added.",
+      "error"
+    );
+
+  }
+
+}
+
+
+/* ============================================================
+   EDIT SOLD UNDER
+============================================================ */
+
+async function loEditSoldUnder(
+  customerId
+){
+
+  const customer =
+    loState.customers.find(
+      item =>
+        item.id ===
+        loClean(
+          customerId
+        )
+    ) ||
+    null;
+
+
+  if (
+    !customer
+  ) {
+    return;
+  }
+
+
+  const entered =
+    window.prompt(
+      "Edit Sold Under / Customer name:",
+      customer.name
+    );
+
+
+  if (
+    entered ===
+    null
+  ) {
+    return;
+  }
+
+
+  const name =
+    loClean(
+      entered
+    );
+
+
+  if (
+    !name ||
+    name ===
+      customer.name
+  ) {
+    return;
+  }
+
+
+  const duplicate =
+    loState.customers.find(
+      item =>
+        item.id !==
+          customer.id &&
+        loNorm(
+          item.name
+        ) ===
+        loNorm(
+          name
+        )
+    ) ||
+    null;
+
+
+  if (
+    duplicate
+  ) {
+
+    loShowMessage(
+      `${duplicate.name} already exists.`,
+      "error"
+    );
+
+    return;
+
+  }
+
+
+  /*
+    Preserve all current load selections.
+  */
+
+  const haulingJobId =
+    loClean(
+      loEls.haulingJob.value
+    );
+
+
+  const destinationId =
+    loClean(
+      loEls.destination.value
+    );
+
+
+  const selectedCustomerId =
+    loClean(
+      loEls.customer.value
+    );
+
+
+  const crop =
+    loClean(
+      loEls.crop.value
+    );
+
+
+  const sourceValue =
+    loClean(
+      loEls.source.value
+    );
+
+
+  try {
+
+    /*
+      Update master customer record.
+    */
+
+    await updateDoc(
+      doc(
+        db,
+        "grain_customers",
+        customer.id
+      ),
+      {
+
+        name,
+
+        updatedAt:
+          serverTimestamp()
+
+      }
+    );
+
+
+    /*
+      Keep copied customerName values on every
+      grain contract using this customer ID
+      synchronized with the corrected name.
+    */
+
+    const matchingContracts =
+      loState.contracts.filter(
+        contract =>
+          loContractCustomerId(
+            contract
+          ) ===
+            customer.id
+      );
+
+
+    await Promise.all(
+      matchingContracts.map(
+        contract =>
+          updateDoc(
+            doc(
+              db,
+              "grain_contracts",
+              contract.id
+            ),
+            {
+
+              customerName:
+                name,
+
+              updatedAt:
+                serverTimestamp()
+
+            }
+          )
+      )
+    );
+
+
+    /*
+      Update local page state immediately.
+    */
+
+    customer.name =
+      name;
+
+
+    matchingContracts.forEach(
+      contract => {
+
+        contract.customerName =
+          name;
+
+      }
+    );
+
+
+    loState.customers.sort(
+      (
+        a,
+        b
+      ) =>
+        a.name.localeCompare(
+          b.name,
+          undefined,
+          {
+            numeric:
+              true,
+
+            sensitivity:
+              "base"
+          }
+        )
+    );
+
+
+    /*
+      Restore current load state.
+    */
+
+    loEls.haulingJob.value =
+      haulingJobId;
+
+
+    loEls.destination.value =
+      destinationId;
+
+
+    loEls.customer.value =
+      selectedCustomerId;
+
+
+    loEls.crop.value =
+      crop;
+
+
+    loEls.source.value =
+      sourceValue;
+
+
+    loRenderCustomerPicker();
+
+
+    loEls.customer.value =
+      selectedCustomerId;
+
+
+    loSyncCustomerButton();
+
+
+    loShowMessage(
+      `Sold Under updated to ${name}.`,
+      "good"
+    );
+
+  }
+  catch (
+    error
+  ) {
+
+    console.error(
+      "[grain loadout] edit Sold Under failed:",
+      error
+    );
+
+
+    loShowMessage(
+      "Sold Under / Customer could not be updated.",
+      "error"
+    );
+
+  }
 
 }
 
@@ -8142,11 +8630,10 @@ function loRenderCustomerPicker(){
 
 
   /*
-    Sold Under now comes from contracts linked
-    to the selected hauling job.
-
-    Unknown is ALWAYS available.
+    Sold Under comes from OPEN contracts linked
+    specifically to the selected hauling job.
   */
+
   if (
     !haulingJob
   ) {
@@ -8154,8 +8641,10 @@ function loRenderCustomerPicker(){
     loEls.customer.value =
       "";
 
+
     loEls.customerButton.disabled =
       true;
+
 
     loEls.customerButtonText.textContent =
       "Select hauling job first";
@@ -8193,10 +8682,6 @@ function loRenderCustomerPicker(){
     new Map();
 
 
-  /*
-    Only contracts linked to THIS hauling job
-    contribute Sold Under choices.
-  */
   loState.contracts
 
     .filter(
@@ -8251,9 +8736,12 @@ function loRenderCustomerPicker(){
 
 
         /*
-          Map by customer ID so John Dowson only appears once
-          even if he has multiple linked contracts.
+          Deduplicate by customer ID.
+
+          Three contracts for Dowson =
+          one Dowson Sold Under choice.
         */
+
         customerMap.set(
           customerId,
           {
@@ -8293,11 +8781,20 @@ function loRenderCustomerPicker(){
 
 
   /*
-    If the current value is no longer valid,
-    fall back to Unknown.
+    Keep a valid current customer.
+
+    Otherwise use Unknown.
   */
+
   if (
-    loEls.customer.value &&
+    !loEls.customer.value
+  ) {
+
+    loEls.customer.value =
+      "__unknown__";
+
+  }
+  else if (
     loEls.customer.value !==
       "__unknown__" &&
     !eligible.some(
@@ -8313,9 +8810,10 @@ function loRenderCustomerPicker(){
   }
 
 
-  /*
-    Unknown always appears first.
-  */
+  /* ============================================================
+     UNKNOWN
+  ============================================================ */
+
   const unknownButton =
     document.createElement(
       "button"
@@ -8340,10 +8838,18 @@ function loRenderCustomerPicker(){
 
   unknownButton.addEventListener(
     "click",
-    () =>
+    event => {
+
+      event.preventDefault();
+
+      event.stopPropagation();
+
+
       loChooseCustomerValue(
         "__unknown__"
-      )
+      );
+
+    }
   );
 
 
@@ -8352,45 +8858,247 @@ function loRenderCustomerPicker(){
   );
 
 
+  /* ============================================================
+     ELIGIBLE CUSTOMERS
+  ============================================================ */
+
   eligible.forEach(
     customer => {
 
-      const button =
+      /*
+        Build a row with separate Select and Edit actions.
+      */
+
+      const row =
+        document.createElement(
+          "div"
+        );
+
+
+      row.style.display =
+        "grid";
+
+
+      row.style.gridTemplateColumns =
+        "minmax(0,1fr) auto";
+
+
+      row.style.alignItems =
+        "stretch";
+
+
+      row.style.borderBottom =
+        "1px solid var(--border)";
+
+
+      const selectButton =
         document.createElement(
           "button"
         );
 
 
-      button.type =
+      selectButton.type =
         "button";
 
 
-      button.className =
+      selectButton.className =
         "loadout-source-choice";
 
 
-      button.dataset.customerValue =
+      selectButton.dataset.customerValue =
         customer.id;
 
 
-      button.textContent =
+      selectButton.textContent =
         customer.name;
 
 
-      button.addEventListener(
+      /*
+        Row itself already supplies border.
+      */
+
+      selectButton.style.borderBottom =
+        "0";
+
+
+      selectButton.addEventListener(
         "click",
-        () =>
+        event => {
+
+          event.preventDefault();
+
+          event.stopPropagation();
+
+
           loChooseCustomerValue(
             customer.id
-          )
+          );
+
+        }
+      );
+
+
+      const editButton =
+        document.createElement(
+          "button"
+        );
+
+
+      editButton.type =
+        "button";
+
+
+      editButton.textContent =
+        "Edit";
+
+
+      editButton.title =
+        `Edit ${customer.name}`;
+
+
+      editButton.style.appearance =
+        "none";
+
+
+      editButton.style.border =
+        "0";
+
+
+      editButton.style.borderLeft =
+        "1px solid var(--border)";
+
+
+      editButton.style.background =
+        "var(--surface)";
+
+
+      editButton.style.color =
+        "var(--text)";
+
+
+      editButton.style.padding =
+        "8px 12px";
+
+
+      editButton.style.font =
+        "inherit";
+
+
+      editButton.style.fontSize =
+        "12px";
+
+
+      editButton.style.fontWeight =
+        "900";
+
+
+      editButton.style.cursor =
+        "pointer";
+
+
+      editButton.addEventListener(
+        "click",
+        event => {
+
+          event.preventDefault();
+
+          event.stopPropagation();
+
+
+          loCloseCustomerMenu();
+
+
+          loEditSoldUnder(
+            customer.id
+          );
+
+        }
+      );
+
+
+      row.appendChild(
+        selectButton
+      );
+
+
+      row.appendChild(
+        editButton
       );
 
 
       loEls.customerMenu.appendChild(
-        button
+        row
       );
 
     }
+  );
+
+
+  /* ============================================================
+     MANAGE SOLD UNDER
+  ============================================================ */
+
+  const group =
+    document.createElement(
+      "div"
+    );
+
+
+  group.className =
+    "loadout-source-group";
+
+
+  group.textContent =
+    "Manage Sold Under";
+
+
+  loEls.customerMenu.appendChild(
+    group
+  );
+
+
+  const addButton =
+    document.createElement(
+      "button"
+    );
+
+
+  addButton.type =
+    "button";
+
+
+  addButton.className =
+    "loadout-source-choice";
+
+
+  addButton.innerHTML =
+    `
+      <strong>
+        + Add New Sold Under
+      </strong>
+    `;
+
+
+  addButton.addEventListener(
+    "click",
+    event => {
+
+      event.preventDefault();
+
+      event.stopPropagation();
+
+
+      loCloseCustomerMenu();
+
+
+      loAddSoldUnder();
+
+    }
+  );
+
+
+  loEls.customerMenu.appendChild(
+    addButton
   );
 
 
@@ -8398,14 +9106,32 @@ function loRenderCustomerPicker(){
 
 }
 
+
 function loOpenCustomerMenu(){
-  if (loEls.customerButton?.disabled) return;
+
+  if (
+    loEls.customerButton?.disabled
+  ) {
+    return;
+  }
+
 
   loRenderCustomerPicker();
-  loEls.customerMenu?.classList.add("open");
-  loEls.customerButton?.setAttribute("aria-expanded","true");
-}
 
+
+  loEls.customerMenu
+    ?.classList.add(
+      "open"
+    );
+
+
+  loEls.customerButton
+    ?.setAttribute(
+      "aria-expanded",
+      "true"
+    );
+
+}
 
 function loRenderCropOptions(preferredValue=""){
 
