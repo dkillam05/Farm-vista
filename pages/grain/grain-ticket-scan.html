@@ -6839,11 +6839,12 @@ function contractIsAvailableForDriverAssist(
 function getDriverAssistCustomers(
   grainTicket,
   location,
-  buyer
+  buyer,
+  haulingJob =
+    null
 ) {
 
   if (
-    !location ||
     !grainTicket?.crop
   ) {
 
@@ -6858,139 +6859,267 @@ function getDriverAssistCustomers(
     );
 
 
-  const locationId =
-    String(
-      location.id ||
-      ""
-    );
-
-
-  const buyerId =
-    String(
-      buyer?.id ||
-      location.buyerId ||
-      ""
-    );
-
-
   const ids =
     new Set();
 
 
-  contracts.forEach(
-    contract => {
+  /*
+    ============================================================
+    PREFERRED PATH:
+    A hauling job is already known.
 
-      if (
-        !contractIsAvailableForDriverAssist(
-          contract
-        )
-      ) {
+    In that case, Sold Under comes ONLY from OPEN contracts
+    linked to that exact hauling job.
+    ============================================================
+  */
 
-        return;
+  if (
+    haulingJob?.id
+  ) {
 
-      }
+    contracts.forEach(
+      contract => {
 
-
-      const contractCrop =
-        normalizeMatchText(
-          firstExistingValue(
-            contract,
-            [
-              "crop",
-              "commodity"
-            ]
+        if (
+          !contractIsAvailableForDriverAssist(
+            contract
           )
-        );
+        ) {
+
+          return;
+
+        }
 
 
-      if (
-        crop &&
-        contractCrop &&
-        crop !==
-          contractCrop
-      ) {
-
-        return;
-
-      }
+        const contractHaulingJobId =
+          String(
+            contract?.haulingJobId ||
+            ""
+          ).trim();
 
 
-      const contractLocationId =
-        String(
-          firstExistingValue(
-            contract,
-            [
-              "deliveryLocationId",
-              "locationId"
-            ]
-          ) ||
-          ""
-        );
+        if (
+          contractHaulingJobId !==
+            String(
+              haulingJob.id
+            ).trim()
+        ) {
+
+          return;
+
+        }
 
 
-      const contractBuyerId =
-        String(
-          firstExistingValue(
-            contract,
-            [
-              "buyerId",
-              "grainBuyerId"
-            ]
-          ) ||
-          ""
-        );
+        const contractCrop =
+          normalizeMatchText(
+            firstExistingValue(
+              contract,
+              [
+                "crop",
+                "commodity"
+              ]
+            )
+          );
 
 
-      if (
-        locationId &&
-        contractLocationId &&
-        contractLocationId !==
-          locationId
-      ) {
+        if (
+          crop &&
+          contractCrop &&
+          crop !==
+            contractCrop
+        ) {
 
-        return;
+          return;
 
-      }
-
-
-      if (
-        buyerId &&
-        contractBuyerId &&
-        contractBuyerId !==
-          buyerId
-      ) {
-
-        return;
-
-      }
+        }
 
 
-      const customerId =
-        String(
-          firstExistingValue(
-            contract,
-            [
-              "customerId",
-              "grainCustomerId"
-            ]
-          ) ||
-          ""
-        );
+        const customerId =
+          String(
+            firstExistingValue(
+              contract,
+              [
+                "customerId",
+                "grainCustomerId"
+              ]
+            ) ||
+            ""
+          ).trim();
 
 
-      if (
-        customerId
-      ) {
-
-        ids.add(
+        if (
           customerId
-        );
+        ) {
+
+          ids.add(
+            customerId
+          );
+
+        }
 
       }
+    );
+
+  }
+  else {
+
+    /*
+      ============================================================
+      FALLBACK PATH:
+      Hauling job is still unresolved.
+
+      Preserve the old safe narrowing by:
+        destination + buyer + crop
+
+      This prevents Driver Assist from becoming unusable when the
+      office hauling job could not be auto-assigned yet.
+      ============================================================
+    */
+
+    if (
+      !location
+    ) {
+
+      return [];
 
     }
-  );
 
+
+    const locationId =
+      String(
+        location.id ||
+        ""
+      );
+
+
+    const buyerId =
+      String(
+        buyer?.id ||
+        location.buyerId ||
+        ""
+      );
+
+
+    contracts.forEach(
+      contract => {
+
+        if (
+          !contractIsAvailableForDriverAssist(
+            contract
+          )
+        ) {
+
+          return;
+
+        }
+
+
+        const contractCrop =
+          normalizeMatchText(
+            firstExistingValue(
+              contract,
+              [
+                "crop",
+                "commodity"
+              ]
+            )
+          );
+
+
+        if (
+          crop &&
+          contractCrop &&
+          crop !==
+            contractCrop
+        ) {
+
+          return;
+
+        }
+
+
+        const contractLocationId =
+          String(
+            firstExistingValue(
+              contract,
+              [
+                "deliveryLocationId",
+                "locationId"
+              ]
+            ) ||
+            ""
+          );
+
+
+        const contractBuyerId =
+          String(
+            firstExistingValue(
+              contract,
+              [
+                "buyerId",
+                "grainBuyerId"
+              ]
+            ) ||
+            ""
+          );
+
+
+        if (
+          locationId &&
+          contractLocationId &&
+          contractLocationId !==
+            locationId
+        ) {
+
+          return;
+
+        }
+
+
+        if (
+          buyerId &&
+          contractBuyerId &&
+          contractBuyerId !==
+            buyerId
+        ) {
+
+          return;
+
+        }
+
+
+        const customerId =
+          String(
+            firstExistingValue(
+              contract,
+              [
+                "customerId",
+                "grainCustomerId"
+              ]
+            ) ||
+            ""
+          );
+
+
+        if (
+          customerId
+        ) {
+
+          ids.add(
+            customerId
+          );
+
+        }
+
+      }
+    );
+
+  }
+
+
+  /*
+    Return unique FarmVista customers.
+  */
 
   return customers
     .filter(
@@ -7911,24 +8040,138 @@ function matchingActiveHaulingJobsForTicket(
   }
 
 
-  return haulingJobs
-    .filter(
-      haulingJobIsActive
-    )
-    .filter(
-      job =>
-        haulingJobCrop(
-          job
-        ) ===
-          crop
-    )
-    .filter(
-      job =>
-        haulingJobMatchesTicketDate(
-          job,
-          grainTicket?.ticketDate
-        )
+  /*
+    Try to identify the actual delivery destination
+    from the scanned ticket.
+
+    If FarmVista can confidently identify it, the
+    hauling job MUST belong to that destination.
+
+    If destination cannot be confidently matched,
+    we safely fall back to Crop + Ticket Date only.
+  */
+
+  const locationMatch =
+    findDeliveryLocationMatch(
+      grainTicket
     );
+
+
+  const matchedLocationId =
+    locationMatch?.matched &&
+    locationMatch?.location?.id
+      ? String(
+          locationMatch.location.id
+        ).trim()
+      : "";
+
+
+  let matches =
+    haulingJobs
+
+      .filter(
+        haulingJobIsActive
+      )
+
+      .filter(
+        job =>
+          haulingJobCrop(
+            job
+          ) ===
+            crop
+      )
+
+      .filter(
+        job =>
+          haulingJobMatchesTicketDate(
+            job,
+            grainTicket?.ticketDate
+          )
+      );
+
+
+  /*
+    Destination is a strong elimination rule.
+
+    Example:
+
+      Bartlett Jacksonville — Corn
+      ADM Decatur — Corn
+
+    Both may be active on the same date.
+
+    If OCR says Bartlett Jacksonville, ADM Decatur
+    must not remain a possible hauling job.
+  */
+
+  if (
+    matchedLocationId
+  ) {
+
+    matches =
+      matches.filter(
+        job =>
+          haulingJobLocationId(
+            job
+          ) ===
+            matchedLocationId
+      );
+
+  }
+
+
+  console.log(
+    "[Grain Ticket] Hauling job candidates:",
+    {
+
+      crop,
+
+      ticketDate:
+        grainTicket?.ticketDate ||
+        null,
+
+      destinationMatched:
+        Boolean(
+          matchedLocationId
+        ),
+
+      destinationId:
+        matchedLocationId ||
+        null,
+
+      destinationName:
+        locationMatch?.location
+          ? getLocationName(
+              locationMatch.location
+            )
+          : null,
+
+      count:
+        matches.length,
+
+      jobs:
+        matches.map(
+          job => ({
+            id:
+              job.id,
+
+            label:
+              haulingJobDisplayLabel(
+                job
+              ).label,
+
+            locationId:
+              haulingJobLocationId(
+                job
+              )
+          })
+        )
+
+    }
+  );
+
+
+  return matches;
 
 }
 
@@ -8660,66 +8903,136 @@ async function runDriverAssistQuestions(
       );
 
 
-    const jobCustomerId =
-      haulingJobCustomerId(
-        haulingJob
-      );
+const jobCrop =
+  haulingJobCrop(
+    haulingJob
+  );
 
 
-    const jobCrop =
-      haulingJobCrop(
-        haulingJob
-      );
+location =
+  deliveryLocations.find(
+    item =>
+      item.id ===
+        jobLocationId
+  ) ||
+  location;
 
 
-    location =
-      deliveryLocations.find(
+buyer =
+  location
+    ? buyers.find(
         item =>
-          item.id ===
-            jobLocationId
+          String(
+            item.id
+          ) ===
+          String(
+            location.buyerId
+          )
       ) ||
-      location;
-
-
-    buyer =
-      location
-        ? buyers.find(
-            item =>
-              String(
-                item.id
-              ) ===
-              String(
-                location.buyerId
-              )
-          ) ||
-          buyer
-        : buyer;
+      buyer
+    : buyer;
 
 
 /*
-  SOLD UNDER SAFETY
+  ============================================================
+  SOLD UNDER FROM CONTRACTS LINKED TO THIS HAULING JOB
+  ============================================================
 
-  A hauling job may supply operational context such as
-  destination and crop, but it must NOT silently override
-  the customer identity read from the actual scale ticket.
+  Hauling jobs no longer own one customer.
 
-  If OCR already matched the same customer, keep it.
+  The valid Sold Under possibilities come from OPEN contracts
+  linked to this hauling job.
 
-  If OCR did not match a customer, or the hauling-job customer
-  conflicts with the OCR customer evidence, leave Sold Under
-  unresolved so the ticket is saved as Needs Review.
+  Example:
+
+    Hauling Job
+      ├─ Contract A → John C. Dowson
+      ├─ Contract B → John C. Dowson
+      └─ Contract C → Commodity FS
+
+  Valid Sold Under choices:
+      John C. Dowson
+      Commodity FS
+
+  John only appears once.
 */
 
-const haulingJobCustomer =
-  customers.find(
-    item =>
-      String(
-        item.id
-      ) ===
-      jobCustomerId
-  ) ||
-  null;
 
+const linkedCustomerIds =
+  new Set();
+
+
+contracts.forEach(
+  contract => {
+
+    if (
+      !contractIsAvailableForDriverAssist(
+        contract
+      )
+    ) {
+
+      return;
+
+    }
+
+
+    if (
+      String(
+        contract?.haulingJobId ||
+        ""
+      ).trim() !==
+      String(
+        haulingJob.id ||
+        ""
+      ).trim()
+    ) {
+
+      return;
+
+    }
+
+
+    const customerId =
+      String(
+        firstExistingValue(
+          contract,
+          [
+            "customerId",
+            "grainCustomerId"
+          ]
+        ) ||
+        ""
+      ).trim();
+
+
+    if (
+      customerId
+    ) {
+
+      linkedCustomerIds.add(
+        customerId
+      );
+
+    }
+
+  }
+);
+
+
+const linkedCustomers =
+  customers.filter(
+    item =>
+      linkedCustomerIds.has(
+        String(
+          item.id
+        )
+      )
+  );
+
+
+/*
+  First look at the OCR customer FarmVista already matched.
+*/
 
 const ocrMatchedCustomer =
   matching?.customerMatch
@@ -8727,15 +9040,21 @@ const ocrMatchedCustomer =
   null;
 
 
+/*
+  If OCR matched a customer AND that customer is actually
+  represented by an open contract linked to this hauling job,
+  keep it.
+
+  Otherwise do not force a customer.
+*/
+
 if (
   ocrMatchedCustomer &&
-  haulingJobCustomer &&
-  String(
-    ocrMatchedCustomer.id
-  ) ===
+  linkedCustomerIds.has(
     String(
-      haulingJobCustomer.id
+      ocrMatchedCustomer.id
     )
+  )
 ) {
 
   customer =
@@ -8748,8 +9067,131 @@ else {
     null;
 
 
+  /*
+    Try matching the OCR customer wording again, but ONLY
+    against the small set of customers valid for this job.
+  */
+
+  const ocrCustomerText =
+    String(
+      grainTicket?.customerText ||
+      ""
+    ).trim();
+
+
   if (
-    haulingJobCustomer
+    ocrCustomerText &&
+    linkedCustomers.length
+  ) {
+
+    const scoredCustomers =
+      linkedCustomers
+        .map(
+          item => {
+
+            const name =
+              getCustomerName(
+                item
+              );
+
+
+            return {
+              customer:
+                item,
+
+              similarity:
+                smartNameSimilarity(
+                  ocrCustomerText,
+                  name
+                ),
+
+              exact:
+                normalizeMatchText(
+                  ocrCustomerText
+                ) ===
+                normalizeMatchText(
+                  name
+                )
+            };
+
+          }
+        )
+        .sort(
+          (
+            a,
+            b
+          ) => {
+
+            if (
+              a.exact !==
+              b.exact
+            ) {
+
+              return a.exact
+                ? -1
+                : 1;
+
+            }
+
+
+            return (
+              b.similarity -
+              a.similarity
+            );
+
+          }
+        );
+
+
+    const best =
+      scoredCustomers[0] ||
+      null;
+
+
+    const second =
+      scoredCustomers[1] ||
+      null;
+
+
+    const clearlyBetter =
+      !second ||
+      (
+        best.similarity -
+        second.similarity
+      ) >=
+        0.20;
+
+
+    if (
+      best &&
+      (
+        best.exact ||
+        (
+          best.similarity >=
+            0.75 &&
+          clearlyBetter
+        )
+      )
+    ) {
+
+      customer =
+        best.customer;
+
+    }
+
+  }
+
+
+  /*
+    If we still cannot confidently identify Sold Under,
+    leave it unresolved.
+
+    Do NOT assign the first customer just because only
+    one hauling job was found.
+  */
+
+  if (
+    !customer
   ) {
 
     skippedReasons.push(
