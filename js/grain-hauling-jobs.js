@@ -686,6 +686,148 @@ function contractsForJob(
 
 }
 
+/*
+  Sold Under belongs to the contracts linked to a hauling job,
+  not to the hauling job itself.
+
+  Unknown is ALWAYS available.
+
+  Example:
+    Hauling Job: ADM Decatur Corn
+
+    Linked contracts:
+      John C. Dowson Inc.
+      John C. Dowson Inc.
+      Central Commodity FS
+
+    Returns:
+      Unknown
+      John C. Dowson Inc.
+      Central Commodity FS
+*/
+function jobSoldUnderOptions(
+  jobId
+) {
+
+  const options = [
+
+    {
+      id: "",
+      name: "Unknown",
+      unknown: true
+    }
+
+  ];
+
+
+  const seen =
+    new Set();
+
+
+  contractsForJob(
+    jobId
+  )
+
+    .filter(
+      contract =>
+        !contractIsVoided(
+          contract
+        )
+    )
+
+    .forEach(
+      contract => {
+
+        const customerId =
+          contractCustomerId(
+            contract
+          );
+
+
+        const customerName =
+          clean(
+            contract?.customerName ||
+            matchingCustomer(
+              customerId
+            )?.name
+          );
+
+
+        if (
+          !customerId &&
+          !customerName
+        ) {
+
+          return;
+
+        }
+
+
+        const key =
+          customerId
+            ? `id:${customerId}`
+            : `name:${norm(customerName)}`;
+
+
+        if (
+          seen.has(
+            key
+          )
+        ) {
+
+          return;
+
+        }
+
+
+        seen.add(
+          key
+        );
+
+
+        options.push({
+
+          id:
+            customerId,
+
+          name:
+            customerName ||
+            "Unknown",
+
+          unknown:
+            false
+
+        });
+
+      }
+    );
+
+
+  options.splice(
+    1,
+    options.length - 1,
+    ...options
+      .slice(1)
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          a.name.localeCompare(
+            b.name,
+            undefined,
+            {
+              numeric: true,
+              sensitivity: "base"
+            }
+          )
+      )
+  );
+
+
+  return options;
+
+}
 
 /* ============================================================
    HAULING JOB CONTRACT ASSIGNMENT TOTALS
@@ -863,19 +1005,6 @@ function validateContractJob(
 
   }
 
-
-  if (
-    contractCustomerId(
-      contract
-    ) !==
-    jobCustomerId(
-      job
-    )
-  ) {
-
-    return "Sold Under does not match this hauling job.";
-
-  }
 
 
   if (
@@ -1363,17 +1492,27 @@ function populateJobFilters() {
   );
 
 
-  refillSimpleSelect(
-    $(
-      "hauling-customer-filter"
-    ),
-    uniqueSorted(
-      state.jobs.map(
-        job =>
-          job.customerName
-      )
+refillSimpleSelect(
+  $(
+    "hauling-customer-filter"
+  ),
+  uniqueSorted(
+    state.jobs.flatMap(
+      job =>
+        jobSoldUnderOptions(
+          job.id
+        )
+          .filter(
+            option =>
+              !option.unknown
+          )
+          .map(
+            option =>
+              option.name
+          )
     )
-  );
+  )
+);
 
 }
 
@@ -1531,17 +1670,21 @@ function filteredJobs() {
         }
 
 
-        if (
-          customer &&
-          clean(
-            job?.customerName
-          ) !==
-          customer
-        ) {
+ if (
+  customer &&
+  !jobSoldUnderOptions(
+    job.id
+  ).some(
+    option =>
+      !option.unknown &&
+      option.name ===
+      customer
+  )
+) {
 
-          return false;
+  return false;
 
-        }
+}
 
 
         if (
@@ -1550,30 +1693,35 @@ function filteredJobs() {
 
           const haystack =
             norm(
-              [
+[
+  jobName(
+    job
+  ),
 
-                jobName(
-                  job
-                ),
+  job?.buyerName,
 
-                job?.buyerName,
+  job?.deliveryLocationName,
 
-                job?.deliveryLocationName,
+  jobSoldUnderOptions(
+    job.id
+  )
+    .map(
+      option =>
+        option.name
+    )
+    .join(" "),
 
-                job?.customerName,
+  jobCrop(
+    job
+  ),
 
-                jobCrop(
-                  job
-                ),
+  job?.deliveryStartDate,
 
-                job?.deliveryStartDate,
+  job?.deliveryEndDate
 
-                job?.deliveryEndDate
-
-              ].join(
-                " "
-              )
-            );
+].join(
+  " "
+)
 
 
           if (
@@ -1967,14 +2115,20 @@ row.className =
           }
         </td>
 
-        <td>
-          ${
-            escapeHtml(
-              job?.customerName ||
-              "—"
-            )
-          }
-        </td>
+<td>
+  ${
+    escapeHtml(
+      jobSoldUnderOptions(
+        job.id
+      )
+        .map(
+          option =>
+            option.name
+        )
+        .join(" / ")
+    )
+  }
+</td>
 
         <td>
           ${
@@ -2926,11 +3080,6 @@ setJobMessage(
 
     deliveryLocationName:
       location.locationName,
-
-    customerId,
-
-    customerName:
-      customer.name,
 
     crop,
 
@@ -3885,13 +4034,16 @@ function currentMatchingJobs() {
           ) ===
           buyerId
         ) &&
-        (
-          !customerId ||
-          jobCustomerId(
-            job
-          ) ===
-          customerId
-        ) &&
+(
+  !customerId ||
+  jobSoldUnderOptions(
+    job.id
+  ).some(
+    option =>
+      option.id ===
+      customerId
+  )
+) &&
         (
           !crop ||
           norm(
@@ -4388,28 +4540,34 @@ card.className =
 
           <div class="hauling-dnd-card-meta">
 
-            ${
-              escapeHtml(
-                job?.buyerName ||
-                "Unknown buyer"
-              )
-            }
-            •
-            ${
-              escapeHtml(
-                job?.customerName ||
-                "Unknown customer"
-              )
-            }
-            •
-            ${
-              escapeHtml(
-                jobCrop(
-                  job
-                ) ||
-                "Unknown crop"
-              )
-            }
+${
+  escapeHtml(
+    job?.buyerName ||
+    "Unknown buyer"
+  )
+}
+•
+${
+  escapeHtml(
+    jobSoldUnderOptions(
+      job.id
+    )
+      .map(
+        option =>
+          option.name
+      )
+      .join(" / ")
+  )
+}
+•
+${
+  escapeHtml(
+    jobCrop(
+      job
+    ) ||
+    "Unknown crop"
+  )
+}
 
             <br>
 
