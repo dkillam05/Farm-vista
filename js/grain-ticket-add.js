@@ -3571,17 +3571,13 @@ function renderCustomer(
     state.selectedHaulingJob;
 
 
-  const ready =
-    !!haulingJob;
-
-
-  el.customerButton.disabled =
-    !ready;
-
-
   if (
-    !ready
+    !haulingJob
   ) {
+
+    el.customerButton.disabled =
+      true;
+
 
     el.customerSelect.value =
       "";
@@ -3605,6 +3601,14 @@ function renderCustomer(
   }
 
 
+  /*
+    Sold Under is available once a hauling job
+    has been selected.
+  */
+  el.customerButton.disabled =
+    false;
+
+
   addSearch(
     el.customerMenu,
     "Search Sold Under…",
@@ -3626,8 +3630,11 @@ function renderCustomer(
 
 
   /*
-    Unknown is ALWAYS available.
+    ========================================================
+    UNKNOWN — ALWAYS AVAILABLE
+    ========================================================
   */
+
   if (
     !search ||
     "unknown".includes(
@@ -3638,6 +3645,7 @@ function renderCustomer(
     addChoice(
       el.customerMenu,
       {
+
         title:
           "Unknown",
 
@@ -3653,6 +3661,7 @@ function renderCustomer(
             );
 
           }
+
       }
     );
 
@@ -3660,12 +3669,17 @@ function renderCustomer(
 
 
   /*
-    Build Sold Under from OPEN contracts linked
-    to the selected hauling job.
+    ========================================================
+    REAL SOLD UNDER CUSTOMERS
 
-    Set removes duplicates, so three contracts
-    for the same customer still show one name.
+    Only customers from OPEN contracts linked to
+    this hauling job are selectable.
+
+    Multiple contracts for the same customer still
+    produce only one Sold Under option.
+    ========================================================
   */
+
   const eligibleIds =
     new Set(
       state.contracts
@@ -3736,44 +3750,159 @@ function renderCustomer(
   customers.forEach(
     customer => {
 
-      const button =
-        addChoice(
-          el.customerMenu,
-          {
-            title:
-              customer.name,
-
-            sub:
-              "Double-click to edit",
-
-            selected:
-              customer.id ===
-              el.customerSelect.value,
-
-            onClick:
-              () => {
-
-                chooseCustomer(
-                  customer.id
-                );
-
-              }
-          }
+      /*
+        Build our own row instead of using addChoice()
+        so Select and Edit are two separate actions.
+      */
+      const row =
+        document.createElement(
+          "div"
         );
 
 
-      /*
-        Double-click edits the existing customer
-        without adding another visible button
-        to the page.
-      */
-      button.addEventListener(
-        "dblclick",
+      row.style.display =
+        "grid";
+
+
+      row.style.gridTemplateColumns =
+        "1fr auto";
+
+
+      row.style.alignItems =
+        "stretch";
+
+
+      row.style.gap =
+        "6px";
+
+
+      row.style.margin =
+        "2px 0";
+
+
+      const selectButton =
+        document.createElement(
+          "button"
+        );
+
+
+      selectButton.type =
+        "button";
+
+
+      selectButton.className =
+        `picker-choice${
+          customer.id ===
+          el.customerSelect.value
+            ? " selected"
+            : ""
+        }`;
+
+
+      selectButton.style.margin =
+        "0";
+
+
+      const title =
+        document.createElement(
+          "span"
+        );
+
+
+      title.className =
+        "picker-choice-title";
+
+
+      title.textContent =
+        customer.name;
+
+
+      selectButton.appendChild(
+        title
+      );
+
+
+      selectButton.addEventListener(
+        "click",
         event => {
 
           event.preventDefault();
 
           event.stopPropagation();
+
+
+          chooseCustomer(
+            customer.id
+          );
+
+        }
+      );
+
+
+      const editButton =
+        document.createElement(
+          "button"
+        );
+
+
+      editButton.type =
+        "button";
+
+
+      editButton.textContent =
+        "Edit";
+
+
+      editButton.title =
+        `Edit ${customer.name}`;
+
+
+      Object.assign(
+        editButton.style,
+        {
+
+          border:
+            "1px solid var(--border, #ccc)",
+
+          borderRadius:
+            "8px",
+
+          padding:
+            "6px 10px",
+
+          background:
+            "var(--surface-2, #f4f4f4)",
+
+          color:
+            "inherit",
+
+          cursor:
+            "pointer",
+
+          fontWeight:
+            "800",
+
+          fontSize:
+            ".78rem"
+
+        }
+      );
+
+
+      editButton.addEventListener(
+        "click",
+        event => {
+
+          event.preventDefault();
+
+          event.stopPropagation();
+
+
+          /*
+            Close the picker BEFORE opening the prompt.
+            Do not change the selected hauling job.
+          */
+          closeMenus();
 
 
           editSoldUnder(
@@ -3783,46 +3912,124 @@ function renderCustomer(
         }
       );
 
+
+      row.appendChild(
+        selectButton
+      );
+
+
+      row.appendChild(
+        editButton
+      );
+
+
+      el.customerMenu.appendChild(
+        row
+      );
+
     }
   );
 
 
   /*
-    Keep Add New at the bottom of the dropdown.
+    ========================================================
+    MANAGEMENT SECTION
 
-    This creates the customer only.
-    It does NOT make the customer valid for this
-    hauling job until a contract for that customer
-    is linked to the job.
+    Always show this at the bottom.
+    ========================================================
   */
+
   addGroup(
     el.customerMenu,
     "Manage Sold Under"
   );
 
 
-  addChoice(
-    el.customerMenu,
-    {
-      title:
-        "+ Add New Sold Under",
-
-      sub:
-        "Create a new customer",
-
-      selected:
-        false,
-
-      onClick:
-        () => {
-
-          closeMenus();
+  const addButton =
+    document.createElement(
+      "button"
+    );
 
 
-          addSoldUnder();
+  addButton.type =
+    "button";
 
-        }
+
+  addButton.className =
+    "picker-choice";
+
+
+  addButton.innerHTML = `
+    <span class="picker-choice-title">
+      + Add New Sold Under
+    </span>
+    <span class="picker-choice-sub">
+      Create a new customer
+    </span>
+  `;
+
+
+  addButton.addEventListener(
+    "click",
+    event => {
+
+      event.preventDefault();
+
+      event.stopPropagation();
+
+
+      /*
+        Preserve the current hauling job.
+      */
+      const haulingJobId =
+        clean(
+          el.haulingJob.value
+        );
+
+
+      const selectedJob =
+        state.selectedHaulingJob;
+
+
+      closeMenus();
+
+
+      addSoldUnder()
+        .finally(
+          () => {
+
+            /*
+              Explicitly restore the hauling job.
+              Adding a customer must never alter it.
+            */
+            if (
+              haulingJobId
+            ) {
+
+              el.haulingJob.value =
+                haulingJobId;
+
+            }
+
+
+            if (
+              selectedJob
+            ) {
+
+              state.selectedHaulingJob =
+                selectedJob;
+
+            }
+
+          }
+        );
+
     }
+  );
+
+
+  el.customerMenu.appendChild(
+    addButton
   );
 
 
@@ -3835,6 +4042,22 @@ function chooseCustomer(
   id
 ) {
 
+  /*
+    Protect the hauling-job selection.
+
+    Selecting Sold Under must NEVER clear or
+    replace the hauling job.
+  */
+  const haulingJobId =
+    clean(
+      el.haulingJob.value
+    );
+
+
+  const haulingJob =
+    state.selectedHaulingJob;
+
+
   el.customerSelect.value =
     id;
 
@@ -3845,9 +4068,16 @@ function chooseCustomer(
   ) {
 
     state.selectedCustomer = {
-      id: null,
-      name: "Unknown",
-      unknown: true
+
+      id:
+        null,
+
+      name:
+        "Unknown",
+
+      unknown:
+        true
+
     };
 
   }
@@ -3865,13 +4095,9 @@ function chooseCustomer(
 
 
   /*
-    Sold Under does not automatically choose
-    a specific contract.
+    Manual Add does NOT assign a specific contract.
+    Do not touch hauling-job state here.
   */
-  el.contractSelect.value =
-    "";
-
-
   state.selectedContract =
     null;
 
@@ -3880,6 +4106,29 @@ function chooseCustomer(
 
 
   renderContract();
+
+
+  /*
+    Explicitly preserve the Hauling Job selection.
+  */
+  if (
+    haulingJobId
+  ) {
+
+    el.haulingJob.value =
+      haulingJobId;
+
+  }
+
+
+  if (
+    haulingJob
+  ) {
+
+    state.selectedHaulingJob =
+      haulingJob;
+
+  }
 
 
   closeMenus();
