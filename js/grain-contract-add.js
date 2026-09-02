@@ -33,7 +33,10 @@ import {
   collection,
   getDocs,
   addDoc,
+  doc,
+  updateDoc,
   query,
+  where,
   orderBy,
   serverTimestamp
 } from "/js/firebase-init.js";
@@ -523,6 +526,20 @@ function selectBuyer(buyer) {
     );
 
 
+  const addBuyerBtn =
+    $("add-buyer-btn");
+
+
+  if (
+    addBuyerBtn
+  ) {
+
+    addBuyerBtn.textContent =
+      "Edit";
+
+  }
+
+
   /*
     Buyer changed, so reset delivery location.
   */
@@ -556,6 +573,19 @@ function clearBuyerSelection() {
 
   selectedBuyer =
     null;
+
+  const addBuyerBtn =
+  $("add-buyer-btn");
+
+
+if (
+  addBuyerBtn
+) {
+
+  addBuyerBtn.textContent =
+    "+ Add";
+
+}
 
 
   $("buyer-id").value =
@@ -871,6 +901,20 @@ function selectCustomer(customer) {
       "false"
     );
 
+
+  const addCustomerBtn =
+    $("add-customer-btn");
+
+
+  if (
+    addCustomerBtn
+  ) {
+
+    addCustomerBtn.textContent =
+      "Edit";
+
+  }
+
 }
 
 
@@ -879,6 +923,19 @@ function clearCustomerSelection() {
 
   selectedCustomer =
     null;
+const addCustomerBtn =
+  $("add-customer-btn");
+
+
+if (
+  addCustomerBtn
+) {
+
+  addCustomerBtn.textContent =
+    "+ Add";
+
+}
+  
 
 
   $("customer-id").value =
@@ -1380,8 +1437,58 @@ function setupBuyerModal() {
     "click",
     function () {
 
+      const editing =
+        Boolean(
+          selectedBuyer?.id
+        );
+
+
       input.value =
-        "";
+        editing
+          ? selectedBuyer.name
+          : "";
+
+
+      const title =
+        modal.querySelector(
+          ".fv-modal-title"
+        );
+
+
+      const sub =
+        modal.querySelector(
+          ".fv-modal-sub"
+        );
+
+
+      if (
+        title
+      ) {
+
+        title.textContent =
+          editing
+            ? "Edit Buyer / Elevator"
+            : "Add Buyer / Elevator";
+
+      }
+
+
+      if (
+        sub
+      ) {
+
+        sub.textContent =
+          editing
+            ? "Update the buyer or elevator name."
+            : "Enter the buyer or elevator name.";
+
+      }
+
+
+      saveBtn.textContent =
+        editing
+          ? "Save Changes"
+          : "Add Buyer";
 
 
       modal.classList.add(
@@ -1393,6 +1500,8 @@ function setupBuyerModal() {
         function () {
 
           input.focus();
+
+          input.select();
 
         },
         0
@@ -1418,7 +1527,9 @@ function setupBuyerModal() {
     "click",
     function (event) {
 
-      if (event.target === modal) {
+      if (
+        event.target === modal
+      ) {
 
         modal.classList.remove(
           "open"
@@ -1434,7 +1545,10 @@ function setupBuyerModal() {
     "keydown",
     function (event) {
 
-      if (event.key === "Enter") {
+      if (
+        event.key ===
+        "Enter"
+      ) {
 
         event.preventDefault();
 
@@ -1448,14 +1562,14 @@ function setupBuyerModal() {
 
   saveBtn.addEventListener(
     "click",
-    addBuyer
+    saveBuyer
   );
 
 }
 
 
 
-async function addBuyer() {
+async function saveBuyer() {
 
   const input =
     $("new-buyer-name");
@@ -1470,7 +1584,9 @@ async function addBuyer() {
     );
 
 
-  if (!name) {
+  if (
+    !name
+  ) {
 
     input.focus();
 
@@ -1479,28 +1595,35 @@ async function addBuyer() {
   }
 
 
+  const editingBuyer =
+    selectedBuyer?.id
+      ? selectedBuyer
+      : null;
+
+
   const duplicate =
-    buyers.find(function (buyer) {
+    buyers.find(
+      function (buyer) {
 
-      return (
-        buyer.name.toLowerCase() ===
-        name.toLowerCase()
-      );
+        return (
+          buyer.name
+            .toLowerCase() ===
+          name.toLowerCase() &&
+          buyer.id !==
+            editingBuyer?.id
+        );
 
-    });
-
-
-  if (duplicate) {
-
-    selectBuyer(
-      duplicate
+      }
     );
 
 
-    $("buyer-modal")
-      .classList
-      .remove("open");
+  if (
+    duplicate
+  ) {
 
+    alert(
+      "A buyer with that name already exists."
+    );
 
     return;
 
@@ -1512,24 +1635,31 @@ async function addBuyer() {
 
 
   saveBtn.textContent =
-    "Adding...";
+    editingBuyer
+      ? "Saving..."
+      : "Adding...";
 
 
   try {
 
-    const ref =
-      await addDoc(
-        collection(
+    if (
+      editingBuyer
+    ) {
+
+      const buyerId =
+        editingBuyer.id;
+
+
+      await updateDoc(
+        doc(
           db,
-          "grain_buyers"
+          "grain_buyers",
+          buyerId
         ),
         {
 
           name:
             name,
-
-          createdAt:
-            serverTimestamp(),
 
           updatedAt:
             serverTimestamp()
@@ -1538,37 +1668,196 @@ async function addBuyer() {
       );
 
 
-    const buyer = {
-
-      id:
-        ref.id,
-
-      name:
-        name
-
-    };
-
-
-    buyers.push(
-      buyer
-    );
-
-
-    buyers.sort(
-      function (a, b) {
-
-        return a.name
-          .localeCompare(
-            b.name
-          );
-
-      }
-    );
+      const contractSnapshot =
+        await getDocs(
+          query(
+            collection(
+              db,
+              "grain_contracts"
+            ),
+            where(
+              "buyerId",
+              "==",
+              buyerId
+            )
+          )
+        );
 
 
-    selectBuyer(
-      buyer
-    );
+      await Promise.all(
+        contractSnapshot.docs.map(
+          function (
+            contractDoc
+          ) {
+
+            return updateDoc(
+              doc(
+                db,
+                "grain_contracts",
+                contractDoc.id
+              ),
+              {
+
+                buyerName:
+                  name,
+
+                updatedAt:
+                  serverTimestamp()
+
+              }
+            );
+
+          }
+        )
+      );
+
+
+      const locationSnapshot =
+        await getDocs(
+          query(
+            collection(
+              db,
+              "grain_delivery_locations"
+            ),
+            where(
+              "buyerId",
+              "==",
+              buyerId
+            )
+          )
+        );
+
+
+      await Promise.all(
+        locationSnapshot.docs.map(
+          function (
+            locationDoc
+          ) {
+
+            return updateDoc(
+              doc(
+                db,
+                "grain_delivery_locations",
+                locationDoc.id
+              ),
+              {
+
+                buyerName:
+                  name,
+
+                updatedAt:
+                  serverTimestamp()
+
+              }
+            );
+
+          }
+        )
+      );
+
+
+      editingBuyer.name =
+        name;
+
+
+      buyers.sort(
+        function (
+          a,
+          b
+        ) {
+
+          return a.name
+            .localeCompare(
+              b.name
+            );
+
+        }
+      );
+
+
+      deliveryLocations.forEach(
+        function (
+          location
+        ) {
+
+          if (
+            location.buyerId ===
+            buyerId
+          ) {
+
+            location.buyerName =
+              name;
+
+          }
+
+        }
+      );
+
+
+      selectBuyer(
+        editingBuyer
+      );
+
+    }
+    else {
+
+      const ref =
+        await addDoc(
+          collection(
+            db,
+            "grain_buyers"
+          ),
+          {
+
+            name:
+              name,
+
+            createdAt:
+              serverTimestamp(),
+
+            updatedAt:
+              serverTimestamp()
+
+          }
+        );
+
+
+      const buyer = {
+
+        id:
+          ref.id,
+
+        name:
+          name
+
+      };
+
+
+      buyers.push(
+        buyer
+      );
+
+
+      buyers.sort(
+        function (
+          a,
+          b
+        ) {
+
+          return a.name
+            .localeCompare(
+              b.name
+            );
+
+        }
+      );
+
+
+      selectBuyer(
+        buyer
+      );
+
+    }
 
 
     $("buyer-modal")
@@ -1576,27 +1865,34 @@ async function addBuyer() {
       .remove("open");
 
 
-  } catch (err) {
+  }
+  catch (
+    err
+  ) {
 
     console.error(
-      "[Grain Contract] Add buyer failed:",
+      "[Grain Contract] Save buyer failed:",
       err
     );
 
 
     alert(
-      "Unable to add Buyer / Elevator."
+      editingBuyer
+        ? "Unable to update Buyer / Elevator."
+        : "Unable to add Buyer / Elevator."
     );
 
-
-  } finally {
+  }
+  finally {
 
     saveBtn.disabled =
       false;
 
 
     saveBtn.textContent =
-      "Add Buyer";
+      selectedBuyer?.id
+        ? "Save Changes"
+        : "Add Buyer";
 
   }
 
@@ -1607,7 +1903,6 @@ async function addBuyer() {
 /* ============================================================
    ADD CUSTOMER MODAL
 ============================================================ */
-
 function setupCustomerModal() {
 
   const modal =
@@ -1641,8 +1936,58 @@ function setupCustomerModal() {
     "click",
     function () {
 
+      const editing =
+        Boolean(
+          selectedCustomer?.id
+        );
+
+
       input.value =
-        "";
+        editing
+          ? selectedCustomer.name
+          : "";
+
+
+      const title =
+        modal.querySelector(
+          ".fv-modal-title"
+        );
+
+
+      const sub =
+        modal.querySelector(
+          ".fv-modal-sub"
+        );
+
+
+      if (
+        title
+      ) {
+
+        title.textContent =
+          editing
+            ? "Edit Customer"
+            : "Add Customer";
+
+      }
+
+
+      if (
+        sub
+      ) {
+
+        sub.textContent =
+          editing
+            ? "Update the entity name the grain is sold under."
+            : "Enter the entity name the grain is sold under.";
+
+      }
+
+
+      saveBtn.textContent =
+        editing
+          ? "Save Changes"
+          : "Add Customer";
 
 
       modal.classList.add(
@@ -1654,6 +1999,8 @@ function setupCustomerModal() {
         function () {
 
           input.focus();
+
+          input.select();
 
         },
         0
@@ -1679,7 +2026,9 @@ function setupCustomerModal() {
     "click",
     function (event) {
 
-      if (event.target === modal) {
+      if (
+        event.target === modal
+      ) {
 
         modal.classList.remove(
           "open"
@@ -1695,7 +2044,10 @@ function setupCustomerModal() {
     "keydown",
     function (event) {
 
-      if (event.key === "Enter") {
+      if (
+        event.key ===
+        "Enter"
+      ) {
 
         event.preventDefault();
 
@@ -1709,14 +2061,14 @@ function setupCustomerModal() {
 
   saveBtn.addEventListener(
     "click",
-    addCustomer
+    saveCustomer
   );
 
 }
 
 
 
-async function addCustomer() {
+async function saveCustomer() {
 
   const input =
     $("new-customer-name");
@@ -1731,7 +2083,9 @@ async function addCustomer() {
     );
 
 
-  if (!name) {
+  if (
+    !name
+  ) {
 
     input.focus();
 
@@ -1740,30 +2094,37 @@ async function addCustomer() {
   }
 
 
+  const editingCustomer =
+    selectedCustomer?.id
+      ? selectedCustomer
+      : null;
+
+
   const duplicate =
-    customers.find(function (
-      customer
-    ) {
+    customers.find(
+      function (
+        customer
+      ) {
 
-      return (
-        customer.name.toLowerCase() ===
-        name.toLowerCase()
-      );
+        return (
+          customer.name
+            .toLowerCase() ===
+          name.toLowerCase() &&
+          customer.id !==
+            editingCustomer?.id
+        );
 
-    });
-
-
-  if (duplicate) {
-
-    selectCustomer(
-      duplicate
+      }
     );
 
 
-    $("customer-modal")
-      .classList
-      .remove("open");
+  if (
+    duplicate
+  ) {
 
+    alert(
+      "A customer with that name already exists."
+    );
 
     return;
 
@@ -1775,24 +2136,31 @@ async function addCustomer() {
 
 
   saveBtn.textContent =
-    "Adding...";
+    editingCustomer
+      ? "Saving..."
+      : "Adding...";
 
 
   try {
 
-    const ref =
-      await addDoc(
-        collection(
+    if (
+      editingCustomer
+    ) {
+
+      const customerId =
+        editingCustomer.id;
+
+
+      await updateDoc(
+        doc(
           db,
-          "grain_customers"
+          "grain_customers",
+          customerId
         ),
         {
 
           name:
             name,
-
-          createdAt:
-            serverTimestamp(),
 
           updatedAt:
             serverTimestamp()
@@ -1801,37 +2169,133 @@ async function addCustomer() {
       );
 
 
-    const customer = {
-
-      id:
-        ref.id,
-
-      name:
-        name
-
-    };
-
-
-    customers.push(
-      customer
-    );
-
-
-    customers.sort(
-      function (a, b) {
-
-        return a.name
-          .localeCompare(
-            b.name
-          );
-
-      }
-    );
+      const contractSnapshot =
+        await getDocs(
+          query(
+            collection(
+              db,
+              "grain_contracts"
+            ),
+            where(
+              "customerId",
+              "==",
+              customerId
+            )
+          )
+        );
 
 
-    selectCustomer(
-      customer
-    );
+      await Promise.all(
+        contractSnapshot.docs.map(
+          function (
+            contractDoc
+          ) {
+
+            return updateDoc(
+              doc(
+                db,
+                "grain_contracts",
+                contractDoc.id
+              ),
+              {
+
+                customerName:
+                  name,
+
+                updatedAt:
+                  serverTimestamp()
+
+              }
+            );
+
+          }
+        )
+      );
+
+
+      editingCustomer.name =
+        name;
+
+
+      customers.sort(
+        function (
+          a,
+          b
+        ) {
+
+          return a.name
+            .localeCompare(
+              b.name
+            );
+
+        }
+      );
+
+
+      selectCustomer(
+        editingCustomer
+      );
+
+    }
+    else {
+
+      const ref =
+        await addDoc(
+          collection(
+            db,
+            "grain_customers"
+          ),
+          {
+
+            name:
+              name,
+
+            createdAt:
+              serverTimestamp(),
+
+            updatedAt:
+              serverTimestamp()
+
+          }
+        );
+
+
+      const customer = {
+
+        id:
+          ref.id,
+
+        name:
+          name
+
+      };
+
+
+      customers.push(
+        customer
+      );
+
+
+      customers.sort(
+        function (
+          a,
+          b
+        ) {
+
+          return a.name
+            .localeCompare(
+              b.name
+            );
+
+        }
+      );
+
+
+      selectCustomer(
+        customer
+      );
+
+    }
 
 
     $("customer-modal")
@@ -1839,31 +2303,39 @@ async function addCustomer() {
       .remove("open");
 
 
-  } catch (err) {
+  }
+  catch (
+    err
+  ) {
 
     console.error(
-      "[Grain Contract] Add customer failed:",
+      "[Grain Contract] Save customer failed:",
       err
     );
 
 
     alert(
-      "Unable to add Customer."
+      editingCustomer
+        ? "Unable to update Customer."
+        : "Unable to add Customer."
     );
 
-
-  } finally {
+  }
+  finally {
 
     saveBtn.disabled =
       false;
 
 
     saveBtn.textContent =
-      "Add Customer";
+      selectedCustomer?.id
+        ? "Save Changes"
+        : "Add Customer";
 
   }
 
 }
+
 
 
 
