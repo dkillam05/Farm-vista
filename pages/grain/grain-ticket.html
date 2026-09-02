@@ -8041,20 +8041,37 @@ function loSyncCustomerButton(){
   }
 
 
-  const selected =
-    loState.customers.find(
-      item =>
-        item.id ===
-        loClean(
-          loEls.customer.value
-        )
-    ) ||
-    null;
+  const value =
+    loClean(
+      loEls.customer.value
+    );
 
 
-  loEls.customerButtonText.textContent =
-    selected?.name ||
-    "Select customer";
+  if (
+    value ===
+    "__unknown__"
+  ) {
+
+    loEls.customerButtonText.textContent =
+      "Unknown";
+
+  }
+  else {
+
+    const selected =
+      loState.customers.find(
+        item =>
+          item.id ===
+          value
+      ) ||
+      null;
+
+
+    loEls.customerButtonText.textContent =
+      selected?.name ||
+      "Select Sold Under";
+
+  }
 
 
   loEls.customerMenu
@@ -8067,7 +8084,7 @@ function loSyncCustomerButton(){
         button.classList.toggle(
           "selected",
           button.dataset.customerValue ===
-            loEls.customer.value
+            value
         );
 
       }
@@ -8107,51 +8124,278 @@ function loChooseCustomerValue(
 
 
 function loRenderCustomerPicker(){
-  if (!loEls.customerMenu || !loEls.customerButton) return;
-  loEls.customerMenu.innerHTML = "";
-
-  const location = loSelectedLocation();
-  loEls.customerButton.disabled = !location;
-  if (!location) {
-    loEls.customer.value = "";
-    loEls.customerButtonText.textContent = "Select destination first";
-    const empty = document.createElement("div");
-    empty.className = "loadout-source-empty";
-    empty.textContent = "Select a destination first.";
-    loEls.customerMenu.appendChild(empty);
-    return;
-  }
-
-  const eligible = loState.customers
-    .slice()
-    .sort((a,b)=>a.name.localeCompare(b.name));
 
   if (
-    loEls.customer.value &&
-    !eligible.some(customer => customer.id === loEls.customer.value)
+    !loEls.customerMenu ||
+    !loEls.customerButton
   ) {
-    loEls.customer.value = "";
-  }
-
-  if (!eligible.length) {
-    loEls.customerButtonText.textContent = "No customers saved";
-    const empty = document.createElement("div");
-    empty.className = "loadout-source-empty";
-    empty.textContent = "No grain customers are available.";
-    loEls.customerMenu.appendChild(empty);
     return;
   }
 
-  eligible.forEach(customer => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "loadout-source-choice";
-    button.dataset.customerValue = customer.id;
-    button.textContent = customer.name;
-    button.addEventListener("click",() => loChooseCustomerValue(customer.id));
-    loEls.customerMenu.appendChild(button);
-  });
+
+  loEls.customerMenu.innerHTML =
+    "";
+
+
+  const haulingJob =
+    loSelectedHaulingJob();
+
+
+  /*
+    Sold Under now comes from contracts linked
+    to the selected hauling job.
+
+    Unknown is ALWAYS available.
+  */
+  if (
+    !haulingJob
+  ) {
+
+    loEls.customer.value =
+      "";
+
+    loEls.customerButton.disabled =
+      true;
+
+    loEls.customerButtonText.textContent =
+      "Select hauling job first";
+
+
+    const empty =
+      document.createElement(
+        "div"
+      );
+
+
+    empty.className =
+      "loadout-source-empty";
+
+
+    empty.textContent =
+      "Select a hauling job first.";
+
+
+    loEls.customerMenu.appendChild(
+      empty
+    );
+
+
+    return;
+
+  }
+
+
+  loEls.customerButton.disabled =
+    false;
+
+
+  const customerMap =
+    new Map();
+
+
+  /*
+    Only contracts linked to THIS hauling job
+    contribute Sold Under choices.
+  */
+  loState.contracts
+
+    .filter(
+      contract =>
+        loClean(
+          contract.haulingJobId
+        ) ===
+          loClean(
+            haulingJob.id
+          ) &&
+        loContractIsOpen(
+          contract
+        )
+    )
+
+    .forEach(
+      contract => {
+
+        const customerId =
+          loContractCustomerId(
+            contract
+          );
+
+
+        if (
+          !customerId
+        ) {
+          return;
+        }
+
+
+        const customer =
+          loState.customers.find(
+            item =>
+              item.id ===
+              customerId
+          );
+
+
+        const customerName =
+          loClean(
+            customer?.name ||
+            contract.customerName
+          );
+
+
+        if (
+          !customerName
+        ) {
+          return;
+        }
+
+
+        /*
+          Map by customer ID so John Dowson only appears once
+          even if he has multiple linked contracts.
+        */
+        customerMap.set(
+          customerId,
+          {
+            id:
+              customerId,
+
+            name:
+              customerName
+          }
+        );
+
+      }
+    );
+
+
+  const eligible =
+    Array.from(
+      customerMap.values()
+    )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          a.name.localeCompare(
+            b.name,
+            undefined,
+            {
+              numeric:
+                true,
+
+              sensitivity:
+                "base"
+            }
+          )
+      );
+
+
+  /*
+    If the current value is no longer valid,
+    fall back to Unknown.
+  */
+  if (
+    loEls.customer.value &&
+    loEls.customer.value !==
+      "__unknown__" &&
+    !eligible.some(
+      customer =>
+        customer.id ===
+        loEls.customer.value
+    )
+  ) {
+
+    loEls.customer.value =
+      "__unknown__";
+
+  }
+
+
+  /*
+    Unknown always appears first.
+  */
+  const unknownButton =
+    document.createElement(
+      "button"
+    );
+
+
+  unknownButton.type =
+    "button";
+
+
+  unknownButton.className =
+    "loadout-source-choice";
+
+
+  unknownButton.dataset.customerValue =
+    "__unknown__";
+
+
+  unknownButton.textContent =
+    "Unknown";
+
+
+  unknownButton.addEventListener(
+    "click",
+    () =>
+      loChooseCustomerValue(
+        "__unknown__"
+      )
+  );
+
+
+  loEls.customerMenu.appendChild(
+    unknownButton
+  );
+
+
+  eligible.forEach(
+    customer => {
+
+      const button =
+        document.createElement(
+          "button"
+        );
+
+
+      button.type =
+        "button";
+
+
+      button.className =
+        "loadout-source-choice";
+
+
+      button.dataset.customerValue =
+        customer.id;
+
+
+      button.textContent =
+        customer.name;
+
+
+      button.addEventListener(
+        "click",
+        () =>
+          loChooseCustomerValue(
+            customer.id
+          )
+      );
+
+
+      loEls.customerMenu.appendChild(
+        button
+      );
+
+    }
+  );
+
+
   loSyncCustomerButton();
+
 }
 
 function loOpenCustomerMenu(){
@@ -8760,11 +9004,35 @@ function loRenderSourceSelector(
     }
   }
 
-  function loSelectedCustomer(){
-    return loState.customers.find(
-      item => item.id === loEls.customer.value
-    ) || null;
+function loSelectedCustomer(){
+
+  const value =
+    loClean(
+      loEls.customer?.value
+    );
+
+
+  if (
+    value ===
+    "__unknown__"
+  ) {
+
+    return {
+      id: null,
+      name: "Unknown",
+      unknown: true
+    };
+
   }
+
+
+  return loState.customers.find(
+    item =>
+      item.id ===
+      value
+  ) || null;
+
+}
 
   function loSelectedHaulingJob(){
     return loState.haulingJobs.find(
@@ -8886,21 +9154,100 @@ function loRenderSourceSelector(
     );
   }
 
-  function loHaulingJobMatchesSelection(job){
-    const destination = loSelectedLocation();
-    const customer = loSelectedCustomer();
-    const crop = loNorm(loEls.crop?.value);
+function loHaulingJobMatchesSelection(job){
 
-    if (!destination || !customer || !crop || !loHaulingJobIsActive(job)) {
-      return false;
-    }
+  const destination =
+    loSelectedLocation();
 
-    return (
-      loHaulingJobLocationId(job) === destination.id &&
-      loHaulingJobCustomerId(job) === customer.id &&
-      loHaulingJobCrop(job) === crop
+  const customer =
+    loSelectedCustomer();
+
+  const crop =
+    loNorm(
+      loEls.crop?.value
     );
+
+
+  if (
+    !destination ||
+    !customer ||
+    !crop ||
+    !loHaulingJobIsActive(
+      job
+    )
+  ) {
+
+    return false;
+
   }
+
+
+  /*
+    Hauling Job itself owns:
+      Destination
+      Crop
+
+    It does NOT own one fixed Sold Under.
+  */
+  if (
+    loHaulingJobLocationId(
+      job
+    ) !==
+      destination.id ||
+    loHaulingJobCrop(
+      job
+    ) !==
+      crop
+  ) {
+
+    return false;
+
+  }
+
+
+  /*
+    Unknown is always valid.
+  */
+  if (
+    customer.unknown ===
+      true
+  ) {
+
+    return true;
+
+  }
+
+
+  /*
+    A real Sold Under customer is valid only if
+    there is at least one OPEN contract for that
+    customer linked to this hauling job.
+
+    This does NOT select that contract.
+  */
+  return loState.contracts.some(
+    contract =>
+
+      loContractIsOpen(
+        contract
+      ) &&
+
+      loClean(
+        contract.haulingJobId
+      ) ===
+        loClean(
+          job.id
+        ) &&
+
+      loContractCustomerId(
+        contract
+      ) ===
+        loClean(
+          customer.id
+        )
+  );
+
+}
 
   function loFormatShortDate(iso){
     const date = loDateFromISO(iso);
@@ -9000,56 +9347,226 @@ function loRenderSourceSelector(
     }
   }
 
-  function loApplyHaulingJobToLoad(job){
-    loEls.source.value = "";
-    loState.etaAt = null;
-    loState.etaMinutes = null;
-    loState.etaDistanceText = "";
+function loApplyHaulingJobToLoad(job){
 
-    if (!job) {
-      loEls.destination.value = "";
-      loEls.customer.value = "";
-      loRenderCropOptions("");
-      loEls.crop.value = "";
-      loRenderSourceSelector("");
-      loSyncSourceButton();
-      loSyncDestinationButton();
-      loSyncCustomerButton();
-      if (loEls.sourceButton) loEls.sourceButton.disabled = true;
-      if (loEls.crop) loEls.crop.disabled = true;
-      if (loEls.destinationButton) loEls.destinationButton.disabled = true;
-      if (loEls.customerButton) loEls.customerButton.disabled = true;
-      return;
-    }
+  loEls.source.value =
+    "";
 
-    const destinationId = loHaulingJobLocationId(job);
-    const customerId = loHaulingJobCustomerId(job);
-    const cropValue = loClean(job.crop || job.commodity);
+  loState.etaAt =
+    null;
 
-    loEls.destination.value = destinationId;
-    loSyncDestinationButton();
+  loState.etaMinutes =
+    null;
 
-    loRenderCustomerPicker();
-    loEls.customer.value = customerId;
-    loSyncCustomerButton();
+  loState.etaDistanceText =
+    "";
 
-    loRenderCropOptions(cropValue);
-    const cropMatch = Array.from(loEls.crop.options || []).find(option =>
-      option.value && loNorm(option.value) === loNorm(cropValue)
+
+  if (
+    !job
+  ) {
+
+    loEls.destination.value =
+      "";
+
+    loEls.customer.value =
+      "";
+
+    loRenderCropOptions(
+      ""
     );
-    loEls.crop.value = cropMatch ? cropMatch.value : cropValue;
 
-    loRenderSourceSelector("");
+    loEls.crop.value =
+      "";
+
+    loRenderSourceSelector(
+      ""
+    );
+
     loSyncSourceButton();
 
-    if (loEls.sourceButton) loEls.sourceButton.disabled = !loEls.crop.value;
-    if (loEls.crop) loEls.crop.disabled = true;
-    if (loEls.destinationButton) loEls.destinationButton.disabled = true;
-    if (loEls.customerButton) loEls.customerButton.disabled = true;
+    loSyncDestinationButton();
 
-    loEls.haulingJobNote.className = "loadout-contract-note good";
-    loEls.haulingJobNote.textContent = loHaulingJobNote(job);
+    loSyncCustomerButton();
+
+
+    if (
+      loEls.sourceButton
+    ) {
+      loEls.sourceButton.disabled =
+        true;
+    }
+
+
+    if (
+      loEls.crop
+    ) {
+      loEls.crop.disabled =
+        true;
+    }
+
+
+    if (
+      loEls.destinationButton
+    ) {
+      loEls.destinationButton.disabled =
+        true;
+    }
+
+
+    if (
+      loEls.customerButton
+    ) {
+      loEls.customerButton.disabled =
+        true;
+    }
+
+
+    return;
+
   }
+
+
+  const destinationId =
+    loHaulingJobLocationId(
+      job
+    );
+
+
+  const cropValue =
+    loClean(
+      job.crop ||
+      job.commodity
+    );
+
+
+  /*
+    Destination and Crop come directly
+    from the hauling job.
+  */
+  loEls.destination.value =
+    destinationId;
+
+
+  loSyncDestinationButton();
+
+
+  loRenderCropOptions(
+    cropValue
+  );
+
+
+  const cropMatch =
+    Array.from(
+      loEls.crop.options ||
+      []
+    )
+      .find(
+        option =>
+          option.value &&
+          loNorm(
+            option.value
+          ) ===
+          loNorm(
+            cropValue
+          )
+      );
+
+
+  loEls.crop.value =
+    cropMatch
+      ? cropMatch.value
+      : cropValue;
+
+
+  /*
+    Sold Under does NOT come from the hauling job.
+
+    It is built dynamically from contracts linked
+    to this hauling job.
+
+    Start a new selection at Unknown.
+  */
+  loEls.customer.value =
+    "__unknown__";
+
+
+  loRenderCustomerPicker();
+
+
+  loSyncCustomerButton();
+
+
+  /*
+    Grain Source depends on the hauling-job crop.
+  */
+  loRenderSourceSelector(
+    ""
+  );
+
+
+  loSyncSourceButton();
+
+
+  if (
+    loEls.sourceButton
+  ) {
+
+    loEls.sourceButton.disabled =
+      !loEls.crop.value;
+
+  }
+
+
+  if (
+    loEls.crop
+  ) {
+
+    loEls.crop.disabled =
+      true;
+
+  }
+
+
+  if (
+    loEls.destinationButton
+  ) {
+
+    loEls.destinationButton.disabled =
+      true;
+
+  }
+
+
+  /*
+    IMPORTANT:
+    Sold Under stays ENABLED.
+
+    User can choose:
+      Unknown
+      or
+      one of the unique customers from linked contracts.
+  */
+  if (
+    loEls.customerButton
+  ) {
+
+    loEls.customerButton.disabled =
+      false;
+
+  }
+
+
+  loEls.haulingJobNote.className =
+    "loadout-contract-note good";
+
+
+  loEls.haulingJobNote.textContent =
+    loHaulingJobNote(
+      job
+    );
+
+}
 
   function loSetJobMessage(text,type=""){
     if (!loEls.jobMessage) return;
