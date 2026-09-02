@@ -72,6 +72,111 @@ const fmtBu = value =>
     }
   );
 
+
+function setupLiveBushelFormatting() {
+
+  const input =
+    $(
+      "hauling-job-bushels"
+    );
+
+
+  if (
+    !input
+  ) {
+
+    return;
+
+  }
+
+
+  // A number input cannot display commas, so switch only this
+  // field to text while keeping the numeric mobile keyboard.
+  input.type =
+    "text";
+
+  input.inputMode =
+    "decimal";
+
+
+  input.addEventListener(
+    "input",
+    () => {
+
+      const raw =
+        String(
+          input.value || ""
+        )
+          .replace(/,/g, "")
+          .replace(/[^0-9.]/g, "");
+
+
+      if (
+        !raw
+      ) {
+
+        input.value =
+          "";
+
+        return;
+
+      }
+
+
+      const firstDot =
+        raw.indexOf(".");
+
+      const whole =
+        (
+          firstDot >= 0
+            ? raw.slice(
+                0,
+                firstDot
+              )
+            : raw
+        )
+          .replace(
+            /^0+(?=\d)/,
+            ""
+          ) ||
+        "0";
+
+
+      const decimals =
+        firstDot >= 0
+          ? raw
+              .slice(
+                firstDot + 1
+              )
+              .replace(
+                /\./g,
+                ""
+              )
+              .slice(
+                0,
+                2
+              )
+          : "";
+
+
+      input.value =
+        Number(
+          whole
+        )
+          .toLocaleString(
+            "en-US"
+          ) +
+        (
+          firstDot >= 0
+            ? `.\${decimals}`
+            : ""
+        );
+
+    }
+  );
+
+}
+
 const escapeHtml = value =>
   clean(value)
     .replaceAll("&", "&amp;")
@@ -2802,7 +2907,7 @@ function openEditJob(
       "hauling-job-bushels"
     )
       .value =
-        String(
+        fmtBu(
           jobStartingBushels(
             job
           )
@@ -6304,6 +6409,9 @@ function observeContractTable() {
 ============================================================ */
 
 function setupEvents() {
+
+  setupLiveBushelFormatting();
+
 
   $(
     "add-hauling-job-btn"
