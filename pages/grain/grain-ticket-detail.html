@@ -6024,10 +6024,9 @@ function renderCustomerOptions(
     Only OPEN contracts linked to this hauling job
     contribute Sold Under choices.
 
-    A Map deduplicates customers, so 3 John Dowson
-    contracts show John only once.
+    A Map deduplicates customers, so multiple contracts
+    for the same customer show that customer only once.
   */
-
   const customerMap =
     new Map();
 
@@ -6142,31 +6141,71 @@ function renderCustomerOptions(
   customers.forEach(
     customer => {
 
-      const button =
+      /*
+        Select and Edit are intentionally separate actions.
+        Editing a typo should not accidentally change the
+        ticket's current Sold Under selection.
+      */
+      const row =
+        document.createElement(
+          "div"
+        );
+
+
+      Object.assign(
+        row.style,
+        {
+          display:
+            "grid",
+
+          gridTemplateColumns:
+            "1fr auto",
+
+          alignItems:
+            "stretch",
+
+          gap:
+            "6px",
+
+          margin:
+            "2px 5px"
+        }
+      );
+
+
+      const selectButton =
         document.createElement(
           "button"
         );
 
 
-      button.type =
+      selectButton.type =
         "button";
 
 
-      button.className =
+      selectButton.className =
         "load-picker-choice";
 
 
-      button.dataset.customerId =
+      selectButton.dataset.customerId =
         customer.id;
 
 
-      button.textContent =
+      selectButton.textContent =
         customer.name;
 
 
-      button.addEventListener(
+      selectButton.style.borderRadius =
+        "8px";
+
+
+      selectButton.addEventListener(
         "click",
-        () => {
+        event => {
+
+          event.preventDefault();
+          event.stopPropagation();
+
 
           chooseCustomer(
             customer.id
@@ -6176,11 +6215,155 @@ function renderCustomerOptions(
       );
 
 
+      const editButton =
+        document.createElement(
+          "button"
+        );
+
+
+      editButton.type =
+        "button";
+
+
+      editButton.textContent =
+        "Edit";
+
+
+      editButton.title =
+        `Edit ${customer.name}`;
+
+
+      Object.assign(
+        editButton.style,
+        {
+          border:
+            "1px solid var(--border, #ccc)",
+
+          borderRadius:
+            "8px",
+
+          padding:
+            "6px 10px",
+
+          background:
+            "var(--surface-2, #f4f4f4)",
+
+          color:
+            "inherit",
+
+          cursor:
+            "pointer",
+
+          fontWeight:
+            "800",
+
+          fontSize:
+            ".78rem"
+        }
+      );
+
+
+      editButton.addEventListener(
+        "click",
+        event => {
+
+          event.preventDefault();
+          event.stopPropagation();
+
+
+          closeAllLoadMenus();
+
+
+          editSoldUnder(
+            customer.id
+          );
+
+        }
+      );
+
+
+      row.appendChild(
+        selectButton
+      );
+
+
+      row.appendChild(
+        editButton
+      );
+
+
       elements.customerMenu.appendChild(
-        button
+        row
       );
 
     }
+  );
+
+
+  /*
+    ========================================================
+    MANAGEMENT SECTION
+    ========================================================
+
+    Add creates a master grain customer. It does not bypass
+    the hauling-job/contract eligibility rule.
+  */
+  const manageGroup =
+    document.createElement(
+      "div"
+    );
+
+
+  manageGroup.className =
+    "load-picker-group";
+
+
+  manageGroup.textContent =
+    "Manage Sold Under";
+
+
+  elements.customerMenu.appendChild(
+    manageGroup
+  );
+
+
+  const addButton =
+    document.createElement(
+      "button"
+    );
+
+
+  addButton.type =
+    "button";
+
+
+  addButton.className =
+    "load-picker-choice";
+
+
+  addButton.textContent =
+    "+ Add New Sold Under / Customer";
+
+
+  addButton.addEventListener(
+    "click",
+    event => {
+
+      event.preventDefault();
+      event.stopPropagation();
+
+
+      closeAllLoadMenus();
+
+
+      addSoldUnder();
+
+    }
+  );
+
+
+  elements.customerMenu.appendChild(
+    addButton
   );
 
 
@@ -6193,7 +6376,6 @@ function renderCustomerOptions(
     That lets the reviewer see what the ticket actually said
     without pretending that customer is currently valid.
   */
-
   searchInput.addEventListener(
     "input",
     () => {
@@ -6226,6 +6408,371 @@ function renderCustomerOptions(
 
 
   syncCustomerButton();
+
+}
+
+
+/* ============================================================
+   ADD / EDIT SOLD UNDER CUSTOMER
+============================================================ */
+
+async function addSoldUnder() {
+
+  const entered =
+    window.prompt(
+      "Enter the new Sold Under / Customer name:"
+    );
+
+
+  if (
+    entered ===
+      null
+  ) {
+
+    return;
+
+  }
+
+
+  const name =
+    clean(
+      entered
+    );
+
+
+  if (
+    !name
+  ) {
+
+    return;
+
+  }
+
+
+  const duplicate =
+    state.customers.find(
+      customer =>
+        normalize(
+          customer.name
+        ) ===
+        normalize(
+          name
+        )
+    ) ||
+    null;
+
+
+  if (
+    duplicate
+  ) {
+
+    showMessage(
+      `${duplicate.name} already exists.`,
+      "warning"
+    );
+
+
+    return;
+
+  }
+
+
+  try {
+
+    const saved =
+      await addDoc(
+        collection(
+          db,
+          "grain_customers"
+        ),
+        {
+          name,
+
+          createdAt:
+            serverTimestamp(),
+
+          updatedAt:
+            serverTimestamp()
+        }
+      );
+
+
+    const customer = {
+      id:
+        saved.id,
+
+      name
+    };
+
+
+    state.customers.push(
+      customer
+    );
+
+
+    state.customers.sort(
+      (
+        a,
+        b
+      ) =>
+        a.name.localeCompare(
+          b.name,
+          undefined,
+          {
+            numeric:
+              true,
+
+            sensitivity:
+              "base"
+          }
+        )
+    );
+
+
+    renderCustomerOptions();
+
+
+    showMessage(
+      `${name} was added. Link a contract for this customer to the hauling job before it can be selected as an official Sold Under.`,
+      "success"
+    );
+
+  }
+  catch (
+    error
+  ) {
+
+    console.error(
+      "[Grain Ticket Detail] Add Sold Under failed:",
+      error
+    );
+
+
+    showMessage(
+      "Sold Under / Customer could not be added.",
+      "error"
+    );
+
+  }
+
+}
+
+
+async function editSoldUnder(
+  customerId
+) {
+
+  const customer =
+    state.customers.find(
+      item =>
+        item.id ===
+        clean(
+          customerId
+        )
+    ) ||
+    null;
+
+
+  if (
+    !customer
+  ) {
+
+    return;
+
+  }
+
+
+  const entered =
+    window.prompt(
+      "Edit Sold Under / Customer name:",
+      customer.name
+    );
+
+
+  if (
+    entered ===
+      null
+  ) {
+
+    return;
+
+  }
+
+
+  const name =
+    clean(
+      entered
+    );
+
+
+  if (
+    !name ||
+    name ===
+      customer.name
+  ) {
+
+    return;
+
+  }
+
+
+  const duplicate =
+    state.customers.find(
+      item =>
+        item.id !==
+          customer.id &&
+        normalize(
+          item.name
+        ) ===
+        normalize(
+          name
+        )
+    ) ||
+    null;
+
+
+  if (
+    duplicate
+  ) {
+
+    showMessage(
+      `${duplicate.name} already exists.`,
+      "warning"
+    );
+
+
+    return;
+
+  }
+
+
+  try {
+
+    await updateDoc(
+      doc(
+        db,
+        "grain_customers",
+        customer.id
+      ),
+      {
+        name,
+
+        updatedAt:
+          serverTimestamp()
+      }
+    );
+
+
+    /*
+      Keep copied customerName values on grain contracts
+      synchronized with the master grain_customers record.
+      Match by customerId only.
+    */
+    const linkedContracts =
+      state.contracts.filter(
+        contract =>
+          contractCustomerId(
+            contract
+          ) ===
+            customer.id
+      );
+
+
+    await Promise.all(
+      linkedContracts.map(
+        contract =>
+          updateDoc(
+            doc(
+              db,
+              "grain_contracts",
+              contract.id
+            ),
+            {
+              customerName:
+                name,
+
+              updatedAt:
+                serverTimestamp()
+            }
+          )
+      )
+    );
+
+
+    linkedContracts.forEach(
+      contract => {
+
+        contract.customerName =
+          name;
+
+      }
+    );
+
+
+    customer.name =
+      name;
+
+
+    state.customers.sort(
+      (
+        a,
+        b
+      ) =>
+        a.name.localeCompare(
+          b.name,
+          undefined,
+          {
+            numeric:
+              true,
+
+            sensitivity:
+              "base"
+          }
+        )
+    );
+
+
+    if (
+      clean(
+        elements.customerSelect.value
+      ) ===
+        customer.id
+    ) {
+
+      state.selectedCustomer =
+        customer;
+
+
+      syncCustomerButton();
+
+    }
+
+
+    renderCustomerOptions();
+
+
+    showMessage(
+      `Sold Under updated to ${name}.`,
+      "success"
+    );
+
+  }
+  catch (
+    error
+  ) {
+
+    console.error(
+      "[Grain Ticket Detail] Edit Sold Under failed:",
+      error
+    );
+
+
+    showMessage(
+      "Sold Under / Customer could not be updated.",
+      "error"
+    );
+
+  }
 
 }
 
