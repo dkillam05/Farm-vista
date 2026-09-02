@@ -1310,42 +1310,54 @@ function getContractStatus(
     return "complete";
   }
 
+  const now =
+    new Date();
+
+  const today =
+    `${
+      now.getFullYear()
+    }-${
+      String(
+        now.getMonth() + 1
+      ).padStart(
+        2,
+        "0"
+      )
+    }-${
+      String(
+        now.getDate()
+      ).padStart(
+        2,
+        "0"
+      )
+    }`;
+
   const deliveryStart =
     clean(
       contract.deliveryStart
     );
 
   if (
-    deliveryStart
+    deliveryStart &&
+    deliveryStart >
+    today
   ) {
-    const now =
-      new Date();
+    return "pending";
+  }
 
-    const today =
-      `${
-        now.getFullYear()
-      }-${
-        String(
-          now.getMonth() + 1
-        ).padStart(
-          2,
-          "0"
-        )
-      }-${
-        String(
-          now.getDate()
-        ).padStart(
-          2,
-          "0"
-        )
-      }`;
+  const deliveryEnd =
+    clean(
+      contract.deliveryEnd
+    );
 
-    if (
-      deliveryStart >
-      today
-    ) {
-      return "pending";
-    }
+  if (
+    deliveryEnd &&
+    deliveryEnd <
+    today &&
+    open >
+    EPSILON
+  ) {
+    return "past_due";
   }
 
   if (
@@ -1382,6 +1394,9 @@ function getStatusLabel(
     pending:
       "Pending",
 
+    past_due:
+      "Past Due",
+
     near:
       "Near Full",
 
@@ -1394,11 +1409,17 @@ function getStatusLabel(
 function getStatusClass(
   contract
 ) {
-  return `status-${
+  const status =
     getContractStatus(
       contract
-    )
-  }`;
+    );
+
+  return status ===
+    "past_due"
+      ? "status-voided"
+      : `status-${
+          status
+        }`;
 }
 
 
@@ -3778,6 +3799,7 @@ function applyContractFilters() {
             "open"
           ) {
             return [
+              "past_due",
               "open",
               "near",
               "pending"
@@ -3832,11 +3854,12 @@ function applyContractFilters() {
 
 
           const statusOrder = {
-            open: 0,
-            near: 0,
-            pending: 1,
-            complete: 2,
-            voided: 3
+            past_due: 0,
+            open: 1,
+            near: 1,
+            pending: 2,
+            complete: 3,
+            voided: 4
           };
 
 
@@ -4685,6 +4708,7 @@ function getAvailableContracts() {
           );
 
         if (
+          status !== "past_due" &&
           status !== "open" &&
           status !== "near"
         ) {
