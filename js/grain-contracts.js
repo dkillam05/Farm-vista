@@ -2075,15 +2075,20 @@ async function loadAllData() {
                 data.customerId
               ),
 
-            customerName:
-              clean(
-                data.customerName
-              ),
+customerName:
+  clean(
+    data.customerName
+  ),
 
-            crop:
-              clean(
-                data.crop
-              ),
+haulingJobId:
+  clean(
+    data.haulingJobId
+  ),
+
+crop:
+  clean(
+    data.crop
+  ),
 
             contractType:
               clean(
@@ -2312,15 +2317,20 @@ async function loadAllData() {
                 data.customerId
               ),
 
-            customerName:
-              clean(
-                data.customerName
-              ),
+customerName:
+  clean(
+    data.customerName
+  ),
 
-            ticketNumber:
-              clean(
-                data.ticketNumber
-              ),
+haulingJobId:
+  clean(
+    data.haulingJobId
+  ),
+
+ticketNumber:
+  clean(
+    data.ticketNumber
+  ),
 
             ticketDate:
               clean(
@@ -8120,13 +8130,45 @@ function validateTicketAgainstContract(
     return "Voided tickets cannot be assigned.";
   }
 
-  if (
-    contract.voided
-  ) {
-    return "Voided contracts cannot receive tickets.";
-  }
+if (
+  contract.voided
+) {
+  return "Voided contracts cannot receive tickets.";
+}
 
-  const buyerMatches =
+
+/*
+  If the ticket is already tied to a hauling job,
+  it may only be assigned to contracts linked to
+  that same hauling job.
+
+  Tickets without a haulingJobId are still allowed
+  through to the normal Buyer / Customer / Crop
+  validation below for manual reconciliation.
+*/
+const ticketHaulingJobId =
+  clean(
+    ticket.haulingJobId
+  );
+
+const contractHaulingJobId =
+  clean(
+    contract.haulingJobId
+  );
+
+
+if (
+  ticketHaulingJobId &&
+  contractHaulingJobId !==
+    ticketHaulingJobId
+) {
+
+  return "This contract is not linked to the same hauling job as this ticket.";
+
+}
+
+
+const buyerMatches =
     (
       clean(
         ticket.buyerId
