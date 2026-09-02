@@ -402,6 +402,57 @@
       85%{opacity:1}
       100%{opacity:0}
     }
+
+    .invite-modal-backdrop{
+      position:fixed;
+      inset:0;
+      background:rgba(0,0,0,.48);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      padding:18px;
+      z-index:100000;
+    }
+
+    .invite-modal-backdrop.show{
+      display:flex;
+    }
+
+    .invite-modal{
+      width:min(460px,100%);
+      background:var(--surface);
+      color:var(--text);
+      border:1px solid var(--border);
+      border-radius:16px;
+      box-shadow:0 18px 50px rgba(0,0,0,.28);
+      padding:20px;
+    }
+
+    .invite-modal h2{
+      margin:0 0 8px;
+      font-size:22px;
+    }
+
+    .invite-modal p{
+      margin:0 0 16px;
+      color:var(--muted,#87908a);
+      line-height:1.45;
+    }
+
+    .invite-options{
+      display:grid;
+      gap:10px;
+    }
+
+    .invite-option{
+      width:100%;
+      min-height:48px;
+    }
+
+    .invite-cancel{
+      margin-top:12px;
+      width:100%;
+    }
   </style>
 </head>
 
@@ -798,6 +849,44 @@
     Successfully saved.
   </div>
 
+  <div
+    id="inviteModalBackdrop"
+    class="invite-modal-backdrop"
+    role="presentation"
+    aria-hidden="true"
+  >
+    <div
+      class="invite-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="inviteModalTitle"
+    >
+      <h2 id="inviteModalTitle">Send Invite</h2>
+      <p>
+        This employee has both an email address and a mobile number.
+        Choose how you want to send the FarmVista invite.
+      </p>
+
+      <div class="invite-options">
+        <button id="inviteEmailOnly" class="btn btn-primary invite-option" type="button">
+          Email Invite
+        </button>
+
+        <button id="invitePhoneOnly" class="btn btn-primary invite-option" type="button">
+          Phone Invite
+        </button>
+
+        <button id="inviteBoth" class="btn btn-accent invite-option" type="button">
+          Email &amp; Phone
+        </button>
+      </div>
+
+      <button id="inviteCancel" class="btn invite-cancel" type="button">
+        Cancel
+      </button>
+    </div>
+  </div>
+
 
   <script type="module">
 
@@ -878,6 +967,248 @@
         )
           .trim()
           .toLowerCase();
+
+
+    // ======================================================
+    // INVITE HELPERS
+    // ======================================================
+
+    const EMPLOYEE_INVITE_SMS_URL =
+      String(
+        window.FV_EMPLOYEE_INVITE_SMS_URL ||
+        ""
+      ).trim();
+
+
+    function chooseInviteMethod(){
+
+      return new Promise(
+        resolve => {
+
+          const backdrop =
+            $("inviteModalBackdrop");
+
+          const emailOnly =
+            $("inviteEmailOnly");
+
+          const phoneOnly =
+            $("invitePhoneOnly");
+
+          const both =
+            $("inviteBoth");
+
+          const cancel =
+            $("inviteCancel");
+
+
+          const finish =
+            choice => {
+
+              backdrop.classList.remove(
+                "show"
+              );
+
+              backdrop.setAttribute(
+                "aria-hidden",
+                "true"
+              );
+
+              emailOnly.onclick =
+                null;
+
+              phoneOnly.onclick =
+                null;
+
+              both.onclick =
+                null;
+
+              cancel.onclick =
+                null;
+
+              backdrop.onclick =
+                null;
+
+              resolve(
+                choice
+              );
+
+            };
+
+
+          emailOnly.onclick =
+            () =>
+              finish(
+                "email"
+              );
+
+          phoneOnly.onclick =
+            () =>
+              finish(
+                "phone"
+              );
+
+          both.onclick =
+            () =>
+              finish(
+                "both"
+              );
+
+          cancel.onclick =
+            () =>
+              finish(
+                null
+              );
+
+          backdrop.onclick =
+            event => {
+
+              if (
+                event.target ===
+                backdrop
+              ) {
+
+                finish(
+                  null
+                );
+
+              }
+
+            };
+
+
+          backdrop.classList.add(
+            "show"
+          );
+
+          backdrop.setAttribute(
+            "aria-hidden",
+            "false"
+          );
+
+          emailOnly.focus();
+
+        }
+      );
+
+    }
+
+
+    async function sendPhoneInvite(
+      values
+    ){
+
+      if (
+        !values.phoneE164
+      ) {
+
+        throw new Error(
+          "Missing mobile number for phone invite."
+        );
+
+      }
+
+
+      if (
+        !EMPLOYEE_INVITE_SMS_URL
+      ) {
+
+        throw new Error(
+          "Phone invite service is not configured yet."
+        );
+
+      }
+
+
+      let farmKey =
+        String(
+          window.FV_FARM_KEY ||
+          window.FV_FARM?.farmKey ||
+          ""
+        )
+          .trim()
+          .toLowerCase();
+
+
+      if (
+        !farmKey
+      ) {
+
+        try {
+
+          farmKey =
+            String(
+              localStorage.getItem(
+                "fv:farm-key"
+              ) ||
+              ""
+            )
+              .trim()
+              .toLowerCase();
+
+        }
+        catch {}
+
+      }
+
+
+      const response =
+        await fetch(
+          EMPLOYEE_INVITE_SMS_URL,
+          {
+            method:
+              "POST",
+
+            headers:
+              {
+                "Content-Type":
+                  "application/json"
+              },
+
+            body:
+              JSON.stringify({
+                farmKey,
+
+                phone:
+                  values.phoneE164,
+
+                firstName:
+                  values.first,
+
+                lastName:
+                  values.last,
+
+                appUrl:
+                  "https://farmvista.app/"
+              }),
+
+            cache:
+              "no-store"
+          }
+        );
+
+
+      const result =
+        await response
+          .json()
+          .catch(
+            () => null
+          );
+
+
+      if (
+        !response.ok ||
+        result?.ok !==
+          true
+      ) {
+
+        throw new Error(
+          result?.error ||
+          "Phone invite could not be sent."
+        );
+
+      }
+
+    }
 
 
     // ======================================================
@@ -1675,16 +2006,39 @@
         $("email")?.value.trim() ||
         "";
 
+      const currentPhone =
+        normalizeUSPhone(
+          $("phone")?.value ||
+          ""
+        );
+
 
       if (
-        !currentEmail
+        currentEmail &&
+        currentPhone
       ) {
 
+        const hadInviteContact =
+          !!(
+            sel &&
+            sel.data &&
+            (
+              sel.data.email ||
+              sel.data.phoneE164 ||
+              sel.data.phone
+            )
+          );
+
+
         saveInviteBtn.textContent =
-          "Save Phone Access";
+          hadInviteContact
+            ? "Save & Resend Invite"
+            : "Save & Invite";
 
       }
-      else {
+      else if (
+        currentEmail
+      ) {
 
         const hadEmail =
           !!(
@@ -1696,8 +2050,35 @@
 
         saveInviteBtn.textContent =
           hadEmail
-            ? "Save & Resend Invite"
-            : "Save & Invite";
+            ? "Save & Resend Email Invite"
+            : "Save & Send Email Invite";
+
+      }
+      else if (
+        currentPhone
+      ) {
+
+        const hadPhone =
+          !!(
+            sel &&
+            sel.data &&
+            (
+              sel.data.phoneE164 ||
+              sel.data.phone
+            )
+          );
+
+
+        saveInviteBtn.textContent =
+          hadPhone
+            ? "Save & Resend Phone Invite"
+            : "Save & Send Phone Invite";
+
+      }
+      else {
+
+        saveInviteBtn.textContent =
+          "Save & Invite";
 
       }
 
@@ -1708,7 +2089,6 @@
       );
 
     }
-
 
     function updateHero(){
 
@@ -3474,6 +3854,12 @@
     );
 
 
+    $("phone").addEventListener(
+      "input",
+      updateInviteButtonLabel
+    );
+
+
     $("clear").addEventListener(
       "click",
       () => {
@@ -3624,6 +4010,26 @@
         }
 
 
+        const inviteMethod =
+          values.email &&
+          values.phoneE164
+            ? await chooseInviteMethod()
+            : (
+                values.email
+                  ? "email"
+                  : "phone"
+              );
+
+
+        if (
+          !inviteMethod
+        ) {
+
+          return;
+
+        }
+
+
         try {
 
           setBusy(
@@ -3642,57 +4048,81 @@
           );
 
 
-          /*
-            Phone-only employee:
-            saving the employee record is enough here.
-            The secure phone-auth gate comes next.
-          */
+          const sendEmail =
+            inviteMethod ===
+              "email" ||
+            inviteMethod ===
+              "both";
+
+
+          const sendPhone =
+            inviteMethod ===
+              "phone" ||
+            inviteMethod ===
+              "both";
+
 
           if (
-            !values.email
+            sendEmail
+          ) {
+
+            if (
+              mode !==
+              "firebase"
+            ) {
+
+              throw new Error(
+                "Email not sent: Firebase is in stub mode."
+              );
+
+            }
+
+
+            await sendPasswordResetEmail(
+              getAuth(),
+              values.email
+            );
+
+          }
+
+
+          if (
+            sendPhone
+          ) {
+
+            await sendPhoneInvite(
+              values
+            );
+
+          }
+
+
+          if (
+            sendEmail &&
+            sendPhone
           ) {
 
             showToast(
-              "Saved. Phone access is ready."
+              "Saved. Email & phone invites sent."
             );
 
-
-            window.scrollTo({
-              top:
-                0,
-              behavior:
-                "smooth"
-            });
-
-
-            return;
-
           }
-
-
-          if (
-            mode !==
-            "firebase"
+          else if (
+            sendEmail
           ) {
 
-            alert(
-              "Email not sent: Firebase is in stub mode."
+            showToast(
+              "Saved & email invite sent."
             );
 
-            return;
+          }
+          else {
+
+            showToast(
+              "Saved & phone invite sent."
+            );
 
           }
-
-
-          await sendPasswordResetEmail(
-            getAuth(),
-            values.email
-          );
-
-
-          showToast(
-            "Saved & invite resent."
-          );
 
 
           window.scrollTo({
@@ -3765,7 +4195,6 @@
 
       }
     );
-
 
     async function boot(){
 
