@@ -2740,15 +2740,6 @@ async function saveJob(
     );
 
 
-  const customerId =
-    clean(
-      $(
-        "hauling-job-customer"
-      )
-        ?.value
-    );
-
-
   const crop =
     clean(
       $(
@@ -2797,30 +2788,23 @@ async function saveJob(
     );
 
 
-  const customer =
-    matchingCustomer(
-      customerId
-    );
+if (
+  !buyer ||
+  !location ||
+  !crop ||
+  !(startingBushels > 0) ||
+  !deliveryStartDate ||
+  !deliveryEndDate
+) {
+
+  setJobMessage(
+    "Select Buyer, Location, Crop, starting bushels, and both delivery dates."
+  );
 
 
-  if (
-    !buyer ||
-    !location ||
-    !customer ||
-    !crop ||
-    !(startingBushels > 0) ||
-    !deliveryStartDate ||
-    !deliveryEndDate
-  ) {
+  return;
 
-    setJobMessage(
-      "Select Buyer, Location, Sold Under, Crop, starting bushels, and both delivery dates."
-    );
-
-
-    return;
-
-  }
+}
 
 
   if (
@@ -2873,10 +2857,6 @@ async function saveJob(
               contract
             ) !==
               buyerId ||
-            contractCustomerId(
-              contract
-            ) !==
-              customerId ||
             norm(
               contractCrop(
                 contract
@@ -2896,10 +2876,9 @@ async function saveJob(
         wouldBreak
       ) {
 
-        setJobMessage(
-          "This job already has linked contracts. Unlink those contracts before changing Buyer, Location, Sold Under, or Crop."
-        );
-
+setJobMessage(
+  "This job already has linked contracts. Unlink those contracts before changing Buyer, Location, or Crop."
+);
 
         return;
 
