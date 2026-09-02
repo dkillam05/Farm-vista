@@ -1559,81 +1559,76 @@ function applyHaulingJob(
     );
 
 
-  const customerId =
-    haulingJobCustomerId(
-      job
-    );
+const crop =
+  clean(
+    job.crop ||
+    job.commodity
+  );
 
 
-  const crop =
-    clean(
-      job.crop ||
-      job.commodity
-    );
+const location =
+  state.locations.find(
+    item =>
+      item.id ===
+      locationId
+  ) ||
+  null;
 
 
-  const location =
-    state.locations.find(
-      item =>
-        item.id ===
-        locationId
-    ) ||
-    null;
+const buyer =
+  location
+    ? (
+        state.buyers.find(
+          item =>
+            item.id ===
+            location.buyerId
+        ) ||
+        {
+          id:
+            location.buyerId,
+
+          name:
+            location.buyerName
+        }
+      )
+    : null;
 
 
-  const buyer =
-    location
-      ? (
-          state.buyers.find(
-            item =>
-              item.id ===
-              location.buyerId
-          ) ||
-          {
-            id:
-              location.buyerId,
-
-            name:
-              location.buyerName
-          }
-        )
-      : null;
+state.selectedLocation =
+  location;
 
 
-  const customer =
-    state.customers.find(
-      item =>
-        item.id ===
-        customerId
-    ) ||
-    null;
+state.selectedBuyer =
+  buyer;
 
 
-  state.selectedLocation =
-    location;
+/*
+  Sold Under does NOT live on the hauling job anymore.
+
+  It will be chosen from customers on open contracts
+  linked to this hauling job.
+
+  Start at Unknown.
+*/
+state.selectedCustomer = {
+  id: null,
+  name: "Unknown",
+  unknown: true
+};
 
 
-  state.selectedBuyer =
-    buyer;
+el.locationSelect.value =
+  location?.id ||
+  "";
 
 
-  state.selectedCustomer =
-    customer;
+el.buyerSelect.value =
+  buyer?.id ||
+  "";
 
 
-  el.locationSelect.value =
-    location?.id ||
-    "";
-
-
-  el.buyerSelect.value =
-    buyer?.id ||
-    "";
-
-
-  el.customerSelect.value =
-    customer?.id ||
-    "";
+el.customerSelect.value =
+  "__unknown__";
 
 
   const cropOption =
@@ -1696,8 +1691,8 @@ function applyHaulingJob(
     true;
 
 
-  el.customerButton.disabled =
-    true;
+ el.customerButton.disabled =
+  false;
 
 
   syncDestination();
@@ -1882,35 +1877,6 @@ function openHaulingJobModal() {
   populateJobDestinationOptions();
 
 
-  el.haulingJobCustomer.innerHTML =
-    '<option value="">Select customer</option>';
-
-
-  state.customers.forEach(
-    customer => {
-
-      const option =
-        document.createElement(
-          "option"
-        );
-
-
-      option.value =
-        customer.id;
-
-
-      option.textContent =
-        customer.name;
-
-
-      el.haulingJobCustomer.appendChild(
-        option
-      );
-
-    }
-  );
-
-
   el.haulingJobBushels.value =
     "";
 
@@ -1982,12 +1948,6 @@ async function saveHaulingJob(
     );
 
 
-  const customerId =
-    clean(
-      el.haulingJobCustomer.value
-    );
-
-
   const crop =
     clean(
       el.haulingJobCrop.value
@@ -2008,15 +1968,6 @@ async function saveHaulingJob(
       item =>
         item.id ===
         destinationId
-    ) ||
-    null;
-
-
-  const customer =
-    state.customers.find(
-      item =>
-        item.id ===
-        customerId
     ) ||
     null;
 
@@ -2043,7 +1994,6 @@ async function saveHaulingJob(
   if (
     !buyer ||
     !destination ||
-    !customer ||
     !crop ||
     !Number.isFinite(
       startingBushels
@@ -2055,7 +2005,7 @@ async function saveHaulingJob(
   ) {
 
     setJobMessage(
-      "Complete Buyer, Location, Sold Under, Crop, Starting Bushels, and both delivery dates."
+      "Complete Buyer, Location, Crop, Starting Bushels, and both delivery dates."
     );
 
 
@@ -2127,16 +2077,11 @@ async function saveHaulingJob(
       deliveryLocationName:
         destination.locationName,
 
-      customerId:
-        customer.id,
-
-      customerName:
-        customer.name,
-
       crop,
 
       startingBushels,
-deliveryStartDate,
+
+      deliveryStartDate,
 
       deliveryEndDate,
 
@@ -3560,11 +3505,38 @@ function chooseDestination(
 
 function syncCustomer() {
 
+  const value =
+    clean(
+      el.customerSelect.value
+    );
+
+
+  if (
+    value ===
+    "__unknown__"
+  ) {
+
+    state.selectedCustomer = {
+      id: null,
+      name: "Unknown",
+      unknown: true
+    };
+
+
+    el.customerButtonText.textContent =
+      "Unknown";
+
+
+    return;
+
+  }
+
+
   state.selectedCustomer =
     state.customers.find(
       customer =>
         customer.id ===
-        el.customerSelect.value
+        value
     ) ||
     null;
 
@@ -3572,9 +3544,9 @@ function syncCustomer() {
   el.customerButtonText.textContent =
     state.selectedCustomer?.name ||
     (
-      state.selectedLocation
-        ? "Select customer"
-        : "Select destination first"
+      state.selectedHaulingJob
+        ? "Select Sold Under"
+        : "Select hauling job first"
     );
 
 }
@@ -3595,8 +3567,12 @@ function renderCustomer(
     "";
 
 
+  const haulingJob =
+    state.selectedHaulingJob;
+
+
   const ready =
-    !!state.selectedLocation;
+    !!haulingJob;
 
 
   el.customerButton.disabled =
@@ -3620,7 +3596,7 @@ function renderCustomer(
 
     addEmpty(
       el.customerMenu,
-      "Select a destination first."
+      "Select a hauling job first."
     );
 
 
@@ -3631,7 +3607,7 @@ function renderCustomer(
 
   addSearch(
     el.customerMenu,
-    "Search matching customer…",
+    "Search Sold Under…",
     searchText,
     value => {
 
@@ -3649,12 +3625,68 @@ function renderCustomer(
   );
 
 
+  /*
+    Unknown is ALWAYS a valid option.
+  */
+  if (
+    !search ||
+    "unknown".includes(
+      search
+    )
+  ) {
+
+    addChoice(
+      el.customerMenu,
+      {
+        title:
+          "Unknown",
+
+        selected:
+          el.customerSelect.value ===
+          "__unknown__",
+
+        onClick:
+          () => {
+
+            chooseCustomer(
+              "__unknown__"
+            );
+
+          }
+      }
+    );
+
+  }
+
+
+  /*
+    Build Sold Under from OPEN contracts linked
+    to the selected hauling job.
+
+    Set removes duplicates, so three John Dowson
+    contracts still show John only once.
+  */
   const eligibleIds =
     new Set(
-      contractsForDestination()
+      state.contracts
+
+        .filter(
+          contract =>
+            contractIsOpen(
+              contract
+            ) &&
+            clean(
+              contract?.haulingJobId
+            ) ===
+              clean(
+                haulingJob.id
+              )
+        )
+
         .map(
           contractCustomerId
         )
+
         .filter(
           Boolean
         )
@@ -3663,21 +3695,40 @@ function renderCustomer(
 
   const customers =
     state.customers
+
       .filter(
         customer =>
           eligibleIds.has(
             customer.id
           )
       )
+
       .filter(
         customer =>
           !search ||
           normalize(
             customer.name
+          ).includes(
+            search
           )
-            .includes(
-              search
-            )
+      )
+
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          a.name.localeCompare(
+            b.name,
+            undefined,
+            {
+              numeric:
+                true,
+
+              sensitivity:
+                "base"
+            }
+          )
       );
 
 
@@ -3709,18 +3760,6 @@ function renderCustomer(
   );
 
 
-  if (
-    !customers.length
-  ) {
-
-    addEmpty(
-      el.customerMenu,
-      "No Sold Under customer has an open contract for this crop and destination."
-    );
-
-  }
-
-
   syncCustomer();
 
 }
@@ -3734,15 +3773,35 @@ function chooseCustomer(
     id;
 
 
-  state.selectedCustomer =
-    state.customers.find(
-      customer =>
-        customer.id ===
-        id
-    ) ||
-    null;
+  if (
+    id ===
+    "__unknown__"
+  ) {
+
+    state.selectedCustomer = {
+      id: null,
+      name: "Unknown",
+      unknown: true
+    };
+
+  }
+  else {
+
+    state.selectedCustomer =
+      state.customers.find(
+        customer =>
+          customer.id ===
+          id
+      ) ||
+      null;
+
+  }
 
 
+  /*
+    Sold Under does not automatically choose
+    a specific contract.
+  */
   el.contractSelect.value =
     "";
 
@@ -3767,8 +3826,13 @@ function chooseCustomer(
 
 function renderContract() {
 
-  const matches =
-    matchingContracts();
+  if (
+    !el.contractSelect
+  ) {
+
+    return;
+
+  }
 
 
   el.contractSelect.innerHTML =
@@ -3785,70 +3849,59 @@ function renderContract() {
     "";
 
 
+  /*
+    Contract is NEVER assigned from Manual Add.
+
+    We may know the hauling job and Sold Under,
+    but there may be multiple contracts for that
+    same customer.
+
+    Specific contract assignment happens later.
+  */
+  el.contractSelect.disabled =
+    true;
+
+
+  el.contractSelect.appendChild(
+    option
+  );
+
+
+  state.selectedContract =
+    null;
+
+
+  const haulingJob =
+    state.selectedHaulingJob;
+
+
+  const customer =
+    state.selectedCustomer;
+
+
   if (
-    !el.crop.value
+    !haulingJob
   ) {
 
-    el.contractSelect.disabled =
-      true;
-
-
     option.textContent =
-      "Select crop first";
+      "Select hauling job first";
 
 
     setCheck(
       el.contractStatus,
       false,
-      "Select the crop first."
+      "Select the hauling job first."
     );
 
-  }
-  else if (
-    !state.selectedSource
-  ) {
 
-    el.contractSelect.disabled =
-      true;
-
-
-    option.textContent =
-      "Select grain source first";
-
-
-    setCheck(
-      el.contractStatus,
-      false,
-      "Select a matching bin or grain bag."
-    );
+    return;
 
   }
-  else if (
-    !state.selectedLocation
+
+
+  if (
+    !customer
   ) {
-
-    el.contractSelect.disabled =
-      true;
-
-
-    option.textContent =
-      "Select destination first";
-
-
-    setCheck(
-      el.contractStatus,
-      false,
-      "Select a destination with an open matching contract."
-    );
-
-  }
-  else if (
-    !state.selectedCustomer
-  ) {
-
-    el.contractSelect.disabled =
-      true;
-
 
     option.textContent =
       "Select Sold Under first";
@@ -3857,94 +3910,94 @@ function renderContract() {
     setCheck(
       el.contractStatus,
       false,
-      "Select who this grain was sold under."
+      "Select who this grain is sold under."
     );
 
+
+    return;
+
   }
-  else if (
-    !matches.length
+
+
+  if (
+    customer.unknown ===
+      true
   ) {
 
-    el.contractSelect.disabled =
-      true;
-
-
     option.textContent =
-      "No open matching contracts";
-
-
-    setCheck(
-      el.contractStatus,
-      false,
-      "No open contract matches this crop, exact destination, and Sold Under customer."
-    );
-
-  }
-  else {
-
-    el.contractSelect.disabled =
-      false;
-
-
-    option.textContent =
-      matches.length ===
-        1
-          ? "Select contract"
-          : `Select one of ${matches.length} contracts`;
+      "Contract assigned later";
 
 
     setCheck(
       el.contractStatus,
       true,
-      `${matches.length} possible open contract${matches.length === 1 ? "" : "s"}.`
+      "Sold Under is Unknown. Contract will be assigned later during ticket review."
     );
+
+
+    return;
 
   }
 
 
-  el.contractSelect.appendChild(
-    option
-  );
-
-
-  matches.forEach(
-    contract => {
-
-      const contractOption =
-        document.createElement(
-          "option"
-        );
-
-
-      contractOption.value =
-        contract.id;
-
-
-      contractOption.textContent =
-        contractLabel(
+  const matches =
+    state.contracts.filter(
+      contract =>
+        contractIsOpen(
           contract
-        );
+        ) &&
+        clean(
+          contract?.haulingJobId
+        ) ===
+          clean(
+            haulingJob.id
+          ) &&
+        contractCustomerId(
+          contract
+        ) ===
+          clean(
+            customer.id
+          )
+    );
 
 
-      el.contractSelect.appendChild(
-        contractOption
-      );
-
-    }
-  );
+  option.textContent =
+    "Contract assigned later";
 
 
-  state.selectedContract =
-    null;
+  if (
+    matches.length ===
+      1
+  ) {
 
+    setCheck(
+      el.contractStatus,
+      true,
+      "1 open matching contract exists. This ticket will remain unassigned until contract reconciliation."
+    );
 
-  state.selectedHaulingJob =
-    state.haulingJobs.find(
-      job =>
-        job.id ===
-        el.haulingJob.value
-    ) ||
-    null;
+  }
+  else if (
+    matches.length >
+      1
+  ) {
+
+    setCheck(
+      el.contractStatus,
+      true,
+      `${matches.length} open matching contracts exist. Specific contract will be assigned later.`
+    );
+
+  }
+  else {
+
+    setCheck(
+      el.contractStatus,
+      false,
+      "No open contract currently matches this Sold Under on the selected hauling job. Ticket can still be saved for review."
+    );
+
+  }
 
 }
 
@@ -6548,13 +6601,35 @@ function updateSelected() {
       : null;
 
 
+const customerValue =
+  clean(
+    el.customerSelect.value
+  );
+
+
+if (
+  customerValue ===
+  "__unknown__"
+) {
+
+  state.selectedCustomer = {
+    id: null,
+    name: "Unknown",
+    unknown: true
+  };
+
+}
+else {
+
   state.selectedCustomer =
     state.customers.find(
       customer =>
         customer.id ===
-        el.customerSelect.value
+        customerValue
     ) ||
     null;
+
+}
 
 
   state.selectedContract =
@@ -6665,32 +6740,75 @@ function validateRequiredLoadDetails() {
   }
 
 
-  if (
-    haulingJobLocationId(
-      state.selectedHaulingJob
-    ) !==
-      state.selectedLocation.id ||
-    haulingJobCustomerId(
-      state.selectedHaulingJob
-    ) !==
-      state.selectedCustomer.id ||
+if (
+  haulingJobLocationId(
+    state.selectedHaulingJob
+  ) !==
+    state.selectedLocation.id ||
+  normalize(
+    state.selectedHaulingJob.crop ||
+    state.selectedHaulingJob.commodity
+  ) !==
     normalize(
-      state.selectedHaulingJob.crop ||
-      state.selectedHaulingJob.commodity
-    ) !==
-      normalize(
-        el.crop.value
-      )
+      el.crop.value
+    )
+) {
+
+  showMessage(
+    "The hauling job details no longer match Crop and Destination."
+  );
+
+
+  return false;
+
+}
+
+
+/*
+  Unknown is always valid.
+
+  A real Sold Under must come from at least one
+  OPEN contract linked to this hauling job.
+*/
+if (
+  !state.selectedCustomer.unknown
+) {
+
+  const soldUnderMatchesJob =
+    state.contracts.some(
+      contract =>
+        contractIsOpen(
+          contract
+        ) &&
+        clean(
+          contract?.haulingJobId
+        ) ===
+          clean(
+            state.selectedHaulingJob.id
+          ) &&
+        contractCustomerId(
+          contract
+        ) ===
+          clean(
+            state.selectedCustomer.id
+          )
+    );
+
+
+  if (
+    !soldUnderMatchesJob
   ) {
 
     showMessage(
-      "The hauling job details no longer match Crop, Destination, and Sold Under."
+      "That Sold Under customer is not linked to an open contract on this hauling job."
     );
 
 
     return false;
 
   }
+
+}
 
 
   return true;
