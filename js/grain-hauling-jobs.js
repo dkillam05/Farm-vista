@@ -1691,37 +1691,38 @@ function filteredJobs() {
           search
         ) {
 
-          const haystack =
-            norm(
-[
-  jobName(
-    job
-  ),
+const haystack =
+  norm(
+    [
+      jobName(
+        job
+      ),
 
-  job?.buyerName,
+      job?.buyerName,
 
-  job?.deliveryLocationName,
+      job?.deliveryLocationName,
 
-  jobSoldUnderOptions(
-    job.id
-  )
-    .map(
-      option =>
-        option.name
+      jobSoldUnderOptions(
+        job.id
+      )
+        .map(
+          option =>
+            option.name
+        )
+        .join(" "),
+
+      jobCrop(
+        job
+      ),
+
+      job?.deliveryStartDate,
+
+      job?.deliveryEndDate
+
+    ].join(
+      " "
     )
-    .join(" "),
-
-  jobCrop(
-    job
-  ),
-
-  job?.deliveryStartDate,
-
-  job?.deliveryEndDate
-
-].join(
-  " "
-)
+  );
 
 
           if (
