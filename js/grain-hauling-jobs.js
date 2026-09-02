@@ -470,6 +470,27 @@ function jobStatus(
   }
 
 
+  const end =
+    clean(
+      job?.deliveryEndDate ||
+      job?.endDate
+    );
+
+
+  if (
+    end &&
+    end <
+    localISO() &&
+    jobRemainingBushels(
+      job
+    ) > 0.005
+  ) {
+
+    return "past_due";
+
+  }
+
+
   return "active";
 
 }
@@ -486,6 +507,9 @@ function jobStatusLabel(
 
     upcoming:
       "Upcoming",
+
+    past_due:
+      "Past Due",
 
     complete:
       "Completed",
@@ -1580,6 +1604,7 @@ function filteredJobs() {
           statusFilter ===
             "active" &&
           ![
+            "past_due",
             "active",
             "upcoming"
           ].includes(
@@ -1751,20 +1776,23 @@ const haystack =
 
         const order = {
 
-          active:
+          past_due:
             0,
 
-          upcoming:
+          active:
             1,
 
-          complete:
+          upcoming:
             2,
 
-          closed:
+          complete:
             3,
 
+          closed:
+            4,
+
           voided:
-            4
+            5
 
         };
 
@@ -2075,7 +2103,13 @@ row.className =
                 job
               )
             )
-          }">
+          }"${
+            jobStatus(
+              job
+            ) === "past_due"
+              ? ' style="background:rgba(220,38,38,.14);color:#b91c1c;border-color:rgba(220,38,38,.28)"'
+              : ""
+          }>
             ${
               escapeHtml(
                 jobStatusLabel(
