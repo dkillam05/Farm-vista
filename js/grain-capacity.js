@@ -6,29 +6,10 @@
    - This helper converts that corn capacity into effective bushels for
      other crops (soybeans, wheat, oats, etc.) using multipliers.
    - Centralized here so you can tweak factors or add crops in ONE place.
-
-   USAGE (in any page after this file is loaded):
-     const cornBu = 60000;
-
-     // Soybean capacity for a 60k corn-bin
-     const sbBu = FVGrainCapacity.capacityForCrop(cornBu, 'soybeans');  // 55800
-
-     // Corn bu equivalent for 55,800 bu of beans
-     const cornEq = FVGrainCapacity.cornCapacityFromCrop(55800, 'soybeans'); // ~60000
-
-     // Get factor for a crop (relative to corn)
-     const f = FVGrainCapacity.getFactor('wheat'); // 1.07
-
-   All APIs are attached to window.FVGrainCapacity.
 */
 (function (root) {
   'use strict';
 
-  // ---------- Internal tables ----------
-
-  // Factors are *relative to corn*.
-  // 1.00 = same as rated corn bu.
-  // 0.93 = 100k corn bu bin ≈ 93k bu of that crop, etc.
   const FACTORS = {
     corn: 1.00,
     soybeans: 0.93,
@@ -37,7 +18,6 @@
     oats: 0.78
   };
 
-  // Nice labels for UI dropdowns, if needed.
   const LABELS = {
     corn: 'Corn (baseline)',
     soybeans: 'Soybeans',
@@ -46,23 +26,18 @@
     oats: 'Oats'
   };
 
-  // Aliases so users can pass “beans”, “sb”, etc.
   const ALIASES = {
     corn: 'corn',
     maize: 'corn',
-
     soybeans: 'soybeans',
     soybean: 'soybeans',
     beans: 'soybeans',
     sb: 'soybeans',
-
     wheat: 'wheat',
     hrw: 'wheat',
     srw: 'wheat',
-
     milo: 'milo',
     sorghum: 'milo',
-
     oats: 'oats'
   };
 
@@ -79,63 +54,34 @@
     return Math.round(value * factor) / factor;
   }
 
-  // ---------- Public API ----------
-
   const api = {
-    /**
-     * Returns the factor for a crop relative to corn.
-     * - 1.00  = same as rated corn capacity
-     * - 0.93  = holds 93% as many bushels as corn
-     * - 1.07  = holds 7% more bushels than corn
-     *
-     * @param {string} cropId  Crop id or alias ("corn", "soybeans", "beans", etc.)
-     * @returns {number} factor (defaults to 1.0 for unknown crops)
-     */
     getFactor(cropId) {
       const id = normalizeCropId(cropId);
       return FACTORS[id] != null ? FACTORS[id] : 1.0;
     },
 
-    /**
-     * Convert a rated CORN capacity into effective bushels for a given crop.
-     *
-     * @param {number} cornBushels   Rated capacity in corn bushels.
-     * @param {string} cropId        Target crop id or alias.
-     * @param {object} [opts]
-     * @param {boolean|number} [opts.round=false]
-     *        - false / undefined → no rounding
-     *        - true              → round to whole bushels
-     *        - number            → number of decimal places
-     * @returns {number}
-     */
     capacityForCrop(cornBushels, cropId, opts) {
       const factor = api.getFactor(cropId);
       const raw = (Number(cornBushels) || 0) * factor;
-      const decimals = opts && opts.round === true ? 0 : opts && typeof opts.round === 'number' ? opts.round : false;
+      const decimals = opts && opts.round === true
+        ? 0
+        : opts && typeof opts.round === 'number'
+          ? opts.round
+          : false;
       return roundBushels(raw, decimals);
     },
 
-    /**
-     * Given bushels of a specific crop, return the equivalent rated corn capacity.
-     * Useful when you only know “beans” but want to back into the corn-bu rating.
-     *
-     * @param {number} cropBushels   Bushels of the given crop.
-     * @param {string} cropId        Crop id or alias.
-     * @param {object} [opts]
-     * @param {boolean|number} [opts.round=false]  Same behavior as capacityForCrop.
-     * @returns {number}
-     */
     cornCapacityFromCrop(cropBushels, cropId, opts) {
       const factor = api.getFactor(cropId) || 1.0;
       const raw = factor ? (Number(cropBushels) || 0) / factor : 0;
-      const decimals = opts && opts.round === true ? 0 : opts && typeof opts.round === 'number' ? opts.round : false;
+      const decimals = opts && opts.round === true
+        ? 0
+        : opts && typeof opts.round === 'number'
+          ? opts.round
+          : false;
       return roundBushels(raw, decimals);
     },
 
-    /**
-     * Return an array of crop configs for UI dropdowns.
-     * Each entry: { id, label, factor }
-     */
     listCrops() {
       return Object.keys(FACTORS).map(id => ({
         id,
@@ -144,49 +90,55 @@
       }));
     },
 
-    /**
-     * Override or add a factor for a crop.
-     * Example:
-     *   FVGrainCapacity.setFactor('sunflowers', 0.85);
-     */
     setFactor(cropId, factor) {
       const id = normalizeCropId(cropId);
       if (!id) return;
       FACTORS[id] = Number(factor) || 0;
-      if (!LABELS[id]) LABELS[id] = id.charAt(0).toUpperCase() + id.slice(1);
+      if (!LABELS[id]) {
+        LABELS[id] = id.charAt(0).toUpperCase() + id.slice(1);
+      }
     },
 
-    /**
-     * Expose raw tables (read-only copies) for debugging or advanced UI.
-     */
     getAllFactors() {
       return Object.assign({}, FACTORS);
     },
+
     getAllLabels() {
       return Object.assign({}, LABELS);
     }
   };
 
-  // Attach to global
-  const g = (typeof root !== 'undefined') ? root : (typeof window !== 'undefined' ? window : this);
+  const g = typeof root !== 'undefined'
+    ? root
+    : typeof window !== 'undefined'
+      ? window
+      : this;
+
   g.FVGrainCapacity = api;
 
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
 
 /* ============================================================
+   LOAD-OUT EDIT COMPATIBILITY
+
+   grain-ticket.html currently restores four values outside the block in
+   which they were declared. On normal current load-outs that caused
+   loOpenEditModal() to throw before the modal could open.
+
+   These global bindings intentionally provide the missing outer-scope
+   fallback. The page-specific helper below immediately replaces them with
+   the real values from the edit controls after the normal row handler has
+   populated the form and before its delayed restore runs.
+============================================================ */
+var destinationId = '';
+var customerId = '';
+var savedCrop = '';
+var cropMatch = null;
+
+
+/* ============================================================
    GRAIN LOAD-OUT EDIT / VOID ENHANCEMENTS
-
-   grain-ticket.html already loads this shared helper before its load-out
-   module. Keep this block strictly page-scoped so the existing capacity
-   API remains unchanged everywhere else.
-
-   Goals:
-     • Clicking a load-out continues to open the existing Edit Load modal.
-     • Save Changes automatically resends the driver's load-out text.
-     • Void Load keeps the Firestore document for audit history but removes
-       it from the active dispatch board.
-     • Voided loads remain hidden after reload.
 ============================================================ */
 (function installGrainLoadoutEditEnhancements() {
   'use strict';
@@ -207,6 +159,9 @@
     const cancelBtn = document.getElementById('loadout-cancel-btn');
     const closeBtn = document.getElementById('loadout-modal-x');
     const message = document.getElementById('loadout-form-message');
+    const destination = document.getElementById('loadout-destination');
+    const customer = document.getElementById('loadout-customer');
+    const crop = document.getElementById('loadout-crop');
     const actions = message?.nextElementSibling;
 
     if (!tbody || !backdrop || !form || !saveBtn || !message || !actions) {
@@ -218,10 +173,29 @@
     let resendTriggered = false;
     const voidedLoadIds = new Set();
 
+    function captureEditRestoreValues() {
+      destinationId = String(destination?.value || '').trim();
+      customerId = String(customer?.value || '').trim();
+      savedCrop = String(crop?.value || '').trim();
+      cropMatch = savedCrop ? { value:savedCrop } : null;
+    }
+
+    function removeVoidedRows() {
+      voidedLoadIds.forEach(loadId => {
+        const escaped = window.CSS?.escape
+          ? CSS.escape(loadId)
+          : loadId.replace(/["\\]/g, '\\$&');
+
+        tbody
+          .querySelector(`tr[data-load-id="${escaped}"]`)
+          ?.remove();
+      });
+    }
+
     /*
-      The existing load-out table uses data-load-id on clickable rows.
-      Remember the row's ID before the page's normal click handler opens
-      the edit modal.
+      Capture the load ID before the page's own bubble-phase row click.
+      The zero-delay callback runs after that handler has filled the modal,
+      but before grain-ticket.html's 50ms final restore callback.
     */
     tbody.addEventListener(
       'click',
@@ -232,25 +206,15 @@
         activeLoadId = String(row.dataset.loadId || '').trim();
         pendingEditResend = false;
         resendTriggered = false;
+
+        setTimeout(() => {
+          captureEditRestoreValues();
+          syncVoidButton();
+        }, 0);
       },
       true
     );
 
-    function removeVoidedRows() {
-      voidedLoadIds.forEach(loadId => {
-        const row = tbody.querySelector(
-          `tr[data-load-id="${CSS.escape(loadId)}"]`
-        );
-
-        row?.remove();
-      });
-    }
-
-    /*
-      The page's current load-out renderer predates the void flag. Remove
-      voided records after every render so they stay out of the active board
-      while remaining in Firestore.
-    */
     const tableObserver = new MutationObserver(removeVoidedRows);
     tableObserver.observe(tbody, { childList:true, subtree:false });
 
@@ -268,7 +232,11 @@
           const data = docSnapshot.data() || {};
           const status = String(data.status || '').trim().toLowerCase();
 
-          if (data.voided === true || status === 'voided' || status === 'void') {
+          if (
+            data.voided === true ||
+            status === 'voided' ||
+            status === 'void'
+          ) {
             voidedLoadIds.add(docSnapshot.id);
           }
         });
@@ -282,10 +250,6 @@
 
     loadVoidedLoadIds();
 
-    /*
-      Add a destructive-looking but non-deleting action to the existing
-      edit modal. It is shown only while editing an existing load.
-    */
     const voidBtn = document.createElement('button');
     voidBtn.id = 'loadout-void-btn';
     voidBtn.type = 'button';
@@ -311,21 +275,9 @@
     const modalObserver = new MutationObserver(syncVoidButton);
     modalObserver.observe(backdrop, {
       attributes:true,
-      attributeFilter:['class'],
-      subtree:true,
-      childList:true
+      attributeFilter:['class']
     });
 
-    tbody.addEventListener('click', () => {
-      setTimeout(syncVoidButton, 0);
-    });
-
-    /*
-      When Save Changes succeeds, the existing page writes the updated load
-      and displays "Load ... updated.". At that exact success point, invoke
-      its existing Resend Text action once. This preserves the established
-      SMS function and all current SMS status logging.
-    */
     form.addEventListener(
       'submit',
       () => {
@@ -380,21 +332,17 @@
     closeBtn?.addEventListener('click', resetEditTracking);
 
     voidBtn.addEventListener('click', async () => {
-      if (!activeLoadId) {
-        return;
-      }
+      if (!activeLoadId) return;
 
-      const loadNumber =
-        String(document.getElementById('loadout-load-number')?.value || '')
-          .trim();
+      const loadNumber = String(
+        document.getElementById('loadout-load-number')?.value || ''
+      ).trim();
 
       const approved = window.confirm(
         `Void load ${loadNumber || activeLoadId}?\n\nIt will disappear from the active load-out board but remain in Firestore history.`
       );
 
-      if (!approved) {
-        return;
-      }
+      if (!approved) return;
 
       const originalText = voidBtn.textContent;
       voidBtn.disabled = true;
@@ -429,12 +377,6 @@
 
         backdrop.classList.remove('open');
         document.body.style.overflow = '';
-
-        console.log('[grain loadout] load voided:', {
-          loadId:activeLoadId,
-          loadNumber
-        });
-
         resetEditTracking();
       }
       catch (error) {
