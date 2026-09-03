@@ -1116,10 +1116,16 @@ function ticketsFromIds(ids){
         ticket =>
           ticket &&
           ticket.voided !== true &&
-          norm(
-            ticket.grainSourceType
-          ) ===
-            "active_field_harvest" &&
+          (
+            norm(
+              ticket.grainSourceType
+            ) ===
+              "active_field_harvest" ||
+            norm(
+              ticket.grainSourceType
+            ) ===
+              "field"
+          ) &&
           cropKey(
             ticket.crop
           ) ===
@@ -1195,18 +1201,36 @@ function ticketsFromIds(ids){
 
 
   function activeHarvestFieldInfo(ticket){
+    const sourceType = norm(ticket?.grainSourceType);
+    const sourceScope = norm(ticket?.grainSourceScope);
+
+    /*
+      Support both the corrected Active Harvest + field model and
+      older tickets that were saved with grainSourceType = "field".
+      Some legacy records only carried the field in the generic
+      grainSourceId / grainSourceName fields, so use those only when
+      the source is known to be field-based.
+    */
+    const fieldBased =
+      sourceType === "field" ||
+      sourceScope === "field" ||
+      clean(ticket?.grainSourceFieldId) ||
+      clean(ticket?.grainSourceFieldName);
+
     const fieldId = clean(
       ticket?.grainSourceFieldId ||
       ticket?.fieldId ||
       ticket?.grainSource?.fieldId ||
-      ticket?.sourceFieldId
+      ticket?.sourceFieldId ||
+      (fieldBased ? ticket?.grainSourceId : "")
     );
 
     const fieldName = clean(
       ticket?.grainSourceFieldName ||
       ticket?.fieldName ||
       ticket?.grainSource?.fieldName ||
-      ticket?.sourceFieldName
+      ticket?.sourceFieldName ||
+      (fieldBased ? ticket?.grainSourceName : "")
     );
 
     return {
