@@ -89,6 +89,7 @@ function isBypassPath(pathname){
     p === `${SCOPE_PREFIX}js/firebase-init.js` ||
     p === `${SCOPE_PREFIX}js/firebase-config.js` ||
     p === `${SCOPE_PREFIX}js/theme-boot.js` ||
+    p === `${SCOPE_PREFIX}js/app/login.js` ||
     p === `${SCOPE_PREFIX}js/startup.js`
   );
 }
