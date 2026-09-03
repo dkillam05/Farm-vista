@@ -25,6 +25,9 @@
 
 let ready;
 let getAuth;
+let onAuthStateChanged;
+let setPersistence;
+let browserLocalPersistence;
 
 let signInWithEmailAndPassword;
 let sendPasswordResetEmail;
@@ -75,6 +78,15 @@ async function loadFirebaseModule() {
 
   getAuth =
     mod.getAuth;
+
+  onAuthStateChanged =
+    mod.onAuthStateChanged;
+
+  setPersistence =
+    mod.setPersistence;
+
+  browserLocalPersistence =
+    mod.browserLocalPersistence;
 
   signInWithEmailAndPassword =
     mod.signInWithEmailAndPassword;
@@ -1259,6 +1271,38 @@ function initializeFirebase() {
 
             throw new Error(
               "Firebase Authentication did not initialize."
+            );
+
+          }
+
+
+          // Keep email and phone sessions on this device until
+          // the user explicitly signs out. firebase-init.js also
+          // sets this, but doing it here makes the login handoff
+          // explicit and prevents a redirect before persistence
+          // has been applied.
+          try {
+
+            if (
+              setPersistence &&
+              browserLocalPersistence
+            ) {
+
+              await setPersistence(
+                auth,
+                browserLocalPersistence()
+              );
+
+            }
+
+          }
+          catch (
+            error
+          ) {
+
+            console.warn(
+              "[Login] local auth persistence could not be confirmed:",
+              error
             );
 
           }
@@ -3885,29 +3929,347 @@ function wireUI() {
 
 
 // ==========================================================
+// RESTORE AN EXISTING SESSION
+// ==========================================================
+
+function wasRedirectedByAuthGuard() {
+
+  try {
+
+    const params =
+      new URLSearchParams(
+        location.search
+      );
+
+
+    return Boolean(
+      params.get(
+        "reason"
+      )
+    ) &&
+    params.get(
+      "restore"
+    ) !==
+      "0";
+
+  }
+  catch {
+
+    return false;
+
+  }
+
+}
+
+
+async function waitForRestoredUser(
+  timeoutMs =
+    8000
+) {
+
+  if (
+    !auth
+  ) {
+
+    return null;
+
+  }
+
+
+  // Firebase 10 exposes authStateReady(), which resolves only
+  // after persisted credentials have been read from storage.
+  try {
+
+    if (
+      typeof auth.authStateReady ===
+        "function"
+    ) {
+
+      await Promise.race([
+        auth.authStateReady(),
+        new Promise(
+          resolve =>
+            setTimeout(
+              resolve,
+              timeoutMs
+            )
+        )
+      ]);
+
+
+      return (
+        auth.currentUser ||
+        null
+      );
+
+    }
+
+  }
+  catch {}
+
+
+  if (
+    typeof onAuthStateChanged !==
+      "function"
+  ) {
+
+    return (
+      auth.currentUser ||
+      null
+    );
+
+  }
+
+
+  return await new Promise(
+    resolve => {
+
+      let settled =
+        false;
+
+
+      const finish =
+        user => {
+
+          if (
+            settled
+          ) {
+
+            return;
+
+          }
+
+
+          settled =
+            true;
+
+
+          try {
+
+            unsubscribe?.();
+
+          }
+          catch {}
+
+
+          resolve(
+            user ||
+            null
+          );
+
+        };
+
+
+      let unsubscribe =
+        null;
+
+
+      try {
+
+        unsubscribe =
+          onAuthStateChanged(
+            auth,
+            user =>
+              finish(
+                user
+              )
+          );
+
+      }
+      catch {
+
+        finish(
+          auth.currentUser ||
+          null
+        );
+
+
+        return;
+
+      }
+
+
+      setTimeout(
+        () =>
+          finish(
+            auth.currentUser ||
+            null
+          ),
+        timeoutMs
+      );
+
+    }
+  );
+
+}
+
+
+async function restoreExistingSession() {
+
+  /*
+    Only do this when FarmVista's auth guard sent the user
+    here. A direct visit to the login page keeps the normal
+    account-lookup flow and does not pre-initialize a tenant.
+  */
+
+  if (
+    !wasRedirectedByAuthGuard()
+  ) {
+
+    return false;
+
+  }
+
+
+  const farmKey =
+    selectedFarmKey();
+
+
+  if (
+    !farmKey
+  ) {
+
+    return false;
+
+  }
+
+
+  try {
+
+    console.info(
+      "[Login] Checking saved session for:",
+      farmKey
+    );
+
+
+    await selectFarm({
+      farmKey,
+      configPath:
+        `/farms/${farmKey}.json`
+    });
+
+
+    const ok =
+      await requireFirebase(
+        "email"
+      );
+
+
+    if (
+      !ok
+    ) {
+
+      return false;
+
+    }
+
+
+    const user =
+      await waitForRestoredUser(
+        8000
+      );
+
+
+    if (
+      user
+    ) {
+
+      console.info(
+        "[Login] Existing Firebase session restored."
+      );
+
+
+      clearFarmVistaUserCache();
+
+
+      location.replace(
+        nextUrl()
+      );
+
+
+      return true;
+
+    }
+
+
+    /*
+      We initialized the saved farm to check its persisted auth.
+      If there is truly no session, reload once without a saved
+      tenant so the normal email/phone lookup can safely choose
+      any farm instead of reusing the Firebase app we just opened.
+    */
+
+    try {
+
+      localStorage.removeItem(
+        "fv:farm-key"
+      );
+
+    }
+    catch {}
+
+
+    const url =
+      new URL(
+        location.href
+      );
+
+
+    url.searchParams.set(
+      "restore",
+      "0"
+    );
+
+
+    url.searchParams.delete(
+      "reason"
+    );
+
+
+    location.replace(
+      url.pathname +
+      url.search +
+      url.hash
+    );
+
+
+    return false;
+
+  }
+  catch (
+    error
+  ) {
+
+    console.warn(
+      "[Login] saved session restore failed:",
+      error
+    );
+
+
+    return false;
+
+  }
+
+}
+
+
+// ==========================================================
 // START
 // ==========================================================
 
 wireUI();
 
+restoreExistingSession();
+
 
 /*
-  IMPORTANT:
-
-  Do not initialize a farm Firebase project when the login
-  page first opens.
-
-  Email sign-in first asks FarmVista Platform which farm the
-  user belongs to. Firebase initializes only after that farm
-  has been resolved.
-
-  This is what allows a first-time user to open:
-
-      https://farmvista.app
-
-  without manually choosing their farming operation.
+  Normal first-time login still waits for FarmVista Platform
+  account lookup. When the auth guard redirects a previously
+  signed-in user here, we first try to restore that existing
+  local Firebase session so closing/reopening the PWA does not
+  unnecessarily trigger another SMS and reCAPTCHA challenge.
 */
 
 console.info(
-  "[Login] Waiting for account lookup."
+  "[Login] Waiting for account lookup or saved session restore."
 );
