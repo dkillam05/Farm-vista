@@ -212,6 +212,11 @@
       background:#2F6C3C;color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:99999;display:none;}
     .toast.show{display:block;animation:fadeout 2.8s forwards;}
     @keyframes fadeout{0%{opacity:1}85%{opacity:1}100%{opacity:0}}
+    .contact-note{margin:-4px 0 0;font-size:13px;line-height:1.4;color:var(--muted,#67706B)}
+    .contact-error{display:none;margin:-4px 0 0;font-size:13px;line-height:1.4;font-weight:800;color:#b3261e}
+    .contact-error.show{display:block}
+    .invite-modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.48);display:none;align-items:center;justify-content:center;padding:18px;z-index:100000}
+    .invite-modal-backdrop.show{display:flex}.invite-modal{width:min(460px,100%);background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:16px;box-shadow:0 18px 50px rgba(0,0,0,.28);padding:20px}.invite-modal h2{margin:0 0 8px}.invite-modal p{color:var(--muted,#67706B)}.invite-options{display:grid;gap:10px}.invite-option,.invite-cancel{width:100%}.invite-cancel{margin-top:12px}
   </style>
 </head>
 
@@ -266,7 +271,7 @@
             </div>
 
             <div class="field">
-              <label for="phone">Phone</label>
+              <label for="phone">Mobile</label>
               <input
                 id="phone"
                 class="input"
@@ -286,7 +291,7 @@
                 class="input"
                 type="email"
                 autocomplete="email"
-                required
+               
               />
             </div>
 
@@ -298,6 +303,9 @@
             </div>
 
           </div>
+          <p class="contact-note">Enter at least one: Email or Mobile. An active subcontractor with a mobile number can use Phone Sign In.</p>
+          <div id="contactError" class="contact-error"></div>
+
 
           <div class="grid2">
 
@@ -389,8 +397,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite">
     Successfully saved.
   </div>
-
-
+  <div id="inviteModalBackdrop" class="invite-modal-backdrop" aria-hidden="true"><div class="invite-modal" role="dialog" aria-modal="true"><h2>Send Invite</h2><p>This subcontractor has both an email address and a mobile number. Choose how to send the FarmVista invite.</p><div class="invite-options"><button id="inviteEmailOnly" class="btn btn-primary invite-option" type="button">Email Invite</button><button id="invitePhoneOnly" class="btn btn-primary invite-option" type="button">Phone Invite</button><button id="inviteBoth" class="btn btn-accent invite-option" type="button">Email &amp; Phone</button></div><button id="inviteCancel" class="btn invite-cancel" type="button">Cancel</button></div></div>
   <script type="module">
     import '/js/fv-perms-hero.js';
 
@@ -497,6 +504,15 @@
         ? `(${core.slice(0,3)}) ${core.slice(3,6)}-${core.slice(6)}`
         : String(raw || "").trim();
     };
+
+    const normalizeUSPhone=raw=>{let d=digitsOnly(raw);if(d.length===11&&d.startsWith("1"))d=d.slice(1);return d.length===10?"+1"+d:"";};
+    const phoneDocKey=p=>"phone_"+String(p||"").replace(/\D/g,"");
+    const MEMBERSHIP_SYNC_URL="https://farmvistamembershipsync-444836596195.us-central1.run.app";
+    const EMPLOYEE_INVITE_SMS_URL="https://farmvista-employee-invite-300398089669.us-central1.run.app";
+    function farmKey(){let k=String(window.FV_FARM_KEY||window.FV_FARM?.farmKey||"").trim().toLowerCase();if(!k){try{k=String(localStorage.getItem("fv:farm-key")||"").trim().toLowerCase();}catch{}}if(!k)throw new Error("FarmVista could not determine the current farm.");return k;}
+    async function syncPlatformMembership(v,p={}){const r=await fetch(MEMBERSHIP_SYNC_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({farmKey:farmKey(),previous:{email:p.email||"",phone:p.phone||""},current:{email:v.email||"",phone:v.phoneE164||"",active:v.status==="Active"}}),cache:"no-store"});const j=await r.json().catch(()=>null);if(!r.ok||j?.ok!==true)throw new Error(j?.error||"FarmVista Platform membership sync failed.");}
+    function chooseInviteMethod(){return new Promise(resolve=>{const b=$("inviteModalBackdrop"),e=$("inviteEmailOnly"),p=$("invitePhoneOnly"),both=$("inviteBoth"),x=$("inviteCancel");const done=v=>{b.classList.remove("show");b.setAttribute("aria-hidden","true");resolve(v)};e.onclick=()=>done("email");p.onclick=()=>done("phone");both.onclick=()=>done("both");x.onclick=()=>done(null);b.onclick=ev=>{if(ev.target===b)done(null)};b.classList.add("show");b.setAttribute("aria-hidden","false");});}
+    async function sendPhoneInvite(v){const u=getAuth()?.currentUser;if(!u)throw new Error("You must be signed in to send an invite.");const token=await u.getIdToken();const parts=String(v.contact||v.company||"Subcontractor").trim().split(/\s+/),firstName=parts.shift()||"Subcontractor",lastName=parts.join(" ");const r=await fetch(EMPLOYEE_INVITE_SMS_URL,{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},body:JSON.stringify({farmKey:farmKey(),phone:v.phoneE164,firstName,lastName,appUrl:"https://farmvista.app/"}),cache:"no-store"});const j=await r.json().catch(()=>null);if(!r.ok||j?.ok!==true)throw new Error(j?.error||"Phone invite could not be sent.");}
 
     $("phone").addEventListener("blur",event=>{
       event.target.value =
@@ -1633,195 +1649,22 @@
 
 
     function collectAndValidate(){
-      const company =
-        $("company");
-
-      const email =
-        $("email");
-
-      if(
-        !company.checkValidity()
-      ){
-        company.reportValidity();
-        return null;
-      }
-
-      if(
-        !email.checkValidity()
-      ){
-        email.reportValidity();
-        return null;
-      }
-
-      return {
-        company:company.value.trim(),
-        contact:$("contact").value.trim(),
-        email:email.value.trim(),
-        phone:formatUSPhone(
-          $("phone").value
-        ),
-        service:$("service").value.trim(),
-        status:$("status").value,
-        perm:$("perm").value,
-        notes:$("notes").value.trim(),
-        overrides:collectOverridesDelta()
-      };
+      const company=$("company"),emailEl=$("email"),phoneEl=$("phone");
+      if(!company.checkValidity()){company.reportValidity();return null;} if(!emailEl.checkValidity()){emailEl.reportValidity();return null;}
+      const email=emailKey(emailEl.value),phoneE164=normalizeUSPhone(phoneEl.value),err=$("contactError");err.classList.remove("show");err.textContent="";
+      if(!email&&!phoneE164){err.textContent="Enter an email address or a valid 10-digit mobile number.";err.classList.add("show");return null;}
+      if(phoneEl.value.trim()&&!phoneE164){err.textContent="Enter a valid 10-digit U.S. mobile number.";err.classList.add("show");return null;}
+      return {company:company.value.trim(),contact:$("contact").value.trim(),email,phone:phoneE164?formatUSPhone(phoneE164):"",phoneE164,service:$("service").value.trim(),status:$("status").value,perm:$("perm").value,notes:$("notes").value.trim(),overrides:collectOverridesDelta()};
     }
 
-
-    async function upsertContractor(values){
-      const db =
-        getFirestore();
-
-      const payload = {
-        company:values.company,
-        contactName:values.contact,
-        email:values.email,
-        phone:values.phone,
-        service:values.service,
-        type:"Subcontractor",
-        status:values.status,
-        permissionGroup:
-          values.perm ||
-          "Standard",
-        notes:values.notes,
-        active:
-          values.status ===
-          "Active",
-        overrides:
-          values.overrides &&
-          Object.keys(values.overrides).length
-            ? values.overrides
-            : {},
-        search:[
-          values.company.toLowerCase(),
-          values.contact.toLowerCase(),
-          values.email.toLowerCase(),
-          values.service.toLowerCase()
-        ].filter(Boolean),
-        updatedAt:serverTimestamp()
-      };
-
-      const newId =
-        emailKey(
-          values.email
-        );
-
-      const newRef =
-        doc(
-          db,
-          "subcontractors",
-          newId
-        );
-
-      if(
-        sel &&
-        sel.id &&
-        sel.id !== newId
-      ){
-        const oldRef =
-          doc(
-            db,
-            "subcontractors",
-            sel.id
-          );
-
-        const oldSnap =
-          await getDoc(
-            oldRef
-          );
-
-        const oldData =
-          oldSnap.exists()
-            ? (oldSnap.data() || {})
-            : {};
-
-        const createdAt =
-          oldData.createdAt ||
-          serverTimestamp();
-
-        /*
-          IMPORTANT: preserve trucking drivers when an email change
-          moves the contractor to a new email-keyed document ID.
-        */
-        const drivers =
-          Array.isArray(oldData.drivers)
-            ? oldData.drivers
-            : Array.isArray(sel?.data?.drivers)
-              ? sel.data.drivers
-              : [];
-
-        await setDoc(
-          newRef,
-          {
-            ...payload,
-            createdAt,
-            drivers
-          },
-          {
-            merge:false
-          }
-        );
-
-        if(
-          oldSnap.exists()
-        ){
-          await deleteDoc(
-            oldRef
-          );
-        }
-
-        sel = {
-          id:newId,
-          data:{
-            ...payload,
-            drivers
-          }
-        };
-
-      }else{
-        const snapshot =
-          await getDoc(
-            newRef
-          );
-
-        if(
-          !snapshot.exists()
-        ){
-          payload.createdAt =
-            serverTimestamp();
-        }
-
-        await setDoc(
-          newRef,
-          payload,
-          {
-            merge:true
-          }
-        );
-
-        sel = {
-          id:newId,
-          data:{
-            ...payload,
-            drivers:Array.isArray(sel?.data?.drivers)
-              ? sel.data.drivers
-              : []
-          }
-        };
-      }
-
-      try{
-        await window.FVUserContext
-          ?.refresh
-          ?.({
-            force:true
-          });
-      }catch{}
-
-      updateInviteButtonLabel();
-
-      return newId;
+    async function upsertContractor(v){
+      if(!sel?.id)throw new Error("No contractor selected."); const db=getFirestore();
+      const prev={email:emailKey(sel.data?.email||""),phone:normalizeUSPhone(sel.data?.phoneE164||sel.data?.phone||"")};
+      const newId=v.email?emailKey(v.email):phoneDocKey(v.phoneE164),oldRef=doc(db,"subcontractors",sel.id),newRef=doc(db,"subcontractors",newId);
+      const oldSnap=await getDoc(oldRef),oldData=oldSnap.exists()?oldSnap.data()||{}:{},drivers=Array.isArray(oldData.drivers)?oldData.drivers:(Array.isArray(sel.data?.drivers)?sel.data.drivers:[]);
+      const payload={company:v.company,contactName:v.contact,email:v.email,phone:v.phone,phoneE164:v.phoneE164,service:v.service,type:"Subcontractor",status:v.status,permissionGroup:v.perm||"Standard",notes:v.notes,active:v.status==="Active",overrides:v.overrides&&Object.keys(v.overrides).length?v.overrides:{},search:[v.company.toLowerCase(),v.contact.toLowerCase(),v.email.toLowerCase(),v.phone.toLowerCase(),v.phoneE164.toLowerCase(),v.service.toLowerCase()].filter(Boolean),updatedAt:serverTimestamp()};
+      await setDoc(newRef,{...oldData,...payload,createdAt:oldData.createdAt||serverTimestamp(),drivers},{merge:true}); if(newId!==sel.id&&oldSnap.exists())await deleteDoc(oldRef);
+      await syncPlatformMembership(v,prev); sel={id:newId,data:{...oldData,...payload,drivers}}; try{await window.FVUserContext?.refresh?.({force:true});}catch{} updateInviteButtonLabel(); return newId;
     }
 
 
@@ -1987,174 +1830,8 @@ setBusy(true);
       );
 
 
-    $("save")
-      .addEventListener(
-        "click",
-        async ()=>{
-          if(
-            busy ||
-            !sel
-          ){
-            return;
-          }
-
-          const values =
-            collectAndValidate();
-
-          if(!values){
-            return;
-          }
-
-          try{
-            setBusy(true);
-
-            await ready;
-
-            await upsertContractor(
-              values
-            );
-
-            renderDriverSection();
-
-            showToast(
-              "Contractor saved."
-            );
-
-            window.scrollTo({
-              top:0,
-              behavior:"smooth"
-            });
-
-          }catch(error){
-            console.error(error);
-
-            alert(
-              "Save failed.\n\n" +
-              (
-                error?.message ||
-                error
-              )
-            );
-
-          }finally{
-            setBusy(false);
-          }
-        }
-      );
-
-
-    $("saveInvite")
-      .addEventListener(
-        "click",
-        async ()=>{
-          if(
-            busy ||
-            !sel
-          ){
-            return;
-          }
-
-          const now =
-            Date.now();
-
-          if(
-            now -
-            lastInviteAt <
-            3000
-          ){
-            return;
-          }
-
-          lastInviteAt =
-            now;
-
-          const values =
-            collectAndValidate();
-
-          if(!values){
-            return;
-          }
-
-          try{
-            setBusy(true);
-
-            const {mode} =
-              await ready;
-
-            if(
-              mode !==
-              "firebase"
-            ){
-              alert(
-                "Email not sent: Firebase is in stub mode."
-              );
-
-              return;
-            }
-
-            await upsertContractor(
-              values
-            );
-
-            renderDriverSection();
-
-            await sendPasswordResetEmail(
-              getAuth(),
-              values.email
-            );
-
-            showToast(
-              "Saved & invite resent."
-            );
-
-            window.scrollTo({
-              top:0,
-              behavior:"smooth"
-            });
-
-          }catch(error){
-            console.error(error);
-
-            const code =
-              error?.code ||
-              "";
-
-            if(
-              code ===
-              "auth/user-not-found"
-            ){
-              alert(
-                "Resend failed.\n\n" +
-                "This email does not have a login account yet.\n" +
-                "Create the contractor from the New Contractor flow first."
-              );
-
-            }else if(
-              code ===
-                "auth/invalid-continue-uri" ||
-              code ===
-                "auth/unauthorized-continue-uri"
-            ){
-              alert(
-                "Invite failed due to domain settings.\n" +
-                "Add your site under Firebase Auth → Settings → Authorized domains."
-              );
-
-            }else{
-              alert(
-                "Invite failed.\n\n" +
-                (
-                  error?.message ||
-                  error
-                )
-              );
-            }
-
-          }finally{
-            setBusy(false);
-          }
-        }
-      );
+    $("save").addEventListener("click",async()=>{if(busy||!sel)return;const v=collectAndValidate();if(!v)return;try{setBusy(true);await ready;await upsertContractor(v);window.location.href="/pages/office/teams-and-partners/sub_contractors.html";}catch(error){console.error(error);alert("Save failed.\n\n"+(error?.message||error));}finally{setBusy(false);}});
+    $("saveInvite").addEventListener("click",async()=>{if(busy||!sel)return;const now=Date.now();if(now-lastInviteAt<3000)return;lastInviteAt=now;const v=collectAndValidate();if(!v)return;const method=v.email&&v.phoneE164?await chooseInviteMethod():(v.email?"email":"phone");if(!method)return;try{setBusy(true);const {mode}=await ready;await upsertContractor(v);const sendEmail=method==="email"||method==="both",sendPhone=method==="phone"||method==="both";if(sendEmail){if(mode!=="firebase")throw new Error("Email not sent: Firebase is in stub mode.");await sendPasswordResetEmail(getAuth(),v.email);}if(sendPhone)await sendPhoneInvite(v);window.location.href="/pages/office/teams-and-partners/sub_contractors.html";}catch(error){console.error(error);alert("Invite failed.\n\n"+(error?.message||error));}finally{setBusy(false);}});
 
 
     updateInviteButtonLabel();
