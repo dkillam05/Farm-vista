@@ -14581,141 +14581,14 @@ if (
 
 
 /*
-  ADM FOREIGN MATERIAL FALLBACK
-
-  Example ADM OCR text can contain:
-
-    ... IF 0.0 MH 00.8 CO 0.0 ...
-
-  or:
-
-    ... M 00.8 CO ...
-
-  The actual FM value is present in the OCR text even when the
-  structured foreignMaterial result incorrectly becomes 0.
+  NOTE:
+  ADM-specific grade-factor interpretation belongs in the OCR
+  backend / Google function. FarmVista should consume the OCR
+  function's structured values rather than maintain a second
+  ADM parser here.
 */
 
-const ocrDocumentText =
-  String(
-    result.document?.text ||
-    result.grainTicket?.rawText ||
-    ""
-  );
 
-
-const isAdmTicket =
-  /\bADM\b|ARCHER\s+DANIELS\s+MIDLAND/i.test(
-    ocrDocumentText
-  ) ||
-  /\bADM\b/i.test(
-    String(
-      result.grainTicket?.elevatorName ||
-      ""
-    )
-  );
-
-
-if (
-  isAdmTicket &&
-  result.grainTicket
-) {
-
-  const currentFm =
-    Number(
-      result.grainTicket
-        .foreignMaterial
-    );
-
-
-  if (
-    !Number.isFinite(
-      currentFm
-    ) ||
-    currentFm === 0
-  ) {
-
-    const admFmPatterns = [
-
-      /\b(?:FM|BCFM)\s*[:\-]?\s*(\d{1,2}\.\d)\b/i,
-
-      /\bM\s+(0\d\.\d|\d\.\d)\s+CO\b/i,
-
-      /\b(?:MH|M)\s+(0\d\.\d|\d\.\d)\s+CO\b/i
-
-    ];
-
-
-    let admFmValue =
-      null;
-
-
-    for (
-      const pattern
-      of admFmPatterns
-    ) {
-
-      const match =
-        ocrDocumentText.match(
-          pattern
-        );
-
-
-      if (
-        match
-      ) {
-
-        const value =
-          Number(
-            match[1]
-          );
-
-
-        if (
-          Number.isFinite(
-            value
-          ) &&
-          value >= 0 &&
-          value <= 30
-        ) {
-
-          admFmValue =
-            value;
-
-          break;
-
-        }
-
-      }
-
-    }
-
-
-    if (
-      admFmValue !== null
-    ) {
-
-      console.log(
-        "[Grain Ticket] ADM FM raw-text fallback:",
-        {
-          previousValue:
-            result.grainTicket
-              .foreignMaterial,
-
-          correctedValue:
-            admFmValue
-        }
-      );
-
-
-      result.grainTicket
-        .foreignMaterial =
-          admFmValue;
-
-    }
-
-  }
-
-}
 
 
           console.log(
