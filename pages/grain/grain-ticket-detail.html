@@ -6160,7 +6160,7 @@ function renderCustomerOptions(
     );
 
 
-  const customers =
+  const linkedCustomers =
     Array.from(
       customerMap.values()
     )
@@ -6195,8 +6195,136 @@ function renderCustomerOptions(
       );
 
 
+  const linkedIds =
+    new Set(
+      linkedCustomers.map(
+        customer =>
+          customer.id
+      )
+    );
+
+
+  const hasUnallocatedCapacity =
+    haulingJobHasUnallocatedContractCapacity(
+      haulingJob
+    );
+
+
+  const otherCustomers =
+    hasUnallocatedCapacity
+      ? state.customers
+          .filter(
+            customer =>
+              !linkedIds.has(
+                customer.id
+              )
+          )
+          .filter(
+            customer =>
+              !search ||
+              normalize(
+                customer.name
+              ).includes(
+                search
+              )
+          )
+          .sort(
+            (
+              a,
+              b
+            ) =>
+              a.name.localeCompare(
+                b.name,
+                undefined,
+                {
+                  numeric:
+                    true,
+
+                  sensitivity:
+                    "base"
+                }
+              )
+          )
+      : [];
+
+
+  const customers = [
+    ...linkedCustomers,
+    ...otherCustomers
+  ];
+
+
+  let otherGroupShown =
+    false;
+
+
+  if (
+    linkedCustomers.length
+  ) {
+
+    const linkedGroup =
+      document.createElement(
+        "div"
+      );
+
+
+    linkedGroup.className =
+      "load-picker-group";
+
+
+    linkedGroup.textContent =
+      "Linked Contracts";
+
+
+    elements.customerMenu.appendChild(
+      linkedGroup
+    );
+
+  }
+
+
   customers.forEach(
     customer => {
+
+      if (
+        hasUnallocatedCapacity &&
+        !linkedIds.has(
+          customer.id
+        ) &&
+        !otherGroupShown
+      ) {
+
+        const otherGroup =
+          document.createElement(
+            "div"
+          );
+
+
+        otherGroup.className =
+          "load-picker-group";
+
+
+        otherGroup.textContent =
+          `Other Customers — ${haulingJobUnallocatedContractBushels(
+            haulingJob
+          ).toLocaleString(
+            "en-US",
+            {
+              maximumFractionDigits:
+                2
+            }
+          )} bu unallocated`;
+
+
+        elements.customerMenu.appendChild(
+          otherGroup
+        );
+
+
+        otherGroupShown =
+          true;
+
+      }
 
       /*
         Select and Edit are intentionally separate actions.
@@ -6362,8 +6490,10 @@ function renderCustomerOptions(
     MANAGEMENT SECTION
     ========================================================
 
-    Add creates a master grain customer. It does not bypass
-    the hauling-job/contract eligibility rule.
+    Add creates a master grain customer. When this hauling job
+    still has unallocated contract capacity, that customer can
+    be selected immediately. Once contract capacity is full,
+    only customers already represented by linked contracts remain selectable.
   */
   const manageGroup =
     document.createElement(
@@ -6590,7 +6720,7 @@ async function addSoldUnder() {
 
 
     showMessage(
-      `${name} was added. Link a contract for this customer to the hauling job before it can be selected as an official Sold Under.`,
+      `${name} was added. If this hauling job still has unallocated contract capacity, it is now available as Sold Under.`,
       "success"
     );
 
@@ -8181,6 +8311,108 @@ function contractIsOpen(
       );
 
     }
+
+    function haulingJobContractedBushels(
+      job
+    ) {
+
+      const jobId =
+        clean(
+          job?.id
+        );
+
+
+      if (
+        !jobId
+      ) {
+
+        return 0;
+
+      }
+
+
+      return state.contracts
+        .filter(
+          contract => {
+
+            const status =
+              normalize(
+                contract?.status ||
+                contract?.contractStatus
+              );
+
+
+            const excluded =
+              contract?.voided ===
+                true ||
+              status.includes(
+                "void"
+              ) ||
+              status.includes(
+                "cancel"
+              );
+
+
+            return (
+              !excluded &&
+              clean(
+                contract?.haulingJobId
+              ) ===
+                jobId
+            );
+
+          }
+        )
+        .reduce(
+          (
+            total,
+            contract
+          ) =>
+            total +
+            Math.max(
+              0,
+              Number(
+                contract?.contractBushels ??
+                contract?.bushels ??
+                contract?.quantity ??
+                contract?.totalBushels ??
+                0
+              ) || 0
+            ),
+          0
+        );
+
+    }
+
+
+    function haulingJobUnallocatedContractBushels(
+      job
+    ) {
+
+      return Math.max(
+        0,
+        haulingJobStartingBushels(
+          job
+        ) -
+        haulingJobContractedBushels(
+          job
+        )
+      );
+
+    }
+
+
+    function haulingJobHasUnallocatedContractCapacity(
+      job
+    ) {
+
+      return haulingJobUnallocatedContractBushels(
+        job
+      ) >
+        0.005;
+
+    }
+
 
 
     function haulingJobDropdownLabel(
@@ -10342,7 +10574,10 @@ function currentReviewReasons() {
 
 
     if (
-      !validSoldUnder
+      !validSoldUnder &&
+      !haulingJobHasUnallocatedContractCapacity(
+        state.selectedContract
+      )
     ) {
 
       reasons.push(
