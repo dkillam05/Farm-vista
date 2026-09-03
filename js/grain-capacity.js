@@ -161,6 +161,7 @@ var cropMatch = null;
     const message = document.getElementById('loadout-form-message');
     const destination = document.getElementById('loadout-destination');
     const customer = document.getElementById('loadout-customer');
+    const customerButtonText = document.getElementById('loadout-customer-button-text');
     const crop = document.getElementById('loadout-crop');
     const actions = message?.nextElementSibling;
 
@@ -180,6 +181,64 @@ var cropMatch = null;
       cropMatch = savedCrop ? { value:savedCrop } : null;
     }
 
+    async function restoreSavedSoldUnder(loadId) {
+      if (!loadId || !customer) return;
+
+      try {
+        const firebase = await import('/js/firebase-init.js');
+        await firebase.ready;
+
+        const db = firebase.getFirestore();
+        const snapshot = await firebase.getDoc(
+          firebase.doc(db, 'grain_loadouts', loadId)
+        );
+
+        if (!snapshot.exists()) return;
+
+        const data = snapshot.data() || {};
+        const savedCustomerId = String(
+          data.customerId ||
+          data.grainCustomerId ||
+          data.soldUnderCustomerId ||
+          data.soldUnderId ||
+          ''
+        ).trim();
+
+        const savedCustomerName = String(
+          data.customerName ||
+          data.grainCustomerName ||
+          data.soldUnderCustomerName ||
+          data.soldUnderName ||
+          ''
+        ).trim();
+
+        const isUnknown =
+          !savedCustomerId &&
+          (!savedCustomerName || savedCustomerName.toLowerCase() === 'unknown');
+
+        if (isUnknown) {
+          customer.value = '__unknown__';
+          customerId = '__unknown__';
+          if (customerButtonText) customerButtonText.textContent = 'Unknown';
+          return;
+        }
+
+        if (!savedCustomerId) return;
+
+        customer.value = savedCustomerId;
+        customerId = savedCustomerId;
+
+        if (customerButtonText) {
+          customerButtonText.textContent = savedCustomerName || 'Sold Under';
+        }
+
+        customer.dispatchEvent(new Event('change', { bubbles:true }));
+      }
+      catch (error) {
+        console.warn('[grain loadout] could not restore saved Sold Under:', error);
+      }
+    }
+
     function removeVoidedRows() {
       voidedLoadIds.forEach(loadId => {
         const escaped = window.CSS?.escape
@@ -194,8 +253,13 @@ var cropMatch = null;
 
     /*
       Capture the load ID before the page's own bubble-phase row click.
-      The zero-delay callback runs after that handler has filled the modal,
-      but before grain-ticket.html's 50ms final restore callback.
+      The zero-delay callback runs after that handler has filled the modal.
+
+      IMPORTANT:
+      The page defaults Sold Under to Unknown while applying the hauling job.
+      For an existing load we must then restore the customer saved on the
+      grain_loadouts document. Otherwise opening Edit can display/save
+      Unknown even though the load originally went out under a real customer.
     */
     tbody.addEventListener(
       'click',
@@ -209,6 +273,7 @@ var cropMatch = null;
 
         setTimeout(() => {
           captureEditRestoreValues();
+          restoreSavedSoldUnder(activeLoadId);
           syncVoidButton();
         }, 0);
       },
