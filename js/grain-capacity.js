@@ -232,7 +232,14 @@ var cropMatch = null;
           customerButtonText.textContent = savedCustomerName || 'Sold Under';
         }
 
-        customer.dispatchEvent(new Event('change', { bubbles:true }));
+        /*
+          Do not dispatch a synthetic change event here.
+          The loadout page treats customer changes as a user selection and
+          rebuilds dependent controls, including the Hauling Job selector.
+          Edit restore is only restoring the saved snapshot, so updating the
+          hidden value and visible label is sufficient and preserves the
+          saved hauling-job selection.
+        */
       }
       catch (error) {
         console.warn('[grain loadout] could not restore saved Sold Under:', error);
