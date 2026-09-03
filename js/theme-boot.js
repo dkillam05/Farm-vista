@@ -170,16 +170,40 @@ const __fvBoot = (function(){
     if (!samePath(location.href, dest)) location.replace(dest);
   };
 
-  const waitForAuthHydration = async (mod, auth, ms=3000) => {
+  const waitForAuthHydration = async (mod, auth, ms=8000) => {
+    if (!auth) return null;
+
+    try {
+      if (auth.currentUser) return auth.currentUser;
+
+      // Firebase 10's authStateReady() waits for the persisted
+      // user to be restored from IndexedDB/local storage. This
+      // is especially important on an iOS PWA cold launch.
+      if (typeof auth.authStateReady === 'function') {
+        await Promise.race([
+          auth.authStateReady(),
+          new Promise(resolve => setTimeout(resolve, ms))
+        ]);
+        return auth.currentUser || null;
+      }
+    } catch (e) {
+      console.warn('[FV] authStateReady wait failed:', e);
+    }
+
     return new Promise((resolve) => {
       let settled = false;
-      const done = (u)=>{ if(!settled){ settled=true; resolve(u); } };
+      let off = null;
+      const done = (u)=>{
+        if (settled) return;
+        settled = true;
+        try { off && off(); } catch {}
+        resolve(u || null);
+      };
       try {
-        if (auth && auth.currentUser) return done(auth.currentUser);
-        const off = mod.onAuthStateChanged(auth, u => { done(u); off && off(); });
-        setTimeout(()=> done(auth && auth.currentUser || null), ms);
+        off = mod.onAuthStateChanged(auth, u => done(u));
+        setTimeout(()=> done(auth.currentUser || null), ms);
       } catch {
-        resolve(auth && auth.currentUser || null);
+        done(auth.currentUser || null);
       }
     });
   };
@@ -210,7 +234,7 @@ const __fvBoot = (function(){
         console.warn('[FV] setPersistence failed:', e);
       }
 
-      const user = await waitForAuthHydration(mod, auth, 3000);
+      const user = await waitForAuthHydration(mod, auth, 8000);
 
       if (!user) {
         const uc = getUserContextSnapshot();
