@@ -4384,6 +4384,7 @@ const [
   locationSnapshot,
   haulingJobSnapshot,
   contractSnapshot,
+  ticketSnapshot,
   binSiteSnapshot,
   bagEventSnapshot,
   fieldSnapshot
@@ -4422,6 +4423,13 @@ getDocs(
   collection(
     db,
     "grain_contracts"
+  )
+),
+
+getDocs(
+  collection(
+    db,
+    "grain_tickets"
   )
 ),
 
@@ -4643,6 +4651,18 @@ state.haulingJobs =
 
 state.contracts =
   contractSnapshot.docs
+    .map(
+      snapshot => ({
+        id:
+          snapshot.id,
+
+        ...snapshot.data()
+      })
+    );
+
+
+state.tickets =
+  ticketSnapshot.docs
     .map(
       snapshot => ({
         id:
@@ -8096,6 +8116,97 @@ function contractIsOpen(
 
     }
 
+    function haulingJobStartingBushels(
+      job
+    ) {
+
+      return Number(
+        job?.startingBushels ??
+        job?.jobBushels ??
+        job?.bushels ??
+        0
+      ) || 0;
+
+    }
+
+
+    function haulingJobTicketedBushels(
+      job
+    ) {
+
+      return state.tickets
+        .filter(
+          ticket =>
+            ticket?.voided !==
+              true &&
+            clean(
+              ticket?.haulingJobId
+            ) ===
+              clean(
+                job?.id
+              )
+        )
+        .reduce(
+          (
+            total,
+            ticket
+          ) =>
+            total +
+            (
+              Number(
+                ticket?.netBushels ??
+                ticket?.netBu ??
+                ticket?.bushels ??
+                0
+              ) || 0
+            ),
+          0
+        );
+
+    }
+
+
+    function haulingJobRemainingBushels(
+      job
+    ) {
+
+      return Math.max(
+        0,
+        haulingJobStartingBushels(
+          job
+        ) -
+        haulingJobTicketedBushels(
+          job
+        )
+      );
+
+    }
+
+
+    function haulingJobDropdownLabel(
+      job
+    ) {
+
+      const base =
+        contractLabel(
+          job
+        );
+
+
+      const remaining =
+        haulingJobRemainingBushels(
+          job
+        );
+
+
+      return `${base} — Remaining ${remaining.toLocaleString("en-US", {
+        maximumFractionDigits:
+          2
+      })} bu`;
+
+    }
+
+
     function contractLabel(
       contract
     ) {
@@ -8431,7 +8542,7 @@ function renderContractOptions() {
 
 
       option.textContent =
-        contractLabel(
+        haulingJobDropdownLabel(
           job
         );
 
