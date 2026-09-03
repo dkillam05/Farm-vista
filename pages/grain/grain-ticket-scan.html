@@ -1376,7 +1376,7 @@
       <div
         class="camera-tip"
       >
-        Keep the whole ticket visible and hold the phone steady.
+        Keep the whole ticket visible. FarmVista will choose the sharpest frame.
       </div>
 
     </section>
@@ -2435,10 +2435,12 @@ let ticketFrameLocked =
 
 
 /*
-  CAMERA IMAGE QUALITY GATE
+  CAMERA IMAGE QUALITY
 
-  FarmVista will not enable the shutter until the live camera
-  has produced several consecutive sharp frames.
+  Sharpness is now advisory instead of a hard shutter lock.
+  Drivers can capture while equipment is vibrating, and FarmVista
+  will take a short burst from the live camera and keep the
+  sharpest frame automatically.
 */
 let focusCheckTimer =
   null;
@@ -2453,21 +2455,20 @@ const FOCUS_CHECK_INTERVAL =
   250;
 
 const FOCUS_REQUIRED_STABLE_FRAMES =
-  2;
+  1;
 
 /*
-  Grain ticket focus threshold.
-
-  Lower = easier to enable shutter.
-  Higher = requires a sharper image.
-
-  7.5 keeps a quality gate in place,
-  but is much more forgiving for real-world
-  handheld driver use.
+  This threshold only controls the green "ready" feedback.
+  It no longer prevents the driver from taking the picture.
 */
 const FOCUS_SHARPNESS_THRESHOLD =
-  7.5;
+  5.5;
 
+const CAPTURE_BURST_FRAME_COUNT =
+  6;
+
+const CAPTURE_BURST_INTERVAL_MS =
+  55;
 
 let signedInUser =
   null;
@@ -13276,8 +13277,13 @@ function startFocusQualityCheck() {
   stopFocusQualityCheck();
 
 
+  /*
+    The shutter is available as soon as the live camera is usable.
+    Sharpness only changes the visual feedback; it does not trap
+    the driver waiting for a perfect focus score.
+  */
   captureBtn.disabled =
-    true;
+    false;
 
 
   ticketFrame.classList.remove(
@@ -13296,7 +13302,7 @@ function startFocusQualityCheck() {
   ) {
 
     cameraTip.textContent =
-      "Hold steady — focusing…";
+      "Keep the whole ticket visible — tap when ready.";
 
   }
 
@@ -13313,8 +13319,14 @@ function startFocusQualityCheck() {
         !cameraVideo.videoHeight
       ) {
 
-        captureBtn.disabled =
-          true;
+        if (
+          !processing
+        ) {
+
+          captureBtn.disabled =
+            true;
+
+        }
 
 
         focusStableFrames =
@@ -13324,6 +13336,14 @@ function startFocusQualityCheck() {
         return;
 
       }
+
+
+      /*
+        Camera is live, so keep Capture available even when the
+        current frame is below the preferred sharpness score.
+      */
+      captureBtn.disabled =
+        false;
 
 
       let sharpness =
@@ -13344,12 +13364,13 @@ function startFocusQualityCheck() {
         );
 
 
-        captureBtn.disabled =
-          true;
-
-
         focusStableFrames =
           0;
+
+
+        ticketFrame.classList.remove(
+          "ready"
+        );
 
 
         return;
@@ -13386,10 +13407,6 @@ function startFocusQualityCheck() {
           FOCUS_REQUIRED_STABLE_FRAMES;
 
 
-      captureBtn.disabled =
-        !focusReady;
-
-
       ticketFrame.classList.toggle(
         "ready",
         focusReady
@@ -13402,8 +13419,8 @@ function startFocusQualityCheck() {
 
         cameraTip.textContent =
           focusReady
-            ? "Ready — take photo."
-            : "Hold steady — focusing…";
+            ? "Looks good — tap to capture."
+            : "Tap to capture — FarmVista will choose the sharpest frame.";
 
       }
 
@@ -13418,14 +13435,17 @@ function startFocusQualityCheck() {
               )
             ),
 
-          threshold:
+          preferredThreshold:
             FOCUS_SHARPNESS_THRESHOLD,
 
           stableFrames:
             focusStableFrames,
 
-          ready:
-            focusReady
+          looksReady:
+            focusReady,
+
+          shutterAvailable:
+            true
         }
       );
 
@@ -13433,7 +13453,8 @@ function startFocusQualityCheck() {
 
 
   /*
-    Give autofocus, exposure and flashlight a moment to settle.
+    Give autofocus, exposure and flashlight a brief moment to settle,
+    but do not keep the shutter locked while that happens.
   */
   setTimeout(
     () => {
@@ -13459,10 +13480,11 @@ function startFocusQualityCheck() {
         );
 
     },
-    700
+    350
   );
 
 }
+
       // ==========================================================
       // CAMERA
       // ==========================================================
@@ -13657,16 +13679,14 @@ await setupTorch();
 
 
 /*
-  Do NOT enable Capture simply because the camera started.
-
-  FarmVista now waits until the live ticket image has remained
-  acceptably sharp for several consecutive checks.
+  Start lightweight quality feedback. Capture stays available;
+  the burst capture will choose the sharpest live frame.
 */
 startFocusQualityCheck();
 
 
 console.log(
-  "[Grain Ticket] Camera ready — waiting for sharp image.",
+  "[Grain Ticket] Camera ready — burst capture enabled.",
       {
         width:
           cameraVideo.videoWidth,
@@ -13925,40 +13945,65 @@ if (
       // CAMERA CAPTURE
       // ==========================================================
 
-      async function capturePhoto() {
+      async function captureBestLiveFrame() {
 
-if (
-  processing ||
-  captureBtn.disabled ||
-  !cameraVideo.videoWidth ||
-  !cameraVideo.videoHeight
-) {
-          return;
-        }
+        let bestFrame =
+          null;
 
 
-        processing =
-          true;
+        let bestScore =
+          -1;
 
 
-        captureBtn.disabled =
-          true;
+        const width =
+          cameraVideo.videoWidth;
 
 
-        try {
+        const height =
+          cameraVideo.videoHeight;
+
+
+        for (
+          let frameIndex = 0;
+          frameIndex < CAPTURE_BURST_FRAME_COUNT;
+          frameIndex++
+        ) {
+
+          if (
+            !cameraTrack ||
+            cameraTrack.readyState !==
+              "live"
+          ) {
+
+            break;
+
+          }
+
+
+          let sharpness =
+            0;
+
+
+          try {
+
+            sharpness =
+              calculateCameraSharpness();
+
+          }
+          catch (err) {
+
+            console.warn(
+              "[Grain Ticket] Burst sharpness check failed:",
+              err
+            );
+
+          }
+
 
           const canvas =
             document.createElement(
               "canvas"
             );
-
-
-          const width =
-            cameraVideo.videoWidth;
-
-
-          const height =
-            cameraVideo.videoHeight;
 
 
           canvas.width =
@@ -13975,6 +14020,17 @@ if (
             );
 
 
+          if (
+            !ctx
+          ) {
+
+            throw new Error(
+              "Camera image canvas was unavailable."
+            );
+
+          }
+
+
           ctx.drawImage(
             cameraVideo,
             0,
@@ -13984,9 +14040,122 @@ if (
           );
 
 
+          if (
+            !bestFrame ||
+            sharpness >
+              bestScore
+          ) {
+
+            bestFrame =
+              canvas;
+
+
+            bestScore =
+              sharpness;
+
+          }
+
+
+          if (
+            frameIndex <
+              CAPTURE_BURST_FRAME_COUNT - 1
+          ) {
+
+            await wait(
+              CAPTURE_BURST_INTERVAL_MS
+            );
+
+          }
+
+        }
+
+
+        if (
+          !bestFrame
+        ) {
+
+          throw new Error(
+            "No live camera frame was available."
+          );
+
+        }
+
+
+        console.log(
+          "[Grain Ticket] Best burst frame selected:",
+          {
+            framesRequested:
+              CAPTURE_BURST_FRAME_COUNT,
+
+            bestSharpness:
+              Number(
+                Math.max(
+                  0,
+                  bestScore
+                ).toFixed(
+                  2
+                )
+              )
+          }
+        );
+
+
+        return bestFrame;
+
+      }
+
+
+
+      async function capturePhoto() {
+
+        if (
+          processing ||
+          !cameraVideo.videoWidth ||
+          !cameraVideo.videoHeight
+        ) {
+          return;
+        }
+
+
+        processing =
+          true;
+
+
+        captureBtn.disabled =
+          true;
+
+
+        const cameraTip =
+          document.querySelector(
+            ".camera-tip"
+          );
+
+
+        if (
+          cameraTip
+        ) {
+
+          cameraTip.textContent =
+            "Capturing best frame…";
+
+        }
+
+
+        try {
+
+          /*
+            Grab several frames from the live preview over roughly
+            a quarter second. This gives a moving/vibrating phone
+            multiple chances to catch crisp printed text without
+            creating an Apple Live Photo or uploading extra files.
+          */
+          const bestFrame =
+            await captureBestLiveFrame();
+
+
           const blob =
             await canvasToBlob(
-              canvas
+              bestFrame
             );
 
 
@@ -14028,8 +14197,6 @@ if (
         }
 
       }
-
-
 
       // ==========================================================
       // IMAGE PREPARATION
