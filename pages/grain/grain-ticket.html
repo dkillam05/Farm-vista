@@ -8308,7 +8308,7 @@ async function loAddSoldUnder(){
 
 
     loShowMessage(
-      `${name} was added. Link one of that customer's contracts to this hauling job before selecting it here.`,
+      `${name} was added. If this hauling job still has unallocated contract capacity, it is now available as Sold Under.`,
       "good"
     );
 
@@ -8757,7 +8757,7 @@ function loRenderCustomerPicker(){
     );
 
 
-  const eligible =
+  const linkedCustomers =
     Array.from(
       customerMap.values()
     )
@@ -8778,6 +8778,56 @@ function loRenderCustomerPicker(){
             }
           )
       );
+
+
+  const linkedIds =
+    new Set(
+      linkedCustomers.map(
+        customer =>
+          customer.id
+      )
+    );
+
+
+  const hasUnallocatedCapacity =
+    loHaulingJobHasUnallocatedContractCapacity(
+      haulingJob
+    );
+
+
+  const otherCustomers =
+    hasUnallocatedCapacity
+      ? loState.customers
+          .filter(
+            customer =>
+              !linkedIds.has(
+                customer.id
+              )
+          )
+          .sort(
+            (
+              a,
+              b
+            ) =>
+              a.name.localeCompare(
+                b.name,
+                undefined,
+                {
+                  numeric:
+                    true,
+
+                  sensitivity:
+                    "base"
+                }
+              )
+          )
+      : [];
+
+
+  const eligible = [
+    ...linkedCustomers,
+    ...otherCustomers
+  ];
 
 
   /*
@@ -8862,8 +8912,77 @@ function loRenderCustomerPicker(){
      ELIGIBLE CUSTOMERS
   ============================================================ */
 
+  let otherGroupShown =
+    false;
+
+
+  if (
+    linkedCustomers.length
+  ) {
+
+    const linkedGroup =
+      document.createElement(
+        "div"
+      );
+
+
+    linkedGroup.className =
+      "loadout-source-group";
+
+
+    linkedGroup.textContent =
+      "Linked Contracts";
+
+
+    loEls.customerMenu.appendChild(
+      linkedGroup
+    );
+
+  }
+
+
   eligible.forEach(
     customer => {
+
+      if (
+        hasUnallocatedCapacity &&
+        !linkedIds.has(
+          customer.id
+        ) &&
+        !otherGroupShown
+      ) {
+
+        const otherGroup =
+          document.createElement(
+            "div"
+          );
+
+
+        otherGroup.className =
+          "loadout-source-group";
+
+
+        otherGroup.textContent =
+          `Other Customers — ${loHaulingJobUnallocatedContractBushels(
+            haulingJob
+          ).toLocaleString(
+            "en-US",
+            {
+              maximumFractionDigits:
+                2
+            }
+          )} bu unallocated`;
+
+
+        loEls.customerMenu.appendChild(
+          otherGroup
+        );
+
+
+        otherGroupShown =
+          true;
+
+      }
 
       /*
         Build a row with separate Select and Edit actions.
@@ -9880,6 +9999,62 @@ function loSelectedCustomer(){
     );
   }
 
+  function loHaulingJobContractedBushels(job){
+    const jobId = loClean(job?.id);
+
+    if (!jobId) {
+      return 0;
+    }
+
+    return loState.contracts
+      .filter(contract => {
+        const status = loNorm(
+          contract?.status ||
+          contract?.contractStatus
+        );
+
+        const excluded =
+          contract?.voided === true ||
+          status.includes("void") ||
+          status.includes("cancel");
+
+        return (
+          !excluded &&
+          loClean(contract?.haulingJobId) === jobId
+        );
+      })
+      .reduce((sum,contract) => {
+        const value = Number(
+          contract?.contractBushels ??
+          contract?.bushels ??
+          contract?.quantity ??
+          contract?.totalBushels ??
+          0
+        );
+
+        return sum + (
+          Number.isFinite(value)
+            ? Math.max(0,value)
+            : 0
+        );
+      },0);
+  }
+
+
+  function loHaulingJobUnallocatedContractBushels(job){
+    return Math.max(
+      0,
+      loHaulingJobStartingBushels(job) -
+      loHaulingJobContractedBushels(job)
+    );
+  }
+
+
+  function loHaulingJobHasUnallocatedContractCapacity(job){
+    return loHaulingJobUnallocatedContractBushels(job) > 0.005;
+  }
+
+
 function loHaulingJobMatchesSelection(job){
 
   const destination =
@@ -9951,26 +10126,35 @@ function loHaulingJobMatchesSelection(job){
 
     This does NOT select that contract.
   */
-  return loState.contracts.some(
-    contract =>
+  const linkedCustomer =
+    loState.contracts.some(
+      contract =>
 
-      loContractIsOpen(
-        contract
-      ) &&
-
-      loClean(
-        contract.haulingJobId
-      ) ===
-        loClean(
-          job.id
+        loContractIsOpen(
+          contract
         ) &&
 
-      loContractCustomerId(
-        contract
-      ) ===
         loClean(
-          customer.id
-        )
+          contract.haulingJobId
+        ) ===
+          loClean(
+            job.id
+          ) &&
+
+        loContractCustomerId(
+          contract
+        ) ===
+          loClean(
+            customer.id
+          )
+    );
+
+
+  return (
+    linkedCustomer ||
+    loHaulingJobHasUnallocatedContractCapacity(
+      job
+    )
   );
 
 }
@@ -10269,9 +10453,11 @@ function loApplyHaulingJobToLoad(job){
     Sold Under stays ENABLED.
 
     User can choose:
-      Unknown
-      or
-      one of the unique customers from linked contracts.
+      Unknown,
+      customers already represented by linked contracts,
+      and—while the hauling job still has unallocated contract capacity—
+      any existing master customer. Once the job is fully allocated,
+      only linked-contract customers remain available.
   */
   if (
     loEls.customerButton
