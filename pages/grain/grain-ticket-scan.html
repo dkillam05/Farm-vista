@@ -4036,22 +4036,22 @@ function findDeliveryLocationMatch(
 
   const ocrCity =
     normalized(
-      grainTicket?.deliveryCity ||
-      headerCityState.city
+      headerCityState.city ||
+      grainTicket?.deliveryCity
     );
 
 
   const ocrState =
     normalized(
-      grainTicket?.deliveryState ||
-      headerCityState.state
+      headerCityState.state ||
+      grainTicket?.deliveryState
     );
 
 
   const ocrZip =
     normalizeZipForMatch(
-      grainTicket?.deliveryZip ||
-      headerCityState.zip
+      headerCityState.zip ||
+      grainTicket?.deliveryZip
     );
 
 
@@ -4979,6 +4979,85 @@ function findCustomerMatch(
         };
 
       }
+
+    }
+
+  }
+
+
+  /*
+    RAW TICKET CUSTOMER-NAME FALLBACK
+
+    Some ADM tickets put the vendor/account number immediately before
+    the Sold Under name. If the structured customer field is imperfect
+    but one FarmVista candidate's meaningful name appears verbatim in
+    the OCR document, that is strong evidence.
+
+    Require exactly one candidate so we never guess between two names.
+  */
+
+  const rawCustomerText =
+    normalizeMatchText(
+      grainTicket?.rawText ||
+      ""
+    );
+
+
+  if (
+    rawCustomerText
+  ) {
+
+    const rawNameMatches =
+      candidates.filter(
+        customer => {
+
+          const nameWords =
+            normalizeSmartWords(
+              getCustomerName(
+                customer
+              )
+            );
+
+
+          if (
+            nameWords.length <
+              2
+          ) {
+
+            return false;
+
+          }
+
+
+          const normalizedName =
+            nameWords.join(
+              " "
+            );
+
+
+          return rawCustomerText.includes(
+            normalizedName
+          );
+
+        }
+      );
+
+
+    if (
+      rawNameMatches.length ===
+        1
+    ) {
+
+      return {
+        matched:
+          true,
+
+        matchType:
+          "raw_ticket_customer_name",
+
+        customer:
+          rawNameMatches[0]
+      };
 
     }
 
