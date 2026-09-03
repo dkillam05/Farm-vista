@@ -9945,16 +9945,35 @@ function loChooseSourceValue(
 
 
 
+function loCloseFieldSourceModal(){
+
+  const backdrop =
+    document.getElementById(
+      "loadout-field-source-backdrop"
+    );
+
+  if (
+    backdrop
+  ) {
+    backdrop.remove();
+  }
+
+}
+
+
 function loRenderFieldSourceSelector(
   searchText=""
 ){
 
   if (
-    !loEls.sourceMenu ||
     !loEls.source
   ) {
     return;
   }
+
+
+  loCloseFieldSourceModal();
+
 
   const fieldItems =
     loCurrentSourceItems()
@@ -9966,43 +9985,133 @@ function loRenderFieldSourceSelector(
             "field"
       );
 
-  const search =
-    loNorm(
-      searchText
-    );
 
-  loEls.sourceMenu.innerHTML =
-    "";
-
-  const wrap =
+  const backdrop =
     document.createElement(
       "div"
     );
 
-  wrap.className =
-    "loadout-source-search-wrap";
+  backdrop.id =
+    "loadout-field-source-backdrop";
 
-  const back =
+  Object.assign(
+    backdrop.style,
+    {
+      position:"fixed",
+      inset:"0",
+      zIndex:"14050",
+      background:"rgba(0,0,0,.56)",
+      display:"flex",
+      alignItems:"center",
+      justifyContent:"center",
+      padding:"16px"
+    }
+  );
+
+
+  const modal =
+    document.createElement(
+      "div"
+    );
+
+  Object.assign(
+    modal.style,
+    {
+      width:"min(620px,100%)",
+      maxHeight:"82vh",
+      overflow:"hidden",
+      borderRadius:"16px",
+      background:"var(--surface,#fff)",
+      color:"var(--text,#1f2521)",
+      border:"1px solid var(--border,#d7ddd8)",
+      boxShadow:"0 22px 60px rgba(0,0,0,.32)",
+      display:"flex",
+      flexDirection:"column"
+    }
+  );
+
+
+  const head =
+    document.createElement(
+      "div"
+    );
+
+  Object.assign(
+    head.style,
+    {
+      display:"flex",
+      alignItems:"center",
+      justifyContent:"space-between",
+      gap:"12px",
+      padding:"16px",
+      borderBottom:"1px solid var(--border,#d7ddd8)"
+    }
+  );
+
+
+  const title =
+    document.createElement(
+      "div"
+    );
+
+  title.innerHTML =
+    '<div style="font-size:18px;font-weight:900;">Fields</div><div style="font-size:12px;color:var(--muted,#87908a);margin-top:3px;">Choose the field this load is coming from.</div>';
+
+
+  const close =
     document.createElement(
       "button"
     );
 
-  back.type =
+  close.type =
     "button";
 
-  back.className =
-    "loadout-source-choice";
+  close.textContent =
+    "×";
 
-  back.textContent =
-    "← Back to Grain Sources";
-
-  back.addEventListener(
-    "click",
-    () =>
-      loRenderSourceSelector(
-        ""
-      )
+  Object.assign(
+    close.style,
+    {
+      width:"40px",
+      height:"40px",
+      border:"0",
+      borderRadius:"10px",
+      background:"var(--surface-2,#eef1ee)",
+      color:"inherit",
+      fontSize:"24px",
+      lineHeight:"1",
+      cursor:"pointer"
+    }
   );
+
+  close.addEventListener(
+    "click",
+    loCloseFieldSourceModal
+  );
+
+
+  head.appendChild(
+    title
+  );
+
+  head.appendChild(
+    close
+  );
+
+
+  const searchWrap =
+    document.createElement(
+      "div"
+    );
+
+  Object.assign(
+    searchWrap.style,
+    {
+      padding:"12px 14px",
+      borderBottom:"1px solid var(--border,#d7ddd8)"
+    }
+  );
+
 
   const input =
     document.createElement(
@@ -10011,9 +10120,6 @@ function loRenderFieldSourceSelector(
 
   input.type =
     "search";
-
-  input.className =
-    "loadout-source-search";
 
   input.placeholder =
     "Search field name or number…";
@@ -10025,106 +10131,210 @@ function loRenderFieldSourceSelector(
     searchText ||
     "";
 
-  wrap.appendChild(
+  Object.assign(
+    input.style,
+    {
+      width:"100%",
+      minHeight:"46px",
+      boxSizing:"border-box",
+      border:"1px solid var(--border,#c8c8c8)",
+      borderRadius:"10px",
+      background:"var(--surface,#fff)",
+      color:"inherit",
+      padding:"10px 12px",
+      font:"inherit"
+    }
+  );
+
+  searchWrap.appendChild(
     input
   );
 
-  loEls.sourceMenu.appendChild(
-    back
+
+  const list =
+    document.createElement(
+      "div"
+    );
+
+  Object.assign(
+    list.style,
+    {
+      overflowY:"auto",
+      WebkitOverflowScrolling:"touch",
+      padding:"4px 0",
+      minHeight:"120px"
+    }
   );
 
-  loEls.sourceMenu.appendChild(
-    wrap
-  );
 
-  const filtered =
-    fieldItems.filter(
-      item =>
-        !search ||
+  const renderList =
+    () => {
+
+      const search =
         loNorm(
-          `${item.label} ${item.searchText || ""}`
-        )
-          .includes(
-            search
-          )
-    );
+          input.value
+        );
 
-  if (
-    !filtered.length
-  ) {
 
-    const empty =
-      document.createElement(
-        "div"
-      );
+      const filtered =
+        fieldItems.filter(
+          item =>
+            !search ||
+            loNorm(
+              `${item.label} ${item.searchText || ""}`
+            )
+              .includes(
+                search
+              )
+        );
 
-    empty.className =
-      "loadout-source-empty";
 
-    empty.textContent =
-      search
-        ? "No matching fields."
-        : "No active fields found.";
+      list.innerHTML =
+        "";
 
-    loEls.sourceMenu.appendChild(
-      empty
-    );
 
-  }
-  else {
+      if (
+        !filtered.length
+      ) {
 
-    filtered.forEach(
-      item => {
-
-        const button =
+        const empty =
           document.createElement(
-            "button"
+            "div"
           );
 
-        button.type =
-          "button";
+        empty.textContent =
+          search
+            ? "No matching fields."
+            : "No active fields found.";
 
-        button.className =
-          "loadout-source-choice";
-
-        button.dataset.sourceValue =
-          item.value;
-
-        button.textContent =
-          item.label;
-
-        button.addEventListener(
-          "click",
-          () =>
-            loChooseSourceValue(
-              item.value
-            )
+        Object.assign(
+          empty.style,
+          {
+            padding:"24px 16px",
+            textAlign:"center",
+            color:"var(--muted,#87908a)",
+            fontWeight:"700"
+          }
         );
 
-        loEls.sourceMenu.appendChild(
-          button
+        list.appendChild(
+          empty
         );
+
+        return;
 
       }
-    );
 
-  }
+
+      filtered.forEach(
+        item => {
+
+          const button =
+            document.createElement(
+              "button"
+            );
+
+          button.type =
+            "button";
+
+          button.textContent =
+            item.label;
+
+          Object.assign(
+            button.style,
+            {
+              width:"100%",
+              border:"0",
+              borderBottom:"1px solid var(--border,#e1e1e1)",
+              background:"var(--surface,#fff)",
+              color:"inherit",
+              padding:"14px 16px",
+              font:"inherit",
+              fontWeight:"750",
+              textAlign:"left",
+              cursor:"pointer"
+            }
+          );
+
+          button.addEventListener(
+            "click",
+            () => {
+
+              loCloseFieldSourceModal();
+
+              loChooseSourceValue(
+                item.value
+              );
+
+            }
+          );
+
+          list.appendChild(
+            button
+          );
+
+        }
+      );
+
+    };
+
 
   input.addEventListener(
     "input",
-    () =>
-      loRenderFieldSourceSelector(
-        input.value
-      )
+    renderList
   );
 
+
+  modal.appendChild(
+    head
+  );
+
+  modal.appendChild(
+    searchWrap
+  );
+
+  modal.appendChild(
+    list
+  );
+
+  backdrop.appendChild(
+    modal
+  );
+
+  document.body.appendChild(
+    backdrop
+  );
+
+
+  backdrop.addEventListener(
+    "click",
+    event => {
+
+      if (
+        event.target ===
+        backdrop
+      ) {
+
+        loCloseFieldSourceModal();
+
+      }
+
+    }
+  );
+
+
+  renderList();
+
+
   requestAnimationFrame(
-    () =>
-      loEls.sourceMenu
-        ?.querySelector(
-          ".loadout-source-search"
-        )
-        ?.focus()
+    () => {
+
+      try {
+        input.focus();
+      }
+      catch (_) {}
+
+    }
   );
 
 }
