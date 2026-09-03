@@ -1716,6 +1716,9 @@ haulingJobs:
       bagSources:
         [],
 
+      fields:
+        [],
+
       selectedSource:
         null,
 
@@ -4382,7 +4385,8 @@ const [
   haulingJobSnapshot,
   contractSnapshot,
   binSiteSnapshot,
-  bagEventSnapshot
+  bagEventSnapshot,
+  fieldSnapshot
 ] =
   await Promise.all([
 
@@ -4433,9 +4437,42 @@ getDocs(
               db,
               "grain_bag_events"
             )
+          ),
+
+          getDocs(
+            collection(
+              db,
+              "fields"
+            )
           )
 
         ]);
+
+
+      state.fields =
+        fieldSnapshot.docs
+          .map(
+            snapshot => ({
+              id:
+                snapshot.id,
+
+              ...(
+                snapshot.data() ||
+                {}
+              )
+            })
+          )
+          .filter(
+            field =>
+              normalize(
+                field?.status ||
+                "active"
+              ) ===
+                "active" &&
+              clean(
+                field?.name
+              )
+          );
 
 
       state.buyers =
@@ -6819,6 +6856,111 @@ function openCustomerMenu() {
 
 }
 
+function fieldSourceItems() {
+
+  const crop =
+    clean(
+      elements.crop.value
+    );
+
+
+  if (
+    !crop
+  ) {
+
+    return [];
+
+  }
+
+
+  return state.fields
+    .filter(
+      field =>
+        normalize(
+          field?.status ||
+          "active"
+        ) ===
+          "active" &&
+        clean(
+          field?.name
+        )
+    )
+    .map(
+      field => {
+
+        const fieldId =
+          clean(
+            field.id
+          );
+
+
+        const fieldName =
+          clean(
+            field.name
+          );
+
+
+        return {
+          type:
+            "field",
+
+          value:
+            `field:${fieldId}:${normalize(crop)}`,
+
+          id:
+            fieldId,
+
+          siteId:
+            null,
+
+          siteName:
+            fieldName,
+
+          fieldId,
+
+          fieldName,
+
+          crop,
+
+          cropYear:
+            null,
+
+          onHand:
+            null,
+
+          bypassInventory:
+            true,
+
+          label:
+            fieldName,
+
+          searchText:
+            `${fieldName} ${clean(field.farmName)} ${clean(field.farmId)} ${crop}`
+        };
+
+      }
+    )
+    .sort(
+      (
+        a,
+        b
+      ) =>
+        a.label.localeCompare(
+          b.label,
+          undefined,
+          {
+            numeric:
+              true,
+
+            sensitivity:
+              "base"
+          }
+        )
+    );
+
+}
+
+
 function activeFieldHarvestSource() {
 
   const crop =
@@ -6901,6 +7043,8 @@ function allSourceItems() {
         : []
     ),
 
+    ...fieldSourceItems(),
+
     ...state.binSources,
 
     ...state.bagSources
@@ -6968,7 +7112,7 @@ function syncGrainSourceButton() {
     state.selectedSource?.label ||
     (
       elements.crop.value
-        ? "Select bin or grain bag"
+        ? "Select grain source"
         : "Select crop first"
     );
 
@@ -7331,6 +7475,14 @@ function renderGrainSourceOptions(
     );
 
 
+  const fields =
+    items.filter(
+      item =>
+        item.type ===
+        "field"
+    );
+
+
   const bins =
     items.filter(
       item =>
@@ -7354,6 +7506,12 @@ function renderGrainSourceOptions(
 
 
   renderGroup(
+    "Fields",
+    fields
+  );
+
+
+  renderGroup(
     "Bin Sites",
     bins
   );
@@ -7367,6 +7525,7 @@ function renderGrainSourceOptions(
 
   if (
     !harvest.length &&
+    !fields.length &&
     !bins.length &&
     !bags.length
   ) {
@@ -7382,7 +7541,7 @@ function renderGrainSourceOptions(
 
 
     empty.textContent =
-      `No grain source with available ${clean(elements.crop.value)} inventory was found.`;
+      `No matching grain source was found for ${clean(elements.crop.value)}.`;
 
 
     elements.grainSourceMenu.appendChild(
@@ -9100,6 +9259,40 @@ function autoMatchCustomer() {
 
       if (
         sourceType ===
+          "field"
+      ) {
+
+        const fieldId =
+          clean(
+            load.grainSourceFieldId ||
+            ticket.grainSourceFieldId ||
+            load.grainSourceId ||
+            ticket.grainSourceId
+          );
+
+
+        const crop =
+          clean(
+            load.crop ||
+            ticket.crop ||
+            elements.crop.value
+          );
+
+
+        if (
+          fieldId &&
+          crop
+        ) {
+
+          return `field:${fieldId}:${normalize(crop)}`;
+
+        }
+
+      }
+
+
+      if (
+        sourceType ===
         "bin"
       ) {
 
@@ -9210,7 +9403,10 @@ const binNumber =
         sourceType ===
           "bin"
             ? "bin"
-            : "grain_bag";
+            : sourceType ===
+                "field"
+              ? "field"
+              : "grain_bag";
 
 
       const fallback = {
@@ -10970,6 +11166,45 @@ async function saveVerifiedTicketWithInventory(
       - reduce grain bag inventory
       - create an inventory movement
   */
+  if (
+    selectedSource.type ===
+      "field"
+  ) {
+
+    await updateDoc(
+      doc(
+        db,
+        "grain_tickets",
+        ticketId
+      ),
+      {
+
+        ...payload,
+
+        inventoryPosted:
+          true,
+
+        inventoryPostedType:
+          "field",
+
+        inventoryPostedBushels:
+          0,
+
+        inventoryMovementId:
+          null,
+
+        inventoryPostedAt:
+          serverTimestamp()
+
+      }
+    );
+
+
+    return;
+
+  }
+
+
   if (
     selectedSource.type ===
     "active_field_harvest"
