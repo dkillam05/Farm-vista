@@ -11995,6 +11995,75 @@ const customerIsUnknown =
         );
 
 
+      /*
+        The page picker is a HAULING JOB picker, while the Contracts
+        page posts grain against individual grain_contracts records.
+
+        When Hauling Job + Sold Under + Crop identify exactly one open
+        contract, automatically post the whole ticket to that contract.
+        If there is not exactly one match, leave contract allocation
+        unresolved rather than guessing.
+      */
+      const eligibleGrainContracts =
+        (
+          !customerIsUnknown &&
+          state.selectedContract &&
+          selectedCustomer?.id
+        )
+          ? state.contracts.filter(
+              contract =>
+                contractIsOpen(
+                  contract
+                ) &&
+                clean(
+                  contract?.haulingJobId
+                ) ===
+                  clean(
+                    state.selectedContract.id
+                  ) &&
+                contractCustomerId(
+                  contract
+                ) ===
+                  clean(
+                    selectedCustomer.id
+                  ) &&
+                (
+                  !contractCrop(
+                    contract
+                  ) ||
+                  contractCrop(
+                    contract
+                  ) ===
+                    normalize(
+                      elements.crop.value
+                    )
+                )
+            )
+          : [];
+
+
+      const selectedGrainContract =
+        eligibleGrainContracts.length ===
+          1
+          ? eligibleGrainContracts[0]
+          : null;
+
+
+      const selectedGrainContractNumber =
+        clean(
+          selectedGrainContract?.contractNumber ||
+          selectedGrainContract?.number
+        ) ||
+        null;
+
+
+      const ticketNetBushels =
+        numberOrNull(
+          elements.netBushels.value
+        ) ||
+        0;
+
+
       state.saving =
         true;
 
@@ -12010,9 +12079,9 @@ const customerIsUnknown =
       try {
 
         const matchingHaulingJobIds =
-          selectedContract
+          state.selectedContract
             ? [
-                selectedContract.id
+                state.selectedContract.id
               ]
             : [];
 
@@ -12200,14 +12269,58 @@ customerName:
 
           matchingHaulingJobIds,
 
+          /*
+            Grain contract allocation.
+            A uniquely resolved contract is posted immediately so the
+            Contracts page includes this ticket in delivered bushels.
+          */
+          contractId:
+            selectedGrainContract?.id ||
+            null,
+
+          contractNumber:
+            selectedGrainContractNumber,
+
+          contractAllocations:
+            selectedGrainContract
+              ? [
+                  {
+                    contractId:
+                      selectedGrainContract.id,
+
+                    contractNumber:
+                      selectedGrainContractNumber,
+
+                    bushels:
+                      ticketNetBushels
+                  }
+                ]
+              : [],
+
+          allocationModelVersion:
+            2,
+
+          spotBushels:
+            0,
+
+          unassignedBushels:
+            selectedGrainContract
+              ? 0
+              : ticketNetBushels,
+
+          reconciliationStatus:
+            selectedGrainContract
+              ? "reconciled"
+              : "needs_contract",
+
           haulingJobId:
-            selectedContract?.id ||
+            state.selectedContract?.id ||
             null,
 
           haulingJobName:
-            selectedContract
+            state.selectedContract
               ? contractLabel(
-                  selectedContract
+                  state.selectedContract
                 )
               : null,
 
@@ -12425,20 +12538,20 @@ customerName:
               null,
 
             haulingJobId:
-              selectedContract?.id ||
+              state.selectedContract?.id ||
               null,
 
             haulingJobName:
-              selectedContract
+              state.selectedContract
                 ? contractLabel(
-                    selectedContract
+                    state.selectedContract
                   )
                 : null,
 
             haulingJobLabel:
-              selectedContract
+              state.selectedContract
                 ? contractLabel(
-                    selectedContract
+                    state.selectedContract
                   )
                 : null,
 
