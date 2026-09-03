@@ -23,9 +23,25 @@
           window.location.search
         );
 
+      /*
+        LOAD-OUT / SMS SCAN GATEWAY
+
+        A /scan/ link is an assigned-load link, not a generic
+        grain-ticket scanner. The secure token is what lets the
+        grain-ticket backend identify the exact load-out and use the
+        office-selected Crop, Destination, Sold Under and Grain Source.
+
+        Accept the current short parameter plus legacy/descriptive
+        aliases so a harmless parameter-name difference cannot drop a
+        driver into the normal manual scanner.
+      */
       const token =
         String(
-          params.get("t") || ""
+          params.get("t") ||
+          params.get("token") ||
+          params.get("guestToken") ||
+          params.get("scanToken") ||
+          ""
         ).trim();
 
       const scanPage =
@@ -33,13 +49,56 @@
 
       if (!token) {
 
-        window.location.replace(
-          scanPage
+        /*
+          IMPORTANT:
+
+          Previously this redirected to grain-ticket-scan.html with no
+          token. That changed an assigned load-out scan into a normal
+          FarmVista scan, causing Driver Assist to ask questions such as:
+
+            "Where did this load come from?"
+
+          Never silently fall back. If an SMS/load-out link is malformed
+          or expired, stop here so the driver cannot accidentally create a
+          ticket detached from the office-assigned load information.
+        */
+        document.addEventListener(
+          "DOMContentLoaded",
+          () => {
+            document.body.innerHTML = `
+              <main style="
+                min-height:100vh;
+                display:grid;
+                place-items:center;
+                padding:24px;
+                background:#f4f6f4;
+                color:#111;
+                font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+                text-align:center;
+              ">
+                <div style="max-width:420px;">
+                  <div style="font-size:22px;font-weight:900;margin-bottom:8px;">
+                    Load-out Link Could Not Be Opened
+                  </div>
+                  <div style="color:#666;font-size:14px;line-height:1.45;">
+                    This load-out link is missing its secure FarmVista scan token.
+                    Ask the office to resend the load-out text.
+                  </div>
+                </div>
+              </main>
+            `;
+          }
         );
 
         return;
       }
 
+      /*
+        Normalize every supported token name to ?t= before handing off
+        to grain-ticket-scan.html. That page recognizes ?t= as a secure
+        linked load-out scan and intentionally skips Driver Assist; the
+        backend then applies the load-out's authoritative grain source.
+      */
       window.location.replace(
         `${scanPage}?t=${encodeURIComponent(token)}`
       );
