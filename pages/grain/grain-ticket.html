@@ -345,6 +345,39 @@ section[data-hide-for-now]{ display:none !important; }
 }
 
 
+.ticket-grade-cell{
+  text-align:center;
+}
+
+
+.ticket-grade-value{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:30px;
+  height:30px;
+  padding:0 5px;
+  border:2px solid transparent;
+  border-radius:999px;
+  box-sizing:border-box;
+  font-weight:900;
+  line-height:1;
+}
+
+
+.ticket-grade-value.elevated{
+  border-color:#C18413;
+  background:rgba(193,132,19,.08);
+}
+
+
+.ticket-grade-value.severe{
+  border-color:#C9444D;
+  background:rgba(201,68,77,.10);
+  color:#B52F38;
+}
+
+
 .ticket-empty{
   padding:24px !important;
 
@@ -1796,6 +1829,18 @@ section[data-hide-for-now]{ display:none !important; }
             Net Bu
           </th>
 
+          <th style="text-align:center;">
+            Moisture
+          </th>
+
+          <th style="text-align:center;">
+            Damage
+          </th>
+
+          <th style="text-align:center;">
+            FM
+          </th>
+
           <th>Driver</th>
 
         </tr>
@@ -1808,7 +1853,7 @@ section[data-hide-for-now]{ display:none !important; }
         <tr>
 
           <td
-            colspan="8"
+            colspan="11"
             class="ticket-empty"
           >
             Loading grain tickets…
@@ -2504,6 +2549,315 @@ const filterButtons =
 
   let activeFilter =
     "all";
+
+
+  const DEFAULT_GRAIN_ALERT_SETTINGS = {
+    enabled:true,
+    crops:{
+      corn:{
+        damage:{severe:{enabled:true,threshold:8},trend:{enabled:true,threshold:5}},
+        foreignMaterial:{severe:{enabled:true,threshold:5},trend:{enabled:true,threshold:3}},
+        moisture:{severe:{enabled:true,threshold:20},trend:{enabled:true,threshold:17}}
+      },
+      soybeans:{
+        damage:{severe:{enabled:true,threshold:5},trend:{enabled:true,threshold:3}},
+        foreignMaterial:{severe:{enabled:true,threshold:3},trend:{enabled:true,threshold:2}},
+        moisture:{severe:{enabled:true,threshold:16},trend:{enabled:true,threshold:14}}
+      }
+    }
+  };
+
+
+  let grainAlertSettings =
+    DEFAULT_GRAIN_ALERT_SETTINGS;
+
+
+  async function loadGrainAlertSettings() {
+
+    try {
+
+      const snapshot =
+        await getDoc(
+          doc(
+            db,
+            "settings",
+            "grainTicketAlerts"
+          )
+        );
+
+
+      if (
+        snapshot.exists()
+      ) {
+
+        const saved =
+          snapshot.data() ||
+          {};
+
+
+        grainAlertSettings = {
+          ...DEFAULT_GRAIN_ALERT_SETTINGS,
+          ...saved,
+          crops:{
+            ...DEFAULT_GRAIN_ALERT_SETTINGS.crops,
+            ...(saved.crops || {}),
+            corn:{
+              ...DEFAULT_GRAIN_ALERT_SETTINGS.crops.corn,
+              ...(saved.crops?.corn || {})
+            },
+            soybeans:{
+              ...DEFAULT_GRAIN_ALERT_SETTINGS.crops.soybeans,
+              ...(saved.crops?.soybeans || {})
+            }
+          }
+        };
+
+      }
+
+    }
+    catch (
+      error
+    ) {
+
+      console.warn(
+        "[grain tickets] alert settings could not be loaded; using defaults:",
+        error
+      );
+
+    }
+
+  }
+
+
+  function ticketCropAlertKey(
+    crop
+  ) {
+
+    const value =
+      String(
+        crop ||
+        ""
+      )
+        .trim()
+        .toLowerCase();
+
+
+    if (
+      value.includes(
+        "soy"
+      )
+    ) {
+
+      return "soybeans";
+
+    }
+
+
+    if (
+      value.includes(
+        "corn"
+      )
+    ) {
+
+      return "corn";
+
+    }
+
+
+    return "";
+
+  }
+
+
+  function ticketGradeValue(
+    value
+  ) {
+
+    if (
+      value === null ||
+      value === undefined ||
+      String(value).trim() === ""
+    ) {
+
+      return "—";
+
+    }
+
+
+    const number =
+      Number(
+        value
+      );
+
+
+    if (
+      !Number.isFinite(
+        number
+      )
+    ) {
+
+      return safeText(
+        value
+      );
+
+    }
+
+
+    return number.toLocaleString(
+      "en-US",
+      {
+        minimumFractionDigits:
+          Number.isInteger(number)
+            ? 0
+            : 1,
+        maximumFractionDigits:2
+      }
+    );
+
+  }
+
+
+  function ticketGradeLevel(
+    ticket,
+    metric
+  ) {
+
+    if (
+      grainAlertSettings?.enabled ===
+        false
+    ) {
+
+      return "";
+
+    }
+
+
+    const cropKey =
+      ticketCropAlertKey(
+        ticket?.crop
+      );
+
+
+    if (
+      !cropKey
+    ) {
+
+      return "";
+
+    }
+
+
+    const rules =
+      grainAlertSettings?.crops?.[cropKey]?.[metric];
+
+
+    if (
+      !rules
+    ) {
+
+      return "";
+
+    }
+
+
+    const rawValue =
+      metric === "foreignMaterial"
+        ? ticket?.foreignMaterial
+        : ticket?.[metric];
+
+
+    const value =
+      Number(
+        rawValue
+      );
+
+
+    if (
+      !Number.isFinite(
+        value
+      )
+    ) {
+
+      return "";
+
+    }
+
+
+    const severeThreshold =
+      Number(
+        rules.severe?.threshold
+      );
+
+
+    if (
+      rules.severe?.enabled !== false &&
+      Number.isFinite(severeThreshold) &&
+      value >= severeThreshold
+    ) {
+
+      return "severe";
+
+    }
+
+
+    const elevatedThreshold =
+      Number(
+        rules.trend?.threshold
+      );
+
+
+    if (
+      rules.trend?.enabled !== false &&
+      Number.isFinite(elevatedThreshold) &&
+      value >= elevatedThreshold
+    ) {
+
+      return "elevated";
+
+    }
+
+
+    return "";
+
+  }
+
+
+  function ticketGradeMarkup(
+    ticket,
+    metric
+  ) {
+
+    const value =
+      metric === "foreignMaterial"
+        ? ticket?.foreignMaterial
+        : ticket?.[metric];
+
+
+    const level =
+      ticketGradeLevel(
+        ticket,
+        metric
+      );
+
+
+    const label =
+      level === "severe"
+        ? "Severe"
+        : level === "elevated"
+          ? "Elevated"
+          : "";
+
+
+    return `
+      <span
+        class="ticket-grade-value ${level}"
+        ${label ? `title="${label} grain alert level"` : ""}
+      >
+        ${ticketGradeValue(value)}
+      </span>
+    `;
+
+  }
 
 
   addScaleTicketBtn?.addEventListener(
@@ -6535,7 +6889,7 @@ else {
       row.innerHTML =
         `
           <td
-            colspan="8"
+            colspan="11"
             class="ticket-empty"
           >
             No grain tickets match this view.
@@ -6648,6 +7002,27 @@ else {
               ${formatBushels(
                 ticket.netBushels
               )} bu
+            </td>
+
+            <td class="ticket-grade-cell">
+              ${ticketGradeMarkup(
+                ticket,
+                "moisture"
+              )}
+            </td>
+
+            <td class="ticket-grade-cell">
+              ${ticketGradeMarkup(
+                ticket,
+                "damage"
+              )}
+            </td>
+
+            <td class="ticket-grade-cell">
+              ${ticketGradeMarkup(
+                ticket,
+                "foreignMaterial"
+              )}
             </td>
 
             <td>
@@ -6799,7 +7174,7 @@ else {
           <tr>
 
             <td
-              colspan="8"
+              colspan="11"
               class="ticket-empty"
             >
               Grain tickets could not be loaded.
@@ -6849,7 +7224,10 @@ else {
   );
 /*
     Initial Grain Ticket load.
+    Load saved alert thresholds first so the first table render
+    uses the current elevated / severe settings.
   */
+  await loadGrainAlertSettings();
   loadTickets();
 
 
