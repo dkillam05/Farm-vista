@@ -8796,7 +8796,15 @@ async function askDriverForGrainSource(
             ""
           ).trim(),
 
-        crop
+        crop,
+
+        /*
+          A field is a tracking source only.
+          It must never block the scan because there is no
+          bin/bag inventory balance to deduct from.
+        */
+        bypassInventory:
+          true
       };
 
     }
@@ -11776,6 +11784,125 @@ async function saveScannedTicket(
     null;
 
 
+/*
+  CONTRACT AUTO-ALLOCATION
+
+  FarmVista may auto-assign a grain contract ONLY when process of
+  elimination leaves exactly one valid contract after the Hauling Job
+  and Sold Under / Customer are known.
+
+  Examples:
+    - 2 matching hauling jobs -> no hauling job auto-assignment.
+    - 1 hauling job + 1 matching John C Dowson contract -> auto-assign.
+    - 1 hauling job + 2 matching John C Dowson contracts -> do not guess.
+*/
+const matchingHaulingJob =
+  matching?.haulingJob ||
+  null;
+
+
+const matchingCustomer =
+  matching?.customerMatch
+    ?.customer ||
+  null;
+
+
+const matchingCrop =
+  normalizeScannedCrop(
+    grainTicket?.crop
+  );
+
+
+const eligibleContracts =
+  (
+    matchingHaulingJob &&
+    matchingCustomer &&
+    matchingCrop
+  )
+    ? contracts.filter(
+        contract => {
+
+          if (
+            !contractIsAvailableForDriverAssist(
+              contract
+            )
+          ) {
+
+            return false;
+
+          }
+
+
+          const contractHaulingJobId =
+            String(
+              contract?.haulingJobId ||
+              ""
+            ).trim();
+
+
+          const contractCustomerId =
+            String(
+              firstExistingValue(
+                contract,
+                [
+                  "customerId",
+                  "grainCustomerId"
+                ]
+              ) ||
+              ""
+            ).trim();
+
+
+          const contractCrop =
+            normalizeScannedCrop(
+              firstExistingValue(
+                contract,
+                [
+                  "crop",
+                  "commodity"
+                ]
+              )
+            );
+
+
+          return (
+            contractHaulingJobId ===
+              String(
+                matchingHaulingJob.id ||
+                ""
+              ).trim() &&
+            contractCustomerId ===
+              String(
+                matchingCustomer.id ||
+                ""
+              ).trim() &&
+            contractCrop ===
+              matchingCrop
+          );
+
+        }
+      )
+    : [];
+
+
+const autoContract =
+  eligibleContracts.length ===
+    1
+    ? eligibleContracts[0]
+    : null;
+
+
+const autoContractNumber =
+  autoContract
+    ? String(
+        autoContract.contractNumber ||
+        autoContract.number ||
+        ""
+      ).trim() ||
+      null
+    : null;
+
+
 const driverName =
   (
     employee
@@ -12209,21 +12336,56 @@ foreignMaterial:
 // ----------------------------------------------------------
 // CONTRACT RECONCILIATION
 //
-// Scanned tickets are intentionally NOT assigned to a
-// grain contract here. The ticket belongs to its Hauling Job.
-// Contract assignment happens later from the job workflow.
+// Auto-assign ONLY when exactly one valid contract remains after
+// Hauling Job + Sold Under + Crop are known. Otherwise preserve the
+// hauling-job assignment and leave contract allocation unresolved.
 // ----------------------------------------------------------
 
 contractId:
+  autoContract?.id ||
   null,
 
 contractNumber:
-  null,
+  autoContractNumber,
+
+contractAllocations:
+  autoContract
+    ? [
+        {
+          contractId:
+            autoContract.id,
+
+          contractNumber:
+            autoContractNumber,
+
+          bushels:
+            Number(
+              grainTicket.netBushels
+            ) || 0
+        }
+      ]
+    : [],
+
+allocationModelVersion:
+  2,
+
+spotBushels:
+  0,
+
+unassignedBushels:
+  autoContract
+    ? 0
+    : (
+        Number(
+          grainTicket.netBushels
+        ) || 0
+      ),
 
 reconciliationStatus:
-  matching.validationStatus ===
-    "verified"
-      ? "hauling_job_assigned"
+  autoContract
+    ? "reconciled"
+    : matching.haulingJob
+      ? "needs_contract"
       : "needs_review",
 
 
