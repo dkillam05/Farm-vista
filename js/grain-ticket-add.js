@@ -1149,6 +1149,108 @@ function haulingJobRemainingBushels(
 
 }
 
+function haulingJobContractedBushels(
+  job
+) {
+
+  const jobId =
+    clean(
+      job?.id
+    );
+
+
+  if (
+    !jobId
+  ) {
+
+    return 0;
+
+  }
+
+
+  return state.contracts
+    .filter(
+      contract => {
+
+        const status =
+          normalize(
+            contract?.status ||
+            contract?.contractStatus
+          );
+
+
+        const excluded =
+          contract?.voided ===
+            true ||
+          status.includes(
+            "void"
+          ) ||
+          status.includes(
+            "cancel"
+          );
+
+
+        return (
+          !excluded &&
+          clean(
+            contract?.haulingJobId
+          ) ===
+            jobId
+        );
+
+      }
+    )
+    .reduce(
+      (
+        total,
+        contract
+      ) =>
+        total +
+        Math.max(
+          0,
+          Number(
+            contract?.contractBushels ??
+            contract?.bushels ??
+            contract?.quantity ??
+            contract?.totalBushels ??
+            0
+          ) || 0
+        ),
+      0
+    );
+
+}
+
+
+function haulingJobUnallocatedContractBushels(
+  job
+) {
+
+  return Math.max(
+    0,
+    haulingJobStartingBushels(
+      job
+    ) -
+    haulingJobContractedBushels(
+      job
+    )
+  );
+
+}
+
+
+function haulingJobHasUnallocatedContractCapacity(
+  job
+) {
+
+  return haulingJobUnallocatedContractBushels(
+    job
+  ) >
+    0.005;
+
+}
+
+
 
 function formatShortDate(
   iso
@@ -3707,7 +3809,7 @@ function renderCustomer(
     );
 
 
-  const customers =
+  const linkedCustomers =
     state.customers
 
       .filter(
@@ -3747,8 +3849,101 @@ function renderCustomer(
       );
 
 
+  const hasUnallocatedCapacity =
+    haulingJobHasUnallocatedContractCapacity(
+      haulingJob
+    );
+
+
+  const otherCustomers =
+    hasUnallocatedCapacity
+      ? state.customers
+          .filter(
+            customer =>
+              !eligibleIds.has(
+                customer.id
+              )
+          )
+          .filter(
+            customer =>
+              !search ||
+              normalize(
+                customer.name
+              ).includes(
+                search
+              )
+          )
+          .sort(
+            (
+              a,
+              b
+            ) =>
+              a.name.localeCompare(
+                b.name,
+                undefined,
+                {
+                  numeric:
+                    true,
+
+                  sensitivity:
+                    "base"
+                }
+              )
+          )
+      : [];
+
+
+  const customers = [
+    ...linkedCustomers,
+    ...otherCustomers
+  ];
+
+
+  let otherGroupShown =
+    false;
+
+
+  if (
+    linkedCustomers.length
+  ) {
+
+    addGroup(
+      el.customerMenu,
+      "Linked Contracts"
+    );
+
+  }
+
+
   customers.forEach(
     customer => {
+
+      if (
+        hasUnallocatedCapacity &&
+        !eligibleIds.has(
+          customer.id
+        ) &&
+        !otherGroupShown
+      ) {
+
+        addGroup(
+          el.customerMenu,
+          `Other Customers — ${haulingJobUnallocatedContractBushels(
+            haulingJob
+          ).toLocaleString(
+            "en-US",
+            {
+              maximumFractionDigits:
+                2
+            }
+          )} bu unallocated`
+        );
+
+
+        otherGroupShown =
+          true;
+
+      }
 
       /*
         Build our own row instead of using addChoice()
@@ -4688,12 +4883,33 @@ function renderContract() {
     );
 
   }
+  else if (
+    haulingJobHasUnallocatedContractCapacity(
+      haulingJob
+    )
+  ) {
+
+    setCheck(
+      el.contractStatus,
+      true,
+      `No linked contract yet. This hauling job still has ${haulingJobUnallocatedContractBushels(
+        haulingJob
+      ).toLocaleString(
+        "en-US",
+        {
+          maximumFractionDigits:
+            2
+        }
+      )} bu of unallocated contract capacity. Specific contract can be assigned later.`
+    );
+
+  }
   else {
 
     setCheck(
       el.contractStatus,
       false,
-      "No open contract currently matches this Sold Under on the selected hauling job. Ticket can still be saved for review."
+      "This hauling job is fully allocated to contracts, and this Sold Under is not represented by one of them."
     );
 
   }
@@ -7495,11 +7711,14 @@ if (
 
 
   if (
-    !soldUnderMatchesJob
+    !soldUnderMatchesJob &&
+    !haulingJobHasUnallocatedContractCapacity(
+      state.selectedHaulingJob
+    )
   ) {
 
     showMessage(
-      "That Sold Under customer is not linked to an open contract on this hauling job."
+      "This hauling job is fully allocated to contracts. Choose a Sold Under customer already represented by a linked contract."
     );
 
 
