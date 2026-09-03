@@ -988,10 +988,11 @@ function chooseFarm(
         `
           width:min(390px,100%);
           padding:20px;
+          border:1px solid var(--border,#E3E6E2);
           border-radius:18px;
-          background:#fff;
-          color:#111;
-          box-shadow:0 22px 55px rgba(0,0,0,.28);
+          background:var(--card-surface,var(--surface,#fff));
+          color:var(--text,#142016);
+          box-shadow:var(--shadow,0 22px 55px rgba(0,0,0,.28));
         `;
 
 
@@ -1026,7 +1027,7 @@ function chooseFarm(
       helper.style.cssText =
         `
           font-size:13px;
-          color:#666;
+          color:var(--muted,#677a6e);
           margin-bottom:16px;
           line-height:1.4;
         `;
@@ -1066,13 +1067,14 @@ function chooseFarm(
               width:100%;
               min-height:48px;
               margin-top:8px;
-              border:1px solid #d9ded9;
+              border:1px solid var(--border,#E3E6E2);
               border-radius:12px;
-              background:#fff;
-              color:#111;
+              background:var(--surface,#fff);
+              color:var(--text,#142016);
               font:inherit;
               font-weight:800;
               cursor:pointer;
+              box-shadow:0 2px 8px rgba(0,0,0,.08);
             `;
 
 
