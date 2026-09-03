@@ -7350,6 +7350,7 @@ const LOADOUT_ETA_FUNCTION_URL =
     haulingJobs: [],
     tickets: [],
     loads: [],
+    fields: [],
     binSources: [],
     bagSources: [],
     company: null,
@@ -9719,6 +9720,9 @@ function loCurrentSourceItems(){
     type:
       "active_field_harvest",
 
+    sourceScope:
+      "active_harvest",
+
     value:
       `active_field_harvest:${cropNorm}`,
 
@@ -9748,9 +9752,69 @@ function loCurrentSourceItems(){
   };
 
 
+  const fieldSources =
+    loState.fields.map(field => {
+
+      const fieldId =
+        loClean(field.id);
+
+      const fieldName =
+        loClean(field.name);
+
+      const gps =
+        loReadLatLng(field);
+
+      return {
+        type:
+          "active_field_harvest",
+
+        sourceScope:
+          "field",
+
+        value:
+          `active_field_harvest:field:${fieldId}:${cropNorm}`,
+
+        id:
+          fieldId,
+
+        fieldId,
+        fieldName,
+
+        siteId:
+          null,
+
+        siteName:
+          fieldName,
+
+        crop,
+
+        label:
+          fieldName,
+
+        searchText:
+          `${fieldName} ${loClean(field.farmName)} ${loClean(field.farmId)} ${crop}`,
+
+        bypassInventory:
+          true,
+
+        onHand:
+          null,
+
+        latitude:
+          gps?.latitude ?? null,
+
+        longitude:
+          gps?.longitude ?? null
+      };
+
+    });
+
+
   return [
 
     activeFieldHarvest,
+
+    ...fieldSources,
 
     ...loState.binSources.filter(
       matchCrop
@@ -10121,7 +10185,21 @@ function loRenderSourceSelector(
     allItems.filter(
       item =>
         item.type ===
-        "active_field_harvest"
+          "active_field_harvest" &&
+        item.sourceScope !==
+          "field"
+    )
+  );
+
+
+  renderGroup(
+    "Fields",
+    allItems.filter(
+      item =>
+        item.type ===
+          "active_field_harvest" &&
+        item.sourceScope ===
+          "field"
     )
   );
 
@@ -13556,6 +13634,7 @@ function loLiveGrainSourceLabel(load){
       haulingJobSnapshot,
       ticketSnapshot,
       loadSnapshot,
+      fieldSnapshot,
       binSiteSnapshot,
       bagEventSnapshot,
       bagMovementSnapshot,
@@ -13570,6 +13649,7 @@ function loLiveGrainSourceLabel(load){
       getDocs(collection(db,"grain_hauling_jobs")),
       getDocs(collection(db,"grain_tickets")),
       getDocs(collection(db,LOADOUT_COLLECTION)),
+      getDocs(collection(db,"fields")),
       getDocs(collection(db,"binSites")),
       getDocs(collection(db,"grain_bag_events")),
       getDocs(collection(db,"inventoryGrainBagMovements")),
@@ -13734,6 +13814,24 @@ loState.drivers = employeeSnapshot.docs
             )
         };
       });
+
+    loState.fields = fieldSnapshot.docs
+      .map(snapshot => ({
+        id:snapshot.id,
+        ...snapshot.data()
+      }))
+      .filter(field =>
+        loClean(field.name) &&
+        field.active !== false &&
+        loNorm(field.status || "active") === "active"
+      )
+      .sort((a,b) =>
+        loClean(a.name).localeCompare(
+          loClean(b.name),
+          undefined,
+          {numeric:true,sensitivity:"base"}
+        )
+      );
 
     /*
       This is the daily preload handoff.
@@ -14873,6 +14971,7 @@ loState.drivers = employeeSnapshot.docs
         crop,
 
         grainSourceType:grainSource.type,
+        grainSourceScope:grainSource.sourceScope || null,
         grainSourceValue:grainSource.value,
         grainSourceId:grainSource.id || null,
         grainSourceName:grainSource.label,
