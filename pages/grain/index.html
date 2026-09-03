@@ -203,6 +203,49 @@
     .inventory-table tbody tr[data-clickable="1"]{cursor:pointer}
     .inventory-table tbody tr[data-clickable="1"]:hover{background:var(--surface-2,rgba(0,0,0,.04))}
 
+    .harvest-row{cursor:pointer}
+    .harvest-row:hover{background:var(--surface-2,rgba(0,0,0,.04))}
+    .harvest-row td:first-child{font-weight:800}
+
+    .harvest-drill-table{
+      width:100%;
+      border-collapse:collapse;
+      min-width:700px;
+    }
+
+    .harvest-drill-table th,
+    .harvest-drill-table td{
+      padding:10px 12px;
+      border-bottom:1px solid var(--border,#e1e1e1);
+      text-align:center;
+      font-size:.86rem;
+    }
+
+    .harvest-drill-table th{
+      background:var(--surface-2,#f3f3f3);
+      font-size:.76rem;
+      font-weight:800;
+      white-space:nowrap;
+    }
+
+    .harvest-drill-table td:first-child,
+    .harvest-drill-table th:first-child{text-align:left}
+
+    .harvest-field-row{cursor:pointer;font-weight:700}
+    .harvest-field-row:hover{background:var(--surface-2,rgba(0,0,0,.04))}
+
+    .ticket-link{
+      color:var(--fv-green);
+      font-weight:800;
+      text-decoration:none;
+    }
+
+    .ticket-link:hover{text-decoration:underline}
+
+    .drill-back{
+      margin-bottom:12px;
+    }
+
     .site-row{font-weight:800}
 
     .site-row td:first-child,
@@ -522,7 +565,7 @@
             </h2>
 
             <div class="inventory-sub">
-              Grain hauled directly from the field during harvest. These bushels are tracked separately and do not affect bin or grain bag inventory.
+              Grain hauled during active harvest. Field-assigned loads roll into these crop totals; click a crop to see the field breakdown and individual tickets.
             </div>
           </div>
         </div>
@@ -561,7 +604,7 @@
 
 
           <div class="inventory-foot">
-            Totals come from non-voided grain tickets assigned to Active Field Harvest. Grain quality is weighted by each ticket's net bushels.
+            Totals include every non-voided Active Harvest ticket, including tickets assigned to a specific field. Grain quality is weighted by each ticket's net bushels.
           </div>
 
         </div>
@@ -700,6 +743,25 @@
     </section>
   </main>
 </fv-shell>
+
+<div class="modal-backdrop" id="harvest-modal-backdrop" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="harvest-modal-title">
+    <div class="modal-head">
+      <div>
+        <div class="modal-title" id="harvest-modal-title">Active Harvest</div>
+        <div class="inventory-sub" id="harvest-modal-subtitle"></div>
+      </div>
+      <button type="button" class="modal-close" id="harvest-modal-close" aria-label="Close">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="harvest-modal-summary" class="detail-grid"></div>
+      <div id="harvest-modal-content"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn" id="harvest-modal-done">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <div class="modal-backdrop" id="edit-modal-backdrop" aria-hidden="true">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
@@ -1132,6 +1194,244 @@ function ticketsFromIds(ids){
   }
 
 
+  function activeHarvestFieldInfo(ticket){
+    const fieldId = clean(
+      ticket?.grainSourceFieldId ||
+      ticket?.fieldId ||
+      ticket?.grainSource?.fieldId ||
+      ticket?.sourceFieldId
+    );
+
+    const fieldName = clean(
+      ticket?.grainSourceFieldName ||
+      ticket?.fieldName ||
+      ticket?.grainSource?.fieldName ||
+      ticket?.sourceFieldName
+    );
+
+    return {
+      id: fieldId,
+      name: fieldName || (fieldId ? "Unknown Field" : "Active Harvest (No Field)")
+    };
+  }
+
+  function ticketDateValue(ticket){
+    return clean(
+      ticket?.ticketDate ||
+      ticket?.date ||
+      ticket?.deliveryDate ||
+      ""
+    );
+  }
+
+  function ticketNumberValue(ticket){
+    return clean(
+      ticket?.ticketNumber ||
+      ticket?.ticketNo ||
+      ticket?.number ||
+      ticket?.scaleTicketNumber ||
+      ""
+    ) || ticket.id.slice(0,8);
+  }
+
+  function driverValue(ticket){
+    return clean(
+      ticket?.driverName ||
+      ticket?.driver ||
+      ticket?.submittedByName ||
+      ticket?.submittedBy ||
+      ""
+    ) || "—";
+  }
+
+  function activeHarvestFieldGroups(crop){
+    const groups = new Map();
+
+    activeHarvestTicketsForCrop(crop).forEach(ticket => {
+      const field = activeHarvestFieldInfo(ticket);
+      const key = field.id || `name:${norm(field.name)}`;
+
+      if(!groups.has(key)){
+        groups.set(key,{
+          key,
+          fieldId:field.id,
+          fieldName:field.name,
+          tickets:[]
+        });
+      }
+
+      groups.get(key).tickets.push(ticket);
+    });
+
+    return [...groups.values()]
+      .map(group => {
+        group.bushels = group.tickets.reduce(
+          (sum,ticket) => sum + Math.max(0,num(ticket.netBushels,0)),
+          0
+        );
+        group.grades = gradeSummary(group.tickets);
+        return group;
+      })
+      .sort((a,b) => {
+        const aGeneric = !a.fieldId && norm(a.fieldName) === "active harvest (no field)";
+        const bGeneric = !b.fieldId && norm(b.fieldName) === "active harvest (no field)";
+        if(aGeneric !== bGeneric) return aGeneric ? 1 : -1;
+        return a.fieldName.localeCompare(b.fieldName,undefined,{numeric:true,sensitivity:"base"});
+      });
+  }
+
+  function harvestSummaryBoxes(crop,tickets){
+    const bushels = tickets.reduce(
+      (sum,ticket) => sum + Math.max(0,num(ticket.netBushels,0)),
+      0
+    );
+    const grades = gradeSummary(tickets);
+
+    return `
+      <div class="detail-box">
+        <div class="detail-label">Bushels Hauled</div>
+        <div class="detail-value">${fmtBu(bushels)}</div>
+      </div>
+      <div class="detail-box">
+        <div class="detail-label">Loads Hauled</div>
+        <div class="detail-value">${grades.loads.toLocaleString("en-US")}</div>
+      </div>
+      <div class="detail-box">
+        <div class="detail-label">Avg Moisture</div>
+        <div class="detail-value">${fmtGrade(grades.moisture)}</div>
+      </div>
+      <div class="detail-box">
+        <div class="detail-label">Avg FM</div>
+        <div class="detail-value">${fmtGrade(grades.fm)}</div>
+      </div>
+      <div class="detail-box">
+        <div class="detail-label">Avg Damage</div>
+        <div class="detail-value">${fmtGrade(grades.damage)}</div>
+      </div>
+      <div class="detail-box">
+        <div class="detail-label">Crop</div>
+        <div class="detail-value">${esc(cropLabel(crop))}</div>
+      </div>
+    `;
+  }
+
+  function openHarvestModal(){
+    $("harvest-modal-backdrop").classList.add("open");
+    $("harvest-modal-backdrop").setAttribute("aria-hidden","false");
+    document.body.style.overflow = "hidden";
+  }
+
+  function closeHarvestModal(){
+    $("harvest-modal-backdrop").classList.remove("open");
+    $("harvest-modal-backdrop").setAttribute("aria-hidden","true");
+    document.body.style.overflow = "";
+  }
+
+  function showHarvestCrop(crop){
+    const label = cropLabel(crop);
+    const tickets = activeHarvestTicketsForCrop(crop);
+    const groups = activeHarvestFieldGroups(crop);
+
+    $("harvest-modal-title").textContent = `${label} • Active Harvest`;
+    $("harvest-modal-subtitle").textContent =
+      "Field totals roll into the Active Harvest crop total. Select a field to see its individual loads.";
+    $("harvest-modal-summary").innerHTML = harvestSummaryBoxes(label,tickets);
+
+    if(!groups.length){
+      $("harvest-modal-content").innerHTML =
+        `<div class="empty-row">No ${esc(label)} Active Harvest tickets yet.</div>`;
+      openHarvestModal();
+      return;
+    }
+
+    $("harvest-modal-content").innerHTML = `
+      <div class="table-wrap">
+        <table class="harvest-drill-table">
+          <thead>
+            <tr>
+              <th>Field</th>
+              <th>Bushels</th>
+              <th>Loads</th>
+              <th>Avg Moisture</th>
+              <th>Avg FM</th>
+              <th>Avg Damage</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${groups.map(group => `
+              <tr class="harvest-field-row" data-harvest-field="${esc(group.key)}">
+                <td>${esc(group.fieldName)}</td>
+                <td>${fmtBu(group.bushels)}</td>
+                <td><span class="loads-pill">${group.grades.loads}</span></td>
+                <td class="${gradeClass(group.grades.moisture)}">${fmtGrade(group.grades.moisture)}</td>
+                <td class="${gradeClass(group.grades.fm)}">${fmtGrade(group.grades.fm)}</td>
+                <td class="${gradeClass(group.grades.damage)}">${fmtGrade(group.grades.damage)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    $("harvest-modal-content").querySelectorAll("[data-harvest-field]").forEach(row => {
+      row.addEventListener("click",() => {
+        const group = groups.find(item => item.key === row.dataset.harvestField);
+        if(group) showHarvestField(label,group);
+      });
+    });
+
+    openHarvestModal();
+  }
+
+  function showHarvestField(crop,group){
+    const tickets = [...group.tickets].sort((a,b) =>
+      ticketDateValue(b).localeCompare(ticketDateValue(a)) ||
+      ticketNumberValue(a).localeCompare(ticketNumberValue(b),undefined,{numeric:true,sensitivity:"base"})
+    );
+
+    $("harvest-modal-title").textContent = group.fieldName;
+    $("harvest-modal-subtitle").textContent = `${crop} • Active Harvest load tickets`;
+    $("harvest-modal-summary").innerHTML = harvestSummaryBoxes(crop,tickets);
+
+    $("harvest-modal-content").innerHTML = `
+      <button type="button" class="btn drill-back" id="harvest-field-back">← Back to fields</button>
+      <div class="table-wrap">
+        <table class="harvest-drill-table">
+          <thead>
+            <tr>
+              <th>Ticket #</th>
+              <th>Date</th>
+              <th>Driver</th>
+              <th>Bushels</th>
+              <th>Moisture</th>
+              <th>FM</th>
+              <th>Damage</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tickets.map(ticket => `
+              <tr>
+                <td>
+                  <a class="ticket-link" href="/pages/grain/grain-ticket-detail.html?id=${encodeURIComponent(ticket.id)}">
+                    ${esc(ticketNumberValue(ticket))}
+                  </a>
+                </td>
+                <td>${esc(ticketDateValue(ticket) || "—")}</td>
+                <td>${esc(driverValue(ticket))}</td>
+                <td>${fmtBu(ticket.netBushels)}</td>
+                <td class="${gradeClass(ticket.moisture)}">${fmtGrade(ticket.moisture)}</td>
+                <td class="${gradeClass(ticket.foreignMaterial)}">${fmtGrade(ticket.foreignMaterial)}</td>
+                <td class="${gradeClass(ticket.damage)}">${fmtGrade(ticket.damage)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    $("harvest-field-back").addEventListener("click",() => showHarvestCrop(crop));
+  }
+
   function renderActiveHarvest(){
 
     const tbody =
@@ -1169,7 +1469,7 @@ function ticketsFromIds(ids){
         .map(
           row => `
 
-            <tr>
+            <tr class="harvest-row" data-harvest-crop="${esc(cropKey(row.crop))}">
 
               <td>
                 <span class="crop-pill">
@@ -1206,6 +1506,10 @@ function ticketsFromIds(ids){
         .join(
           ""
         );
+
+    tbody.querySelectorAll("[data-harvest-crop]").forEach(row => {
+      row.addEventListener("click",() => showHarvestCrop(row.dataset.harvestCrop));
+    });
 
   }
 
@@ -2057,6 +2361,12 @@ function ticketsFromIds(ids){
   $("bag-crop").addEventListener("change",renderBags);
   $("bag-search").addEventListener("input",renderBags);
 
+  $("harvest-modal-close").addEventListener("click",closeHarvestModal);
+  $("harvest-modal-done").addEventListener("click",closeHarvestModal);
+  $("harvest-modal-backdrop").addEventListener("click",event => {
+    if(event.target === $("harvest-modal-backdrop")) closeHarvestModal();
+  });
+
   $("edit-modal-close").addEventListener("click",closeModal);
   $("modal-cancel").addEventListener("click",closeModal);
   $("modal-save").addEventListener("click",saveEdit);
@@ -2066,7 +2376,14 @@ function ticketsFromIds(ids){
   });
 
   document.addEventListener("keydown",event => {
-    if(event.key === "Escape" && $("edit-modal-backdrop").classList.contains("open")){
+    if(event.key !== "Escape") return;
+
+    if($("harvest-modal-backdrop").classList.contains("open")){
+      closeHarvestModal();
+      return;
+    }
+
+    if($("edit-modal-backdrop").classList.contains("open")){
       closeModal();
     }
   });
