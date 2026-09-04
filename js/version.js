@@ -26,23 +26,111 @@
     });
   }
 
-  /* ===================================================================
-     SEPT 3, 2026 — GRAIN INVENTORY DARK MODE
+  const path = String(window.location.pathname || '').toLowerCase();
 
-     Keep this fix UI-only. Do not import Firebase or touch ticket-detail
-     state from this global version file.
+  /* ===================================================================
+     SEPT 3, 2026 — GRAIN TICKET FIELD DISPLAY
+
+     Field-assigned Active Harvest tickets save both the generic source
+     name ("Active Field Harvest") and the specific field name. The grain
+     inventory correctly groups by the specific field, but the detail
+     picker can still render the generic source label. Read the saved
+     ticket once after the page has finished loading, then replace only the
+     visible picker label. No MutationObserver and no changes to page state.
   =================================================================== */
 
-  if (window.__FV_GRAIN_DARK_FIX_20260903) return;
-  window.__FV_GRAIN_DARK_FIX_20260903 = true;
+  const isGrainTicketDetail =
+    path.endsWith('/pages/grain/grain-ticket-detail.html');
 
-  const path = String(window.location.pathname || '').toLowerCase();
+  if (isGrainTicketDetail && !window.__FV_GRAIN_FIELD_LABEL_FIX_20260903) {
+    window.__FV_GRAIN_FIELD_LABEL_FIX_20260903 = true;
+
+    const applySavedFieldLabel = async () => {
+      const ticketId = String(
+        new URLSearchParams(window.location.search).get('id') || ''
+      ).trim();
+
+      if (!ticketId) return;
+
+      try {
+        const firebase = await import('/js/firebase-init.js');
+        await firebase.ready;
+
+        const db = firebase.getFirestore();
+        const snap = await firebase.getDoc(
+          firebase.doc(db, 'grain_tickets', ticketId)
+        );
+
+        if (!snap.exists()) return;
+
+        const ticket = snap.data() || {};
+        const fieldName = String(
+          ticket.grainSourceFieldName ||
+          ticket.fieldName ||
+          ''
+        ).trim();
+
+        if (!fieldName) return;
+
+        const scope = String(ticket.grainSourceScope || '').trim().toLowerCase();
+        const type = String(ticket.grainSourceType || '').trim().toLowerCase();
+        const genericName = String(ticket.grainSourceName || '').trim().toLowerCase();
+
+        const isFieldTicket =
+          scope === 'field' ||
+          type === 'active_field_harvest' ||
+          type === 'active field harvest' ||
+          genericName === 'active field harvest';
+
+        if (!isFieldTicket) return;
+
+        let attempts = 0;
+        const timer = window.setInterval(() => {
+          attempts += 1;
+
+          const label = document.getElementById('grainSourceButtonText');
+          if (label) {
+            const current = String(label.textContent || '').trim().toLowerCase();
+
+            if (
+              current === 'active field harvest' ||
+              current === fieldName.toLowerCase()
+            ) {
+              label.textContent = fieldName;
+              window.clearInterval(timer);
+              return;
+            }
+          }
+
+          if (attempts >= 40) {
+            window.clearInterval(timer);
+          }
+        }, 250);
+      }
+      catch (error) {
+        console.warn('[FarmVista] Could not apply saved grain field label:', error);
+      }
+    };
+
+    if (document.readyState === 'complete') {
+      applySavedFieldLabel();
+    }
+    else {
+      window.addEventListener('load', applySavedFieldLabel, { once:true });
+    }
+  }
+
+  /* ===================================================================
+     SEPT 3, 2026 — GRAIN INVENTORY DARK MODE
+  =================================================================== */
+
   const isGrainInventory =
     path.endsWith('/pages/grain/index.html') ||
     path === '/pages/grain/' ||
     path === '/pages/grain';
 
-  if (!isGrainInventory) return;
+  if (!isGrainInventory || window.__FV_GRAIN_DARK_FIX_20260903) return;
+  window.__FV_GRAIN_DARK_FIX_20260903 = true;
 
   const style = document.createElement('style');
   style.id = 'fv-grain-inventory-dark-fix';
