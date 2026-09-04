@@ -79,6 +79,16 @@
     document.head.appendChild(script);
   }
 
+  if (isGrainTicketPage && !window.__FV_GRAIN_LOADOUT_REPEAT_HAULINGJOB_FIX_20260903) {
+    window.__FV_GRAIN_LOADOUT_REPEAT_HAULINGJOB_FIX_20260903 = true;
+
+    const script = document.createElement('script');
+    script.type = 'module';
+    script.src = '/js/grain-loadout-repeat-haulingjob-fix.js';
+    script.dataset.fvGrainLoadoutRepeatHaulingJobFix = '1';
+    document.head.appendChild(script);
+  }
+
   /* ===================================================================
      SEPT 3, 2026 — GRAIN INVENTORY DARK MODE
   =================================================================== */
