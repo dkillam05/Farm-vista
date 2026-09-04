@@ -2,7 +2,9 @@ import {
   ready,
   getFirestore,
   doc,
-  getDoc
+  getDoc,
+  collection,
+  getDocs
 } from '/js/firebase-init.js';
 
 const path = String(location.pathname || '').toLowerCase();
@@ -20,9 +22,35 @@ if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) {
   let menuObserver = null;
   let labelObserver = null;
   let applyingLabel = false;
+  let fieldsById = new Map();
 
   const sourceButtonText = () => document.getElementById('grainSourceButtonText');
   const sourceMenu = () => document.getElementById('grainSourceMenu');
+
+  function parseFieldIdFromValue(value) {
+    const parts = clean(value).split(':').map(clean);
+    return (
+      norm(parts[0]) === 'active_field_harvest' &&
+      norm(parts[1]) === 'field' &&
+      parts[2]
+    ) ? parts[2] : '';
+  }
+
+  async function loadFieldIndex() {
+    try {
+      await ready;
+      const db = getFirestore();
+      const snap = await getDocs(collection(db, 'fields'));
+      fieldsById = new Map();
+      snap.forEach(ds => {
+        const data = ds.data() || {};
+        const name = clean(data.name);
+        if (name) fieldsById.set(ds.id, name);
+      });
+    } catch (error) {
+      console.warn('[FarmVista] Could not load field names for ticket detail:', error);
+    }
+  }
 
   function moveHaulingJobUnderLoadNumber() {
     const loadNumberSelect = document.getElementById('loadNumberSelect');
@@ -40,18 +68,28 @@ if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) {
 
   function setDisplayedFieldName() {
     const label = sourceButtonText();
-    if (!label || !desiredFieldName || applyingLabel) return;
+    if (!label || applyingLabel) return;
 
     const current = clean(label.textContent);
-    if (current === desiredFieldName) return;
 
-    applyingLabel = true;
-    label.textContent = desiredFieldName;
-    applyingLabel = false;
+    if (desiredFieldName) {
+      if (current === desiredFieldName) return;
+      applyingLabel = true;
+      label.textContent = desiredFieldName;
+      applyingLabel = false;
+      return;
+    }
+
+    if (norm(current) === 'active field harvest') {
+      applyingLabel = true;
+      label.textContent = 'Active Harvest';
+      applyingLabel = false;
+    }
   }
 
   function stopShowingSavedField() {
     desiredFieldName = '';
+    requestAnimationFrame(setDisplayedFieldName);
   }
 
   function closeFieldModal() {
@@ -222,14 +260,33 @@ if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) {
     const allButtons = Array.from(menu.querySelectorAll('.load-picker-choice'));
     if (!allButtons.length) return;
 
+    /* One visible name everywhere: Active Harvest. */
+    allButtons.forEach(button => {
+      const value = clean(button.dataset.sourceValue);
+      if (
+        value.startsWith('active_field_harvest') &&
+        !value.startsWith('active_field_harvest:field:') &&
+        norm(button.textContent) === 'active field harvest'
+      ) {
+        button.textContent = 'Active Harvest';
+      }
+    });
+
     const freshFieldChoices = allButtons
       .filter(button => clean(button.dataset.sourceValue).startsWith('active_field_harvest:field:'))
-      .map(button => ({
-        value: clean(button.dataset.sourceValue),
-        label: clean(button.textContent),
-        searchText: clean(button.textContent),
-        originalButton: button
-      }))
+      .map(button => {
+        const value = clean(button.dataset.sourceValue);
+        const fieldId = parseFieldIdFromValue(value);
+        const canonicalName = fieldsById.get(fieldId);
+        if (canonicalName) button.textContent = canonicalName;
+
+        return {
+          value,
+          label: canonicalName || clean(button.textContent),
+          searchText: canonicalName || clean(button.textContent),
+          originalButton: button
+        };
+      })
       .filter(item => item.label);
 
     if (freshFieldChoices.length) {
@@ -256,7 +313,7 @@ if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) {
 
         const genericHarvest = allButtons.find(button => {
           const value = clean(button.dataset.sourceValue);
-          return value.startsWith('active_field_harvest:') && !value.startsWith('active_field_harvest:field:');
+          return value.startsWith('active_field_harvest') && !value.startsWith('active_field_harvest:field:');
         });
 
         if (genericHarvest?.nextSibling) {
@@ -292,19 +349,19 @@ if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) {
       if (!snap.exists()) return;
 
       const ticket = snap.data() || {};
-      const fieldBased =
-        norm(ticket.grainSourceScope) === 'field' ||
-        clean(ticket.grainSourceFieldId) ||
-        clean(ticket.fieldId) ||
-        norm(ticket.grainSourceType) === 'field';
-
-      desiredFieldName = clean(
-        ticket.grainSourceFieldName ||
-        ticket.fieldName ||
-        ticket.grainSource?.fieldName ||
-        ticket.sourceFieldName ||
-        (fieldBased ? ticket.grainSourceName : '')
+      const sourceValue = clean(ticket.grainSourceValue || ticket.grainSource?.value);
+      const fieldId = clean(
+        ticket.grainSourceFieldId ||
+        ticket.fieldId ||
+        ticket.grainSource?.fieldId ||
+        parseFieldIdFromValue(sourceValue)
       );
+
+      /*
+        Only show a saved Field when it resolves to a real /fields document.
+        Never turn generic labels such as "Active Field Harvest" into a field.
+      */
+      desiredFieldName = fieldId ? clean(fieldsById.get(fieldId)) : '';
 
       setDisplayedFieldName();
     } catch (error) {
@@ -330,10 +387,11 @@ if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) {
     }
   }
 
-  function boot() {
+  async function boot() {
     moveHaulingJobUnderLoadNumber();
+    await loadFieldIndex();
     startObservers();
-    loadSavedFieldName();
+    await loadSavedFieldName();
     setTimeout(moveHaulingJobUnderLoadNumber, 250);
     setTimeout(startObservers, 250);
     setTimeout(startObservers, 1000);
