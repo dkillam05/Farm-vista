@@ -1,0 +1,37 @@
+name: FarmVista OCR grade integration
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/fv-ocr-grade-integration.yml'
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Integrate grade normalizer
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('pages/grain/grain-ticket-scan.html')
+          s=p.read_text()
+          marker='''    import {\n      ready,'''
+          replacement='''    import { normalizeGrainTicketGrades } from "/js/grain-ticket-ocr-grade-normalizer.js?v=20260904-1";\n\n    import {\n      ready,'''
+          if replacement not in s:
+              assert marker in s
+              s=s.replace(marker,replacement,1)
+          marker2='''          const result =\n            await response.json();'''
+          replacement2='''          const result =\n            await response.json();\n\n          /*\n            FarmVista verification layer:\n            Re-associate explicit grade labels (TW/MO/DM/FM/SP) with the\n            values OCR already recognized before validation or save.\n          */\n          normalizeGrainTicketGrades(result);'''
+          if replacement2 not in s:
+              assert marker2 in s
+              s=s.replace(marker2,replacement2,1)
+          p.write_text(s)
+      - name: Commit integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pages/grain/grain-ticket-scan.html
+          git diff --cached --quiet || git commit -m "Verify OCR grain grades before save"
+          git push
