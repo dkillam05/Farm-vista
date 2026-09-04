@@ -19,6 +19,15 @@ const params = new URLSearchParams(window.location.search);
   - This helper only improves UX when an early duplicate answer is available.
   - Grain Storage is crop-aware: show it only when that crop has inventory.
   - Guest/load-out scans remain untouched.
+
+  SEPT 4, 2026 FIELD-PICKER SAFETY:
+  Do NOT programmatically click/open the Field or Grain Storage dropdown after
+  the driver chooses the source type. On iPhone that transition can happen
+  inside the same tap sequence and allow the original tap to fall through to
+  the newly rendered controls, which can resolve Driver Assist before the
+  driver actually chooses a field/site. Keep the second picker closed until
+  the driver deliberately taps it. Also remove Skip on that second picker:
+  choosing "Field" means the driver must choose a field or use Back.
 */
 if (
   !path.endsWith('/pages/grain/grain-ticket-scan.html') ||
@@ -234,20 +243,54 @@ if (
     }
   }
 
-  function autoOpenChoiceList(title, textEl) {
+  function stabilizeChoiceList(title, textEl) {
     const isField = /^which field did this .+ come from\?$/i.test(clean(title));
     const isStorage = /^which grain storage site did this .+ come from\?$/i.test(clean(title));
-    if (!isField && !isStorage) return;
+    const skipBtn = document.getElementById('assistSkipBtn');
+
+    if (!isField && !isStorage) {
+      return;
+    }
 
     if (textEl) {
       textEl.textContent = isField
-        ? 'Tap the field this grain came from. FarmVista will continue automatically after you choose it.'
-        : 'Tap the bin site or grain bag site. FarmVista will continue automatically after you choose it.';
+        ? 'Tap Select an option, then choose the field this grain came from.'
+        : 'Tap Select an option, then choose the bin site or grain bag site.';
     }
 
+    /*
+      The second-level source picker must require a real selection.
+      Back remains available if the driver chose Field/Storage by mistake.
+    */
+    if (skipBtn) {
+      skipBtn.style.display = 'none';
+      skipBtn.disabled = true;
+    }
+
+    /*
+      IMPORTANT: leave the dropdown CLOSED.
+
+      The previous helper called trigger.click() here. On iPhone the new
+      picker is rendered immediately after the driver's Field tap; opening it
+      programmatically during that same interaction can let a stale tap/click
+      land on newly rendered controls and resolve Driver Assist without an
+      intentional field choice.
+    */
     const dropdown = document.querySelector('#assistBody .assist-dropdown');
-    const trigger = document.querySelector('#assistBody .assist-dropdown-trigger');
-    if (dropdown && trigger && !dropdown.classList.contains('open')) trigger.click();
+    if (dropdown) {
+      dropdown.classList.remove('open');
+    }
+  }
+
+  function restoreSkipButtonForOtherPrompts(title) {
+    const isField = /^which field did this .+ come from\?$/i.test(clean(title));
+    const isStorage = /^which grain storage site did this .+ come from\?$/i.test(clean(title));
+    if (isField || isStorage) return;
+
+    const skipBtn = document.getElementById('assistSkipBtn');
+    if (!skipBtn) return;
+
+    skipBtn.disabled = false;
   }
 
   let assistGeneration = 0;
@@ -295,12 +338,14 @@ if (
       return;
     }
 
+    restoreSkipButtonForOtherPrompts(title);
+
     if (/^where did this load of .+ come from\?$/i.test(title)) {
       await improveSourcePrompt(title, textEl);
       return;
     }
 
-    autoOpenChoiceList(title, textEl);
+    stabilizeChoiceList(title, textEl);
   }
 
   function startObserver() {
@@ -309,6 +354,29 @@ if (
       setTimeout(startObserver, 100);
       return;
     }
+
+    /*
+      Extra capture-phase protection: while the specific Field/Storage picker
+      is active, a stale/ghost click can never activate Skip even if the
+      inline scanner temporarily changes its styles during a rerender.
+    */
+    document.addEventListener(
+      'click',
+      event => {
+        const skipBtn = document.getElementById('assistSkipBtn');
+        if (!skipBtn || event.target !== skipBtn) return;
+
+        const title = clean(document.getElementById('assistTitle')?.textContent);
+        const isField = /^which field did this .+ come from\?$/i.test(title);
+        const isStorage = /^which grain storage site did this .+ come from\?$/i.test(title);
+
+        if (isField || isStorage) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      },
+      true
+    );
 
     const observer = new MutationObserver(() => {
       requestAnimationFrame(applyPromptEnhancements);
