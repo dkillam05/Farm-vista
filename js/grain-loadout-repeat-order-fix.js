@@ -1,23 +1,16 @@
 /* =====================================================================
    FarmVista — Load Out Repeat-Run Defaults
 
-   PURPOSE
-   When a driver is selected on a NEW load, reuse that driver's most recent
-   operational setup, even across calendar days:
+   Reuses the selected driver's most recent load setup on a NEW load:
      1. Hauling Job
      2. Sold Under / Customer
      3. Grain Source
 
-   IMPORTANT ROOT FIX
-   grain-ticket.html still contains a legacy customer change listener that
-   clears the Hauling Job and rebuilds the hauling-job SELECT. Sold Under is
-   downstream of Hauling Job, so changing/restoring Sold Under must NEVER
-   clear the selected hauling job.
-
-   This module blocks that legacy clear only while the Assign Load create
-   modal has a hauling job selected/pinned. It also keeps the exact previous
-   hauling job selected for the life of the open create modal unless the user
-   manually chooses a different hauling job.
+   IMPORTANT:
+   The Hauling Job SELECT is rebuilt by grain-ticket.html in several places.
+   This module therefore restores BOTH the selected value AND the option text.
+   That prevents the browser from showing a blank/placeholder hauling-job
+   field even when the correct haulingJobId is already selected.
 ===================================================================== */
 
 import {
@@ -46,12 +39,12 @@ const el = {
   message: $("loadout-form-message")
 };
 
-let applyToken = 0;
+let token = 0;
 let pinnedJobId = "";
 let pinnedJob = null;
 let pinnedLoad = null;
-let pinTimer = null;
 let applying = false;
+let pinTimer = null;
 
 function clean(value) {
   return String(value ?? "").trim();
@@ -69,7 +62,6 @@ function millis(value) {
   if (value?.toMillis) return value.toMillis();
   if (value?.toDate) return value.toDate().getTime();
   if (value instanceof Date) return value.getTime();
-
   const parsed = new Date(value || 0);
   return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
 }
@@ -84,9 +76,7 @@ function isCreateModal() {
 function driverKey() {
   const value = clean(el.driver?.value);
 
-  if (value.startsWith("emp:")) {
-    return value;
-  }
+  if (value.startsWith("emp:")) return value;
 
   if (value.startsWith("sub:")) {
     const subdriverId = clean(el.subdriver?.value);
@@ -105,11 +95,9 @@ function loadMatchesDriver(load, key) {
 
   if (key.startsWith("sub:")) {
     const parts = key.split(":");
-
     return (
       clean(load.driverSubcontractorId) === clean(parts[1]) &&
-      clean(load.driverSubcontractorDriverId) ===
-        clean(parts.slice(2).join(":"))
+      clean(load.driverSubcontractorDriverId) === clean(parts.slice(2).join(":"))
     );
   }
 
@@ -119,48 +107,45 @@ function loadMatchesDriver(load, key) {
 function latestLoadForDriver(loads, key) {
   return loads
     .filter(load => loadMatchesDriver(load, key))
-    .sort(
-      (a, b) =>
-        millis(b.loadedAt || b.createdAt || b.updatedAt) -
-        millis(a.loadedAt || a.createdAt || a.updatedAt)
+    .sort((a, b) =>
+      millis(b.loadedAt || b.createdAt || b.updatedAt) -
+      millis(a.loadedAt || a.createdAt || a.updatedAt)
     )[0] || null;
 }
 
 function showGood(text) {
   if (!el.message) return;
-
   el.message.textContent = text || "";
   el.message.className = text
     ? "loadout-form-message show good"
     : "loadout-form-message";
 }
 
+/*
+  The saved load already stores haulingJobName/haulingJobLabel. Use that
+  FIRST. The old code rebuilt a generic destination/crop label instead of
+  restoring the actual hauling-job name, which is why the value could be
+  correct while the visible text was wrong or blank.
+*/
 function haulingJobLabel(job, previousLoad) {
-  const buyer = clean(
-    job?.buyerName ||
-    previousLoad?.buyerName
+  const explicitName = clean(
+    job?.jobName ||
+    job?.displayName ||
+    job?.name ||
+    previousLoad?.haulingJobName ||
+    previousLoad?.haulingJobLabel
   );
 
+  if (explicitName) return explicitName;
+
+  const buyer = clean(job?.buyerName || previousLoad?.buyerName);
   const destination = clean(
     job?.deliveryLocationName ||
     job?.destinationName ||
     previousLoad?.deliveryLocationName ||
     previousLoad?.destinationName
   );
-
-  const crop = clean(
-    job?.crop ||
-    job?.commodity ||
-    previousLoad?.crop
-  );
-
-  const bushels = Number(
-    job?.startingBushels ??
-    job?.jobBushels ??
-    job?.bushels ??
-    previousLoad?.haulingJobBushels ??
-    0
-  );
+  const crop = clean(job?.crop || job?.commodity || previousLoad?.crop);
 
   const location = [buyer, destination]
     .filter(Boolean)
@@ -169,17 +154,15 @@ function haulingJobLabel(job, previousLoad) {
     )
     .join(" — ");
 
-  const parts = [];
-  if (location) parts.push(location);
-  if (crop) parts.push(crop);
-
-  if (Number.isFinite(bushels) && bushels > 0) {
-    parts.push(`${bushels.toLocaleString("en-US")} bu`);
-  }
-
-  return parts.join(" • ") || "Previous hauling job";
+  return [location, crop].filter(Boolean).join(" • ") || "Previous hauling job";
 }
 
+/*
+  Critical rendering fix:
+  - create the option if the page removed it;
+  - ALWAYS refresh its visible text, even when the option already exists;
+  - explicitly select the exact option.
+*/
 function ensureJobOption(jobId, job = pinnedJob, previousLoad = pinnedLoad) {
   if (!el.haulingJob || !jobId) return null;
 
@@ -189,36 +172,39 @@ function ensureJobOption(jobId, job = pinnedJob, previousLoad = pinnedLoad) {
   if (!option) {
     option = document.createElement("option");
     option.value = jobId;
-    option.textContent = haulingJobLabel(job, previousLoad);
     option.dataset.fvRepeatInjected = "1";
     el.haulingJob.appendChild(option);
   }
+
+  const label = haulingJobLabel(job, previousLoad);
+  option.textContent = label;
+  option.label = label;
+  option.hidden = false;
+  option.disabled = false;
 
   return option;
 }
 
 function forcePinnedJob() {
-  if (!pinnedJobId || !el.haulingJob || !isCreateModal()) {
-    return false;
-  }
+  if (!pinnedJobId || !el.haulingJob || !isCreateModal()) return false;
 
   const option = ensureJobOption(pinnedJobId);
   if (!option) return false;
 
-  el.haulingJob.value = pinnedJobId;
-
   Array.from(el.haulingJob.options || []).forEach(item => {
-    item.selected = item === option;
+    item.selected = clean(item.value) === pinnedJobId;
   });
+
+  el.haulingJob.value = pinnedJobId;
+  el.haulingJob.selectedIndex = Array.from(el.haulingJob.options || [])
+    .findIndex(item => clean(item.value) === pinnedJobId);
 
   return clean(el.haulingJob.value) === pinnedJobId;
 }
 
 function stopPinTimer() {
-  if (pinTimer) {
-    clearInterval(pinTimer);
-    pinTimer = null;
-  }
+  if (pinTimer) clearInterval(pinTimer);
+  pinTimer = null;
 }
 
 function startPinTimer() {
@@ -232,10 +218,6 @@ function startPinTimer() {
 
     const current = clean(el.haulingJob?.value);
 
-    /*
-      Only repair a blank select or the already-pinned selection.
-      A real different selection is never overwritten.
-    */
     if (!current || current === pinnedJobId) {
       forcePinnedJob();
     }
@@ -270,7 +252,6 @@ async function restoreCustomer(previousLoad) {
 
   if (!button && clean(previousLoad.customerName)) {
     const wantedName = norm(previousLoad.customerName);
-
     button = Array.from(
       el.customerMenu?.querySelectorAll("button[data-customer-value]") || []
     ).find(item => norm(item.textContent) === wantedName) || null;
@@ -294,7 +275,6 @@ async function restoreSource(previousLoad) {
 
   const sourceValue = clean(previousLoad.grainSourceValue);
   const sourceScope = norm(previousLoad.grainSourceScope);
-
   const isField =
     sourceScope === "field" ||
     sourceValue.includes("active_field_harvest:field:");
@@ -303,14 +283,11 @@ async function restoreSource(previousLoad) {
     el.sourceButton.click();
     await delay(60);
 
-    const fieldsButton = Array.from(
-      el.sourceMenu?.querySelectorAll("button") || []
-    ).find(button => norm(button.textContent) === "fields") || null;
+    const fieldsButton = Array.from(el.sourceMenu?.querySelectorAll("button") || [])
+      .find(button => norm(button.textContent) === "fields") || null;
 
     if (!fieldsButton) {
-      if (el.sourceMenu?.classList.contains("open")) {
-        el.sourceButton.click();
-      }
+      if (el.sourceMenu?.classList.contains("open")) el.sourceButton.click();
       return false;
     }
 
@@ -322,14 +299,12 @@ async function restoreSource(previousLoad) {
 
     const wantedId = clean(previousLoad.grainSourceFieldId);
     const wantedName = norm(
-      previousLoad.grainSourceFieldName ||
-      previousLoad.grainSourceName
+      previousLoad.grainSourceFieldName || previousLoad.grainSourceName
     );
 
     const fieldButton = Array.from(fieldModal.querySelectorAll("button"))
       .find(button => {
         const text = norm(button.textContent);
-
         return (
           (wantedName && text === wantedName) ||
           (wantedId && text.includes(norm(wantedId)))
@@ -368,7 +343,7 @@ async function restoreSource(previousLoad) {
 }
 
 async function applyPreviousRun() {
-  const myToken = ++applyToken;
+  const myToken = ++token;
   const key = driverKey();
 
   if (!isCreateModal() || !key) return;
@@ -387,13 +362,7 @@ async function applyPreviousRun() {
     return;
   }
 
-  if (
-    myToken !== applyToken ||
-    key !== driverKey() ||
-    !isCreateModal()
-  ) {
-    return;
-  }
+  if (myToken !== token || key !== driverKey() || !isCreateModal()) return;
 
   const previousLoad = latestLoadForDriver(
     loadSnapshot.docs.map(snapshot => ({
@@ -409,10 +378,7 @@ async function applyPreviousRun() {
   if (!jobId) return;
 
   const job = jobSnapshot.docs
-    .map(snapshot => ({
-      id: snapshot.id,
-      ...snapshot.data()
-    }))
+    .map(snapshot => ({ id: snapshot.id, ...snapshot.data() }))
     .find(item => clean(item.id) === jobId) || null;
 
   pinnedJobId = jobId;
@@ -420,14 +386,9 @@ async function applyPreviousRun() {
   pinnedLoad = previousLoad;
   applying = true;
 
-  /* Let the page finish its driver-change rendering first. */
   await delay(180);
 
-  if (
-    myToken !== applyToken ||
-    key !== driverKey() ||
-    !isCreateModal()
-  ) {
+  if (myToken !== token || key !== driverKey() || !isCreateModal()) {
     applying = false;
     return;
   }
@@ -439,64 +400,38 @@ async function applyPreviousRun() {
 
   startPinTimer();
 
-  /*
-    Hauling Job FIRST. This intentionally lets the main page populate Crop,
-    Destination, and its dependent controls from the selected job.
-  */
-  el.haulingJob.dispatchEvent(
-    new Event("change", { bubbles: true })
-  );
+  /* Let the main page populate crop/destination from the selected job. */
+  el.haulingJob.dispatchEvent(new Event("change", { bubbles: true }));
 
   await delay(250);
   forcePinnedJob();
 
   const customerRestored = await restoreCustomer(previousLoad);
-
   await delay(100);
   forcePinnedJob();
 
   const sourceRestored = await restoreSource(previousLoad);
-
   await delay(150);
   forcePinnedJob();
 
   applying = false;
 
-  if (customerRestored && sourceRestored) {
-    showGood(
-      "Previous load copied. Hauling Job, Sold Under, and Grain Source are ready; change anything that is different."
-    );
-  }
-  else {
-    showGood(
-      "Previous hauling job copied. Review any field that could not be reused, then assign the load."
-    );
-  }
+  showGood(
+    customerRestored && sourceRestored
+      ? "Previous load copied. Hauling Job, Sold Under, and Grain Source are ready; change anything that is different."
+      : "Previous hauling job copied. Review any field that could not be reused, then assign the load."
+  );
 }
 
 function scheduleApply() {
   setTimeout(applyPreviousRun, 100);
 }
 
-/* ============================================================
-   ROOT BUG GUARD
-
-   grain-ticket.html has a legacy listener:
-
-     customer change -> haulingJob.value = "" -> loRenderHaulingJobs()
-
-   Sold Under is DOWNSTREAM from Hauling Job. Prevent that legacy listener
-   from clearing a valid hauling job during Assign Load. Capture phase is
-   used so this runs before the old bubble listener, regardless of which
-   script registered first.
-============================================================ */
+/* Prevent the page's legacy customer-change listener from blanking the job. */
 el.customer?.addEventListener(
   "change",
   event => {
-    if (
-      isCreateModal() &&
-      (pinnedJobId || clean(el.haulingJob?.value))
-    ) {
+    if (isCreateModal() && (pinnedJobId || clean(el.haulingJob?.value))) {
       event.stopImmediatePropagation();
       forcePinnedJob();
     }
@@ -507,12 +442,7 @@ el.customer?.addEventListener(
 el.driver?.addEventListener("change", scheduleApply);
 el.subdriver?.addEventListener("change", scheduleApply);
 
-/*
-  Manual hauling-job choice always wins.
-
-  Synthetic change = repeat-run applying the old job.
-  Trusted change = dispatcher actually touched the dropdown.
-*/
+/* Manual hauling-job choice always wins. */
 el.haulingJob?.addEventListener("change", event => {
   const selected = clean(el.haulingJob?.value);
 
@@ -529,12 +459,7 @@ el.haulingJob?.addEventListener("change", event => {
     return;
   }
 
-  if (
-    !applying &&
-    pinnedJobId &&
-    selected === pinnedJobId &&
-    pinnedLoad
-  ) {
+  if (!applying && pinnedJobId && selected === pinnedJobId && pinnedLoad) {
     setTimeout(async () => {
       forcePinnedJob();
       await restoreCustomer(pinnedLoad);
