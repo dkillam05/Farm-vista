@@ -242,6 +242,13 @@
 
     .ticket-link:hover{text-decoration:underline}
 
+    button.ticket-link{appearance:none;-webkit-appearance:none;border:0;padding:0;background:none;font:inherit;cursor:pointer}
+    button.ticket-link:disabled{color:inherit;opacity:1;cursor:default;text-decoration:none}
+    #ticket-image-modal-backdrop{z-index:13000}
+    .ticket-image-modal{width:min(920px,96vw);max-height:94vh}
+    .ticket-image-modal-body{display:flex;align-items:center;justify-content:center;overflow:auto;background:var(--surface-2,#f4f4f4);padding:12px}
+    .ticket-image-modal-img{display:block;max-width:100%;max-height:calc(94vh - 82px);height:auto;object-fit:contain}
+
     .drill-back{
       margin-bottom:12px;
     }
@@ -759,6 +766,18 @@
       <div class="modal-actions">
         <button type="button" class="btn" id="harvest-modal-done">Close</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="ticket-image-modal-backdrop" aria-hidden="true">
+  <div class="modal ticket-image-modal" role="dialog" aria-modal="true" aria-labelledby="ticket-image-modal-title">
+    <div class="modal-head">
+      <div class="modal-title" id="ticket-image-modal-title">Grain Ticket</div>
+      <button type="button" class="modal-close" id="ticket-image-modal-close" aria-label="Close ticket image">×</button>
+    </div>
+    <div class="modal-body ticket-image-modal-body">
+      <img id="ticket-image-modal-img" class="ticket-image-modal-img" alt="Saved grain ticket image" />
     </div>
   </div>
 </div>
@@ -1290,7 +1309,26 @@ function ticketsFromIds(ids){
       window.alert("No saved ticket image is available for this ticket.");
       return;
     }
-    window.open(imageUrl,"_blank","noopener,noreferrer");
+    const backdrop=$("ticket-image-modal-backdrop");
+    const image=$("ticket-image-modal-img");
+    const title=$("ticket-image-modal-title");
+    if(!backdrop || !image || !title) return;
+    title.textContent=`Grain Ticket ${ticketNumberValue(ticket)}`;
+    image.alt=`Saved image for grain ticket ${ticketNumberValue(ticket)}`;
+    image.src=imageUrl;
+    backdrop.classList.add("open");
+    backdrop.setAttribute("aria-hidden","false");
+    document.body.style.overflow="hidden";
+  }
+
+  function closeHarvestTicketImage(){
+    const backdrop=$("ticket-image-modal-backdrop");
+    const image=$("ticket-image-modal-img");
+    if(!backdrop) return;
+    backdrop.classList.remove("open");
+    backdrop.setAttribute("aria-hidden","true");
+    if(image) image.removeAttribute("src");
+    document.body.style.overflow=$("harvest-modal-backdrop")?.classList.contains("open") ? "hidden" : "";
   }
 
   function activeHarvestFieldGroups(crop){
@@ -1455,16 +1493,15 @@ function ticketsFromIds(ids){
               <th>Moisture</th>
               <th>FM</th>
               <th>Damage</th>
-              <th>View</th>
             </tr>
           </thead>
           <tbody>
             ${tickets.map(ticket => `
               <tr>
                 <td>
-                  <a class="ticket-link" href="/pages/grain/grain-ticket-detail.html?id=${encodeURIComponent(ticket.id)}">
+                  <button type="button" class="ticket-link harvest-ticket-image" data-ticket-image="${esc(ticket.id)}" ${ticketImageValue(ticket) ? "" : "disabled"}>
                     ${esc(ticketNumberValue(ticket))}
-                  </a>
+                  </button>
                 </td>
                 <td>${esc(ticketDateValue(ticket) || "—")}</td>
                 <td>${esc(driverValue(ticket))}</td>
@@ -1472,11 +1509,6 @@ function ticketsFromIds(ids){
                 <td class="${gradeClass(ticket.moisture)}">${fmtGrade(ticket.moisture)}</td>
                 <td class="${gradeClass(ticket.foreignMaterial)}">${fmtGrade(ticket.foreignMaterial)}</td>
                 <td class="${gradeClass(ticket.damage)}">${fmtGrade(ticket.damage)}</td>
-                <td>
-                  <button type="button" class="btn harvest-ticket-image" data-ticket-image="${esc(ticket.id)}" ${ticketImageValue(ticket) ? "" : "disabled"}>
-                    View
-                  </button>
-                </td>
               </tr>
             `).join("")}
           </tbody>
@@ -2459,6 +2491,15 @@ function ticketsFromIds(ids){
   document.addEventListener("fv:grain-inventory-posted",loadAll);
 
   await loadAll();
+
+
+  $("ticket-image-modal-close")?.addEventListener("click",closeHarvestTicketImage);
+  $("ticket-image-modal-backdrop")?.addEventListener("click",event=>{
+    if(event.target === $("ticket-image-modal-backdrop")) closeHarvestTicketImage();
+  });
+  document.addEventListener("keydown",event=>{
+    if(event.key === "Escape" && $("ticket-image-modal-backdrop")?.classList.contains("open")) closeHarvestTicketImage();
+  });
 </script>
 
 <noscript>
