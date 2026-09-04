@@ -3068,6 +3068,7 @@ function ticketHasHaulingJob(
     return !!String(
       ticket?.haulingJobId ||
       ticket?.grainHaulingJobId ||
+      ticket?._linkedHaulingJobId ||
       ""
     ).trim();
 
@@ -6337,6 +6338,46 @@ else {
         const ticket of tickets
       ) {
 
+        /*
+          A ticket linked to a FarmVista load inherits that load's
+          hauling job for dashboard status, even when an older scan
+          record did not copy haulingJobId onto the ticket document.
+
+          This keeps the dashboard, KPI counts, and detail page in
+          agreement without requiring the driver to re-save the ticket.
+        */
+        const load =
+          postingFindLinkedLoad(
+            ticket,
+            loads
+          );
+
+
+        if (
+          load &&
+          !ticketHasHaulingJob(
+            ticket
+          )
+        ) {
+
+          const linkedHaulingJobId =
+            postingClean(
+              load.haulingJobId
+            );
+
+
+          if (
+            linkedHaulingJobId
+          ) {
+
+            ticket._linkedHaulingJobId =
+              linkedHaulingJobId;
+
+          }
+
+        }
+
+
         if (
           !ticketIsVerifiedForPosting(
             ticket
@@ -6357,13 +6398,6 @@ else {
           continue;
 
         }
-
-
-        const load =
-          postingFindLinkedLoad(
-            ticket,
-            loads
-          );
 
 
         if (
