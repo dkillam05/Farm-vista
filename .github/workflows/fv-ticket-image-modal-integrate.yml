@@ -1,0 +1,91 @@
+name: FarmVista ticket image modal integration
+on:
+  push:
+    paths:
+      - '.github/workflows/fv-ticket-image-modal-integrate.yml'
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch grain inventory
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('pages/grain/index.html')
+          s = p.read_text()
+
+          old = '''  function openHarvestTicketImage(ticket){
+    const imageUrl = ticketImageValue(ticket);
+    if(!imageUrl){
+      window.alert("No saved ticket image is available for this ticket.");
+      return;
+    }
+    window.open(imageUrl,"_blank","noopener,noreferrer");
+  }'''
+          new = '''  function openHarvestTicketImage(ticket){
+    const imageUrl = ticketImageValue(ticket);
+    if(!imageUrl){
+      window.alert("No saved ticket image is available for this ticket.");
+      return;
+    }
+    const ticketNumber = ticketNumberValue(ticket);
+    if(window.FVHarvestTicketImageModal?.open){
+      window.FVHarvestTicketImageModal.open(imageUrl,ticketNumber);
+      return;
+    }
+    window.alert("Ticket image viewer is still loading. Please tap the ticket again.");
+  }'''
+          assert old in s, 'openHarvestTicketImage block not found'
+          s = s.replace(old,new,1)
+
+          old = '''              <th>Damage</th>
+              <th>View</th>'''
+          new = '''              <th>Damage</th>'''
+          assert old in s, 'View header not found'
+          s = s.replace(old,new,1)
+
+          old = '''                <td>
+                  <a class="ticket-link" href="/pages/grain/grain-ticket-detail.html?id=${encodeURIComponent(ticket.id)}">
+                    ${esc(ticketNumberValue(ticket))}
+                  </a>
+                </td>'''
+          new = '''                <td>
+                  <button type="button" class="fv-harvest-ticket-number harvest-ticket-image" data-ticket-image="${esc(ticket.id)}" ${ticketImageValue(ticket) ? "" : "disabled"}>
+                    ${esc(ticketNumberValue(ticket))}
+                  </button>
+                </td>'''
+          assert old in s, 'ticket number link not found'
+          s = s.replace(old,new,1)
+
+          old = '''                <td class="${gradeClass(ticket.damage)}">${fmtGrade(ticket.damage)}</td>
+                <td>
+                  <button type="button" class="btn harvest-ticket-image" data-ticket-image="${esc(ticket.id)}" ${ticketImageValue(ticket) ? "" : "disabled"}>
+                    View
+                  </button>
+                </td>'''
+          new = '''                <td class="${gradeClass(ticket.damage)}">${fmtGrade(ticket.damage)}</td>'''
+          assert old in s, 'View cell not found'
+          s = s.replace(old,new,1)
+
+          marker = '''</fv-shell>
+
+<div class="modal-backdrop" id="harvest-modal-backdrop"'''
+          replacement = '''</fv-shell>
+
+<script src="/js/grain-inventory-ticket-image-modal.js?v=20260904-1"></script>
+
+<div class="modal-backdrop" id="harvest-modal-backdrop"'''
+          assert marker in s, 'script insertion point not found'
+          s = s.replace(marker,replacement,1)
+
+          p.write_text(s)
+      - name: Commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pages/grain/index.html
+          git commit -m 'Open harvest ticket images in FarmVista modal'
+          git push
