@@ -83,6 +83,24 @@
   }
 
   /* ===================================================================
+     SEPT 4, 2026 — LOAD OUT DRIVER HAULING-JOB RESET
+
+     grain-ticket.html rebuilds the Hauling Job SELECT when the driver
+     changes and can preserve the previous driver's selected job. Keep the
+     field blank/default during that rebuild, then allow the repeat-run module
+     to apply only the newly selected driver's own previous load.
+  =================================================================== */
+
+  if (isGrainTicketPage && !window.__FV_GRAIN_LOADOUT_DRIVER_JOB_RESET_LOADER_20260904) {
+    window.__FV_GRAIN_LOADOUT_DRIVER_JOB_RESET_LOADER_20260904 = true;
+
+    const script = document.createElement('script');
+    script.src = '/js/grain-loadout-driver-job-reset.js';
+    script.dataset.fvGrainLoadoutDriverJobReset = '1';
+    document.head.appendChild(script);
+  }
+
+  /* ===================================================================
      SEPT 3, 2026 — GRAIN INVENTORY DARK MODE
   =================================================================== */
 
