@@ -254,8 +254,8 @@ if (
 
     if (textEl) {
       textEl.textContent = isField
-        ? 'Tap Select an option, then choose the field this grain came from.'
-        : 'Tap Select an option, then choose the bin site or grain bag site.';
+        ? 'Choose the field this grain came from.'
+        : 'Choose the bin site or grain bag site.';
     }
 
     /*
@@ -268,17 +268,30 @@ if (
     }
 
     /*
-      IMPORTANT: leave the dropdown CLOSED.
-
-      The previous helper called trigger.click() here. On iPhone the new
-      picker is rendered immediately after the driver's Field tap; opening it
-      programmatically during that same interaction can let a stale tap/click
-      land on newly rendered controls and resolve Driver Assist without an
-      intentional field choice.
+      Open the second-level picker automatically, but only after the original
+      Field / Grain Storage tap has fully finished. The inline scanner now
+      disables Skip for these prompts, so the ticket cannot save until the
+      driver chooses a real field/site or intentionally goes Back.
     */
     const dropdown = document.querySelector('#assistBody .assist-dropdown');
-    if (dropdown) {
+    if (dropdown && !dropdown.dataset.fvAutoOpened) {
+      dropdown.dataset.fvAutoOpened = '1';
       dropdown.classList.remove('open');
+
+      const expectedTitle = clean(title);
+
+      setTimeout(() => {
+        if (!document.body.contains(dropdown)) return;
+
+        const liveTitle = clean(
+          document.getElementById('assistTitle')?.textContent
+        );
+
+        if (liveTitle !== expectedTitle) return;
+        if (dropdown.classList.contains('open')) return;
+
+        dropdown.querySelector('.assist-dropdown-trigger')?.click();
+      }, 250);
     }
   }
 

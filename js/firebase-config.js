@@ -33,7 +33,7 @@
 
     const helperScript = document.createElement('script');
     helperScript.type = 'module';
-    helperScript.src = '/js/grain-ticket-scan-source-flow.js?v=20260904-2';
+    helperScript.src = '/js/grain-ticket-scan-source-flow.js?v=20260904-3';
     helperScript.dataset.fvGrainTicketScanSourceFlowDirect = '1';
     document.head.appendChild(helperScript);
   }
