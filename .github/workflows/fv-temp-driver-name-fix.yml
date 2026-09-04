@@ -1,0 +1,118 @@
+name: FarmVista temporary driver name fix
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/fv-temp-driver-name-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Update subcontractor driver forms
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_exact(path, old, new, expected=1):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f'{path}: expected {expected} occurrence(s), found {count}: {old[:120]!r}')
+              p.write_text(text.replace(old, new), encoding='utf-8')
+
+          # Add / Assign Load page
+          loadout = 'pages/grain/grain-ticket.html'
+          replace_exact(
+              loadout,
+              '<label for="loadout-subdriver-first">First Name</label>',
+              '<label for="loadout-subdriver-first">First Name / Nickname *</label>'
+          )
+          replace_exact(
+              loadout,
+              '<label for="loadout-subdriver-last">Last Name</label>',
+              '<label for="loadout-subdriver-last">Last Name</label>'
+          )
+          replace_exact(
+              loadout,
+              '<label for="loadout-subdriver-cell">Cell Number</label>',
+              '<label for="loadout-subdriver-cell">Phone Number *</label>'
+          )
+          replace_exact(
+              loadout,
+              '''    if (!firstName || !lastName || !phone) {
+      loShowMessage(
+        "Enter the subcontractor driver's first name, last name, and a valid 10-digit cell number.",
+        "error"
+      );
+      return;
+    }''',
+              '''    if (!firstName || !phone) {
+      loShowMessage(
+        "Enter the subcontractor driver's first name / nickname and a valid 10-digit phone number.",
+        "error"
+      );
+      return;
+    }'''
+          )
+          replace_exact(
+              loadout,
+              '      name:`${firstName} ${lastName}`,' ,
+              '      name:[firstName,lastName].filter(Boolean).join(" "),'
+          )
+
+          # Subcontractor Edit -> Trucking Drivers
+          contractor = 'pages/office/teams-and-partners/contractors-buttons/contractors-edit.html'
+          replace_exact(
+              contractor,
+              '<label for="driverFirst">First Name<span class="req">*</span></label>',
+              '<label for="driverFirst">First Name / Nickname<span class="req">*</span></label>'
+          )
+          replace_exact(
+              contractor,
+              '<label for="driverLast">Last Name<span class="req">*</span></label>',
+              '<label for="driverLast">Last Name</label>'
+          )
+          replace_exact(
+              contractor,
+              '<label for="driverCell">Cell Number<span class="req">*</span></label>',
+              '<label for="driverCell">Phone Number<span class="req">*</span></label>'
+          )
+          replace_exact(
+              contractor,
+              '''      if(!firstName || !lastName){
+        alert("Enter the driver's first and last name.");
+        return;
+      }''',
+              '''      if(!firstName){
+        alert("Enter the driver's first name / nickname.");
+        $("driverFirst").focus();
+        return;
+      }'''
+          )
+          replace_exact(
+              contractor,
+              '        name:`${firstName} ${lastName}`,' ,
+              '        name:[firstName,lastName].filter(Boolean).join(" "),'
+          )
+
+      - name: Commit FarmVista changes and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/fv-temp-driver-name-fix.yml
+          git add pages/grain/grain-ticket.html pages/office/teams-and-partners/contractors-buttons/contractors-edit.html
+          git commit -m "Make subcontractor driver last name optional"
+          git push
