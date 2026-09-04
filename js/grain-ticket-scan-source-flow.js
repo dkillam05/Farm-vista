@@ -231,8 +231,12 @@ if (
     const activeButton = buttonByText('Active Field Harvest');
     const storageButton = buttonByText('Grain Storage');
 
-    if (activeButton) activeButton.textContent = 'Active Harvest';
-    if (textEl) textEl.textContent = 'Choose where this grain came from.';
+    if (activeButton && clean(activeButton.textContent) !== 'Active Harvest') {
+      activeButton.textContent = 'Active Harvest';
+    }
+    if (textEl && clean(textEl.textContent) !== 'Choose where this grain came from.') {
+      textEl.textContent = 'Choose where this grain came from.';
+    }
 
     if (storageButton) storageButton.style.display = 'none';
     await loadStorageInventory();
@@ -253,9 +257,13 @@ if (
     }
 
     if (textEl) {
-      textEl.textContent = isField
+      const wantedText = isField
         ? 'Choose the field this grain came from.'
         : 'Choose the bin site or grain bag site.';
+
+      if (clean(textEl.textContent) !== wantedText) {
+        textEl.textContent = wantedText;
+      }
     }
 
     /*
@@ -370,18 +378,44 @@ if (
       true
     );
 
-    const observer = new MutationObserver(() => {
-      requestAnimationFrame(applyPromptEnhancements);
-    });
+    let enhancementFrame = 0;
 
-    observer.observe(assistScreen, {
-      childList: true,
-      subtree: true,
-      characterData: true,
+    const scheduleEnhancements = () => {
+      if (enhancementFrame) return;
+      enhancementFrame = requestAnimationFrame(() => {
+        enhancementFrame = 0;
+        applyPromptEnhancements();
+      });
+    };
+
+    /*
+      PERFORMANCE / iPHONE SAFETY
+
+      Do NOT observe the whole assist popup subtree. Search typing rebuilds the
+      result list on every keystroke; watching that subtree caused the helper to
+      rerun continuously while the driver typed and could make Safari appear to
+      freeze or drop the page.
+
+      We only need to know when a new Driver Assist question is shown. Watch
+      the question title and the screen visibility class, not search results.
+    */
+    const titleEl = document.getElementById('assistTitle');
+    const titleObserver = new MutationObserver(scheduleEnhancements);
+    if (titleEl) {
+      titleObserver.observe(titleEl, {
+        childList: true,
+        subtree: true,
+        characterData: true
+      });
+    }
+
+    const screenObserver = new MutationObserver(scheduleEnhancements);
+    screenObserver.observe(assistScreen, {
       attributes: true,
       attributeFilter: ['class']
     });
 
+    scheduleEnhancements();
     loadStorageInventory();
   }
 
