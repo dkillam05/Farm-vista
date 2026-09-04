@@ -268,31 +268,10 @@ if (
     }
 
     /*
-      Open the second-level picker automatically, but only after the original
-      Field / Grain Storage tap has fully finished. The inline scanner now
-      disables Skip for these prompts, so the ticket cannot save until the
-      driver chooses a real field/site or intentionally goes Back.
+      Field and Grain Storage now render their searchable choices directly
+      in the scanner. Do not auto-click or synthesize another touch here.
+      This keeps one physical tap equal to one FarmVista action on iPhone.
     */
-    const dropdown = document.querySelector('#assistBody .assist-dropdown');
-    if (dropdown && !dropdown.dataset.fvAutoOpened) {
-      dropdown.dataset.fvAutoOpened = '1';
-      dropdown.classList.remove('open');
-
-      const expectedTitle = clean(title);
-
-      setTimeout(() => {
-        if (!document.body.contains(dropdown)) return;
-
-        const liveTitle = clean(
-          document.getElementById('assistTitle')?.textContent
-        );
-
-        if (liveTitle !== expectedTitle) return;
-        if (dropdown.classList.contains('open')) return;
-
-        dropdown.querySelector('.assist-dropdown-trigger')?.click();
-      }, 250);
-    }
   }
 
   function restoreSkipButtonForOtherPrompts(title) {
