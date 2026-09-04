@@ -1,17 +1,9 @@
 /* FarmVista grain ticket OCR grade normalizer
    Rev 2026-09-04
 
-   Purpose:
-   OCR engines often recognize grade text correctly but flatten multi-column
-   elevator grade tables. This module re-associates explicit grade labels with
-   the numeric value printed immediately after that label.
-
-   Safety rules:
-   - Never guess an unlabeled grade.
-   - Prefer explicit label/value evidence in raw OCR text.
-   - Keep structured OCR as fallback.
-   - Validate ranges before returning a value.
-   - Record evidence/confidence for Ticket Details and debugging.
+   Re-associates explicit grade labels with the numeric value OCR already read.
+   This is deliberately conservative: FarmVista never invents an unlabeled
+   grade value and flags conflicting explicit evidence for review.
 */
 
 const clean = value => String(value ?? '').replace(/\r/g, '').trim();
@@ -29,31 +21,11 @@ function numeric(value) {
 }
 
 const SPECS = {
-  testWeight: {
-    labels: ['TW', 'TEST WT', 'TEST WEIGHT'],
-    min: 20,
-    max: 80
-  },
-  moisture: {
-    labels: ['MO', 'MOIST', 'MOISTURE'],
-    min: 0,
-    max: 40
-  },
-  damage: {
-    labels: ['DM', 'DAM', 'DAMAGE', 'DAMAGED'],
-    min: 0,
-    max: 100
-  },
-  foreignMaterial: {
-    labels: ['FM', 'F.M.', 'FOREIGN MATERIAL'],
-    min: 0,
-    max: 100
-  },
-  splits: {
-    labels: ['SP', 'SPLITS'],
-    min: 0,
-    max: 100
-  }
+  testWeight: { labels: ['TW', 'TEST WT', 'TEST WEIGHT'], min: 20, max: 80 },
+  moisture: { labels: ['MO', 'MOIST', 'MOISTURE'], min: 0, max: 40 },
+  damage: { labels: ['DM', 'DAM', 'DAMAGE', 'DAMAGED'], min: 0, max: 100 },
+  foreignMaterial: { labels: ['FM', 'F.M.', 'FOREIGN MATERIAL'], min: 0, max: 100 },
+  splits: { labels: ['SP', 'SPLITS'], min: 0, max: 100 }
 };
 
 function escapeRegex(value) {
@@ -73,11 +45,6 @@ function rawCandidates(rawText, field) {
 
   for (const label of spec.labels) {
     const escaped = escapeRegex(label).replace(/\\ /g, '\\s+');
-    /*
-      OCR may keep the row on one line or put the value on the next line.
-      Limit whitespace/newline distance so a label cannot steal a number from
-      a distant column/row.
-    */
     const regex = new RegExp(
       `(?:^|\\n|\\s)${escaped}\\s*[:#-]?\\s*([0-9]{1,2}(?:\\.[0-9]{1,2})?)`,
       'gim'
@@ -86,16 +53,10 @@ function rawCandidates(rawText, field) {
     while ((match = regex.exec(text))) {
       const value = Number(match[1]);
       if (inRange(field, value)) {
-        out.push({
-          value,
-          label,
-          evidence: match[0].trim(),
-          index: match.index
-        });
+        out.push({ value, label, evidence: match[0].trim(), index: match.index });
       }
     }
   }
-
   return out.sort((a, b) => a.index - b.index);
 }
 
@@ -123,8 +84,6 @@ function chooseField(result, rawText, field) {
         structuredValue: structured
       };
     }
-
-    /* Multiple conflicting explicit readings are unsafe. */
     return {
       value: structured,
       confidence: 'review',
@@ -161,12 +120,24 @@ export function normalizeGrainTicketGrades(result) {
   const audit = {};
   const review = [];
 
+  if (!result.fields || typeof result.fields !== 'object') result.fields = {};
+
   for (const field of fields) {
     const chosen = chooseField(result, rawText, field);
     audit[field] = chosen;
 
     if (chosen.value !== null && chosen.value !== undefined) {
       result.grainTicket[field] = chosen.value;
+
+      /*
+        The scan page has an older direct-field compatibility pass after this
+        normalizer. When raw label/value evidence is unambiguous, update that
+        structured field too so stale parser data cannot overwrite the verified
+        value later in the same save path.
+      */
+      if (chosen.source === 'raw_label_value') {
+        result.fields[field] = chosen.value;
+      }
     }
 
     if (chosen.confidence === 'review') {
@@ -179,7 +150,6 @@ export function normalizeGrainTicketGrades(result) {
     elevatorFamily: family,
     fields: audit
   };
-
   result.gradeNormalization = result.grainTicket.gradeParser;
 
   if (review.length) {
