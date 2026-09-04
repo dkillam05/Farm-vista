@@ -1,0 +1,148 @@
+name: FarmVista scan dropdown performance fix
+on:
+  push:
+    paths:
+      - '.github/workflows/fv-scan-dropdown-performance-fix.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch grain scan dropdown and observer
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one match, found {count}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          scan = 'pages/grain/grain-ticket-scan.html'
+          old_dropdown = '''/*
+  Field and Grain Storage must render their real choices immediately.
+  A second dropdown layer caused iPhone touch-through: tapping the arrow
+  could select the first result and resolve Driver Assist before the driver
+  intentionally chose a source. Keep dropdown behavior for other prompts,
+  but show Field/Storage as direct searchable rows.
+*/
+const useDropdown =
+  !(
+    /^which field did this .+ come from\\?$/i.test(
+      String(title || "").trim()
+    ) ||
+    /^which grain storage site did this .+ come from\\?$/i.test(
+      String(title || "").trim()
+    )
+  );'''
+          new_dropdown = '''/*
+  Use the normal FarmVista searchable dropdown for every Driver Assist list.
+  Field and Grain Storage should look and behave like the dropdown the driver
+  already knows; touch safety is handled without changing the UI.
+*/
+const useDropdown =
+  true;'''
+          replace_once(scan, old_dropdown, new_dropdown)
+
+          helper = 'js/grain-ticket-scan-source-flow.js'
+          old_text = '''    if (activeButton) activeButton.textContent = 'Active Harvest';
+    if (textEl) textEl.textContent = 'Choose where this grain came from.';'''
+          new_text = '''    if (activeButton && clean(activeButton.textContent) !== 'Active Harvest') {
+      activeButton.textContent = 'Active Harvest';
+    }
+    if (textEl && clean(textEl.textContent) !== 'Choose where this grain came from.') {
+      textEl.textContent = 'Choose where this grain came from.';
+    }'''
+          replace_once(helper, old_text, new_text)
+
+          old_stabilize_text = '''    if (textEl) {
+      textEl.textContent = isField
+        ? 'Choose the field this grain came from.'
+        : 'Choose the bin site or grain bag site.';
+    }'''
+          new_stabilize_text = '''    if (textEl) {
+      const wantedText = isField
+        ? 'Choose the field this grain came from.'
+        : 'Choose the bin site or grain bag site.';
+
+      if (clean(textEl.textContent) !== wantedText) {
+        textEl.textContent = wantedText;
+      }
+    }'''
+          replace_once(helper, old_stabilize_text, new_stabilize_text)
+
+          old_observer = '''    const observer = new MutationObserver(() => {
+      requestAnimationFrame(applyPromptEnhancements);
+    });
+
+    observer.observe(assistScreen, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ['class']
+    });
+
+    loadStorageInventory();'''
+          new_observer = '''    let enhancementFrame = 0;
+
+    const scheduleEnhancements = () => {
+      if (enhancementFrame) return;
+      enhancementFrame = requestAnimationFrame(() => {
+        enhancementFrame = 0;
+        applyPromptEnhancements();
+      });
+    };
+
+    /*
+      PERFORMANCE / iPHONE SAFETY
+
+      Do NOT observe the whole assist popup subtree. Search typing rebuilds the
+      result list on every keystroke; watching that subtree caused the helper to
+      rerun continuously while the driver typed and could make Safari appear to
+      freeze or drop the page.
+
+      We only need to know when a new Driver Assist question is shown. Watch
+      the question title and the screen visibility class, not search results.
+    */
+    const titleEl = document.getElementById('assistTitle');
+    const titleObserver = new MutationObserver(scheduleEnhancements);
+    if (titleEl) {
+      titleObserver.observe(titleEl, {
+        childList: true,
+        subtree: true,
+        characterData: true
+      });
+    }
+
+    const screenObserver = new MutationObserver(scheduleEnhancements);
+    screenObserver.observe(assistScreen, {
+      attributes: true,
+      attributeFilter: ['class']
+    });
+
+    scheduleEnhancements();
+    loadStorageInventory();'''
+          replace_once(helper, old_observer, new_observer)
+
+          config = 'js/firebase-config.js'
+          replace_once(
+              config,
+              "helperScript.src = '/js/grain-ticket-scan-source-flow.js?v=20260904-4';",
+              "helperScript.src = '/js/grain-ticket-scan-source-flow.js?v=20260904-5';"
+          )
+          PY
+      - name: Commit FarmVista fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pages/grain/grain-ticket-scan.html js/grain-ticket-scan-source-flow.js js/firebase-config.js
+          git commit -m "Restore grain source dropdown and fix scan lag"
+          git push
