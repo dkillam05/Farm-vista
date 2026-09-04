@@ -213,6 +213,28 @@ function clearPinnedRepeatState() {
 }
 
 /*
+  A driver change is a fresh load setup. Clear the visible hauling-job choice
+  and let grain-ticket.html's normal hauling-job change handler reset Crop,
+  Destination, Sold Under and Grain Source to their standard defaults.
+
+  This is intentionally separate from clearPinnedRepeatState(): clearing our
+  cached repeat data alone does not clear values already rendered in the form.
+*/
+function resetVisibleDriverDefaults() {
+  if (!isCreateModal() || !el.haulingJob) return;
+
+  const blankIndex = Array.from(el.haulingJob.options || [])
+    .findIndex(option => clean(option.value) === "");
+
+  el.haulingJob.value = "";
+  if (blankIndex >= 0) el.haulingJob.selectedIndex = blankIndex;
+
+  el.haulingJob.dispatchEvent(
+    new Event("change", { bubbles: true })
+  );
+}
+
+/*
   The saved load already stores haulingJobName/haulingJobLabel. Use that
   FIRST. The old code rebuilt a generic destination/crop label instead of
   restoring the actual hauling-job name, which is why the value could be
@@ -461,7 +483,7 @@ async function applyPreviousRun() {
     key
   );
 
-  /* No history for this driver means no automatic values at all. */
+  /* No history for this driver means the freshly reset defaults stay in place. */
   if (!previousLoad) return;
 
   const jobId = clean(previousLoad.haulingJobId);
@@ -509,9 +531,14 @@ async function applyPreviousRun() {
 }
 
 function scheduleApply() {
-  /* Invalidate the old driver's async work immediately, then load this driver. */
+  /*
+    Changing Driver means start from the normal blank load-out state first.
+    Then, and only then, apply that newly selected driver's own previous load
+    if one exists.
+  */
   token += 1;
   clearPinnedRepeatState();
+  resetVisibleDriverDefaults();
   setTimeout(applyPreviousRun, 100);
 }
 
