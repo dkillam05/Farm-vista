@@ -1,0 +1,41 @@
+name: FarmVista clickable harvest ticket image fix
+on:
+  push:
+    paths: ['.github/workflows/fv-harvest-ticket-click-fix.yml']
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions: {contents: write}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Make ticket number open saved image
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('pages/grain/index.html')
+          s=p.read_text()
+          old='''              <th>Damage</th>\n              <th>View</th>\n            </tr>'''
+          new='''              <th>Damage</th>\n            </tr>'''
+          assert old in s
+          s=s.replace(old,new,1)
+          old='''                <td>${esc(ticketNumberValue(ticket))}</td>'''
+          new='''                <td>\n                  <button type="button" class="ticket-link harvest-ticket-image" data-ticket-image="${esc(ticket.id)}" ${ticketImageValue(ticket) ? "" : "disabled"}>\n                    ${esc(ticketNumberValue(ticket))}\n                  </button>\n                </td>'''
+          assert old in s
+          s=s.replace(old,new,1)
+          old='''                <td class="${gradeClass(ticket.damage)}">${fmtGrade(ticket.damage)}</td>\n                <td>\n                  <button type="button" class="btn harvest-ticket-image" data-ticket-image="${esc(ticket.id)}" ${ticketImageValue(ticket) ? "" : "disabled"}>\n                    View\n                  </button>\n                </td>\n              </tr>'''
+          new='''                <td class="${gradeClass(ticket.damage)}">${fmtGrade(ticket.damage)}</td>\n              </tr>'''
+          assert old in s
+          s=s.replace(old,new,1)
+          # Make the ticket-number button visually remain just a ticket number, not an extra UI control.
+          css='''.ticket-link:hover{text-decoration:underline}'''
+          css_new='''.ticket-link:hover{text-decoration:underline}\n\n    button.ticket-link{\n      appearance:none;\n      -webkit-appearance:none;\n      padding:0;\n      border:0;\n      background:none;\n      font:inherit;\n      cursor:pointer;\n    }\n\n    button.ticket-link:disabled{\n      color:inherit;\n      cursor:default;\n      opacity:1;\n      text-decoration:none;\n    }'''
+          assert css in s
+          s=s.replace(css,css_new,1)
+          p.write_text(s)
+      - name: Commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pages/grain/index.html
+          git commit -m 'Open harvest ticket image from ticket number'
+          git push
