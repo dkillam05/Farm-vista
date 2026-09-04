@@ -14,50 +14,39 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
-          p = Path('pages/grain/index.html')
-          s = p.read_text()
+          p=Path('pages/grain/index.html')
+          s=p.read_text()
 
-          # 1. Add styling for ticket-number button + nested image modal.
-          anchor = '    .ticket-link:hover{text-decoration:underline}\n'
-          css = '''    .ticket-link:hover{text-decoration:underline}\n\n    button.ticket-link{\n      appearance:none;\n      -webkit-appearance:none;\n      border:0;\n      padding:0;\n      background:none;\n      font:inherit;\n      cursor:pointer;\n    }\n\n    button.ticket-link:disabled{\n      color:inherit;\n      opacity:1;\n      cursor:default;\n      text-decoration:none;\n    }\n\n    #ticket-image-modal-backdrop{z-index:13000}\n    .ticket-image-modal{width:min(920px,96vw);max-height:94vh}\n    .ticket-image-modal-body{display:flex;align-items:center;justify-content:center;overflow:auto;background:var(--surface-2,#f4f4f4);padding:12px}\n    .ticket-image-modal-img{display:block;max-width:100%;max-height:calc(94vh - 82px);height:auto;object-fit:contain}\n'''
-          assert anchor in s, 'ticket-link CSS anchor missing'
-          s = s.replace(anchor, css, 1)
+          anchor='    .ticket-link:hover{text-decoration:underline}\n'
+          css='''    .ticket-link:hover{text-decoration:underline}\n\n    button.ticket-link{appearance:none;-webkit-appearance:none;border:0;padding:0;background:none;font:inherit;cursor:pointer}\n    button.ticket-link:disabled{color:inherit;opacity:1;cursor:default;text-decoration:none}\n    #ticket-image-modal-backdrop{z-index:13000}\n    .ticket-image-modal{width:min(920px,96vw);max-height:94vh}\n    .ticket-image-modal-body{display:flex;align-items:center;justify-content:center;overflow:auto;background:var(--surface-2,#f4f4f4);padding:12px}\n    .ticket-image-modal-img{display:block;max-width:100%;max-height:calc(94vh - 82px);height:auto;object-fit:contain}\n'''
+          assert anchor in s
+          s=s.replace(anchor,css,1)
 
-          # 2. Add a real in-page modal immediately before the existing edit modal.
-          modal_anchor = '<div class="modal-backdrop" id="edit-modal-backdrop" aria-hidden="true">'
-          modal = '''<div class="modal-backdrop" id="ticket-image-modal-backdrop" aria-hidden="true">\n  <div class="modal ticket-image-modal" role="dialog" aria-modal="true" aria-labelledby="ticket-image-modal-title">\n    <div class="modal-head">\n      <div class="modal-title" id="ticket-image-modal-title">Grain Ticket</div>\n      <button type="button" class="modal-close" id="ticket-image-modal-close" aria-label="Close ticket image">×</button>\n    </div>\n    <div class="modal-body ticket-image-modal-body">\n      <img id="ticket-image-modal-img" class="ticket-image-modal-img" alt="Saved grain ticket image" />\n    </div>\n  </div>\n</div>\n\n'''
-          assert modal_anchor in s, 'edit modal anchor missing'
-          s = s.replace(modal_anchor, modal + modal_anchor, 1)
+          modal_anchor='<div class="modal-backdrop" id="edit-modal-backdrop" aria-hidden="true">'
+          modal='''<div class="modal-backdrop" id="ticket-image-modal-backdrop" aria-hidden="true">\n  <div class="modal ticket-image-modal" role="dialog" aria-modal="true" aria-labelledby="ticket-image-modal-title">\n    <div class="modal-head">\n      <div class="modal-title" id="ticket-image-modal-title">Grain Ticket</div>\n      <button type="button" class="modal-close" id="ticket-image-modal-close" aria-label="Close ticket image">×</button>\n    </div>\n    <div class="modal-body ticket-image-modal-body">\n      <img id="ticket-image-modal-img" class="ticket-image-modal-img" alt="Saved grain ticket image" />\n    </div>\n  </div>\n</div>\n\n'''
+          assert modal_anchor in s
+          s=s.replace(modal_anchor,modal+modal_anchor,1)
 
-          # 3. Replace new-tab behavior with the in-page modal.
-          old_open = '''  function openHarvestTicketImage(ticket){\n    const imageUrl = ticketImageValue(ticket);\n    if(!imageUrl){\n      window.alert("No saved ticket image is available for this ticket.");\n      return;\n    }\n    window.open(imageUrl,"_blank","noopener,noreferrer");\n  }'''
-          new_open = '''  function openHarvestTicketImage(ticket){\n    const imageUrl = ticketImageValue(ticket);\n    if(!imageUrl){\n      window.alert("No saved ticket image is available for this ticket.");\n      return;\n    }\n\n    const backdrop = $("ticket-image-modal-backdrop");\n    const image = $("ticket-image-modal-img");\n    const title = $("ticket-image-modal-title");\n    if(!backdrop || !image || !title) return;\n\n    title.textContent = `Grain Ticket ${ticketNumberValue(ticket)}`;\n    image.alt = `Saved image for grain ticket ${ticketNumberValue(ticket)}`;\n    image.src = imageUrl;\n    backdrop.classList.add("open");\n    backdrop.setAttribute("aria-hidden","false");\n    document.body.style.overflow = "hidden";\n  }\n\n  function closeHarvestTicketImage(){\n    const backdrop = $("ticket-image-modal-backdrop");\n    const image = $("ticket-image-modal-img");\n    if(!backdrop) return;\n    backdrop.classList.remove("open");\n    backdrop.setAttribute("aria-hidden","true");\n    if(image) image.removeAttribute("src");\n    document.body.style.overflow = $("harvest-modal-backdrop")?.classList.contains("open") ? "hidden" : "";\n  }'''
-          assert old_open in s, 'old new-tab opener missing'
-          s = s.replace(old_open, new_open, 1)
+          old='''  function openHarvestTicketImage(ticket){\n    const imageUrl = ticketImageValue(ticket);\n    if(!imageUrl){\n      window.alert("No saved ticket image is available for this ticket.");\n      return;\n    }\n    window.open(imageUrl,"_blank","noopener,noreferrer");\n  }'''
+          new='''  function openHarvestTicketImage(ticket){\n    const imageUrl = ticketImageValue(ticket);\n    if(!imageUrl){\n      window.alert("No saved ticket image is available for this ticket.");\n      return;\n    }\n    const backdrop=$("ticket-image-modal-backdrop");\n    const image=$("ticket-image-modal-img");\n    const title=$("ticket-image-modal-title");\n    if(!backdrop || !image || !title) return;\n    title.textContent=`Grain Ticket ${ticketNumberValue(ticket)}`;\n    image.alt=`Saved image for grain ticket ${ticketNumberValue(ticket)}`;\n    image.src=imageUrl;\n    backdrop.classList.add("open");\n    backdrop.setAttribute("aria-hidden","false");\n    document.body.style.overflow="hidden";\n  }\n\n  function closeHarvestTicketImage(){\n    const backdrop=$("ticket-image-modal-backdrop");\n    const image=$("ticket-image-modal-img");\n    if(!backdrop) return;\n    backdrop.classList.remove("open");\n    backdrop.setAttribute("aria-hidden","true");\n    if(image) image.removeAttribute("src");\n    document.body.style.overflow=$("harvest-modal-backdrop")?.classList.contains("open") ? "hidden" : "";\n  }'''
+          assert old in s
+          s=s.replace(old,new,1)
 
-          # 4. Remove View column.
-          old_head = '              <th>Damage</th>\n              <th>View</th>'
-          assert old_head in s, 'View header missing'
-          s = s.replace(old_head, '              <th>Damage</th>', 1)
+          s=s.replace('              <th>Damage</th>\n              <th>View</th>','              <th>Damage</th>',1)
 
-          # 5. Ticket number itself becomes the image button.
-          old_ticket = '''                <td>\n                  <a class="ticket-link" href="/pages/grain/grain-ticket-detail.html?id=${encodeURIComponent(ticket.id)}">\n                    ${esc(ticketNumberValue(ticket))}\n                  </a>\n                </td>'''
-          new_ticket = '''                <td>\n                  <button type="button" class="ticket-link harvest-ticket-image" data-ticket-image="${esc(ticket.id)}" ${ticketImageValue(ticket) ? "" : "disabled"}>\n                    ${esc(ticketNumberValue(ticket))}\n                  </button>\n                </td>'''
-          assert old_ticket in s, 'ticket number link missing'
-          s = s.replace(old_ticket, new_ticket, 1)
+          old='''                <td>\n                  <a class="ticket-link" href="/pages/grain/grain-ticket-detail.html?id=${encodeURIComponent(ticket.id)}">\n                    ${esc(ticketNumberValue(ticket))}\n                  </a>\n                </td>'''
+          new='''                <td>\n                  <button type="button" class="ticket-link harvest-ticket-image" data-ticket-image="${esc(ticket.id)}" ${ticketImageValue(ticket) ? "" : "disabled"}>\n                    ${esc(ticketNumberValue(ticket))}\n                  </button>\n                </td>'''
+          assert old in s
+          s=s.replace(old,new,1)
 
-          # 6. Remove old View button cell.
-          old_view = '''                <td class="${gradeClass(ticket.damage)}">${fmtGrade(ticket.damage)}</td>\n                <td>\n                  <button type="button" class="btn harvest-ticket-image" data-ticket-image="${esc(ticket.id)}" ${ticketImageValue(ticket) ? "" : "disabled"}>\n                    View\n                  </button>\n                </td>'''
-          new_view = '''                <td class="${gradeClass(ticket.damage)}">${fmtGrade(ticket.damage)}</td>'''
-          assert old_view in s, 'old View button cell missing'
-          s = s.replace(old_view, new_view, 1)
+          old='''                <td class="${gradeClass(ticket.damage)}">${fmtGrade(ticket.damage)}</td>\n                <td>\n                  <button type="button" class="btn harvest-ticket-image" data-ticket-image="${esc(ticket.id)}" ${ticketImageValue(ticket) ? "" : "disabled"}>\n                    View\n                  </button>\n                </td>'''
+          assert old in s
+          s=s.replace(old,'                <td class="${gradeClass(ticket.damage)}">${fmtGrade(ticket.damage)}</td>',1)
 
-          # 7. Wire modal close behavior without depending on old initialization anchors.
-          module_end = '\n</script>\n\n</body>'
-          wiring = '''\n\n  $("ticket-image-modal-close")?.addEventListener("click",closeHarvestTicketImage);\n  $("ticket-image-modal-backdrop")?.addEventListener("click",event => {\n    if(event.target === $("ticket-image-modal-backdrop")) closeHarvestTicketImage();\n  });\n  document.addEventListener("keydown",event => {\n    if(event.key === "Escape" && $("ticket-image-modal-backdrop")?.classList.contains("open")){\n      closeHarvestTicketImage();\n    }\n  });\n'''
-          assert module_end in s, 'module end anchor missing'
-          s = s.replace(module_end, wiring + module_end, 1)
-
+          wiring='''\n\n  $("ticket-image-modal-close")?.addEventListener("click",closeHarvestTicketImage);\n  $("ticket-image-modal-backdrop")?.addEventListener("click",event=>{\n    if(event.target === $("ticket-image-modal-backdrop")) closeHarvestTicketImage();\n  });\n  document.addEventListener("keydown",event=>{\n    if(event.key === "Escape" && $("ticket-image-modal-backdrop")?.classList.contains("open")) closeHarvestTicketImage();\n  });\n'''
+          pos=s.rfind('</script>')
+          assert pos >= 0
+          s=s[:pos]+wiring+s[pos:]
           p.write_text(s)
       - name: Verify requested behavior
         shell: bash
