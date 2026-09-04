@@ -53,6 +53,34 @@
   }
 
   /* ===================================================================
+     SEPT 4, 2026 — GRAIN TICKET SOURCE NORMALIZATION
+
+     Manual, in-app OCR, and SMS/guest tickets must all roll up identically.
+     SMS tickets can have the correct source on their linked grain_loadouts
+     record while the grain_tickets record is missing the canonical harvest
+     fields. Normalize those fields on Ticket Details and Grain Inventory so
+     Active Harvest and individual Field totals always read the same data.
+  =================================================================== */
+
+  const isGrainInventory =
+    path.endsWith('/pages/grain/index.html') ||
+    path === '/pages/grain/' ||
+    path === '/pages/grain';
+
+  if (
+    (isGrainTicketDetail || isGrainInventory) &&
+    !window.__FV_GRAIN_TICKET_SOURCE_NORMALIZER_20260904
+  ) {
+    window.__FV_GRAIN_TICKET_SOURCE_NORMALIZER_20260904 = true;
+
+    const script = document.createElement('script');
+    script.type = 'module';
+    script.src = '/js/grain-ticket-source-normalizer.js?v=20260904-1';
+    script.dataset.fvGrainTicketSourceNormalizer = '1';
+    document.head.appendChild(script);
+  }
+
+  /* ===================================================================
      SEPT 3, 2026 — LOAD OUT REPEAT-RUN DEFAULTS
 
      Use ONE ordered module for repeat-run autofill.
@@ -127,11 +155,6 @@
   /* ===================================================================
      SEPT 3, 2026 — GRAIN INVENTORY DARK MODE
   =================================================================== */
-
-  const isGrainInventory =
-    path.endsWith('/pages/grain/index.html') ||
-    path === '/pages/grain/' ||
-    path === '/pages/grain';
 
   if (!isGrainInventory || window.__FV_GRAIN_DARK_FIX_20260903) return;
   window.__FV_GRAIN_DARK_FIX_20260903 = true;
