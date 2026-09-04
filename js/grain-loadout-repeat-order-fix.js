@@ -173,6 +173,26 @@ function showGood(text) {
     : "loadout-form-message";
 }
 
+function stopPinTimer() {
+  if (pinTimer) clearInterval(pinTimer);
+  pinTimer = null;
+}
+
+/*
+  Repeat data belongs to ONE driver only. Whenever the driver changes, clear
+  every reference to the previously selected driver's load before doing any
+  new lookup. This prevents a manually selected hauling job from reviving the
+  prior driver's Sold Under / Grain Source values.
+*/
+function clearPinnedRepeatState() {
+  pinnedJobId = "";
+  pinnedJob = null;
+  pinnedLoad = null;
+  applying = false;
+  stopPinTimer();
+  showGood("");
+}
+
 /*
   The saved load already stores haulingJobName/haulingJobLabel. Use that
   FIRST. The old code rebuilt a generic destination/crop label instead of
@@ -238,7 +258,7 @@ function ensureJobOption(jobId, job = pinnedJob, previousLoad = pinnedLoad) {
 }
 
 function forcePinnedJob() {
-  if (!pinnedJobId || !el.haulingJob || !isCreateModal()) return false;
+  if (!pinnedJobId || !pinnedLoad || !el.haulingJob || !isCreateModal()) return false;
 
   const option = ensureJobOption(pinnedJobId);
   if (!option) return false;
@@ -254,16 +274,11 @@ function forcePinnedJob() {
   return clean(el.haulingJob.value) === pinnedJobId;
 }
 
-function stopPinTimer() {
-  if (pinTimer) clearInterval(pinTimer);
-  pinTimer = null;
-}
-
 function startPinTimer() {
   stopPinTimer();
 
   pinTimer = setInterval(() => {
-    if (!isCreateModal() || !pinnedJobId) {
+    if (!isCreateModal() || !pinnedJobId || !pinnedLoad) {
       stopPinTimer();
       return;
     }
@@ -398,6 +413,9 @@ async function applyPreviousRun() {
   const myToken = ++token;
   const key = driverKey();
 
+  /* Never carry repeat state across drivers, even if the next driver has no history. */
+  clearPinnedRepeatState();
+
   if (!isCreateModal() || !key) return;
 
   let loadSnapshot;
@@ -424,6 +442,7 @@ async function applyPreviousRun() {
     key
   );
 
+  /* No history for this driver means no automatic values at all. */
   if (!previousLoad) return;
 
   const jobId = clean(previousLoad.haulingJobId);
@@ -472,14 +491,18 @@ async function applyPreviousRun() {
 }
 
 function scheduleApply() {
+  /* Invalidate the old driver's async work immediately, then load this driver. */
+  token += 1;
+  clearPinnedRepeatState();
   setTimeout(applyPreviousRun, 100);
 }
 
-/* Prevent the page's legacy customer-change listener from blanking the job. */
+/* Prevent the page's legacy customer-change listener from blanking a job only
+   while we are actively restoring THIS driver's previous load. */
 el.customer?.addEventListener(
   "change",
   event => {
-    if (isCreateModal() && (pinnedJobId || clean(el.haulingJob?.value))) {
+    if (isCreateModal() && pinnedJobId && pinnedLoad) {
       event.stopImmediatePropagation();
       forcePinnedJob();
     }
@@ -490,7 +513,8 @@ el.customer?.addEventListener(
 el.driver?.addEventListener("change", scheduleApply);
 el.subdriver?.addEventListener("change", scheduleApply);
 
-/* Manual hauling-job choice always wins. */
+/* Manual hauling-job choice always wins. It must never trigger a previous
+   driver's customer/source data when the current driver has no repeat state. */
 el.haulingJob?.addEventListener("change", event => {
   const selected = clean(el.haulingJob?.value);
 
@@ -500,15 +524,14 @@ el.haulingJob?.addEventListener("change", event => {
     selected &&
     selected !== pinnedJobId
   ) {
-    pinnedJobId = "";
-    pinnedJob = null;
-    pinnedLoad = null;
-    stopPinTimer();
+    clearPinnedRepeatState();
     return;
   }
 
-  if (!applying && pinnedJobId && selected === pinnedJobId && pinnedLoad) {
+  if (!applying && pinnedJobId && pinnedLoad && selected === pinnedJobId) {
     setTimeout(async () => {
+      /* Confirm this repeat state still belongs to the currently selected driver. */
+      if (!pinnedLoad || !loadMatchesDriver(pinnedLoad, driverKey())) return;
       forcePinnedJob();
       await restoreCustomer(pinnedLoad);
       await restoreSource(pinnedLoad);
