@@ -14,6 +14,30 @@
 
 (() => {
 
+  /* ==========================================================
+     GRAIN TICKET SCAN SUPPORT
+
+     grain-ticket-scan.html does not use fv-shell/version.js, so
+     load its signed-in scan helper directly from this script,
+     which the scan page already loads before its main module.
+  ========================================================== */
+
+  const currentPath =
+    String(window.location.pathname || '').toLowerCase();
+
+  if (
+    currentPath.endsWith('/pages/grain/grain-ticket-scan.html') &&
+    !window.__FV_GRAIN_TICKET_SCAN_SOURCE_FLOW_DIRECT_20260904
+  ) {
+    window.__FV_GRAIN_TICKET_SCAN_SOURCE_FLOW_DIRECT_20260904 = true;
+
+    const helperScript = document.createElement('script');
+    helperScript.type = 'module';
+    helperScript.src = '/js/grain-ticket-scan-source-flow.js?v=20260904-2';
+    helperScript.dataset.fvGrainTicketScanSourceFlowDirect = '1';
+    document.head.appendChild(helperScript);
+  }
+
   const FARM_STORAGE_KEY =
     "fv:farm-key";
 
