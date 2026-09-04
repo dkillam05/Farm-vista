@@ -25,6 +25,58 @@ await ready;
 const db = getFirestore();
 const $ = id => document.getElementById(id);
 
+/*
+  Dark-theme tune for the Load Out / Dispatch table.
+  The light-mode row fills are intentionally pale, but in dark mode they made
+  the inherited light text nearly disappear. Keep the same status meaning
+  while using dark translucent fills, matching the Grain Tickets table.
+*/
+(function installLoadoutDarkThemeFix() {
+  if (document.getElementById("fv-loadout-dark-theme-fix")) return;
+
+  const style = document.createElement("style");
+  style.id = "fv-loadout-dark-theme-fix";
+  style.textContent = `
+    html.dark .loadout-table,
+    html[data-theme="dark"] .loadout-table {
+      color: var(--text);
+    }
+
+    html.dark .loadout-row-open,
+    html[data-theme="dark"] .loadout-row-open {
+      background: var(--surface);
+      color: var(--text);
+    }
+
+    html.dark .loadout-row-missing,
+    html[data-theme="dark"] .loadout-row-missing {
+      background: rgba(201, 68, 77, .16);
+      color: var(--text);
+    }
+
+    html.dark .loadout-row-linked,
+    html[data-theme="dark"] .loadout-row-linked {
+      background: rgba(47, 108, 60, .20);
+      color: var(--text);
+    }
+
+    html.dark .loadout-row-preload,
+    html[data-theme="dark"] .loadout-row-preload {
+      background: rgba(70, 158, 208, .18);
+      color: var(--text);
+    }
+
+    html.dark .loadout-table td,
+    html[data-theme="dark"] .loadout-table td,
+    html.dark .loadout-number,
+    html[data-theme="dark"] .loadout-number {
+      color: var(--text);
+    }
+  `;
+
+  document.head.appendChild(style);
+})();
+
 const el = {
   backdrop: $("loadout-modal-backdrop"),
   modalTitle: $("loadout-modal-title"),
@@ -406,21 +458,17 @@ async function applyPreviousRun() {
   await delay(250);
   forcePinnedJob();
 
-  const customerRestored = await restoreCustomer(previousLoad);
+  await restoreCustomer(previousLoad);
   await delay(100);
   forcePinnedJob();
 
-  const sourceRestored = await restoreSource(previousLoad);
+  await restoreSource(previousLoad);
   await delay(150);
   forcePinnedJob();
 
   applying = false;
 
-  showGood(
-    customerRestored && sourceRestored
-      ? "Previous load copied. Hauling Job, Sold Under, and Grain Source are ready; change anything that is different."
-      : "Previous hauling job copied. Review any field that could not be reused, then assign the load."
-  );
+  showGood("Data copied from previous load.");
 }
 
 function scheduleApply() {
