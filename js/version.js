@@ -46,28 +46,27 @@
     path === '/pages/grain';
 
   /* ===================================================================
-     SEPT 4, 2026 — ONE CANONICAL GRAIN SOURCE MODEL
+     SEPT 4, 2026 — CANONICAL GRAIN SOURCE REPAIR
 
-     Manual, OCR, SMS/guest, Load Out and Ticket Details all use the same
-     Firestore fields:
-       Active Harvest -> active_field_harvest
-       Field          -> active_field_harvest + grainSourceScope="field"
-       Storage        -> existing bin/bag source types
+     IMPORTANT:
+     This is a bulk repair/migration pass. It must NOT run in the critical
+     path of opening Ticket Details, Manual Add, or Load Out. Those pages
+     should remain lightweight and load immediately.
 
-     The normalizer also repairs older/current records and validates field
-     identity against the real /fields collection. It specifically prevents
-     labels such as "Active Field Harvest" from becoming fake field names.
+     Run the repair from Grain Inventory only. It reads existing
+     grain_tickets, grain_loadouts, and fields and normalizes old/current
+     harvest source records before the inventory rollup refreshes.
   =================================================================== */
 
   if (
-    (isGrainTicketDetail || isGrainTicketPage || isGrainTicketAdd || isGrainInventory) &&
+    isGrainInventory &&
     !window.__FV_GRAIN_SOURCE_CANONICAL_20260904_V2
   ) {
     window.__FV_GRAIN_SOURCE_CANONICAL_20260904_V2 = true;
 
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = '/js/grain-ticket-source-normalizer.js?v=20260904-2';
+    script.src = '/js/grain-ticket-source-normalizer.js?v=20260904-3';
     script.dataset.fvGrainSourceCanonical = '1';
     document.head.appendChild(script);
   }
@@ -75,12 +74,13 @@
   /* ===================================================================
      SEPT 4, 2026 — GRAIN SOURCE WORDING CONSISTENCY
 
-     User-facing wording is "Active Harvest" everywhere. Keep the historical
-     internal value active_field_harvest for data compatibility.
+     Keep this helper off Ticket Details. The Ticket Details-specific source
+     helper already handles its source labels and field UI. This avoids extra
+     observers touching the detail page while it is rendering.
   =================================================================== */
 
   if (
-    (isGrainTicketDetail || isGrainTicketPage || isGrainTicketAdd) &&
+    (isGrainTicketPage || isGrainTicketAdd) &&
     !window.__FV_GRAIN_SOURCE_UI_CONSISTENCY_20260904
   ) {
     window.__FV_GRAIN_SOURCE_UI_CONSISTENCY_20260904 = true;
@@ -95,7 +95,7 @@
   /* ===================================================================
      SEPT 3, 2026 — GRAIN TICKET FIELD SOURCE UI
 
-     Keep the ticket-detail behavior in its own module. The module:
+     Ticket Details gets only its lightweight page-specific helper:
        - displays only real field names from /fields;
        - replaces hundreds of field rows with one Fields drill-in;
        - shows generic harvest as Active Harvest;
@@ -107,7 +107,7 @@
 
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = '/js/grain-ticket-detail-source-ui.js?v=20260904-2';
+    script.src = '/js/grain-ticket-detail-source-ui.js?v=20260904-3';
     script.dataset.fvGrainTicketSourceUi = '1';
     document.head.appendChild(script);
   }
@@ -123,10 +123,6 @@
        2. Hauling Job
        3. Sold Under / Customer
        4. Grain Source LAST
-
-     The older split repeat-default + hauling-job-fix modules are no longer
-     loaded here because they could race each other and leave Hauling Job
-     blank while Grain Source appeared populated.
   =================================================================== */
 
   if (isGrainTicketPage && !window.__FV_GRAIN_LOADOUT_REPEAT_ORDER_FIX_20260903) {
@@ -154,13 +150,6 @@
 
   /* ===================================================================
      SEPT 4, 2026 — IN-APP GRAIN TICKET SOURCE FLOW
-
-     Signed-in scan page:
-       - duplicate UX guard;
-       - Active Harvest wording;
-       - Field source;
-       - Grain Storage only when that crop has positive bin/bag inventory;
-       - guest/load-out scans untouched.
   =================================================================== */
 
   if (isGrainTicketScan && !window.__FV_GRAIN_TICKET_SCAN_SOURCE_FLOW_20260904) {
