@@ -1,19 +1,19 @@
 /* =====================================================================
-   FarmVista — Load Out Repeat-Run Order Fix
+   FarmVista — Load Out Repeat-Run Stable Defaults
 
-   Fixes the last repeat-run race on Assign Load:
-     1. Driver is selected.
-     2. Previous hauling job is restored FIRST.
-     3. The page is allowed to apply Crop / Destination / Sold Under rules.
-     4. Previous Sold Under is restored.
-     5. Previous Grain Source is restored LAST.
+   Reuses the selected driver's most recent load on a NEW Assign Load.
 
-   The page intentionally clears Grain Source whenever Hauling Job changes.
-   Therefore Grain Source must never be restored before the hauling-job
-   change has completely finished.
+   Order is intentional:
+     1. Hauling Job
+     2. let grain-ticket.html apply Crop / Destination rules
+     3. Sold Under / Customer
+     4. Grain Source LAST
 
-   This module also protects the selected hauling job from a late render
-   clearing the SELECT after the other fields were already restored.
+   The hauling-job SELECT is watched during the short page render window.
+   If grain-ticket.html rebuilds its options and temporarily blanks the
+   selected value, this module re-selects the exact previous hauling-job ID
+   WITHOUT firing a second change event. A manual choice of a different
+   hauling job always wins.
 ===================================================================== */
 
 import {
@@ -26,7 +26,6 @@ import {
 await ready;
 
 const db = getFirestore();
-
 const $ = id => document.getElementById(id);
 
 const el = {
@@ -35,18 +34,19 @@ const el = {
   driver: $("loadout-driver"),
   subdriver: $("loadout-subdriver"),
   haulingJob: $("loadout-hauling-job"),
-  customer: $("loadout-customer"),
   customerButton: $("loadout-customer-button"),
   customerMenu: $("loadout-customer-menu"),
-  source: $("loadout-source"),
   sourceButton: $("loadout-source-button"),
   sourceMenu: $("loadout-source-menu"),
   message: $("loadout-form-message")
 };
 
-let token = 0;
-let currentPreviousLoad = null;
-let applying = false;
+let runToken = 0;
+let previousLoadForDriver = null;
+let applyingPreviousRun = false;
+let expectedJobId = "";
+let guardUntil = 0;
+let haulingObserver = null;
 
 function clean(value) {
   return String(value ?? "").trim();
@@ -64,8 +64,9 @@ function millis(value) {
   if (value?.toMillis) return value.toMillis();
   if (value?.toDate) return value.toDate().getTime();
   if (value instanceof Date) return value.getTime();
-  const date = new Date(value || 0);
-  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+
+  const parsed = new Date(value || 0);
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
 }
 
 function isCreateModal() {
@@ -78,7 +79,9 @@ function isCreateModal() {
 function driverKey() {
   const value = clean(el.driver?.value);
 
-  if (value.startsWith("emp:")) return value;
+  if (value.startsWith("emp:")) {
+    return value;
+  }
 
   if (value.startsWith("sub:")) {
     const subdriverId = clean(el.subdriver?.value);
@@ -120,15 +123,86 @@ function latestLoad(loads, key) {
 
 function showMessage(text) {
   if (!el.message) return;
-  el.message.textContent = text;
-  el.message.className = "loadout-form-message show good";
+  el.message.textContent = text || "";
+  el.message.className = text
+    ? "loadout-form-message show good"
+    : "loadout-form-message";
 }
 
 function exactOption(select, value) {
   const wanted = clean(value);
+
   return Array.from(select?.options || []).find(
     option => clean(option.value) === wanted
   ) || null;
+}
+
+async function waitForJobOption(jobId, timeoutMs = 3500) {
+  const started = Date.now();
+
+  while (
+    isCreateModal() &&
+    Date.now() - started < timeoutMs
+  ) {
+    const option = exactOption(el.haulingJob, jobId);
+    if (option) return option;
+    await delay(60);
+  }
+
+  return null;
+}
+
+function reassertExpectedJob() {
+  if (
+    !expectedJobId ||
+    Date.now() > guardUntil ||
+    !isCreateModal() ||
+    !el.haulingJob
+  ) {
+    return;
+  }
+
+  const current = clean(el.haulingJob.value);
+
+  /*
+    A real manual choice of ANOTHER hauling job wins immediately.
+    Only repair the transient blank state caused by option re-rendering.
+  */
+  if (current && current !== expectedJobId) {
+    expectedJobId = "";
+    guardUntil = 0;
+    return;
+  }
+
+  if (!current) {
+    const option = exactOption(el.haulingJob, expectedJobId);
+
+    if (option) {
+      el.haulingJob.value = option.value;
+      option.selected = true;
+    }
+  }
+}
+
+function startHaulingJobGuard(jobId) {
+  expectedJobId = clean(jobId);
+  guardUntil = Date.now() + 3000;
+
+  if (!haulingObserver && el.haulingJob) {
+    haulingObserver = new MutationObserver(() => {
+      queueMicrotask(reassertExpectedJob);
+    });
+
+    haulingObserver.observe(el.haulingJob, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["selected", "value"]
+    });
+  }
+
+  [0, 50, 120, 250, 450, 750, 1100, 1600, 2200, 2900]
+    .forEach(ms => setTimeout(reassertExpectedJob, ms));
 }
 
 function findChoice(container, attribute, value) {
@@ -150,7 +224,7 @@ async function restoreCustomer(previousLoad) {
   if (!customerValue) return false;
 
   el.customerButton.click();
-  await delay(40);
+  await delay(50);
 
   let button = findChoice(
     el.customerMenu,
@@ -160,6 +234,7 @@ async function restoreCustomer(previousLoad) {
 
   if (!button && clean(previousLoad.customerName)) {
     const wantedName = norm(previousLoad.customerName);
+
     button = Array.from(
       el.customerMenu?.querySelectorAll("button[data-customer-value]") || []
     ).find(item => norm(item.textContent) === wantedName) || null;
@@ -177,58 +252,67 @@ async function restoreCustomer(previousLoad) {
   return false;
 }
 
+async function restoreFieldSource(previousLoad) {
+  el.sourceButton.click();
+  await delay(50);
+
+  const fieldsButton = Array.from(
+    el.sourceMenu?.querySelectorAll("button") || []
+  ).find(button => norm(button.textContent) === "fields");
+
+  if (!fieldsButton) {
+    if (el.sourceMenu?.classList.contains("open")) {
+      el.sourceButton.click();
+    }
+    return false;
+  }
+
+  fieldsButton.click();
+  await delay(60);
+
+  const fieldModal = $("loadout-field-source-backdrop");
+  if (!fieldModal) return false;
+
+  const wantedFieldId = clean(previousLoad.grainSourceFieldId);
+  const wantedFieldName = norm(
+    previousLoad.grainSourceFieldName ||
+    previousLoad.grainSourceName
+  );
+
+  const fieldButton = Array.from(fieldModal.querySelectorAll("button")).find(
+    button => {
+      const text = norm(button.textContent);
+      return (
+        (wantedFieldName && text === wantedFieldName) ||
+        (wantedFieldId && text.includes(norm(wantedFieldId)))
+      );
+    }
+  );
+
+  if (!fieldButton) return false;
+
+  fieldButton.click();
+  return true;
+}
+
 async function restoreSource(previousLoad) {
   if (!el.sourceButton || el.sourceButton.disabled) return false;
 
   const sourceValue = clean(previousLoad.grainSourceValue);
   const sourceScope = norm(previousLoad.grainSourceScope);
+
   const isField =
     sourceScope === "field" ||
     sourceValue.includes("active_field_harvest:field:");
 
   if (isField) {
-    el.sourceButton.click();
-    await delay(40);
-
-    const fieldsButton = Array.from(
-      el.sourceMenu?.querySelectorAll("button") || []
-    ).find(button => norm(button.textContent) === "fields");
-
-    if (!fieldsButton) {
-      if (el.sourceMenu?.classList.contains("open")) el.sourceButton.click();
-      return false;
-    }
-
-    fieldsButton.click();
-    await delay(50);
-
-    const fieldModal = $("loadout-field-source-backdrop");
-    if (!fieldModal) return false;
-
-    const wantedFieldId = clean(previousLoad.grainSourceFieldId);
-    const wantedFieldName = norm(
-      previousLoad.grainSourceFieldName || previousLoad.grainSourceName
-    );
-
-    const fieldButton = Array.from(fieldModal.querySelectorAll("button")).find(
-      button => {
-        const text = norm(button.textContent);
-        return (
-          (wantedFieldName && text === wantedFieldName) ||
-          (wantedFieldId && text.includes(norm(wantedFieldId)))
-        );
-      }
-    );
-
-    if (!fieldButton) return false;
-    fieldButton.click();
-    return true;
+    return restoreFieldSource(previousLoad);
   }
 
   if (!sourceValue) return false;
 
   el.sourceButton.click();
-  await delay(40);
+  await delay(50);
 
   const button = findChoice(
     el.sourceMenu,
@@ -248,33 +332,22 @@ async function restoreSource(previousLoad) {
   return false;
 }
 
-async function restoreCustomerAndSource(previousLoad, expectedJobId) {
-  if (!isCreateModal()) return;
-  if (clean(el.haulingJob?.value) !== clean(expectedJobId)) return;
+async function restoreDependentFields(previousLoad, jobId) {
+  reassertExpectedJob();
+
+  if (clean(el.haulingJob?.value) !== clean(jobId)) {
+    return;
+  }
 
   const customerRestored = await restoreCustomer(previousLoad);
-  await delay(50);
+  await delay(60);
 
-  if (clean(el.haulingJob?.value) !== clean(expectedJobId)) {
-    /*
-      A late page render cleared the SELECT. Reassert only the value;
-      DO NOT fire change again because change intentionally clears source.
-    */
-    if (exactOption(el.haulingJob, expectedJobId)) {
-      el.haulingJob.value = expectedJobId;
-    }
-  }
+  reassertExpectedJob();
 
   const sourceRestored = await restoreSource(previousLoad);
-  await delay(120);
+  await delay(100);
 
-  /* Final stabilization after every page listener/render has run. */
-  if (
-    isCreateModal() &&
-    exactOption(el.haulingJob, expectedJobId)
-  ) {
-    el.haulingJob.value = expectedJobId;
-  }
+  reassertExpectedJob();
 
   if (customerRestored && sourceRestored) {
     showMessage(
@@ -286,10 +359,15 @@ async function restoreCustomerAndSource(previousLoad, expectedJobId) {
       "Previous Hauling Job and Grain Source copied. Review Sold Under, then assign the load."
     );
   }
+  else {
+    showMessage(
+      "Previous Hauling Job copied. Review Sold Under and Grain Source before assigning the load."
+    );
+  }
 }
 
 async function applyPreviousRun() {
-  const myToken = ++token;
+  const myToken = ++runToken;
 
   if (!isCreateModal()) return;
 
@@ -297,15 +375,22 @@ async function applyPreviousRun() {
   if (!key) return;
 
   let snapshot;
+
   try {
     snapshot = await getDocs(collection(db, "grain_loadouts"));
   }
   catch (error) {
-    console.warn("[repeat-run order fix] load history read failed", error);
+    console.warn("[repeat-run stable defaults] load history read failed", error);
     return;
   }
 
-  if (myToken !== token || key !== driverKey() || !isCreateModal()) return;
+  if (
+    myToken !== runToken ||
+    key !== driverKey() ||
+    !isCreateModal()
+  ) {
+    return;
+  }
 
   const previousLoad = latestLoad(
     snapshot.docs.map(docSnapshot => ({
@@ -315,21 +400,22 @@ async function applyPreviousRun() {
     key
   );
 
-  currentPreviousLoad = previousLoad;
+  previousLoadForDriver = previousLoad;
   if (!previousLoad) return;
 
   const jobId = clean(previousLoad.haulingJobId);
   if (!jobId || !el.haulingJob) return;
 
-  /*
-    Let the page and the older repeat module finish their work first.
-    Then this fix owns the FINAL field order.
-  */
-  await delay(220);
+  const option = await waitForJobOption(jobId);
 
-  if (myToken !== token || key !== driverKey() || !isCreateModal()) return;
+  if (
+    myToken !== runToken ||
+    key !== driverKey() ||
+    !isCreateModal()
+  ) {
+    return;
+  }
 
-  const option = exactOption(el.haulingJob, jobId);
   if (!option) {
     showMessage(
       "Previous load found, but its hauling job is no longer available. Choose the current hauling job."
@@ -337,47 +423,70 @@ async function applyPreviousRun() {
     return;
   }
 
-  applying = true;
+  applyingPreviousRun = true;
+  startHaulingJobGuard(jobId);
 
-  /* Hauling Job FIRST. Its normal change handler may clear source. */
-  el.haulingJob.value = jobId;
-  el.haulingJob.dispatchEvent(new Event("change", { bubbles: true }));
+  /*
+    Hauling Job FIRST. This is the one and only change event we fire for it.
+    grain-ticket.html is then free to populate Crop / Destination and clear
+    dependent controls as part of its normal logic.
+  */
+  el.haulingJob.value = option.value;
+  option.selected = true;
 
-  await delay(120);
+  el.haulingJob.dispatchEvent(
+    new Event("change", { bubbles: true })
+  );
 
-  /* Guard against a late render blanking the select. No second change. */
-  if (exactOption(el.haulingJob, jobId)) {
-    el.haulingJob.value = jobId;
-  }
+  await delay(220);
+  reassertExpectedJob();
 
-  await restoreCustomerAndSource(previousLoad, jobId);
+  await restoreDependentFields(previousLoad, jobId);
 
-  applying = false;
+  applyingPreviousRun = false;
 }
 
 function scheduleApply() {
-  setTimeout(applyPreviousRun, 120);
+  setTimeout(applyPreviousRun, 140);
 }
 
 el.driver?.addEventListener("change", scheduleApply);
 el.subdriver?.addEventListener("change", scheduleApply);
 
 /*
-  If the dispatcher manually chooses the SAME hauling job that was on the
-  driver's previous load, the page correctly clears Grain Source first.
-  Restore the matching previous Sold Under + Grain Source immediately after
-  that normal change completes. Different hauling jobs are left untouched.
+  Manual behavior:
+
+  - Different hauling job: do nothing; user choice wins.
+  - Same hauling job as previous load: its normal change handler clears
+    Grain Source, then we restore Sold Under + Grain Source from the prior run.
 */
 el.haulingJob?.addEventListener("change", () => {
-  if (applying || !isCreateModal() || !currentPreviousLoad) return;
+  if (!isCreateModal() || !previousLoadForDriver) return;
 
   const selectedJobId = clean(el.haulingJob.value);
-  const previousJobId = clean(currentPreviousLoad.haulingJobId);
+  const previousJobId = clean(previousLoadForDriver.haulingJobId);
 
-  if (!selectedJobId || selectedJobId !== previousJobId) return;
+  if (!selectedJobId) return;
+
+  if (
+    expectedJobId &&
+    selectedJobId !== expectedJobId
+  ) {
+    expectedJobId = "";
+    guardUntil = 0;
+  }
+
+  if (
+    applyingPreviousRun ||
+    selectedJobId !== previousJobId
+  ) {
+    return;
+  }
+
+  startHaulingJobGuard(previousJobId);
 
   setTimeout(
-    () => restoreCustomerAndSource(currentPreviousLoad, previousJobId),
-    120
+    () => restoreDependentFields(previousLoadForDriver, previousJobId),
+    180
   );
 });
