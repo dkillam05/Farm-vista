@@ -30,6 +30,10 @@ const $ = id => document.getElementById(id);
   The light-mode row fills are intentionally pale, but in dark mode they made
   the inherited light text nearly disappear. Keep the same status meaning
   while using dark translucent fills, matching the Grain Tickets table.
+
+  Also hide the temporary dropdown/modal surfaces that are opened by code
+  while restoring a driver's previous load. Their click handlers still run,
+  but the user only sees the finished field values instead of rapid flashes.
 */
 (function installLoadoutDarkThemeFix() {
   if (document.getElementById("fv-loadout-dark-theme-fix")) return;
@@ -71,6 +75,16 @@ const $ = id => document.getElementById(id);
     html.dark .loadout-number,
     html[data-theme="dark"] .loadout-number {
       color: var(--text);
+    }
+
+    html.fv-loadout-silent-preload #loadout-customer-menu,
+    html.fv-loadout-silent-preload #loadout-source-menu,
+    html.fv-loadout-silent-preload #loadout-field-source-backdrop {
+      visibility: hidden !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+      transition: none !important;
+      animation: none !important;
     }
   `;
 
@@ -173,6 +187,10 @@ function showGood(text) {
     : "loadout-form-message";
 }
 
+function setSilentPreload(active) {
+  document.documentElement.classList.toggle("fv-loadout-silent-preload", Boolean(active));
+}
+
 function stopPinTimer() {
   if (pinTimer) clearInterval(pinTimer);
   pinTimer = null;
@@ -190,6 +208,7 @@ function clearPinnedRepeatState() {
   pinnedLoad = null;
   applying = false;
   stopPinTimer();
+  setSilentPreload(false);
   showGood("");
 }
 
@@ -456,38 +475,37 @@ async function applyPreviousRun() {
   pinnedJob = job;
   pinnedLoad = previousLoad;
   applying = true;
+  setSilentPreload(true);
 
-  await delay(180);
+  try {
+    await delay(180);
 
-  if (myToken !== token || key !== driverKey() || !isCreateModal()) {
-    applying = false;
-    return;
+    if (myToken !== token || key !== driverKey() || !isCreateModal()) return;
+
+    if (!forcePinnedJob()) return;
+
+    startPinTimer();
+
+    /* Let the main page populate crop/destination from the selected job. */
+    el.haulingJob.dispatchEvent(new Event("change", { bubbles: true }));
+
+    await delay(250);
+    forcePinnedJob();
+
+    await restoreCustomer(previousLoad);
+    await delay(100);
+    forcePinnedJob();
+
+    await restoreSource(previousLoad);
+    await delay(150);
+    forcePinnedJob();
+
+    showGood("Data copied from previous load.");
   }
-
-  if (!forcePinnedJob()) {
+  finally {
     applying = false;
-    return;
+    setSilentPreload(false);
   }
-
-  startPinTimer();
-
-  /* Let the main page populate crop/destination from the selected job. */
-  el.haulingJob.dispatchEvent(new Event("change", { bubbles: true }));
-
-  await delay(250);
-  forcePinnedJob();
-
-  await restoreCustomer(previousLoad);
-  await delay(100);
-  forcePinnedJob();
-
-  await restoreSource(previousLoad);
-  await delay(150);
-  forcePinnedJob();
-
-  applying = false;
-
-  showGood("Data copied from previous load.");
 }
 
 function scheduleApply() {
@@ -532,10 +550,17 @@ el.haulingJob?.addEventListener("change", event => {
     setTimeout(async () => {
       /* Confirm this repeat state still belongs to the currently selected driver. */
       if (!pinnedLoad || !loadMatchesDriver(pinnedLoad, driverKey())) return;
-      forcePinnedJob();
-      await restoreCustomer(pinnedLoad);
-      await restoreSource(pinnedLoad);
-      forcePinnedJob();
+
+      setSilentPreload(true);
+      try {
+        forcePinnedJob();
+        await restoreCustomer(pinnedLoad);
+        await restoreSource(pinnedLoad);
+        forcePinnedJob();
+      }
+      finally {
+        setSilentPreload(false);
+      }
     }, 180);
   }
 });
