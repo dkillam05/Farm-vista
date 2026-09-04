@@ -101,6 +101,30 @@
   }
 
   /* ===================================================================
+     SEPT 4, 2026 — IN-APP GRAIN TICKET SOURCE FLOW
+
+     Improve Driver Assist on the signed-in scan page:
+       - hide Grain Storage unless the scanned crop has positive bin/bag stock;
+       - clarify the generic Active Harvest choice for untracked grain;
+       - automatically open Field and Storage pickers so one site/field tap
+         immediately continues the existing scan flow;
+       - leave guest/load-out scans untouched.
+  =================================================================== */
+
+  const isGrainTicketScan =
+    path.endsWith('/pages/grain/grain-ticket-scan.html');
+
+  if (isGrainTicketScan && !window.__FV_GRAIN_TICKET_SCAN_SOURCE_FLOW_20260904) {
+    window.__FV_GRAIN_TICKET_SCAN_SOURCE_FLOW_20260904 = true;
+
+    const script = document.createElement('script');
+    script.type = 'module';
+    script.src = '/js/grain-ticket-scan-source-flow.js';
+    script.dataset.fvGrainTicketScanSourceFlow = '1';
+    document.head.appendChild(script);
+  }
+
+  /* ===================================================================
      SEPT 3, 2026 — GRAIN INVENTORY DARK MODE
   =================================================================== */
 
