@@ -13,15 +13,12 @@ const params = new URLSearchParams(window.location.search);
 /*
   Signed-in, in-app grain ticket scan only.
 
-  Harvest source choices:
-    1. Active Harvest
-    2. Field
-
-  Also hold Driver Assist until FarmVista has checked whether the OCR ticket
-  already exists. Duplicate tickets should go straight to Already Scanned
-  without asking the driver any source questions.
-
-  Guest/load-out scans remain predefined and untouched.
+  Goals:
+    1. A duplicate ticket must stop BEFORE Driver Assist is shown.
+    2. Grain Storage is shown only when the scanned crop actually has
+       positive FarmVista bin or bag inventory.
+    3. Active Harvest and Field remain available during harvest.
+    4. Guest/load-out scans stay predefined and untouched.
 */
 if (
   !path.endsWith('/pages/grain/grain-ticket-scan.html') ||
@@ -34,9 +31,26 @@ if (
   const norm = value => clean(value).toLowerCase().replace(/[^a-z0-9]/g, '');
 
   let lastPromptKey = '';
+
   let duplicateCheckPromise = null;
   let duplicateTicket = null;
   let duplicateHandled = false;
+  let ocrSeenAt = 0;
+
+  let binSites = [];
+  let grainBagEvents = [];
+  let inventoryLoaded = false;
+  let inventoryPromise = null;
+
+  function normalizeCrop(value) {
+    const valueNorm = norm(value);
+
+    if (valueNorm.includes('soy')) return 'soybeans';
+    if (valueNorm.includes('corn')) return 'corn';
+    if (valueNorm.includes('wheat')) return 'wheat';
+
+    return valueNorm;
+  }
 
   function sourceButtons() {
     return Array.from(document.querySelectorAll('#assistBody .assist-choice'));
@@ -47,6 +61,106 @@ if (
     return sourceButtons().find(
       button => clean(button.textContent).toLowerCase() === wanted
     ) || null;
+  }
+
+  function wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  async function loadStorageInventory() {
+    if (inventoryLoaded) return;
+    if (inventoryPromise) return inventoryPromise;
+
+    inventoryPromise = (async () => {
+      try {
+        await ready;
+        const db = getFirestore();
+
+        const [binSnap, bagSnap] = await Promise.all([
+          getDocs(collection(db, 'binSites')),
+          getDocs(collection(db, 'grain_bag_events'))
+        ]);
+
+        binSites = binSnap.docs.map(docSnapshot => ({
+          id: docSnapshot.id,
+          ...docSnapshot.data()
+        }));
+
+        grainBagEvents = bagSnap.docs.map(docSnapshot => ({
+          id: docSnapshot.id,
+          ...docSnapshot.data()
+        }));
+
+        inventoryLoaded = true;
+      } catch (error) {
+        console.warn('[Grain Ticket Source Flow] Could not pre-check storage inventory:', error);
+      }
+    })();
+
+    return inventoryPromise;
+  }
+
+  function binSiteHasCrop(site, crop) {
+    const status = clean(site?.status || 'active').toLowerCase();
+    if (status && status !== 'active') return false;
+
+    const wantedCrop = normalizeCrop(crop);
+    const bins = Array.isArray(site?.bins) ? site.bins : [];
+
+    return bins.some(bin => {
+      const onHand = Number(bin?.onHand || 0);
+      const binCrop = normalizeCrop(
+        bin?.lastCropType ||
+        bin?.crop ||
+        bin?.cropType
+      );
+
+      return Number.isFinite(onHand) && onHand > 0 && binCrop === wantedCrop;
+    });
+  }
+
+  function bagEventHasCrop(event, crop) {
+    const type = clean(event?.type).toLowerCase().replace(/\s+/g, '');
+    if (type !== 'putdown') return false;
+
+    const status = clean(event?.status).toLowerCase().replace(/\s+/g, '');
+    if (status === 'pickedup') return false;
+
+    if (
+      normalizeCrop(event?.cropType || event?.crop) !==
+      normalizeCrop(crop)
+    ) {
+      return false;
+    }
+
+    const counts = event?.counts || {};
+    const full = Math.max(0, Number(counts.full || 0) || 0);
+    const partial = Math.max(0, Number(counts.partial || 0) || 0);
+
+    const partialFeetValues = Array.isArray(event?.partialFeet)
+      ? event.partialFeet
+      : Array.isArray(counts.partialFeet)
+        ? counts.partialFeet
+        : [];
+
+    const partialFeet = partialFeetValues.reduce(
+      (total, value) => total + Math.max(0, Number(value) || 0),
+      0
+    );
+
+    return full > 0 || partial > 0 || partialFeet > 0;
+  }
+
+  function hasAvailableStorage(crop) {
+    return (
+      binSites.some(site => binSiteHasCrop(site, crop)) ||
+      grainBagEvents.some(event => bagEventHasCrop(event, crop))
+    );
+  }
+
+  function promptCrop(title) {
+    const match = clean(title).match(/load of\s+(.+?)\s+come from\?/i);
+    return match ? clean(match[1]) : '';
   }
 
   async function checkDuplicateFromOcr(grainTicket) {
@@ -73,6 +187,7 @@ if (
           data.deliveryLocationName ||
           ''
         );
+
         return existingElevator && existingElevator === elevatorName;
       });
 
@@ -86,10 +201,11 @@ if (
   }
 
   /*
-    Capture the parsed OCR ticket as soon as the OCR response comes back.
-    The scanner's normal duplicate protection still remains in place later;
-    this is only an early UX gate so drivers never answer questions for a
-    ticket FarmVista already has.
+    Capture the OCR result as soon as it returns.
+
+    IMPORTANT: Driver Assist can render almost immediately afterward, so the
+    observer below deliberately waits for this duplicate lookup to appear and
+    finish before allowing the first source prompt to become visible.
   */
   const originalFetch = window.fetch.bind(window);
   window.fetch = async (...args) => {
@@ -108,8 +224,10 @@ if (
             null;
 
           if (grainTicket?.ticketNumber && grainTicket?.elevatorName) {
+            ocrSeenAt = Date.now();
             duplicateHandled = false;
             duplicateTicket = null;
+
             duplicateCheckPromise = checkDuplicateFromOcr(grainTicket)
               .then(match => {
                 duplicateTicket = match;
@@ -147,32 +265,79 @@ if (
     errorScreen?.classList.add('show');
 
     /*
-      Resolve any hidden Driver Assist promise so the scanner can reach its
-      existing duplicate guard. The driver never sees or answers the prompt.
+      Resolve the hidden Driver Assist promise so the page's original
+      duplicate protection can still run as a second safety check.
     */
     const skip = document.getElementById('assistSkipBtn');
     if (skip) skip.click();
   }
 
-  function improveMainSourcePrompt(textEl) {
+  async function waitForDuplicateGate() {
+    /*
+      There is a small race between:
+        OCR response -> clone.json() -> duplicateCheckPromise
+      and:
+        main scan flow -> Driver Assist screen
+
+      Give the OCR hook a brief opportunity to create the promise before
+      deciding there is no early duplicate check to wait for.
+    */
+    const started = Date.now();
+
+    while (!duplicateCheckPromise && Date.now() - started < 1200) {
+      await wait(25);
+    }
+
+    if (!duplicateCheckPromise) return null;
+
+    const result = await duplicateCheckPromise;
+    duplicateCheckPromise = null;
+    return result;
+  }
+
+  async function improveMainSourcePrompt(title, textEl) {
+    const crop = promptCrop(title);
+    if (!crop) return;
+
     const activeButton = buttonByText('Active Field Harvest');
     const storageButton = buttonByText('Grain Storage');
 
-    if (activeButton) activeButton.textContent = 'Active Harvest';
-    if (storageButton) storageButton.remove();
+    if (activeButton) {
+      activeButton.textContent = 'Active Harvest';
+    }
 
     if (textEl) {
-      textEl.textContent = 'Choose Active Harvest or the field this grain came from.';
+      textEl.textContent = 'Choose where this grain came from.';
+    }
+
+    /*
+      Keep Grain Storage hidden only while inventory is being checked.
+      Restore it when the scanned crop has positive bin/bag inventory.
+    */
+    if (storageButton) storageButton.style.display = 'none';
+
+    await loadStorageInventory();
+
+    if (
+      storageButton &&
+      document.body.contains(storageButton) &&
+      inventoryLoaded &&
+      hasAvailableStorage(crop)
+    ) {
+      storageButton.style.display = '';
     }
   }
 
-  function autoOpenFieldList(title, textEl) {
+  function autoOpenChoiceList(title, textEl) {
     const isFieldPrompt = /^which field did this .+ come from\?$/i.test(clean(title));
-    if (!isFieldPrompt) return;
+    const isStoragePrompt = /^which grain storage site did this .+ come from\?$/i.test(clean(title));
+
+    if (!isFieldPrompt && !isStoragePrompt) return;
 
     if (textEl) {
-      textEl.textContent =
-        'Tap the field this grain came from. FarmVista will continue automatically after you choose it.';
+      textEl.textContent = isFieldPrompt
+        ? 'Tap the field this grain came from. FarmVista will continue automatically after you choose it.'
+        : 'Tap the bin site or grain bag site. FarmVista will continue automatically after you choose it.';
     }
 
     const dropdown = document.querySelector('#assistBody .assist-dropdown');
@@ -183,49 +348,57 @@ if (
     }
   }
 
+  let applyingPrompt = false;
+
   async function applyPromptEnhancements() {
+    if (applyingPrompt) return;
+
     const screen = document.getElementById('assistScreen');
     if (!screen?.classList.contains('show')) return;
 
-    if (duplicateCheckPromise) {
+    applyingPrompt = true;
+
+    try {
+      /*
+        Hide Driver Assist immediately. The driver should never see or answer
+        this prompt until the duplicate decision has completed.
+      */
       screen.classList.remove('show');
+
       const processingScreen = document.getElementById('processingScreen');
       const processingText = document.getElementById('processingText');
+
       if (processingText) processingText.textContent = 'Checking for duplicate ticket…';
       processingScreen?.classList.add('show');
 
-      await duplicateCheckPromise;
-      duplicateCheckPromise = null;
+      const duplicate = await waitForDuplicateGate();
 
-      if (duplicateTicket) {
+      if (duplicate || duplicateTicket) {
         showAlreadyScanned();
         return;
       }
 
       processingScreen?.classList.remove('show');
       screen.classList.add('show');
+
+      const titleEl = document.getElementById('assistTitle');
+      const textEl = document.getElementById('assistText');
+      const title = clean(titleEl?.textContent);
+      if (!title) return;
+
+      const key = `${title}|${document.getElementById('assistBody')?.textContent || ''}`;
+      if (key === lastPromptKey) return;
+      lastPromptKey = key;
+
+      if (/^where did this load of .+ come from\?$/i.test(title)) {
+        await improveMainSourcePrompt(title, textEl);
+        return;
+      }
+
+      autoOpenChoiceList(title, textEl);
+    } finally {
+      applyingPrompt = false;
     }
-
-    if (duplicateTicket) {
-      showAlreadyScanned();
-      return;
-    }
-
-    const titleEl = document.getElementById('assistTitle');
-    const textEl = document.getElementById('assistText');
-    const title = clean(titleEl?.textContent);
-    if (!title) return;
-
-    const key = `${title}|${document.getElementById('assistBody')?.textContent || ''}`;
-    if (key === lastPromptKey) return;
-    lastPromptKey = key;
-
-    if (/^where did this load of .+ come from\?$/i.test(title)) {
-      improveMainSourcePrompt(textEl);
-      return;
-    }
-
-    autoOpenFieldList(title, textEl);
   }
 
   function startObserver() {
@@ -249,6 +422,7 @@ if (
       attributeFilter: ['class']
     });
 
+    loadStorageInventory();
     applyPromptEnhancements();
   }
 
