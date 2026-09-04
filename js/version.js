@@ -20,8 +20,8 @@
 
     window.App = window.App || {};
     window.App.getVersion = () => ({
-      number:  window.FV_VERSION.number,
-      date:    window.FV_VERSION.date,
+      number: window.FV_VERSION.number,
+      date: window.FV_VERSION.date,
       tagline: window.FV_VERSION.tagline
     });
   }
@@ -29,95 +29,27 @@
   const path = String(window.location.pathname || '').toLowerCase();
 
   /* ===================================================================
-     SEPT 3, 2026 — GRAIN TICKET FIELD DISPLAY
+     SEPT 3, 2026 — GRAIN TICKET FIELD SOURCE UI
 
-     Field-assigned Active Harvest tickets save both the generic source
-     name ("Active Field Harvest") and the specific field name. The grain
-     inventory correctly groups by the specific field, but the detail
-     picker can still render the generic source label. Read the saved
-     ticket once after the page has finished loading, then replace only the
-     visible picker label. No MutationObserver and no changes to page state.
+     Keep the ticket-detail behavior in its own module. The module:
+       - always displays the saved field name on field-assigned tickets;
+       - keeps Active Field Harvest as the generic choice;
+       - replaces hundreds of field rows in the main source dropdown with
+         a single Fields choice;
+       - opens a searchable field popup when Fields is chosen.
   =================================================================== */
 
   const isGrainTicketDetail =
     path.endsWith('/pages/grain/grain-ticket-detail.html');
 
-  if (isGrainTicketDetail && !window.__FV_GRAIN_FIELD_LABEL_FIX_20260903) {
-    window.__FV_GRAIN_FIELD_LABEL_FIX_20260903 = true;
+  if (isGrainTicketDetail && !window.__FV_GRAIN_TICKET_SOURCE_UI_20260903) {
+    window.__FV_GRAIN_TICKET_SOURCE_UI_20260903 = true;
 
-    const applySavedFieldLabel = async () => {
-      const ticketId = String(
-        new URLSearchParams(window.location.search).get('id') || ''
-      ).trim();
-
-      if (!ticketId) return;
-
-      try {
-        const firebase = await import('/js/firebase-init.js');
-        await firebase.ready;
-
-        const db = firebase.getFirestore();
-        const snap = await firebase.getDoc(
-          firebase.doc(db, 'grain_tickets', ticketId)
-        );
-
-        if (!snap.exists()) return;
-
-        const ticket = snap.data() || {};
-        const fieldName = String(
-          ticket.grainSourceFieldName ||
-          ticket.fieldName ||
-          ''
-        ).trim();
-
-        if (!fieldName) return;
-
-        const scope = String(ticket.grainSourceScope || '').trim().toLowerCase();
-        const type = String(ticket.grainSourceType || '').trim().toLowerCase();
-        const genericName = String(ticket.grainSourceName || '').trim().toLowerCase();
-
-        const isFieldTicket =
-          scope === 'field' ||
-          type === 'active_field_harvest' ||
-          type === 'active field harvest' ||
-          genericName === 'active field harvest';
-
-        if (!isFieldTicket) return;
-
-        let attempts = 0;
-        const timer = window.setInterval(() => {
-          attempts += 1;
-
-          const label = document.getElementById('grainSourceButtonText');
-          if (label) {
-            const current = String(label.textContent || '').trim().toLowerCase();
-
-            if (
-              current === 'active field harvest' ||
-              current === fieldName.toLowerCase()
-            ) {
-              label.textContent = fieldName;
-              window.clearInterval(timer);
-              return;
-            }
-          }
-
-          if (attempts >= 40) {
-            window.clearInterval(timer);
-          }
-        }, 250);
-      }
-      catch (error) {
-        console.warn('[FarmVista] Could not apply saved grain field label:', error);
-      }
-    };
-
-    if (document.readyState === 'complete') {
-      applySavedFieldLabel();
-    }
-    else {
-      window.addEventListener('load', applySavedFieldLabel, { once:true });
-    }
+    const script = document.createElement('script');
+    script.type = 'module';
+    script.src = '/js/grain-ticket-detail-source-ui.js';
+    script.dataset.fvGrainTicketSourceUi = '1';
+    document.head.appendChild(script);
   }
 
   /* ===================================================================
