@@ -22,6 +22,7 @@ if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) {
   let menuObserver = null;
   let labelObserver = null;
   let applyingLabel = false;
+  let compactingMenu = false;
   let fieldsById = new Map();
 
   const sourceButtonText = () => document.getElementById('grainSourceButtonText');
@@ -255,88 +256,104 @@ if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) {
 
   function compactSourceMenu() {
     const menu = sourceMenu();
-    if (!menu) return;
+    if (!menu || compactingMenu) return;
 
     const allButtons = Array.from(menu.querySelectorAll('.load-picker-choice'));
     if (!allButtons.length) return;
 
-    /* One visible name everywhere: Active Harvest. */
-    allButtons.forEach(button => {
-      const value = clean(button.dataset.sourceValue);
-      if (
-        value.startsWith('active_field_harvest') &&
-        !value.startsWith('active_field_harvest:field:') &&
-        norm(button.textContent) === 'active field harvest'
-      ) {
-        button.textContent = 'Active Harvest';
-      }
-    });
+    compactingMenu = true;
 
-    const freshFieldChoices = allButtons
-      .filter(button => clean(button.dataset.sourceValue).startsWith('active_field_harvest:field:'))
-      .map(button => {
+    try {
+      /* One visible name everywhere: Active Harvest. */
+      allButtons.forEach(button => {
         const value = clean(button.dataset.sourceValue);
-        const fieldId = parseFieldIdFromValue(value);
-        const canonicalName = fieldsById.get(fieldId);
-        if (canonicalName) button.textContent = canonicalName;
-
-        return {
-          value,
-          label: canonicalName || clean(button.textContent),
-          searchText: canonicalName || clean(button.textContent),
-          originalButton: button
-        };
-      })
-      .filter(item => item.label);
-
-    if (freshFieldChoices.length) {
-      fieldChoices = freshFieldChoices;
-
-      freshFieldChoices.forEach(item => {
-        item.originalButton.style.display = 'none';
+        if (
+          value.startsWith('active_field_harvest') &&
+          !value.startsWith('active_field_harvest:field:') &&
+          norm(button.textContent) === 'active field harvest'
+        ) {
+          button.textContent = 'Active Harvest';
+        }
       });
 
-      let fieldsButton = menu.querySelector('[data-fv-fields-drill="1"]');
-      if (!fieldsButton) {
-        fieldsButton = document.createElement('button');
-        fieldsButton.type = 'button';
-        fieldsButton.className = 'load-picker-choice';
-        fieldsButton.dataset.fvFieldsDrill = '1';
-        fieldsButton.textContent = 'Fields';
-        fieldsButton.addEventListener('click', event => {
-          event.preventDefault();
-          event.stopPropagation();
-          menu.classList.remove('open');
-          document.getElementById('grainSourceButton')?.setAttribute('aria-expanded', 'false');
-          openFieldModal();
-        });
-
-        const genericHarvest = allButtons.find(button => {
+      const freshFieldChoices = allButtons
+        .filter(button => clean(button.dataset.sourceValue).startsWith('active_field_harvest:field:'))
+        .map(button => {
           const value = clean(button.dataset.sourceValue);
-          return value.startsWith('active_field_harvest') && !value.startsWith('active_field_harvest:field:');
+          const fieldId = parseFieldIdFromValue(value);
+          const canonicalName = fieldsById.get(fieldId);
+
+          /*
+            IMPORTANT: only mutate DOM when the value is actually different.
+            Reassigning textContent on every observer pass caused a self-triggering
+            MutationObserver loop that could lock Ticket Details on iPhone/Safari.
+          */
+          if (canonicalName && clean(button.textContent) !== canonicalName) {
+            button.textContent = canonicalName;
+          }
+
+          return {
+            value,
+            label: canonicalName || clean(button.textContent),
+            searchText: canonicalName || clean(button.textContent),
+            originalButton: button
+          };
+        })
+        .filter(item => item.label);
+
+      if (freshFieldChoices.length) {
+        fieldChoices = freshFieldChoices;
+
+        freshFieldChoices.forEach(item => {
+          if (item.originalButton.style.display !== 'none') {
+            item.originalButton.style.display = 'none';
+          }
         });
 
-        if (genericHarvest?.nextSibling) {
-          menu.insertBefore(fieldsButton, genericHarvest.nextSibling);
-        } else if (genericHarvest) {
-          genericHarvest.parentNode?.appendChild(fieldsButton);
-        } else {
-          const searchWrap = menu.querySelector('.load-picker-search-wrap');
-          if (searchWrap?.nextSibling) menu.insertBefore(fieldsButton, searchWrap.nextSibling);
-          else menu.appendChild(fieldsButton);
+        let fieldsButton = menu.querySelector('[data-fv-fields-drill="1"]');
+        if (!fieldsButton) {
+          fieldsButton = document.createElement('button');
+          fieldsButton.type = 'button';
+          fieldsButton.className = 'load-picker-choice';
+          fieldsButton.dataset.fvFieldsDrill = '1';
+          fieldsButton.textContent = 'Fields';
+          fieldsButton.addEventListener('click', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            menu.classList.remove('open');
+            document.getElementById('grainSourceButton')?.setAttribute('aria-expanded', 'false');
+            openFieldModal();
+          });
+
+          const genericHarvest = allButtons.find(button => {
+            const value = clean(button.dataset.sourceValue);
+            return value.startsWith('active_field_harvest') && !value.startsWith('active_field_harvest:field:');
+          });
+
+          if (genericHarvest?.nextSibling) {
+            menu.insertBefore(fieldsButton, genericHarvest.nextSibling);
+          } else if (genericHarvest) {
+            genericHarvest.parentNode?.appendChild(fieldsButton);
+          } else {
+            const searchWrap = menu.querySelector('.load-picker-search-wrap');
+            if (searchWrap?.nextSibling) menu.insertBefore(fieldsButton, searchWrap.nextSibling);
+            else menu.appendChild(fieldsButton);
+          }
         }
       }
+
+      allButtons.forEach(button => {
+        if (button.dataset.fvClearFieldBound === '1') return;
+        const value = clean(button.dataset.sourceValue);
+        if (!value || value.startsWith('active_field_harvest:field:')) return;
+        button.dataset.fvClearFieldBound = '1';
+        button.addEventListener('click', stopShowingSavedField, { capture: true });
+      });
+
+      setDisplayedFieldName();
+    } finally {
+      compactingMenu = false;
     }
-
-    allButtons.forEach(button => {
-      if (button.dataset.fvClearFieldBound === '1') return;
-      const value = clean(button.dataset.sourceValue);
-      if (!value || value.startsWith('active_field_harvest:field:')) return;
-      button.dataset.fvClearFieldBound = '1';
-      button.addEventListener('click', stopShowingSavedField, { capture: true });
-    });
-
-    setDisplayedFieldName();
   }
 
   async function loadSavedFieldName() {
@@ -357,12 +374,8 @@ if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) {
         parseFieldIdFromValue(sourceValue)
       );
 
-      /*
-        Only show a saved Field when it resolves to a real /fields document.
-        Never turn generic labels such as "Active Field Harvest" into a field.
-      */
+      /* Only show a saved Field when it resolves to a real /fields document. */
       desiredFieldName = fieldId ? clean(fieldsById.get(fieldId)) : '';
-
       setDisplayedFieldName();
     } catch (error) {
       console.warn('[FarmVista] Could not resolve saved grain ticket field label:', error);
@@ -381,7 +394,10 @@ if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) {
     }
 
     if (menu && !menuObserver) {
-      menuObserver = new MutationObserver(() => compactSourceMenu());
+      menuObserver = new MutationObserver(() => {
+        if (compactingMenu) return;
+        requestAnimationFrame(compactSourceMenu);
+      });
       menuObserver.observe(menu, { childList: true, subtree: true });
       compactSourceMenu();
     }
