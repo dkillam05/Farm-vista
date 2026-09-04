@@ -1,0 +1,65 @@
+name: FarmVista harvest ticket image popup final
+on:
+  push:
+    paths: ['.github/workflows/fv-ticket-image-modal-final.yml']
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions: {contents: write}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch Grain Inventory ticket image behavior
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('pages/grain/index.html')
+          s=p.read_text()
+
+          # Replace new-tab opener with a true in-page modal opener.
+          old='''  function openHarvestTicketImage(ticket){\n    const imageUrl = ticketImageValue(ticket);\n    if(!imageUrl){\n      window.alert("No saved ticket image is available for this ticket.");\n      return;\n    }\n    window.open(imageUrl,"_blank","noopener,noreferrer");\n  }'''
+          new='''  function openHarvestTicketImage(ticket){\n    const imageUrl = ticketImageValue(ticket);\n    if(!imageUrl){\n      window.alert("No saved ticket image is available for this ticket.");\n      return;\n    }\n\n    const backdrop = $("ticket-image-modal-backdrop");\n    const image = $("ticket-image-modal-img");\n    const title = $("ticket-image-modal-title");\n    if(!backdrop || !image || !title) return;\n\n    title.textContent = `Grain Ticket ${ticketNumberValue(ticket)}`;\n    image.alt = `Saved image for grain ticket ${ticketNumberValue(ticket)}`;\n    image.src = imageUrl;\n    backdrop.classList.add("open");\n    backdrop.setAttribute("aria-hidden","false");\n    document.body.style.overflow = "hidden";\n  }\n\n  function closeHarvestTicketImage(){\n    const backdrop = $("ticket-image-modal-backdrop");\n    const image = $("ticket-image-modal-img");\n    if(!backdrop) return;\n    backdrop.classList.remove("open");\n    backdrop.setAttribute("aria-hidden","true");\n    if(image) image.removeAttribute("src");\n    document.body.style.overflow = $("harvest-modal-backdrop")?.classList.contains("open") ? "hidden" : "";\n  }'''
+          assert old in s, 'old window.open function not found'
+          s=s.replace(old,new,1)
+
+          # Remove View column and make ticket number itself the image control.
+          old='''              <th>Damage</th>\n              <th>View</th>'''
+          new='''              <th>Damage</th>'''
+          assert old in s, 'View header not found'
+          s=s.replace(old,new,1)
+
+          old='''                <td>\n                  <a class="ticket-link" href="/pages/grain/grain-ticket-detail.html?id=${encodeURIComponent(ticket.id)}">\n                    ${esc(ticketNumberValue(ticket))}\n                  </a>\n                </td>'''
+          new='''                <td>\n                  <button type="button" class="ticket-link harvest-ticket-image" data-ticket-image="${esc(ticket.id)}" ${ticketImageValue(ticket) ? "" : "disabled"}>\n                    ${esc(ticketNumberValue(ticket))}\n                  </button>\n                </td>'''
+          assert old in s, 'ticket link cell not found'
+          s=s.replace(old,new,1)
+
+          old='''                <td class="${gradeClass(ticket.damage)}">${fmtGrade(ticket.damage)}</td>\n                <td>\n                  <button type="button" class="btn harvest-ticket-image" data-ticket-image="${esc(ticket.id)}" ${ticketImageValue(ticket) ? "" : "disabled"}>\n                    View\n                  </button>\n                </td>'''
+          new='''                <td class="${gradeClass(ticket.damage)}">${fmtGrade(ticket.damage)}</td>'''
+          assert old in s, 'View button cell not found'
+          s=s.replace(old,new,1)
+
+          # Add image modal beside existing harvest modal.
+          marker='''<div class="modal-backdrop" id="edit-modal-backdrop" aria-hidden="true">'''
+          modal='''<div class="modal-backdrop" id="ticket-image-modal-backdrop" aria-hidden="true">\n  <div class="modal ticket-image-modal" role="dialog" aria-modal="true" aria-labelledby="ticket-image-modal-title">\n    <div class="modal-head">\n      <div class="modal-title" id="ticket-image-modal-title">Grain Ticket</div>\n      <button type="button" class="modal-close" id="ticket-image-modal-close" aria-label="Close">×</button>\n    </div>\n    <div class="modal-body ticket-image-modal-body">\n      <img id="ticket-image-modal-img" class="ticket-image-modal-img" alt="Saved grain ticket image" />\n    </div>\n  </div>\n</div>\n\n'''
+          assert marker in s, 'edit modal marker not found'
+          s=s.replace(marker,modal+marker,1)
+
+          # Add compact styling: ticket number looks like the existing link, image fits viewport.
+          marker='''    .modal-msg.error{color:var(--fv-red)}'''
+          css='''    button.ticket-link{appearance:none;-webkit-appearance:none;border:0;padding:0;background:none;font:inherit;cursor:pointer}\n    button.ticket-link:disabled{color:inherit;opacity:1;cursor:default;text-decoration:none}\n    .ticket-image-modal{width:min(920px,96vw);max-height:94vh}\n    .ticket-image-modal-body{display:flex;align-items:center;justify-content:center;overflow:auto;background:var(--surface-2,#f4f4f4);padding:12px}\n    .ticket-image-modal-img{display:block;max-width:100%;max-height:calc(94vh - 76px);height:auto;object-fit:contain}\n\n'''
+          assert marker in s, 'CSS marker not found'
+          s=s.replace(marker,css+marker,1)
+
+          # Wire close controls into existing initialization block near harvest close controls.
+          marker='''  $("harvest-modal-close")?.addEventListener("click",closeHarvestModal);'''
+          wiring='''  $("ticket-image-modal-close")?.addEventListener("click",closeHarvestTicketImage);\n  $("ticket-image-modal-backdrop")?.addEventListener("click",event => {\n    if(event.target === $("ticket-image-modal-backdrop")) closeHarvestTicketImage();\n  });\n\n'''
+          assert marker in s, 'harvest close wiring marker not found'
+          s=s.replace(marker,wiring+marker,1)
+
+          p.write_text(s)
+      - name: Commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pages/grain/index.html
+          git commit -m 'Open harvest ticket images in FarmVista popup'
+          git push
