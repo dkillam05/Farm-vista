@@ -62,6 +62,22 @@ function loadNumberValue(load) {
   );
 }
 
+function parseFieldSourceValue(value) {
+  const raw = clean(value);
+  if (!raw) return { isField: false, fieldId: '' };
+
+  const parts = raw.split(':').map(clean);
+  const isField =
+    norm(parts[0]) === 'active_field_harvest' &&
+    norm(parts[1]) === 'field' &&
+    Boolean(parts[2]);
+
+  return {
+    isField,
+    fieldId: isField ? parts[2] : ''
+  };
+}
+
 function sourceFromRecord(record) {
   const sourceType = norm(
     first(
@@ -78,20 +94,6 @@ function sourceFromRecord(record) {
       record?.grainSource?.scope,
       record?.sourceScope
     )
-  );
-
-  const fieldId = first(
-    record?.grainSourceFieldId,
-    record?.fieldId,
-    record?.grainSource?.fieldId,
-    record?.sourceFieldId
-  );
-
-  const fieldName = first(
-    record?.grainSourceFieldName,
-    record?.fieldName,
-    record?.grainSource?.fieldName,
-    record?.sourceFieldName
   );
 
   const sourceId = first(
@@ -114,9 +116,28 @@ function sourceFromRecord(record) {
     record?.sourceValue
   );
 
+  const encodedField = parseFieldSourceValue(sourceValue);
+
+  const fieldId = first(
+    record?.grainSourceFieldId,
+    record?.fieldId,
+    record?.grainSource?.fieldId,
+    record?.sourceFieldId,
+    encodedField.fieldId
+  );
+
+  const fieldName = first(
+    record?.grainSourceFieldName,
+    record?.fieldName,
+    record?.grainSource?.fieldName,
+    record?.sourceFieldName,
+    encodedField.isField ? sourceName : ''
+  );
+
   const fieldBased = Boolean(
     fieldId ||
     fieldName ||
+    encodedField.isField ||
     sourceScope === 'field' ||
     sourceType === 'field'
   );
@@ -125,7 +146,8 @@ function sourceFromRecord(record) {
     fieldBased ||
     sourceType === 'active_field_harvest' ||
     sourceType === 'active harvest' ||
-    sourceType === 'active_harvest'
+    sourceType === 'active_harvest' ||
+    norm(sourceValue).startsWith('active_field_harvest:')
   );
 
   return {
@@ -147,8 +169,10 @@ function sourceAlreadyCanonical(ticket) {
 
   if (source.fieldBased) {
     return Boolean(
+      norm(ticket?.grainSourceType) === 'active_field_harvest' &&
       norm(ticket?.grainSourceScope) === 'field' &&
-      clean(ticket?.grainSourceFieldName || ticket?.grainSourceFieldId)
+      clean(ticket?.grainSourceFieldId) &&
+      clean(ticket?.grainSourceFieldName)
     );
   }
 
@@ -228,7 +252,9 @@ function buildPatch(ticket, load) {
       patch.grainSourceName = fieldName;
     }
 
-    if (loadSource.sourceValue) patch.grainSourceValue = loadSource.sourceValue;
+    if (loadSource.sourceValue) {
+      patch.grainSourceValue = loadSource.sourceValue;
+    }
   } else {
     patch.grainSourceFieldId = null;
     patch.grainSourceFieldName = null;
