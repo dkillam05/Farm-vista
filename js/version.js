@@ -113,6 +113,28 @@
   }
 
   /* ===================================================================
+     SEPT 4, 2026 — TICKET DETAIL SOURCE EDIT PRESERVATION
+
+     Editing only Grain Source / Field on an existing ticket must not clear
+     Destination, Sold Under, Hauling Job, Load Number, Crop, or Driver.
+     The detail page's original wizard logic clears downstream fields when
+     source changes; this helper restores the existing load selections through
+     the page's own controls so both UI and private state remain synchronized.
+  =================================================================== */
+
+  if (
+    isGrainTicketDetail &&
+    !window.__FV_GRAIN_TICKET_DETAIL_PRESERVE_LOAD_20260904
+  ) {
+    window.__FV_GRAIN_TICKET_DETAIL_PRESERVE_LOAD_20260904 = true;
+
+    const script = document.createElement('script');
+    script.src = '/js/grain-ticket-detail-preserve-load.js?v=20260904-1';
+    script.dataset.fvGrainTicketDetailPreserveLoad = '1';
+    document.head.appendChild(script);
+  }
+
+  /* ===================================================================
      SEPT 3, 2026 — LOAD OUT REPEAT-RUN DEFAULTS
 
      Use ONE ordered module for repeat-run autofill.
