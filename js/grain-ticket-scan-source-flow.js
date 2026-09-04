@@ -11,14 +11,14 @@ const path = String(window.location.pathname || '').toLowerCase();
 const params = new URLSearchParams(window.location.search);
 
 /*
-  Signed-in, in-app grain ticket scan only.
+  Signed-in, in-app grain ticket scan helper.
 
-  Goals:
-    1. A duplicate ticket must stop BEFORE Driver Assist is shown.
-    2. Grain Storage is shown only when the scanned crop actually has
-       positive FarmVista bin or bag inventory.
-    3. Active Harvest and Field remain available during harvest.
-    4. Guest/load-out scans stay predefined and untouched.
+  IMPORTANT:
+  - Never block the scanner waiting on this helper.
+  - The scanner's built-in duplicate guard remains authoritative.
+  - This helper only improves UX when an early duplicate answer is available.
+  - Grain Storage is crop-aware: show it only when that crop has inventory.
+  - Guest/load-out scans remain untouched.
 */
 if (
   !path.endsWith('/pages/grain/grain-ticket-scan.html') ||
@@ -30,12 +30,9 @@ if (
   const clean = value => String(value == null ? '' : value).trim();
   const norm = value => clean(value).toLowerCase().replace(/[^a-z0-9]/g, '');
 
-  let lastPromptKey = '';
-
   let duplicateCheckPromise = null;
   let duplicateTicket = null;
   let duplicateHandled = false;
-  let ocrSeenAt = 0;
 
   let binSites = [];
   let grainBagEvents = [];
@@ -44,27 +41,10 @@ if (
 
   function normalizeCrop(value) {
     const valueNorm = norm(value);
-
     if (valueNorm.includes('soy')) return 'soybeans';
     if (valueNorm.includes('corn')) return 'corn';
     if (valueNorm.includes('wheat')) return 'wheat';
-
     return valueNorm;
-  }
-
-  function sourceButtons() {
-    return Array.from(document.querySelectorAll('#assistBody .assist-choice'));
-  }
-
-  function buttonByText(text) {
-    const wanted = clean(text).toLowerCase();
-    return sourceButtons().find(
-      button => clean(button.textContent).toLowerCase() === wanted
-    ) || null;
-  }
-
-  function wait(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   async function loadStorageInventory() {
@@ -75,25 +55,16 @@ if (
       try {
         await ready;
         const db = getFirestore();
-
         const [binSnap, bagSnap] = await Promise.all([
           getDocs(collection(db, 'binSites')),
           getDocs(collection(db, 'grain_bag_events'))
         ]);
 
-        binSites = binSnap.docs.map(docSnapshot => ({
-          id: docSnapshot.id,
-          ...docSnapshot.data()
-        }));
-
-        grainBagEvents = bagSnap.docs.map(docSnapshot => ({
-          id: docSnapshot.id,
-          ...docSnapshot.data()
-        }));
-
+        binSites = binSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        grainBagEvents = bagSnap.docs.map(d => ({ id: d.id, ...d.data() }));
         inventoryLoaded = true;
       } catch (error) {
-        console.warn('[Grain Ticket Source Flow] Could not pre-check storage inventory:', error);
+        console.warn('[Grain Ticket Source Flow] Storage pre-check failed:', error);
       }
     })();
 
@@ -104,18 +75,13 @@ if (
     const status = clean(site?.status || 'active').toLowerCase();
     if (status && status !== 'active') return false;
 
-    const wantedCrop = normalizeCrop(crop);
+    const wanted = normalizeCrop(crop);
     const bins = Array.isArray(site?.bins) ? site.bins : [];
 
     return bins.some(bin => {
       const onHand = Number(bin?.onHand || 0);
-      const binCrop = normalizeCrop(
-        bin?.lastCropType ||
-        bin?.crop ||
-        bin?.cropType
-      );
-
-      return Number.isFinite(onHand) && onHand > 0 && binCrop === wantedCrop;
+      const binCrop = normalizeCrop(bin?.lastCropType || bin?.crop || bin?.cropType);
+      return Number.isFinite(onHand) && onHand > 0 && binCrop === wanted;
     });
   }
 
@@ -126,24 +92,19 @@ if (
     const status = clean(event?.status).toLowerCase().replace(/\s+/g, '');
     if (status === 'pickedup') return false;
 
-    if (
-      normalizeCrop(event?.cropType || event?.crop) !==
-      normalizeCrop(crop)
-    ) {
+    if (normalizeCrop(event?.cropType || event?.crop) !== normalizeCrop(crop)) {
       return false;
     }
 
     const counts = event?.counts || {};
     const full = Math.max(0, Number(counts.full || 0) || 0);
     const partial = Math.max(0, Number(counts.partial || 0) || 0);
-
-    const partialFeetValues = Array.isArray(event?.partialFeet)
+    const feetValues = Array.isArray(event?.partialFeet)
       ? event.partialFeet
       : Array.isArray(counts.partialFeet)
         ? counts.partialFeet
         : [];
-
-    const partialFeet = partialFeetValues.reduce(
+    const partialFeet = feetValues.reduce(
       (total, value) => total + Math.max(0, Number(value) || 0),
       0
     );
@@ -158,55 +119,33 @@ if (
     );
   }
 
-  function promptCrop(title) {
-    const match = clean(title).match(/load of\s+(.+?)\s+come from\?/i);
-    return match ? clean(match[1]) : '';
-  }
-
   async function checkDuplicateFromOcr(grainTicket) {
     const ticketNumber = clean(grainTicket?.ticketNumber);
     const elevatorName = norm(grainTicket?.elevatorName);
-
     if (!ticketNumber || !elevatorName) return null;
 
     try {
       await ready;
       const db = getFirestore();
       const snap = await getDocs(
-        query(
-          collection(db, 'grain_tickets'),
-          where('ticketNumber', '==', ticketNumber)
-        )
+        query(collection(db, 'grain_tickets'), where('ticketNumber', '==', ticketNumber))
       );
 
       const match = snap.docs.find(docSnapshot => {
         const data = docSnapshot.data() || {};
         const existingElevator = norm(
-          data.ocrElevatorName ||
-          data.buyerName ||
-          data.deliveryLocationName ||
-          ''
+          data.ocrElevatorName || data.buyerName || data.deliveryLocationName || ''
         );
-
         return existingElevator && existingElevator === elevatorName;
       });
 
-      return match
-        ? { id: match.id, ...match.data() }
-        : null;
+      return match ? { id: match.id, ...match.data() } : null;
     } catch (error) {
       console.warn('[Grain Ticket Source Flow] Early duplicate check failed:', error);
       return null;
     }
   }
 
-  /*
-    Capture the OCR result as soon as it returns.
-
-    IMPORTANT: Driver Assist can render almost immediately afterward, so the
-    observer below deliberately waits for this duplicate lookup to appear and
-    finish before allowing the first source prompt to become visible.
-  */
   const originalFetch = window.fetch.bind(window);
   window.fetch = async (...args) => {
     const response = await originalFetch(...args);
@@ -224,21 +163,16 @@ if (
             null;
 
           if (grainTicket?.ticketNumber && grainTicket?.elevatorName) {
-            ocrSeenAt = Date.now();
             duplicateHandled = false;
             duplicateTicket = null;
-
-            duplicateCheckPromise = checkDuplicateFromOcr(grainTicket)
-              .then(match => {
-                duplicateTicket = match;
-                return match;
-              });
+            duplicateCheckPromise = checkDuplicateFromOcr(grainTicket).then(match => {
+              duplicateTicket = match;
+              return match;
+            });
           }
         }).catch(() => {});
       }
-    } catch (_) {
-      // Never interfere with the scanner's real network response.
-    }
+    } catch (_) {}
 
     return response;
   };
@@ -247,131 +181,105 @@ if (
     if (duplicateHandled) return;
     duplicateHandled = true;
 
-    const assistScreen = document.getElementById('assistScreen');
-    const processingScreen = document.getElementById('processingScreen');
+    document.getElementById('assistScreen')?.classList.remove('show');
+    document.getElementById('processingScreen')?.classList.remove('show');
+
     const errorScreen = document.getElementById('errorScreen');
     const errorTitle = errorScreen?.querySelector('.error-title');
     const errorText = document.getElementById('errorText');
-
-    assistScreen?.classList.remove('show');
-    processingScreen?.classList.remove('show');
 
     if (errorTitle) errorTitle.textContent = 'Already Scanned';
     if (errorText) {
       errorText.textContent =
         'This grain ticket is already in FarmVista. No information needs to be entered again.';
     }
-
     errorScreen?.classList.add('show');
 
-    /*
-      Resolve the hidden Driver Assist promise so the page's original
-      duplicate protection can still run as a second safety check.
-    */
-    const skip = document.getElementById('assistSkipBtn');
-    if (skip) skip.click();
+    // Let the scanner's existing flow finish and reach its own duplicate guard.
+    document.getElementById('assistSkipBtn')?.click();
   }
 
-  async function waitForDuplicateGate() {
-    /*
-      There is a small race between:
-        OCR response -> clone.json() -> duplicateCheckPromise
-      and:
-        main scan flow -> Driver Assist screen
-
-      Give the OCR hook a brief opportunity to create the promise before
-      deciding there is no early duplicate check to wait for.
-    */
-    const started = Date.now();
-
-    while (!duplicateCheckPromise && Date.now() - started < 1200) {
-      await wait(25);
-    }
-
-    if (!duplicateCheckPromise) return null;
-
-    const result = await duplicateCheckPromise;
-    duplicateCheckPromise = null;
-    return result;
+  function sourceButtons() {
+    return Array.from(document.querySelectorAll('#assistBody .assist-choice'));
   }
 
-  async function improveMainSourcePrompt(title, textEl) {
+  function buttonByText(text) {
+    const wanted = clean(text).toLowerCase();
+    return sourceButtons().find(
+      button => clean(button.textContent).toLowerCase() === wanted
+    ) || null;
+  }
+
+  function promptCrop(title) {
+    const match = clean(title).match(/load of\s+(.+?)\s+come from\?/i);
+    return match ? clean(match[1]) : '';
+  }
+
+  async function improveSourcePrompt(title, textEl) {
     const crop = promptCrop(title);
     if (!crop) return;
 
     const activeButton = buttonByText('Active Field Harvest');
     const storageButton = buttonByText('Grain Storage');
 
-    if (activeButton) {
-      activeButton.textContent = 'Active Harvest';
-    }
+    if (activeButton) activeButton.textContent = 'Active Harvest';
+    if (textEl) textEl.textContent = 'Choose where this grain came from.';
 
-    if (textEl) {
-      textEl.textContent = 'Choose where this grain came from.';
-    }
-
-    /*
-      Keep Grain Storage hidden only while inventory is being checked.
-      Restore it when the scanned crop has positive bin/bag inventory.
-    */
     if (storageButton) storageButton.style.display = 'none';
-
     await loadStorageInventory();
 
-    if (
-      storageButton &&
-      document.body.contains(storageButton) &&
-      inventoryLoaded &&
-      hasAvailableStorage(crop)
-    ) {
-      storageButton.style.display = '';
+    if (storageButton && document.body.contains(storageButton)) {
+      storageButton.style.display =
+        inventoryLoaded && hasAvailableStorage(crop) ? '' : 'none';
     }
   }
 
   function autoOpenChoiceList(title, textEl) {
-    const isFieldPrompt = /^which field did this .+ come from\?$/i.test(clean(title));
-    const isStoragePrompt = /^which grain storage site did this .+ come from\?$/i.test(clean(title));
-
-    if (!isFieldPrompt && !isStoragePrompt) return;
+    const isField = /^which field did this .+ come from\?$/i.test(clean(title));
+    const isStorage = /^which grain storage site did this .+ come from\?$/i.test(clean(title));
+    if (!isField && !isStorage) return;
 
     if (textEl) {
-      textEl.textContent = isFieldPrompt
+      textEl.textContent = isField
         ? 'Tap the field this grain came from. FarmVista will continue automatically after you choose it.'
         : 'Tap the bin site or grain bag site. FarmVista will continue automatically after you choose it.';
     }
 
     const dropdown = document.querySelector('#assistBody .assist-dropdown');
     const trigger = document.querySelector('#assistBody .assist-dropdown-trigger');
-
-    if (dropdown && trigger && !dropdown.classList.contains('open')) {
-      trigger.click();
-    }
+    if (dropdown && trigger && !dropdown.classList.contains('open')) trigger.click();
   }
 
-  let applyingPrompt = false;
+  let assistGeneration = 0;
 
   async function applyPromptEnhancements() {
-    if (applyingPrompt) return;
-
     const screen = document.getElementById('assistScreen');
     if (!screen?.classList.contains('show')) return;
 
-    applyingPrompt = true;
+    const generation = ++assistGeneration;
+    const titleEl = document.getElementById('assistTitle');
+    const textEl = document.getElementById('assistText');
+    const title = clean(titleEl?.textContent);
+    if (!title) return;
 
-    try {
-      /*
-        Hide Driver Assist immediately. The driver should never see or answer
-        this prompt until the duplicate decision has completed.
-      */
+    /*
+      Only hold Driver Assist when an early duplicate lookup ALREADY exists.
+      Never wait for a promise to appear: that was the freeze seen on iPhone.
+    */
+    const pendingDuplicate = duplicateCheckPromise;
+    if (pendingDuplicate) {
       screen.classList.remove('show');
-
       const processingScreen = document.getElementById('processingScreen');
       const processingText = document.getElementById('processingText');
-
       if (processingText) processingText.textContent = 'Checking for duplicate ticket…';
       processingScreen?.classList.add('show');
 
-      const duplicate = await waitForDuplicateGate();
+      const duplicate = await Promise.race([
+        pendingDuplicate,
+        new Promise(resolve => setTimeout(() => resolve(null), 900))
+      ]);
+
+      if (generation !== assistGeneration) return;
 
       if (duplicate || duplicateTicket) {
         showAlreadyScanned();
@@ -380,25 +288,19 @@ if (
 
       processingScreen?.classList.remove('show');
       screen.classList.add('show');
-
-      const titleEl = document.getElementById('assistTitle');
-      const textEl = document.getElementById('assistText');
-      const title = clean(titleEl?.textContent);
-      if (!title) return;
-
-      const key = `${title}|${document.getElementById('assistBody')?.textContent || ''}`;
-      if (key === lastPromptKey) return;
-      lastPromptKey = key;
-
-      if (/^where did this load of .+ come from\?$/i.test(title)) {
-        await improveMainSourcePrompt(title, textEl);
-        return;
-      }
-
-      autoOpenChoiceList(title, textEl);
-    } finally {
-      applyingPrompt = false;
     }
+
+    if (duplicateTicket) {
+      showAlreadyScanned();
+      return;
+    }
+
+    if (/^where did this load of .+ come from\?$/i.test(title)) {
+      await improveSourcePrompt(title, textEl);
+      return;
+    }
+
+    autoOpenChoiceList(title, textEl);
   }
 
   function startObserver() {
@@ -409,9 +311,7 @@ if (
     }
 
     const observer = new MutationObserver(() => {
-      requestAnimationFrame(() => {
-        applyPromptEnhancements();
-      });
+      requestAnimationFrame(applyPromptEnhancements);
     });
 
     observer.observe(assistScreen, {
@@ -423,7 +323,6 @@ if (
     });
 
     loadStorageInventory();
-    applyPromptEnhancements();
   }
 
   if (document.readyState === 'loading') {
