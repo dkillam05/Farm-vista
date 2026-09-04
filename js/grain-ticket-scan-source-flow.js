@@ -1,16 +1,15 @@
-import {
-  ready,
-  getFirestore,
-  collection,
-  getDocs
-} from '/js/firebase-init.js';
-
 const path = String(window.location.pathname || '').toLowerCase();
 const params = new URLSearchParams(window.location.search);
 
 /*
-  This helper is only for the signed-in, in-app grain ticket scan flow.
-  Guest/load-out scans are predefined and must not receive Driver Assist UI.
+  Signed-in, in-app grain ticket scan only.
+
+  During harvest the driver source question is intentionally simple:
+    1. Active Harvest
+    2. Field
+
+  Grain Storage is removed from this Driver Assist question entirely.
+  Guest/load-out scans remain predefined and untouched.
 */
 if (
   !path.endsWith('/pages/grain/grain-ticket-scan.html') ||
@@ -20,119 +19,7 @@ if (
   // Intentionally no-op.
 } else {
   const clean = value => String(value == null ? '' : value).trim();
-  const norm = value => clean(value).toLowerCase().replace(/[^a-z0-9]/g, '');
-
-  let binSites = [];
-  let grainBagEvents = [];
-  let inventoryLoaded = false;
-  let inventoryPromise = null;
   let lastPromptKey = '';
-
-  function normalizeCrop(value) {
-    const valueNorm = norm(value);
-
-    if (valueNorm.includes('soy')) return 'soybeans';
-    if (valueNorm.includes('corn')) return 'corn';
-    if (valueNorm.includes('wheat')) return 'wheat';
-
-    return valueNorm;
-  }
-
-  async function loadStorageInventory() {
-    if (inventoryLoaded) return;
-    if (inventoryPromise) return inventoryPromise;
-
-    inventoryPromise = (async () => {
-      try {
-        await ready;
-        const db = getFirestore();
-
-        const [binSnap, bagSnap] = await Promise.all([
-          getDocs(collection(db, 'binSites')),
-          getDocs(collection(db, 'grain_bag_events'))
-        ]);
-
-        binSites = binSnap.docs.map(docSnapshot => ({
-          id: docSnapshot.id,
-          ...docSnapshot.data()
-        }));
-
-        grainBagEvents = bagSnap.docs.map(docSnapshot => ({
-          id: docSnapshot.id,
-          ...docSnapshot.data()
-        }));
-
-        inventoryLoaded = true;
-      } catch (error) {
-        console.warn('[Grain Ticket Source Flow] Could not pre-check storage inventory:', error);
-      }
-    })();
-
-    return inventoryPromise;
-  }
-
-  function binSiteHasCrop(site, crop) {
-    const status = clean(site?.status || 'active').toLowerCase();
-    if (status && status !== 'active') return false;
-
-    const wantedCrop = normalizeCrop(crop);
-    const bins = Array.isArray(site?.bins) ? site.bins : [];
-
-    return bins.some(bin => {
-      const onHand = Number(bin?.onHand || 0);
-      const binCrop = normalizeCrop(
-        bin?.lastCropType ||
-        bin?.crop ||
-        bin?.cropType
-      );
-
-      return Number.isFinite(onHand) && onHand > 0 && binCrop === wantedCrop;
-    });
-  }
-
-  function bagEventHasCrop(event, crop) {
-    const type = clean(event?.type).toLowerCase().replace(/\s+/g, '');
-    if (type !== 'putdown') return false;
-
-    const status = clean(event?.status).toLowerCase().replace(/\s+/g, '');
-    if (status === 'pickedup') return false;
-
-    if (
-      normalizeCrop(event?.cropType || event?.crop) !==
-      normalizeCrop(crop)
-    ) {
-      return false;
-    }
-
-    const counts = event?.counts || {};
-    const full = Math.max(0, Number(counts.full || 0) || 0);
-    const partial = Math.max(0, Number(counts.partial || 0) || 0);
-
-    const partialFeetValues = Array.isArray(event?.partialFeet)
-      ? event.partialFeet
-      : Array.isArray(counts.partialFeet)
-        ? counts.partialFeet
-        : [];
-
-    const partialFeet = partialFeetValues.reduce(
-      (total, value) => total + Math.max(0, Number(value) || 0),
-      0
-    );
-
-    return full > 0 || partial > 0 || partialFeet > 0;
-  }
-
-  function hasAvailableStorage(crop) {
-    return (
-      binSites.some(site => binSiteHasCrop(site, crop)) ||
-      grainBagEvents.some(event => bagEventHasCrop(event, crop))
-    );
-  }
-
-  function promptCrop(title) {
-    const match = clean(title).match(/load of\s+(.+?)\s+come from\?/i);
-    return match ? clean(match[1]) : '';
-  }
 
   function sourceButtons() {
     return Array.from(
@@ -147,50 +34,35 @@ if (
     ) || null;
   }
 
-  async function improveMainSourcePrompt(title, textEl) {
-    const crop = promptCrop(title);
-    if (!crop) return;
-
+  function improveMainSourcePrompt(textEl) {
     const activeButton = buttonByText('Active Field Harvest');
     const storageButton = buttonByText('Grain Storage');
 
     if (activeButton) {
-      activeButton.textContent = 'Active Harvest / Not in FarmVista Storage';
-    }
-
-    if (textEl) {
-      textEl.textContent =
-        'Choose where the grain came from. If it came from a bin or pile that is not tracked in FarmVista inventory, choose Active Harvest / Not in FarmVista Storage.';
+      activeButton.textContent = 'Active Harvest';
     }
 
     /*
-      Hide Grain Storage immediately while FarmVista checks inventory.
-      It is only restored when this crop has positive bin or bag inventory.
+      Storage is deliberately not part of the harvest scan decision.
+      The driver should only decide between generic Active Harvest
+      and a specific Field.
     */
-    if (storageButton) storageButton.style.display = 'none';
+    if (storageButton) {
+      storageButton.remove();
+    }
 
-    await loadStorageInventory();
-
-    if (
-      storageButton &&
-      document.body.contains(storageButton) &&
-      inventoryLoaded &&
-      hasAvailableStorage(crop)
-    ) {
-      storageButton.style.display = '';
+    if (textEl) {
+      textEl.textContent = 'Choose Active Harvest or the field this grain came from.';
     }
   }
 
-  function autoOpenChoiceList(title, textEl) {
+  function autoOpenFieldList(title, textEl) {
     const isFieldPrompt = /^which field did this .+ come from\?$/i.test(clean(title));
-    const isStoragePrompt = /^which grain storage site did this .+ come from\?$/i.test(clean(title));
-
-    if (!isFieldPrompt && !isStoragePrompt) return;
+    if (!isFieldPrompt) return;
 
     if (textEl) {
-      textEl.textContent = isFieldPrompt
-        ? 'Tap the field this grain came from. FarmVista will continue automatically after you choose it.'
-        : 'Tap the bin site or grain bag site. FarmVista will continue automatically after you choose it.';
+      textEl.textContent =
+        'Tap the field this grain came from. FarmVista will continue automatically after you choose it.';
     }
 
     const dropdown = document.querySelector('#assistBody .assist-dropdown');
@@ -215,11 +87,11 @@ if (
     lastPromptKey = key;
 
     if (/^where did this load of .+ come from\?$/i.test(title)) {
-      improveMainSourcePrompt(title, textEl);
+      improveMainSourcePrompt(textEl);
       return;
     }
 
-    autoOpenChoiceList(title, textEl);
+    autoOpenFieldList(title, textEl);
   }
 
   function startObserver() {
@@ -241,7 +113,6 @@ if (
       attributeFilter: ['class']
     });
 
-    loadStorageInventory();
     applyPromptEnhancements();
   }
 
