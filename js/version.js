@@ -53,6 +53,33 @@
   }
 
   /* ===================================================================
+     SEPT 3, 2026 — LOAD OUT REPEAT-RUN DEFAULTS
+
+     On a new Load Out, once a driver (and subcontractor driver when
+     applicable) is selected, reuse that driver's most recent operational
+     setup when it is still valid:
+       - Hauling Job
+       - Sold Under / Customer
+       - Grain Source
+
+     This intentionally works across calendar days. Load number, load time,
+     preload date, and ETA remain new/current for every load.
+  =================================================================== */
+
+  const isGrainTicketPage =
+    path.endsWith('/pages/grain/grain-ticket.html');
+
+  if (isGrainTicketPage && !window.__FV_GRAIN_LOADOUT_REPEAT_DEFAULTS_20260903) {
+    window.__FV_GRAIN_LOADOUT_REPEAT_DEFAULTS_20260903 = true;
+
+    const script = document.createElement('script');
+    script.type = 'module';
+    script.src = '/js/grain-loadout-repeat-defaults.js';
+    script.dataset.fvGrainLoadoutRepeatDefaults = '1';
+    document.head.appendChild(script);
+  }
+
+  /* ===================================================================
      SEPT 3, 2026 — GRAIN INVENTORY DARK MODE
   =================================================================== */
 
