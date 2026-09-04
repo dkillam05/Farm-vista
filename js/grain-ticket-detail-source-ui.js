@@ -24,6 +24,20 @@ if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) {
   const sourceButtonText = () => document.getElementById('grainSourceButtonText');
   const sourceMenu = () => document.getElementById('grainSourceMenu');
 
+  function moveHaulingJobUnderLoadNumber() {
+    const loadNumberSelect = document.getElementById('loadNumberSelect');
+    const haulingJobSelect = document.getElementById('contractSelect');
+
+    const loadField = loadNumberSelect?.closest('.field');
+    const haulingJobField = haulingJobSelect?.closest('.field');
+
+    if (!loadField || !haulingJobField || loadField === haulingJobField) return;
+
+    if (loadField.nextElementSibling !== haulingJobField) {
+      loadField.insertAdjacentElement('afterend', haulingJobField);
+    }
+  }
+
   function setDisplayedFieldName() {
     const label = sourceButtonText();
     if (!label || !desiredFieldName || applyingLabel) return;
@@ -317,8 +331,10 @@ if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) {
   }
 
   function boot() {
+    moveHaulingJobUnderLoadNumber();
     startObservers();
     loadSavedFieldName();
+    setTimeout(moveHaulingJobUnderLoadNumber, 250);
     setTimeout(startObservers, 250);
     setTimeout(startObservers, 1000);
   }
