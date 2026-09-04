@@ -1,0 +1,53 @@
+name: FarmVista scan field touch fix
+on:
+  push:
+    paths:
+      - '.github/workflows/fv-scan-field-touch-fix.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch grain scan field UI
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one match, found {count}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          scan = 'pages/grain/grain-ticket-scan.html'
+          replace_once(
+              scan,
+              '''const useDropdown =\n  true;''',
+              '''/*\n  Field and Grain Storage must render their real choices immediately.\n  A second dropdown layer caused iPhone touch-through: tapping the arrow\n  could select the first result and resolve Driver Assist before the driver\n  intentionally chose a source. Keep dropdown behavior for other prompts,\n  but show Field/Storage as direct searchable rows.\n*/\nconst useDropdown =\n  !(\n    /^which field did this .+ come from\\?$/i.test(\n      String(title || "").trim()\n    ) ||\n    /^which grain storage site did this .+ come from\\?$/i.test(\n      String(title || "").trim()\n    )\n  );'''
+          )
+
+          helper = 'js/grain-ticket-scan-source-flow.js'
+          old = '''    /*\n      Open the second-level picker automatically, but only after the original\n      Field / Grain Storage tap has fully finished. The inline scanner now\n      disables Skip for these prompts, so the ticket cannot save until the\n      driver chooses a real field/site or intentionally goes Back.\n    */\n    const dropdown = document.querySelector('#assistBody .assist-dropdown');\n    if (dropdown && !dropdown.dataset.fvAutoOpened) {\n      dropdown.dataset.fvAutoOpened = '1';\n      dropdown.classList.remove('open');\n\n      const expectedTitle = clean(title);\n\n      setTimeout(() => {\n        if (!document.body.contains(dropdown)) return;\n\n        const liveTitle = clean(\n          document.getElementById('assistTitle')?.textContent\n        );\n\n        if (liveTitle !== expectedTitle) return;\n        if (dropdown.classList.contains('open')) return;\n\n        dropdown.querySelector('.assist-dropdown-trigger')?.click();\n      }, 250);\n    }'''
+          new = '''    /*\n      Field and Grain Storage now render their searchable choices directly\n      in the scanner. Do not auto-click or synthesize another touch here.\n      This keeps one physical tap equal to one FarmVista action on iPhone.\n    */'''
+          replace_once(helper, old, new)
+
+          config = 'js/firebase-config.js'
+          replace_once(
+              config,
+              "helperScript.src = '/js/grain-ticket-scan-source-flow.js?v=20260904-3';",
+              "helperScript.src = '/js/grain-ticket-scan-source-flow.js?v=20260904-4';"
+          )
+          PY
+      - name: Commit FarmVista fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pages/grain/grain-ticket-scan.html js/grain-ticket-scan-source-flow.js js/firebase-config.js
+          git commit -m "Make grain field selection immediate on iPhone"
+          git push
