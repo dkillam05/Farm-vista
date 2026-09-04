@@ -171,6 +171,24 @@
   }
 
   /* ===================================================================
+     SEPT 4, 2026 — ADM DECATUR GRADE FACTOR SAFETY
+
+     The current ADM Processing Decatur printer clips the left-side grade
+     labels. Use the stable right-side row codes on that exact ticket layout:
+       AC=TW, GN=MO, OP=DM, IF=HD, CO=FM, SR=SP.
+     FarmVista records TW/MO/DM/FM now and leaves HD/SP available for later.
+  =================================================================== */
+
+  if (isGrainTicketScan && !window.__FV_ADM_DECATUR_GRADE_FIX_LOADER_20260904) {
+    window.__FV_ADM_DECATUR_GRADE_FIX_LOADER_20260904 = true;
+
+    const script = document.createElement('script');
+    script.src = '/js/grain-ticket-adm-decatur-grade-fix.js?v=20260904-1';
+    script.dataset.fvAdmDecaturGradeFix = '1';
+    document.head.appendChild(script);
+  }
+
+  /* ===================================================================
      SEPT 4, 2026 — IN-APP GRAIN TICKET SOURCE FLOW
   =================================================================== */
 
@@ -179,7 +197,7 @@
 
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = '/js/grain-ticket-scan-source-flow.js';
+    script.src = '/js/grain-ticket-scan-source-flow.js?v=20260904-2';
     script.dataset.fvGrainTicketScanSourceFlow = '1';
     document.head.appendChild(script);
   }
