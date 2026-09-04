@@ -25,16 +25,6 @@ await ready;
 const db = getFirestore();
 const $ = id => document.getElementById(id);
 
-/*
-  Dark-theme tune for the Load Out / Dispatch table.
-  The light-mode row fills are intentionally pale, but in dark mode they made
-  the inherited light text nearly disappear. Keep the same status meaning
-  while using dark translucent fills, matching the Grain Tickets table.
-
-  Also hide the temporary dropdown/modal surfaces that are opened by code
-  while restoring a driver's previous load. Their click handlers still run,
-  but the user only sees the finished field values instead of rapid flashes.
-*/
 (function installLoadoutDarkThemeFix() {
   if (document.getElementById("fv-loadout-dark-theme-fix")) return;
 
@@ -196,12 +186,6 @@ function stopPinTimer() {
   pinTimer = null;
 }
 
-/*
-  Repeat data belongs to ONE driver only. Whenever the driver changes, clear
-  every reference to the previously selected driver's load before doing any
-  new lookup. This prevents a manually selected hauling job from reviving the
-  prior driver's Sold Under / Grain Source values.
-*/
 function clearPinnedRepeatState() {
   pinnedJobId = "";
   pinnedJob = null;
@@ -213,33 +197,51 @@ function clearPinnedRepeatState() {
 }
 
 /*
-  A driver change is a fresh load setup. Clear the visible hauling-job choice
-  and let grain-ticket.html's normal hauling-job change handler reset Crop,
-  Destination, Sold Under and Grain Source to their standard defaults.
-
-  This is intentionally separate from clearPinnedRepeatState(): clearing our
-  cached repeat data alone does not clear values already rendered in the form.
+  A driver change must fully clear the prior driver's hauling job too.
+  The main page rebuilds this SELECT after its change handler runs, so a
+  one-time value="" was not enough: the old injected/selected job could be
+  restored immediately afterward. Remove repeat-injected options, dispatch
+  the normal change to reset dependent fields, then reassert the blank option
+  for a few frames before the new driver's lookup begins.
 */
+function forceBlankHaulingJob() {
+  if (!isCreateModal() || !el.haulingJob) return;
+
+  Array.from(el.haulingJob.querySelectorAll('option[data-fv-repeat-injected="1"]'))
+    .forEach(option => option.remove());
+
+  let blankOption = Array.from(el.haulingJob.options || [])
+    .find(option => clean(option.value) === "") || null;
+
+  if (!blankOption) {
+    blankOption = document.createElement("option");
+    blankOption.value = "";
+    blankOption.textContent = "Select hauling job";
+    el.haulingJob.insertBefore(blankOption, el.haulingJob.firstChild || null);
+  }
+
+  Array.from(el.haulingJob.options || []).forEach(option => {
+    option.selected = option === blankOption;
+  });
+
+  el.haulingJob.value = "";
+  el.haulingJob.selectedIndex = Array.from(el.haulingJob.options || []).indexOf(blankOption);
+}
+
 function resetVisibleDriverDefaults() {
   if (!isCreateModal() || !el.haulingJob) return;
 
-  const blankIndex = Array.from(el.haulingJob.options || [])
-    .findIndex(option => clean(option.value) === "");
+  forceBlankHaulingJob();
+  el.haulingJob.dispatchEvent(new Event("change", { bubbles: true }));
 
-  el.haulingJob.value = "";
-  if (blankIndex >= 0) el.haulingJob.selectedIndex = blankIndex;
+  requestAnimationFrame(() => {
+    forceBlankHaulingJob();
+    requestAnimationFrame(forceBlankHaulingJob);
+  });
 
-  el.haulingJob.dispatchEvent(
-    new Event("change", { bubbles: true })
-  );
+  setTimeout(forceBlankHaulingJob, 40);
 }
 
-/*
-  The saved load already stores haulingJobName/haulingJobLabel. Use that
-  FIRST. The old code rebuilt a generic destination/crop label instead of
-  restoring the actual hauling-job name, which is why the value could be
-  correct while the visible text was wrong or blank.
-*/
 function haulingJobLabel(job, previousLoad) {
   const explicitName = clean(
     job?.jobName ||
@@ -270,12 +272,6 @@ function haulingJobLabel(job, previousLoad) {
   return [location, crop].filter(Boolean).join(" • ") || "Previous hauling job";
 }
 
-/*
-  Critical rendering fix:
-  - create the option if the page removed it;
-  - ALWAYS refresh its visible text, even when the option already exists;
-  - explicitly select the exact option.
-*/
 function ensureJobOption(jobId, job = pinnedJob, previousLoad = pinnedLoad) {
   if (!el.haulingJob || !jobId) return null;
 
@@ -352,11 +348,7 @@ async function restoreCustomer(previousLoad) {
   el.customerButton.click();
   await delay(60);
 
-  let button = findChoice(
-    el.customerMenu,
-    "data-customer-value",
-    customerValue
-  );
+  let button = findChoice(el.customerMenu, "data-customer-value", customerValue);
 
   if (!button && clean(previousLoad.customerName)) {
     const wantedName = norm(previousLoad.customerName);
@@ -431,11 +423,7 @@ async function restoreSource(previousLoad) {
   el.sourceButton.click();
   await delay(60);
 
-  const button = findChoice(
-    el.sourceMenu,
-    "data-source-value",
-    sourceValue
-  );
+  const button = findChoice(el.sourceMenu, "data-source-value", sourceValue);
 
   if (button) {
     button.click();
@@ -454,7 +442,6 @@ async function applyPreviousRun() {
   const myToken = ++token;
   const key = driverKey();
 
-  /* Never carry repeat state across drivers, even if the next driver has no history. */
   clearPinnedRepeatState();
 
   if (!isCreateModal() || !key) return;
@@ -483,7 +470,6 @@ async function applyPreviousRun() {
     key
   );
 
-  /* No history for this driver means the freshly reset defaults stay in place. */
   if (!previousLoad) return;
 
   const jobId = clean(previousLoad.haulingJobId);
@@ -508,7 +494,6 @@ async function applyPreviousRun() {
 
     startPinTimer();
 
-    /* Let the main page populate crop/destination from the selected job. */
     el.haulingJob.dispatchEvent(new Event("change", { bubbles: true }));
 
     await delay(250);
@@ -531,19 +516,12 @@ async function applyPreviousRun() {
 }
 
 function scheduleApply() {
-  /*
-    Changing Driver means start from the normal blank load-out state first.
-    Then, and only then, apply that newly selected driver's own previous load
-    if one exists.
-  */
   token += 1;
   clearPinnedRepeatState();
   resetVisibleDriverDefaults();
   setTimeout(applyPreviousRun, 100);
 }
 
-/* Prevent the page's legacy customer-change listener from blanking a job only
-   while we are actively restoring THIS driver's previous load. */
 el.customer?.addEventListener(
   "change",
   event => {
@@ -558,8 +536,6 @@ el.customer?.addEventListener(
 el.driver?.addEventListener("change", scheduleApply);
 el.subdriver?.addEventListener("change", scheduleApply);
 
-/* Manual hauling-job choice always wins. It must never trigger a previous
-   driver's customer/source data when the current driver has no repeat state. */
 el.haulingJob?.addEventListener("change", event => {
   const selected = clean(el.haulingJob?.value);
 
@@ -575,7 +551,6 @@ el.haulingJob?.addEventListener("change", event => {
 
   if (!applying && pinnedJobId && pinnedLoad && selected === pinnedJobId) {
     setTimeout(async () => {
-      /* Confirm this repeat state still belongs to the currently selected driver. */
       if (!pinnedLoad || !loadMatchesDriver(pinnedLoad, driverKey())) return;
 
       setSilentPreload(true);
