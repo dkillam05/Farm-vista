@@ -1211,11 +1211,18 @@ function ticketsFromIds(ids){
       grainSourceId / grainSourceName fields, so use those only when
       the source is known to be field-based.
     */
+    const sourceValue = norm(ticket?.grainSourceValue);
+
+    /*
+      Current source identity is authoritative. Old fieldId/fieldName values
+      can remain on historical records after an edit, so they must NOT by
+      themselves make a generic Active Harvest ticket look field-scoped.
+    */
     const fieldBased =
       sourceType === "field" ||
       sourceScope === "field" ||
-      clean(ticket?.grainSourceFieldId) ||
-      clean(ticket?.grainSourceFieldName);
+      sourceValue.startsWith("field:") ||
+      sourceValue.includes("active_field_harvest:field:");
 
     const fieldId = clean(
       ticket?.grainSourceFieldId ||
@@ -1266,6 +1273,24 @@ function ticketsFromIds(ids){
       ticket?.submittedBy ||
       ""
     ) || "—";
+  }
+
+  function ticketImageValue(ticket){
+    return clean(
+      ticket?.ticketImageUrl ||
+      ticket?.imageUrl ||
+      ticket?.photoUrl ||
+      ""
+    );
+  }
+
+  function openHarvestTicketImage(ticket){
+    const imageUrl = ticketImageValue(ticket);
+    if(!imageUrl){
+      window.alert("No saved ticket image is available for this ticket.");
+      return;
+    }
+    window.open(imageUrl,"_blank","noopener,noreferrer");
   }
 
   function activeHarvestFieldGroups(crop){
@@ -1430,6 +1455,7 @@ function ticketsFromIds(ids){
               <th>Moisture</th>
               <th>FM</th>
               <th>Damage</th>
+              <th>View</th>
             </tr>
           </thead>
           <tbody>
@@ -1446,6 +1472,11 @@ function ticketsFromIds(ids){
                 <td class="${gradeClass(ticket.moisture)}">${fmtGrade(ticket.moisture)}</td>
                 <td class="${gradeClass(ticket.foreignMaterial)}">${fmtGrade(ticket.foreignMaterial)}</td>
                 <td class="${gradeClass(ticket.damage)}">${fmtGrade(ticket.damage)}</td>
+                <td>
+                  <button type="button" class="btn harvest-ticket-image" data-ticket-image="${esc(ticket.id)}" ${ticketImageValue(ticket) ? "" : "disabled"}>
+                    View
+                  </button>
+                </td>
               </tr>
             `).join("")}
           </tbody>
@@ -1454,6 +1485,15 @@ function ticketsFromIds(ids){
     `;
 
     $("harvest-field-back").addEventListener("click",() => showHarvestCrop(crop));
+
+    $("harvest-modal-content").querySelectorAll("[data-ticket-image]").forEach(button => {
+      button.addEventListener("click", event => {
+        event.preventDefault();
+        event.stopPropagation();
+        const ticket = state.ticketsById.get(button.dataset.ticketImage);
+        if(ticket) openHarvestTicketImage(ticket);
+      });
+    });
   }
 
   function renderActiveHarvest(){
