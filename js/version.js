@@ -40,6 +40,9 @@
   const isGrainTicketScan =
     path.endsWith('/pages/grain/grain-ticket-scan.html');
 
+  const isGrainContracts =
+    path.endsWith('/pages/grain/grain-contracts.html');
+
   const isGrainInventory =
     path.endsWith('/pages/grain/index.html') ||
     path === '/pages/grain/' ||
@@ -199,6 +202,27 @@
     script.type = 'module';
     script.src = '/js/grain-ticket-scan-source-flow.js?v=20260904-2';
     script.dataset.fvGrainTicketScanSourceFlow = '1';
+    document.head.appendChild(script);
+  }
+
+  /* ===================================================================
+     SEPT 4, 2026 — HAULING JOBS SOLD UNDER DISPLAY CLEANUP
+
+     The hauling-jobs table should show only customers from linked contracts.
+     Hide the visual Unknown placeholder whenever linked customers exist, and
+     show a hyphen when Unknown is the only displayed value. This is display
+     only; load-out/customer selection behavior remains unchanged.
+  =================================================================== */
+
+  if (
+    isGrainContracts &&
+    !window.__FV_HAULING_SOLD_UNDER_DISPLAY_20260904
+  ) {
+    window.__FV_HAULING_SOLD_UNDER_DISPLAY_20260904 = true;
+
+    const script = document.createElement('script');
+    script.src = '/js/grain-hauling-jobs-sold-under-display.js?v=20260904-1';
+    script.dataset.fvHaulingSoldUnderDisplay = '1';
     document.head.appendChild(script);
   }
 
