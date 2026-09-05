@@ -74,11 +74,6 @@
     restoring = true;
 
     try {
-      /*
-        chooseGrainSource() has already rebuilt these menus synchronously.
-        Re-select through the page's own buttons so its private state objects
-        are restored too, not merely the visible values.
-      */
       const destinationRestored = clickMatching(
         'destinationMenu',
         'locationId',
@@ -102,10 +97,6 @@
         }
       }
 
-      /*
-        Fallback protects the visible form if a legacy ticket's saved value is
-        not represented by one of the newly rendered menu buttons.
-      */
       if (!destinationRestored || !customerRestored) {
         restoreDirect(snapshot);
       }
@@ -121,8 +112,6 @@
     if (!button) return;
 
     const snapshot = snapshotLoadDetails();
-
-    /* Let the page's native source handler finish first. */
     setTimeout(() => restoreLoadDetails(snapshot), 0);
   }
 
@@ -141,11 +130,11 @@
 (() => {
   const path = String(location.pathname || '').toLowerCase();
   if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) return;
-  if (window.__FV_TICKET_DETAIL_MOBILE_VIEWER_LOADER_20260905) return;
-  window.__FV_TICKET_DETAIL_MOBILE_VIEWER_LOADER_20260905 = true;
+  if (window.__FV_TICKET_DETAIL_MOBILE_VIEWER_LOADER_V3_20260905) return;
+  window.__FV_TICKET_DETAIL_MOBILE_VIEWER_LOADER_V3_20260905 = true;
 
   const script = document.createElement('script');
-  script.src = '/js/grain-ticket-detail-mobile-viewer-v2.js?v=20260905-2';
+  script.src = '/js/grain-ticket-detail-mobile-viewer-v2.js?v=20260905-3';
   script.dataset.fvTicketDetailMobileViewer = '1';
   document.head.appendChild(script);
 })();
