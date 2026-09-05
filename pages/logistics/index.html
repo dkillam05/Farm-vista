@@ -152,8 +152,37 @@
     .remarks{white-space:pre-wrap;line-height:1.5}
 
     dialog.media-sheet{width:min(1050px,96vw);max-height:94vh}
-    .media-body{padding:12px;display:flex;align-items:center;justify-content:center;min-height:220px;background:var(--surface-2,rgba(127,127,127,.05))}
-    .media-body img{display:block;max-width:100%;max-height:calc(94vh - 120px);width:auto;height:auto;object-fit:contain;border-radius:10px}
+    .media-body{
+      position:relative;
+      padding:12px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      min-height:220px;
+      height:min(72vh,760px);
+      overflow:hidden;
+      background:var(--surface-2,rgba(127,127,127,.05));
+      touch-action:none;
+      overscroll-behavior:contain;
+      cursor:grab;
+    }
+    .media-body.is-panning{cursor:grabbing}
+    .media-body img{
+      display:block;
+      max-width:100%;
+      max-height:100%;
+      width:auto;
+      height:auto;
+      object-fit:contain;
+      border-radius:10px;
+      transform-origin:center center;
+      will-change:transform;
+      user-select:none;
+      -webkit-user-select:none;
+      -webkit-user-drag:none;
+      touch-action:none;
+    }
+    .media-hint{font-size:12px;color:var(--muted,#68716c);font-weight:800;margin-left:auto;margin-right:8px;white-space:nowrap}
 
     @media(max-width:900px){
       .summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -178,6 +207,8 @@
       table{min-width:880px;font-size:13px}
       thead th,tbody td{padding:9px 7px}
       .detail-grid{grid-template-columns:1fr}
+      .media-body{height:72vh;padding:6px}
+      .media-hint{display:none}
     }
 
     @media(prefers-color-scheme:dark){
@@ -302,10 +333,11 @@
   <dialog id="mediaSheet" class="sheet media-sheet">
     <div class="sheet-head">
       <div id="mediaTitle" class="sheet-title">Defect Photo</div>
+      <span class="media-hint">Pinch to zoom • drag to move</span>
       <button id="mediaClose" class="btn" type="button">Close</button>
     </div>
-    <div class="media-body">
-      <img id="mediaImage" alt="Attached defect photo"/>
+    <div id="mediaBody" class="media-body">
+      <img id="mediaImage" alt="Attached defect photo" draggable="false"/>
     </div>
     <div class="sheet-foot"><button id="mediaClose2" class="btn" type="button">Close</button></div>
   </dialog>
@@ -350,6 +382,7 @@ const PDF_FUNCTION_URL =
       detailClose2:document.getElementById("detailClose2"),
       mediaSheet:document.getElementById("mediaSheet"),
       mediaTitle:document.getElementById("mediaTitle"),
+      mediaBody:document.getElementById("mediaBody"),
       mediaImage:document.getElementById("mediaImage"),
       mediaClose:document.getElementById("mediaClose"),
       mediaClose2:document.getElementById("mediaClose2")
@@ -362,6 +395,17 @@ const PDF_FUNCTION_URL =
   pdfBlob:null,
   pdfUrl:""
 };
+
+    const mediaView={
+      scale:1,
+      x:0,
+      y:0,
+      pointers:new Map(),
+      pinchDistance:0,
+      pinchScale:1,
+      panX:0,
+      panY:0
+    };
 
     function clean(value){return String(value??"").trim()}
     function normalized(value){return clean(value).toLowerCase()}
@@ -492,15 +536,40 @@ function renderTable(){
       return `<div class="detail-card"><div class="detail-label">${escapeHtml(label)}</div><div class="detail-value">${escapeHtml(value||"—")}</div></div>`;
     }
 
+    function applyMediaTransform(){
+      elements.mediaImage.style.transform=`translate3d(${mediaView.x}px,${mediaView.y}px,0) scale(${mediaView.scale})`;
+    }
+
+    function resetMediaTransform(){
+      mediaView.scale=1;
+      mediaView.x=0;
+      mediaView.y=0;
+      mediaView.pointers.clear();
+      mediaView.pinchDistance=0;
+      mediaView.pinchScale=1;
+      mediaView.panX=0;
+      mediaView.panY=0;
+      elements.mediaBody.classList.remove("is-panning");
+      applyMediaTransform();
+    }
+
+    function mediaPointerDistance(){
+      const points=[...mediaView.pointers.values()];
+      if(points.length<2)return 0;
+      return Math.hypot(points[1].x-points[0].x,points[1].y-points[0].y);
+    }
+
     function openMedia(url,title="Defect Photo"){
       const src=clean(url);
       if(!src)return;
+      resetMediaTransform();
       elements.mediaTitle.textContent=title;
       elements.mediaImage.src=src;
       try{elements.mediaSheet.showModal()}catch{elements.mediaSheet.setAttribute("open","")}
     }
 
     function closeMedia(){
+      resetMediaTransform();
       try{elements.mediaSheet.close()}catch{elements.mediaSheet.removeAttribute("open")}
       elements.mediaImage.removeAttribute("src");
     }
@@ -769,6 +838,76 @@ elements.viewReportButton.addEventListener(
     elements.mediaSheet.addEventListener("click",event=>{
       if(event.target===elements.mediaSheet)closeMedia();
     });
+
+    elements.mediaBody.addEventListener("pointerdown",event=>{
+      event.preventDefault();
+      elements.mediaBody.setPointerCapture?.(event.pointerId);
+      mediaView.pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});
+
+      if(mediaView.pointers.size===2){
+        mediaView.pinchDistance=mediaPointerDistance();
+        mediaView.pinchScale=mediaView.scale;
+        elements.mediaBody.classList.add("is-panning");
+      }else if(mediaView.pointers.size===1){
+        mediaView.panX=event.clientX;
+        mediaView.panY=event.clientY;
+        if(mediaView.scale>1)elements.mediaBody.classList.add("is-panning");
+      }
+    });
+
+    elements.mediaBody.addEventListener("pointermove",event=>{
+      if(!mediaView.pointers.has(event.pointerId))return;
+      event.preventDefault();
+      mediaView.pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});
+
+      if(mediaView.pointers.size>=2){
+        const distance=mediaPointerDistance();
+        if(mediaView.pinchDistance>0){
+          mediaView.scale=Math.min(6,Math.max(1,mediaView.pinchScale*(distance/mediaView.pinchDistance)));
+          if(mediaView.scale===1){mediaView.x=0;mediaView.y=0}
+          applyMediaTransform();
+        }
+        return;
+      }
+
+      if(mediaView.scale>1){
+        mediaView.x+=event.clientX-mediaView.panX;
+        mediaView.y+=event.clientY-mediaView.panY;
+        mediaView.panX=event.clientX;
+        mediaView.panY=event.clientY;
+        applyMediaTransform();
+      }
+    });
+
+    function finishMediaPointer(event){
+      mediaView.pointers.delete(event.pointerId);
+      try{elements.mediaBody.releasePointerCapture?.(event.pointerId)}catch{}
+
+      if(mediaView.pointers.size<2){
+        mediaView.pinchDistance=0;
+        mediaView.pinchScale=mediaView.scale;
+      }
+
+      if(mediaView.pointers.size===1){
+        const point=[...mediaView.pointers.values()][0];
+        mediaView.panX=point.x;
+        mediaView.panY=point.y;
+      }else if(mediaView.pointers.size===0){
+        elements.mediaBody.classList.remove("is-panning");
+        if(mediaView.scale<=1){resetMediaTransform()}
+      }
+    }
+
+    elements.mediaBody.addEventListener("pointerup",finishMediaPointer);
+    elements.mediaBody.addEventListener("pointercancel",finishMediaPointer);
+
+    elements.mediaBody.addEventListener("wheel",event=>{
+      event.preventDefault();
+      const factor=event.deltaY<0?1.12:0.89;
+      mediaView.scale=Math.min(6,Math.max(1,mediaView.scale*factor));
+      if(mediaView.scale===1){mediaView.x=0;mediaView.y=0}
+      applyMediaTransform();
+    },{passive:false});
 
     setToday();
     await loadInspections();
