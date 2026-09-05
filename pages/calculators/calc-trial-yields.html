@@ -643,6 +643,13 @@ button{
   gap:8px;
 }
 
+.dialog-actions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
 .dialog-body{
   padding:14px;
   overflow:auto;
@@ -1068,7 +1075,6 @@ body.no-scroll{
 <select
   id="cyCrop"
   class="select-box"
-  data-fv-combo
 >
   <option value="corn">
     Corn (56 lb/bu - 15.5%)
@@ -1090,7 +1096,6 @@ body.no-scroll{
 <select
   id="cyWid"
   class="select-box"
-  data-fv-combo
 >
   <option value="20">20 ft</option>
   <option value="25">25 ft</option>
@@ -1271,13 +1276,23 @@ body.no-scroll{
   Trial Details
 </h3>
 
-<button
-  class="closex"
-  id="historyClose"
-  type="button"
->
-  Back
-</button>
+<div class="dialog-actions">
+  <button
+    class="btn primary"
+    id="historyShare"
+    type="button"
+  >
+    Share
+  </button>
+
+  <button
+    class="closex"
+    id="historyClose"
+    type="button"
+  >
+    Back
+  </button>
+</div>
 
 </div>
 
@@ -1295,8 +1310,8 @@ body.no-scroll{
 
 "use strict";
 
-if(window.__FV_TRIAL_YIELDS_V24__) return;
-window.__FV_TRIAL_YIELDS_V24__ = true;
+if(window.__FV_TRIAL_YIELDS_V25__) return;
+window.__FV_TRIAL_YIELDS_V25__ = true;
 
 const $ =
   id =>
@@ -1349,6 +1364,11 @@ let HISTORY = [];
 
 let seq = 0;
 let targetRow = null;
+let historyShareRecord = null;
+let lastCalculatorDefaults = {
+  crop:"corn",
+  cutWidthFt:30
+};
 
 /* =========================================================
    FIREBASE
@@ -1410,11 +1430,6 @@ function upgradeCombos(root){
 
 /* =========================================================
    FIELD DATA
-
-   IMPORTANT:
-   This loads EVERY active field.
-
-   Fields are NOT restricted to fieldTrials.
 ========================================================= */
 
 async function loadFields(){
@@ -1445,22 +1460,10 @@ async function loadFields(){
       }
 
       rows.push({
-
-        id:
-          docSnap.id,
-
-        name:
-          data.name ||
-          "(Unnamed field)",
-
-        farmId:
-          data.farmId ||
-          "",
-
-        farmName:
-          data.farmName ||
-          ""
-
+        id:docSnap.id,
+        name:data.name || "(Unnamed field)",
+        farmId:data.farmId || "",
+        farmName:data.farmName || ""
       });
     }
   );
@@ -1471,15 +1474,11 @@ async function loadFields(){
         .localeCompare(
           String(b.name),
           undefined,
-          {
-            numeric:true
-          }
+          {numeric:true}
         )
   );
 
-  FIELDS =
-    rows;
-
+  FIELDS = rows;
   renderFields();
 }
 
@@ -1508,27 +1507,16 @@ async function loadTrials(){
       if(
         String(
           data.status || ""
-        ).toLowerCase() ===
-        "active"
+        ).toLowerCase() === "active"
       ){
-
-        activeDocs.push({
-
-          id:
-            docSnap.id,
-
-          data
-
-        });
+        activeDocs.push({id:docSnap.id,data});
       }
     }
   );
 
   TRIALS =
     await Promise.all(
-
       activeDocs.map(
-
         async item => {
 
           const fieldSnap =
@@ -1550,101 +1538,31 @@ async function loadTrials(){
                 fieldDoc.data() || {};
 
               links.push({
-
-                docId:
-                  fieldDoc.id,
-
-                fieldId:
-                  String(
-                    data.fieldId ||
-                    fieldDoc.id ||
-                    ""
-                  ),
-
-                fieldName:
-                  data.fieldName ||
-                  "",
-
-                farmId:
-                  data.farmId ||
-                  "",
-
-                farmName:
-                  data.farmName ||
-                  "",
-
-                notes:
-                  data.notes ||
-                  "",
-
-                tillable:
-                  Number.isFinite(
-                    Number(
-                      data.tillable
-                    )
-                  )
-                    ? Number(
-                        data.tillable
-                      )
-                    : null,
-
-                trialAcres:
-                  Number.isFinite(
-                    Number(
-                      data.trialAcres
-                    )
-                  )
-                    ? Number(
-                        data.trialAcres
-                      )
-                    : null
-
+                docId:fieldDoc.id,
+                fieldId:String(data.fieldId || fieldDoc.id || ""),
+                fieldName:data.fieldName || "",
+                farmId:data.farmId || "",
+                farmName:data.farmName || "",
+                notes:data.notes || "",
+                tillable:Number.isFinite(Number(data.tillable)) ? Number(data.tillable) : null,
+                trialAcres:Number.isFinite(Number(data.trialAcres)) ? Number(data.trialAcres) : null
               });
             }
           );
 
-          const data =
-            item.data;
+          const data = item.data;
 
           return {
-
-            id:
-              item.id,
-
-            trialName:
-              data.trialName ||
-              "(Unnamed Trial)",
-
-            trialType:
-              data.trialType ||
-              "",
-
-            treatmentProduct:
-              data.treatmentProduct ||
-              "",
-
-            check:
-              data.check ||
-              "",
-
-            crop:
-              data.crop ||
-              "",
-
-            cropYear:
-              data.cropYear ??
-              null,
-
-            operationTask:
-              data.operationTask ||
-              "",
-
-            notes:
-              data.notes ||
-              "",
-
+            id:item.id,
+            trialName:data.trialName || "(Unnamed Trial)",
+            trialType:data.trialType || "",
+            treatmentProduct:data.treatmentProduct || "",
+            check:data.check || "",
+            crop:data.crop || "",
+            cropYear:data.cropYear ?? null,
+            operationTask:data.operationTask || "",
+            notes:data.notes || "",
             links
-
           };
         }
       )
@@ -1656,9 +1574,7 @@ async function loadTrials(){
         .localeCompare(
           String(b.trialName),
           undefined,
-          {
-            numeric:true
-          }
+          {numeric:true}
         )
   );
 
@@ -1669,743 +1585,241 @@ async function loadTrials(){
    PICKERS
 ========================================================= */
 
-const fieldPicker =
-  $("fieldPicker");
-
-const trialPicker =
-  $("trialPicker");
-
-const fieldBtn =
-  $("fieldBtn");
-
-const trialBtn =
-  $("trialBtn");
-
-const fieldText =
-  $("fieldText");
-
-const trialText =
-  $("trialText");
-
-const fieldId =
-  $("fieldId");
-
-const trialId =
-  $("trialId");
-
-const fieldSearch =
-  $("fieldSearch");
-
-const trialSearch =
-  $("trialSearch");
-
-const fieldOptions =
-  $("fieldOptions");
-
-const trialOptions =
-  $("trialOptions");
-
-const otherWrap =
-  $("otherWrap");
-
-const otherName =
-  $("otherName");
-
-const trialMeta =
-  $("trialMeta");
+const fieldPicker = $("fieldPicker");
+const trialPicker = $("trialPicker");
+const fieldBtn = $("fieldBtn");
+const trialBtn = $("trialBtn");
+const fieldText = $("fieldText");
+const trialText = $("trialText");
+const fieldId = $("fieldId");
+const trialId = $("trialId");
+const fieldSearch = $("fieldSearch");
+const trialSearch = $("trialSearch");
+const fieldOptions = $("fieldOptions");
+const trialOptions = $("trialOptions");
+const otherWrap = $("otherWrap");
+const otherName = $("otherName");
+const trialMeta = $("trialMeta");
 
 function closePickers(){
-
-  fieldPicker.classList.remove(
-    "open"
-  );
-
-  trialPicker.classList.remove(
-    "open"
-  );
-
-  fieldBtn.setAttribute(
-    "aria-expanded",
-    "false"
-  );
-
-  trialBtn.setAttribute(
-    "aria-expanded",
-    "false"
-  );
+  fieldPicker.classList.remove("open");
+  trialPicker.classList.remove("open");
+  fieldBtn.setAttribute("aria-expanded","false");
+  trialBtn.setAttribute("aria-expanded","false");
 }
 
-function openPicker(
-  picker,
-  button,
-  search,
-  renderFunction
-){
-
+function openPicker(picker,button,search,renderFunction){
   closePickers();
-
-  picker.classList.add(
-    "open"
-  );
-
-  button.setAttribute(
-    "aria-expanded",
-    "true"
-  );
-
-  search.value =
-    "";
-
+  picker.classList.add("open");
+  button.setAttribute("aria-expanded","true");
+  search.value = "";
   renderFunction();
-
-  setTimeout(
-    ()=>{
-      search.focus();
-    },
-    0
-  );
+  setTimeout(()=>search.focus(),0);
 }
 
 fieldBtn.addEventListener(
   "click",
   event => {
-
     event.stopPropagation();
-
-    if(
-      fieldPicker.classList.contains(
-        "open"
-      )
-    ){
-      closePickers();
-    }
-    else{
-      openPicker(
-        fieldPicker,
-        fieldBtn,
-        fieldSearch,
-        renderFields
-      );
-    }
+    if(fieldPicker.classList.contains("open")) closePickers();
+    else openPicker(fieldPicker,fieldBtn,fieldSearch,renderFields);
   }
 );
 
 trialBtn.addEventListener(
   "click",
   event => {
-
     event.stopPropagation();
-
-    if(
-      trialPicker.classList.contains(
-        "open"
-      )
-    ){
-      closePickers();
-    }
-    else{
-      openPicker(
-        trialPicker,
-        trialBtn,
-        trialSearch,
-        renderTrials
-      );
-    }
+    if(trialPicker.classList.contains("open")) closePickers();
+    else openPicker(trialPicker,trialBtn,trialSearch,renderTrials);
   }
 );
 
-fieldPicker.addEventListener(
-  "click",
-  event =>{
-    event.stopPropagation();
-  }
-);
-
-trialPicker.addEventListener(
-  "click",
-  event =>{
-    event.stopPropagation();
-  }
-);
-
-document.addEventListener(
-  "click",
-  closePickers
-);
-
-document.addEventListener(
-  "keydown",
-  event => {
-
-    if(
-      event.key ===
-      "Escape"
-    ){
-      closePickers();
-    }
-  }
-);
-
-fieldSearch.addEventListener(
-  "input",
-  ()=>{
-    renderFields(
-      fieldSearch.value
-    );
-  }
-);
-
-trialSearch.addEventListener(
-  "input",
-  ()=>{
-    renderTrials(
-      trialSearch.value
-    );
-  }
-);
+fieldPicker.addEventListener("click",event=>event.stopPropagation());
+trialPicker.addEventListener("click",event=>event.stopPropagation());
+document.addEventListener("click",closePickers);
+document.addEventListener("keydown",event=>{if(event.key === "Escape") closePickers();});
+fieldSearch.addEventListener("input",()=>renderFields(fieldSearch.value));
+trialSearch.addEventListener("input",()=>renderTrials(trialSearch.value));
 
 function getSelectedField(){
-
-  return FIELDS.find(
-    field =>
-      field.id ===
-      fieldId.value
-  ) || null;
+  return FIELDS.find(field=>field.id === fieldId.value) || null;
 }
 
 function getSelectedTrial(){
 
-  if(
-    trialId.value ===
-    "__OTHER__"
-  ){
-
+  if(trialId.value === "__OTHER__"){
     return {
-
-      id:
-        "__OTHER__",
-
-      isOther:
-        true,
-
-      trialName:
-        String(
-          otherName.value ||
-          ""
-        ).trim(),
-
-      trialType:
-        "Other",
-
-      links:
-        []
-
+      id:"__OTHER__",
+      isOther:true,
+      trialName:String(otherName.value || "").trim(),
+      trialType:"Other",
+      links:[]
     };
   }
 
-  return TRIALS.find(
-    trial =>
-      trial.id ===
-      trialId.value
-  ) || null;
+  return TRIALS.find(trial=>trial.id === trialId.value) || null;
 }
 
-/* =========================================================
-   FIELD PICKER
+function renderFields(searchText=""){
 
-   ALWAYS shows every active field.
-========================================================= */
+  const query = String(searchText || "").trim().toLowerCase();
+  const rows = query
+    ? FIELDS.filter(field=>String(field.name).toLowerCase().includes(query))
+    : FIELDS;
 
-function renderFields(
-  searchText=""
-){
+  fieldOptions.innerHTML = "";
 
-  const query =
-    String(
-      searchText ||
-      ""
-    )
-      .trim()
-      .toLowerCase();
-
-  const rows =
-    query
-      ? FIELDS.filter(
-          field =>
-            String(
-              field.name
-            )
-              .toLowerCase()
-              .includes(
-                query
-              )
-        )
-      : FIELDS;
-
-  fieldOptions.innerHTML =
-    "";
-
-  if(
-    !rows.length
-  ){
-
-    fieldOptions.innerHTML =
-      '<div class="empty">No matching fields.</div>';
-
+  if(!rows.length){
+    fieldOptions.innerHTML = '<div class="empty">No matching fields.</div>';
     return;
   }
 
-  rows.forEach(
-    field => {
-
-      const button =
-        document.createElement(
-          "button"
-        );
-
-      button.type =
-        "button";
-
-      button.className =
-        "option";
-
-      if(
-        field.id ===
-        fieldId.value
-      ){
-        button.classList.add(
-          "selected"
-        );
-      }
-
-      button.textContent =
-        field.name;
-
-      button.addEventListener(
-        "click",
-        ()=>{
-          selectField(
-            field
-          );
-        }
-      );
-
-      fieldOptions.appendChild(
-        button
-      );
-    }
-  );
+  rows.forEach(field=>{
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "option";
+    if(field.id === fieldId.value) button.classList.add("selected");
+    button.textContent = field.name;
+    button.addEventListener("click",()=>selectField(field));
+    fieldOptions.appendChild(button);
+  });
 }
 
-function selectField(
-  field
-){
+function selectField(field){
 
-  fieldId.value =
-    field
-      ? field.id
-      : "";
+  fieldId.value = field ? field.id : "";
 
   if(field){
-
-    fieldText.textContent =
-      field.name;
-
-    fieldText.classList.remove(
-      "placeholder"
-    );
-
-  }
-  else{
-
-    fieldText.textContent =
-      "- Select Field -";
-
-    fieldText.classList.add(
-      "placeholder"
-    );
+    fieldText.textContent = field.name;
+    fieldText.classList.remove("placeholder");
+  }else{
+    fieldText.textContent = "- Select Field -";
+    fieldText.classList.add("placeholder");
   }
 
-  /*
-   * If a real trial was previously selected,
-   * and the new field is not linked to it,
-   * clear that trial.
-   *
-   * Other is allowed on every field.
-   */
-  const trial =
-    getSelectedTrial();
+  const trial = getSelectedTrial();
 
   if(
     trial &&
     !trial.isOther &&
-    !trial.links.some(
-      link =>
-        link.fieldId ===
-        fieldId.value
-    )
+    !trial.links.some(link=>link.fieldId === fieldId.value)
   ){
-
-    trialId.value =
-      "";
-
-    trialText.textContent =
-      "- Select Active Trial -";
-
-    trialText.classList.add(
-      "placeholder"
-    );
-
-    otherWrap.hidden =
-      true;
-
-    otherName.value =
-      "";
+    trialId.value = "";
+    trialText.textContent = "- Select Active Trial -";
+    trialText.classList.add("placeholder");
+    otherWrap.hidden = true;
+    otherName.value = "";
   }
 
   renderTrials();
-
   renderTrialMeta();
-
   closePickers();
 }
 
-/* =========================================================
-   TRIAL PICKER
-
-   FIELD SELECTED:
-   - Other
-   - only active trials linked to that field
-
-   NO FIELD SELECTED:
-   - Other
-   - all active trials
-========================================================= */
-
 function getTrialRows(){
-
-  const selectedFieldId =
-    fieldId.value;
-
-  if(
-    !selectedFieldId
-  ){
-    return TRIALS;
-  }
-
-  return TRIALS.filter(
-    trial =>
-      trial.links.some(
-        link =>
-          link.fieldId ===
-          selectedFieldId
-      )
-  );
+  const selectedFieldId = fieldId.value;
+  if(!selectedFieldId) return TRIALS;
+  return TRIALS.filter(trial=>trial.links.some(link=>link.fieldId === selectedFieldId));
 }
 
-function renderTrials(
-  searchText=""
-){
+function renderTrials(searchText=""){
 
-  const query =
-    String(
-      searchText ||
-      ""
-    )
-      .trim()
-      .toLowerCase();
-
-  let rows =
-    getTrialRows();
+  const query = String(searchText || "").trim().toLowerCase();
+  let rows = getTrialRows();
 
   if(query){
-
-    rows =
-      rows.filter(
-        trial => {
-
-          const text =
-            [
-              trial.trialName,
-              trial.trialType,
-              trial.crop,
-              trial.cropYear,
-              trial.treatmentProduct,
-              trial.check
-            ]
-              .join(" ")
-              .toLowerCase();
-
-          return text.includes(
-            query
-          );
-        }
-      );
+    rows = rows.filter(trial=>[
+      trial.trialName,
+      trial.trialType,
+      trial.crop,
+      trial.cropYear,
+      trial.treatmentProduct,
+      trial.check
+    ].join(" ").toLowerCase().includes(query));
   }
 
-  trialOptions.innerHTML =
-    "";
+  trialOptions.innerHTML = "";
 
-  /*
-   * OTHER ALWAYS FIRST
-   */
-  const otherButton =
-    document.createElement(
-      "button"
-    );
+  const otherButton = document.createElement("button");
+  otherButton.type = "button";
+  otherButton.className = "option";
+  if(trialId.value === "__OTHER__") otherButton.classList.add("selected");
+  otherButton.textContent = "Other";
+  otherButton.addEventListener("click",()=>selectTrial({id:"__OTHER__",isOther:true}));
+  trialOptions.appendChild(otherButton);
 
-  otherButton.type =
-    "button";
+  rows.forEach(trial=>{
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "option";
+    if(trial.id === trialId.value) button.classList.add("selected");
 
-  otherButton.className =
-    "option";
-
-  if(
-    trialId.value ===
-    "__OTHER__"
-  ){
-    otherButton.classList.add(
-      "selected"
-    );
-  }
-
-  otherButton.textContent =
-    "Other";
-
-  otherButton.addEventListener(
-    "click",
-    ()=>{
-
-      selectTrial({
-
-        id:
-          "__OTHER__",
-
-        isOther:
-          true
-
-      });
+    let text = trial.trialName;
+    if(trial.crop){
+      text += " - " + trial.crop;
+      if(trial.cropYear) text += " " + trial.cropYear;
     }
-  );
 
-  trialOptions.appendChild(
-    otherButton
-  );
-
-  rows.forEach(
-    trial => {
-
-      const button =
-        document.createElement(
-          "button"
-        );
-
-      button.type =
-        "button";
-
-      button.className =
-        "option";
-
-      if(
-        trial.id ===
-        trialId.value
-      ){
-        button.classList.add(
-          "selected"
-        );
-      }
-
-      let text =
-        trial.trialName;
-
-      if(
-        trial.crop
-      ){
-
-        text +=
-          " - " +
-          trial.crop;
-
-        if(
-          trial.cropYear
-        ){
-          text +=
-            " " +
-            trial.cropYear;
-        }
-      }
-
-      button.textContent =
-        text;
-
-      button.addEventListener(
-        "click",
-        ()=>{
-          selectTrial(
-            trial
-          );
-        }
-      );
-
-      trialOptions.appendChild(
-        button
-      );
-    }
-  );
+    button.textContent = text;
+    button.addEventListener("click",()=>selectTrial(trial));
+    trialOptions.appendChild(button);
+  });
 }
 
-function selectTrial(
-  trial
-){
+function selectTrial(trial){
 
-  if(
-    trial &&
-    trial.isOther
-  ){
-
-    trialId.value =
-      "__OTHER__";
-
-    trialText.textContent =
-      "Other";
-
-    trialText.classList.remove(
-      "placeholder"
-    );
-
-    otherWrap.hidden =
-      false;
-
-    setTimeout(
-      ()=>{
-        otherName.focus();
-      },
-      0
-    );
-
-  }
-  else if(trial){
-
-    trialId.value =
-      trial.id;
-
-    trialText.textContent =
-      trial.trialName;
-
-    trialText.classList.remove(
-      "placeholder"
-    );
-
-    otherWrap.hidden =
-      true;
-
-    otherName.value =
-      "";
-
-  }
-  else{
-
-    trialId.value =
-      "";
-
-    trialText.textContent =
-      "- Select Active Trial -";
-
-    trialText.classList.add(
-      "placeholder"
-    );
-
-    otherWrap.hidden =
-      true;
-
-    otherName.value =
-      "";
+  if(trial && trial.isOther){
+    trialId.value = "__OTHER__";
+    trialText.textContent = "Other";
+    trialText.classList.remove("placeholder");
+    otherWrap.hidden = false;
+    setTimeout(()=>otherName.focus(),0);
+  }else if(trial){
+    trialId.value = trial.id;
+    trialText.textContent = trial.trialName;
+    trialText.classList.remove("placeholder");
+    otherWrap.hidden = true;
+    otherName.value = "";
+  }else{
+    trialId.value = "";
+    trialText.textContent = "- Select Active Trial -";
+    trialText.classList.add("placeholder");
+    otherWrap.hidden = true;
+    otherName.value = "";
   }
 
   renderTrialMeta();
-
   closePickers();
 }
 
 function renderTrialMeta(){
 
-  const trial =
-    getSelectedTrial();
+  const trial = getSelectedTrial();
 
-  if(
-    !trial
-  ){
-
-    trialMeta.textContent =
-      "Pick a field to see trials linked to that field. Other is always available.";
-
+  if(!trial){
+    trialMeta.textContent = "Pick a field to see trials linked to that field. Other is always available.";
     return;
   }
 
-  if(
-    trial.isOther
-  ){
-
-    trialMeta.textContent =
-      "Other yield check - enter your own Trial Name.";
-
+  if(trial.isOther){
+    trialMeta.textContent = "Other yield check - enter your own Trial Name.";
     return;
   }
 
   const parts = [];
+  if(trial.trialType) parts.push(trial.trialType);
 
-  if(
-    trial.trialType
-  ){
-    parts.push(
-      trial.trialType
-    );
+  if(trial.crop){
+    let cropText = trial.crop;
+    if(trial.cropYear) cropText += " " + trial.cropYear;
+    parts.push(cropText);
   }
 
-  if(
-    trial.crop
-  ){
+  if(trial.treatmentProduct) parts.push("Treatment: " + trial.treatmentProduct);
+  if(trial.check) parts.push("Check: " + trial.check);
 
-    let cropText =
-      trial.crop;
-
-    if(
-      trial.cropYear
-    ){
-      cropText +=
-        " " +
-        trial.cropYear;
-    }
-
-    parts.push(
-      cropText
-    );
-  }
-
-  if(
-    trial.treatmentProduct
-  ){
-    parts.push(
-      "Treatment: " +
-      trial.treatmentProduct
-    );
-  }
-
-  if(
-    trial.check
-  ){
-    parts.push(
-      "Check: " +
-      trial.check
-    );
-  }
-
-  trialMeta.textContent =
-    parts.length
-      ? parts.join(
-          " | "
-        )
-      : "Active trial selected.";
+  trialMeta.textContent = parts.length ? parts.join(" | ") : "Active trial selected.";
 }
 
 /* =========================================================
@@ -2413,365 +1827,129 @@ function renderTrialMeta(){
 ========================================================= */
 
 function getStripRows(){
-
-  return [
-    ...$("stripList")
-      .querySelectorAll(
-        ".strip"
-      )
-  ];
+  return [...$("stripList").querySelectorAll(".strip")];
 }
 
 function renumberStrips(){
-
-  getStripRows().forEach(
-    (row,index)=>{
-
-      row.querySelector(
-        "[data-num]"
-      ).textContent =
-        "Strip " +
-        (index + 1);
-    }
-  );
+  getStripRows().forEach((row,index)=>{
+    row.querySelector("[data-num]").textContent = "Strip " + (index + 1);
+  });
 }
 
-function addStrip(
-  type
-){
+function addStrip(type){
 
   seq++;
-
-  const row =
-    document.createElement(
-      "div"
-    );
-
-  row.className =
-    "strip";
-
-  row.dataset.type =
-    type;
-
-  row._calc =
-    null;
+  const row = document.createElement("div");
+  row.className = "strip";
+  row.dataset.type = type;
+  row._calc = null;
 
   row.innerHTML = `
-
     <div class="strip-head">
-
-      <div
-        class="strip-num"
-        data-num
-      >
-        Strip
-      </div>
-
-      <div
-        class="badge"
-        data-badge
-      >
-        ${esc(type)}
-      </div>
-
+      <div class="strip-num" data-num>Strip</div>
+      <div class="badge" data-badge>${esc(type)}</div>
       <div class="spacer"></div>
-
-      <button
-        class="btn"
-        data-remove
-        type="button"
-      >
-        Remove
-      </button>
-
+      <button class="btn" data-remove type="button">Remove</button>
     </div>
 
     <div class="strip-body">
-
       <div class="strip-grid">
-
         <div>
-
-          <label>
-            Strip Type
-          </label>
-
-          <select
-            class="select-box"
-            data-type
-          >
-            <option value="Trial">
-              Trial
-            </option>
-
-            <option value="Check">
-              Check
-            </option>
+          <label>Strip Type</label>
+          <select class="select-box" data-type>
+            <option value="Trial">Trial</option>
+            <option value="Check">Check</option>
           </select>
-
         </div>
 
         <div>
-
-          <label>
-            Strip Notes
-          </label>
-
+          <label>Strip Notes</label>
           <div class="ctrl">
-
-            <input
-              data-notes
-              placeholder="Optional - hybrid, product, rate, etc."
-            >
-
+            <input data-notes placeholder="Optional - hybrid, product, rate, etc.">
           </div>
-
         </div>
-
       </div>
 
       <div class="yieldline">
-
         <div>
-
-          <strong>
-            Yield
-          </strong>
-
-          <div
-            class="yield-value"
-            data-yield
-          >
-            -
-          </div>
-
-          <div
-            class="calc-details"
-            data-details
-          >
-            No yield entered yet.
-          </div>
-
+          <strong>Yield</strong>
+          <div class="yield-value" data-yield>-</div>
+          <div class="calc-details" data-details>No yield entered yet.</div>
         </div>
-
-        <button
-          class="btn"
-          data-enter
-          type="button"
-        >
-          Enter Yield...
-        </button>
-
+        <button class="btn" data-enter type="button">Enter Yield...</button>
       </div>
-
     </div>
   `;
 
-  $("stripList")
-    .appendChild(
-      row
-    );
+  $("stripList").appendChild(row);
 
-  const typeSelect =
-    row.querySelector(
-      "[data-type]"
-    );
+  const typeSelect = row.querySelector("[data-type]");
+  typeSelect.value = type;
 
-  typeSelect.value =
-    type;
+  typeSelect.addEventListener("change",()=>{
+    row.dataset.type = typeSelect.value;
+    row.querySelector("[data-badge]").textContent = typeSelect.value;
+    refreshSummary();
+  });
 
-  typeSelect.addEventListener(
-    "change",
-    ()=>{
+  row.querySelector("[data-remove]").addEventListener("click",()=>{
+    row.remove();
+    renumberStrips();
+    refreshSummary();
+  });
 
-      row.dataset.type =
-        typeSelect.value;
-
-      row.querySelector(
-        "[data-badge]"
-      ).textContent =
-        typeSelect.value;
-
-      refreshSummary();
-    }
-  );
-
-  row.querySelector(
-    "[data-remove]"
-  ).addEventListener(
-    "click",
-    ()=>{
-
-      row.remove();
-
-      renumberStrips();
-
-      refreshSummary();
-    }
-  );
-
-  row.querySelector(
-    "[data-enter]"
-  ).addEventListener(
-    "click",
-    event =>{
-
-      openCalculator(
-        row,
-        event.currentTarget
-      );
-    }
-  );
+  row.querySelector("[data-enter]").addEventListener("click",()=>openCalculator(row));
 
   renumberStrips();
-
   refreshSummary();
 }
 
-$("addTrial")
-  .addEventListener(
-    "click",
-    ()=>addStrip(
-      "Trial"
-    )
-  );
-
-$("addCheck")
-  .addEventListener(
-    "click",
-    ()=>addStrip(
-      "Check"
-    )
-  );
+$("addTrial").addEventListener("click",()=>addStrip("Trial"));
+$("addCheck").addEventListener("click",()=>addStrip("Check"));
 
 /* =========================================================
    YIELD CALCULATOR
 ========================================================= */
 
 const SETTINGS = {
-
-  corn:{
-    name:"Corn",
-    standardMoisture:15.5,
-    poundsPerBushel:56
-  },
-
-  soy:{
-    name:"Soybeans",
-    standardMoisture:13,
-    poundsPerBushel:60
-  }
-
+  corn:{name:"Corn",standardMoisture:15.5,poundsPerBushel:56},
+  soy:{name:"Soybeans",standardMoisture:13,poundsPerBushel:60}
 };
 
-const SQFT_PER_ACRE =
-  43560;
-
-const cyModal =
-  $("cyModal");
-
-const cyCrop =
-  $("cyCrop");
-
-const cyWid =
-  $("cyWid");
-
-const cyLen =
-  $("cyLen");
-
-const cyAc =
-  $("cyAc");
-
-const cyWt =
-  $("cyWt");
-
-const cyM =
-  $("cyM");
+const SQFT_PER_ACRE = 43560;
+const cyModal = $("cyModal");
+const cyCrop = $("cyCrop");
+const cyWid = $("cyWid");
+const cyLen = $("cyLen");
+const cyAc = $("cyAc");
+const cyWt = $("cyWt");
+const cyM = $("cyM");
 
 function calculateArea(){
 
-  const length =
-    num(
-      cyLen.value
-    );
+  const length = num(cyLen.value);
+  const width = num(cyWid.value);
+  const area = length * width / SQFT_PER_ACRE;
 
-  const width =
-    num(
-      cyWid.value
-    );
-
-  const area =
-    length *
-    width /
-    SQFT_PER_ACRE;
-
-  cyAc.value =
-    Number.isFinite(
-      area
-    ) &&
-    area > 0
-      ? fmt(
-          area,
-          4
-        )
-      : "";
-
+  cyAc.value = Number.isFinite(area) && area > 0 ? fmt(area,4) : "";
   return area;
 }
 
-cyLen.addEventListener(
-  "input",
-  calculateArea
-);
-
-cyWid.addEventListener(
-  "change",
-  calculateArea
-);
+cyLen.addEventListener("input",calculateArea);
+cyWid.addEventListener("change",calculateArea);
 
 function calculateYield(){
 
-  const crop =
-    SETTINGS[
-      cyCrop.value
-    ];
-
-  const width =
-    num(
-      cyWid.value
-    );
-
-  const length =
-    num(
-      cyLen.value
-    );
-
-  const area =
-    length *
-    width /
-    SQFT_PER_ACRE;
-
-  const wetWeight =
-    num(
-      cyWt.value
-    );
-
-  const moisture =
-    num(
-      cyM.value
-    );
+  const crop = SETTINGS[cyCrop.value];
+  const width = num(cyWid.value);
+  const length = num(cyLen.value);
+  const area = length * width / SQFT_PER_ACRE;
+  const wetWeight = num(cyWt.value);
+  const moisture = num(cyM.value);
 
   if(
     !crop ||
-    ![
-      width,
-      length,
-      area,
-      wetWeight,
-      moisture
-    ].every(
-      Number.isFinite
-    ) ||
+    ![width,length,area,wetWeight,moisture].every(Number.isFinite) ||
     width <= 0 ||
     length <= 0 ||
     area <= 0 ||
@@ -2779,534 +1957,181 @@ function calculateYield(){
     moisture <= 0 ||
     moisture >= 100
   ){
-
-    alert(
-      "Enter valid crop, width, length, wet weight, and moisture."
-    );
-
+    alert("Enter valid crop, width, length, wet weight, and moisture.");
     return null;
   }
 
   const standardWeight =
-    wetWeight *
-    (
-      (100 - moisture) /
-      (
-        100 -
-        crop.standardMoisture
-      )
-    );
+    wetWeight * ((100 - moisture) / (100 - crop.standardMoisture));
 
-  const standardBushels =
-    standardWeight /
-    crop.poundsPerBushel;
-
-  const yieldBuAc =
-    standardBushels /
-    area;
+  const standardBushels = standardWeight / crop.poundsPerBushel;
+  const yieldBuAc = standardBushels / area;
 
   return {
-
-    crop:
-      cyCrop.value,
-
-    cropName:
-      crop.name,
-
-    cutWidthFt:
-      width,
-
-    cutLengthFt:
-      length,
-
-    acres:
-      area,
-
-    wetWeightLb:
-      wetWeight,
-
-    startMoisture:
-      moisture,
-
-    standardMoisture:
-      crop.standardMoisture,
-
-    poundsPerBushel:
-      crop.poundsPerBushel,
-
-    standardWeightLb:
-      standardWeight,
-
-    standardBushels:
-      standardBushels,
-
-    yieldBuAc:
-      yieldBuAc
-
+    crop:cyCrop.value,
+    cropName:crop.name,
+    cutWidthFt:width,
+    cutLengthFt:length,
+    acres:area,
+    wetWeightLb:wetWeight,
+    startMoisture:moisture,
+    standardMoisture:crop.standardMoisture,
+    poundsPerBushel:crop.poundsPerBushel,
+    standardWeightLb:standardWeight,
+    standardBushels,
+    yieldBuAc
   };
 }
 
-function showCalculation(
-  calc
-){
-
-  $("cyRes").hidden =
-    !calc;
-
+function showCalculation(calc){
+  $("cyRes").hidden = !calc;
   if(calc){
-
-    $("tBu").textContent =
-      fmt(
-        calc.standardBushels,
-        2
-      );
-
-    $("tYield").textContent =
-      fmt(
-        calc.yieldBuAc,
-        2
-      );
+    $("tBu").textContent = fmt(calc.standardBushels,2);
+    $("tYield").textContent = fmt(calc.yieldBuAc,2);
   }
 }
 
-function openModal(
-  modal
-){
-
+function openModal(modal){
   closePickers();
-
-  modal.setAttribute(
-    "open",
-    ""
-  );
-
-  document.documentElement
-    .classList.add(
-      "no-scroll"
-    );
-
-  document.body
-    .classList.add(
-      "no-scroll"
-    );
-
-  upgradeCombos(
-    modal
-  );
+  modal.setAttribute("open","");
+  document.documentElement.classList.add("no-scroll");
+  document.body.classList.add("no-scroll");
+  upgradeCombos(modal);
 }
 
-function closeModal(
-  modal
-){
-
-  modal.removeAttribute(
-    "open"
-  );
-
-  document.documentElement
-    .classList.remove(
-      "no-scroll"
-    );
-
-  document.body
-    .classList.remove(
-      "no-scroll"
-    );
+function closeModal(modal){
+  modal.removeAttribute("open");
+  document.documentElement.classList.remove("no-scroll");
+  document.body.classList.remove("no-scroll");
 }
 
-function openCalculator(
-  row
-){
+function openCalculator(row){
 
-  targetRow =
-    row;
+  targetRow = row;
 
-  if(
-    row._calc
-  ){
-
-    const calc =
-      row._calc;
-
-    cyCrop.value =
-      calc.crop ||
-      "corn";
-
-    cyWid.value =
-      String(
-        calc.cutWidthFt ||
-        30
-      );
-
-    cyLen.value =
-      fmt(
-        calc.cutLengthFt,
-        2
-      );
-
-    cyAc.value =
-      fmt(
-        calc.acres,
-        4
-      );
-
-    cyWt.value =
-      Math.round(
-        calc.wetWeightLb
-      ).toLocaleString();
-
-    cyM.value =
-      fmt(
-        calc.startMoisture,
-        2
-      );
-
-    showCalculation(
-      calc
-    );
-
-  }
-  else{
-
-    cyCrop.value =
-      "corn";
-
-    cyWid.value =
-      "30";
-
-    cyLen.value =
-      "";
-
-    cyAc.value =
-      "";
-
-    cyWt.value =
-      "";
-
-    cyM.value =
-      "";
-
-    showCalculation(
-      null
-    );
+  if(row._calc){
+    const calc = row._calc;
+    cyCrop.value = calc.crop || "corn";
+    cyWid.value = String(calc.cutWidthFt || 30);
+    cyLen.value = fmt(calc.cutLengthFt,2);
+    cyAc.value = fmt(calc.acres,4);
+    cyWt.value = Math.round(calc.wetWeightLb).toLocaleString();
+    cyM.value = fmt(calc.startMoisture,2);
+    showCalculation(calc);
+  }else{
+    cyCrop.value = lastCalculatorDefaults.crop || "corn";
+    cyWid.value = String(lastCalculatorDefaults.cutWidthFt || 30);
+    cyLen.value = "";
+    cyAc.value = "";
+    cyWt.value = "";
+    cyM.value = "";
+    showCalculation(null);
   }
 
-  openModal(
-    cyModal
-  );
+  openModal(cyModal);
 }
 
-$("cyClose")
-  .addEventListener(
-    "click",
-    ()=>closeModal(
-      cyModal
-    )
-  );
+$("cyClose").addEventListener("click",()=>closeModal(cyModal));
 
-$("cyCalc")
-  .addEventListener(
-    "click",
-    ()=>{
+$("cyCalc").addEventListener("click",()=>{
+  calculateArea();
+  showCalculation(calculateYield());
+});
 
-      calculateArea();
+$("cyUse").addEventListener("click",()=>{
 
-      showCalculation(
-        calculateYield()
-      );
-    }
-  );
+  calculateArea();
+  const calc = calculateYield();
 
-$("cyUse")
-  .addEventListener(
-    "click",
-    ()=>{
+  if(!calc || !targetRow) return;
 
-      calculateArea();
+  targetRow._calc = calc;
+  lastCalculatorDefaults = {
+    crop:calc.crop || "corn",
+    cutWidthFt:calc.cutWidthFt || 30
+  };
 
-      const calc =
-        calculateYield();
+  targetRow.querySelector("[data-yield]").textContent =
+    fmt(calc.yieldBuAc,2) + " bu/ac";
 
-      if(
-        !calc ||
-        !targetRow
-      ){
-        return;
-      }
+  targetRow.querySelector("[data-details]").textContent =
+    `${calc.cropName} | ` +
+    `${fmt(calc.cutWidthFt,0)} ft x ` +
+    `${fmt(calc.cutLengthFt,2)} ft | ` +
+    `${fmt(calc.acres,3)} ac | ` +
+    `${fmt(calc.wetWeightLb,0)} lb | ` +
+    `${fmt(calc.startMoisture,2)}% moisture`;
 
-      targetRow._calc =
-        calc;
-
-      targetRow.querySelector(
-        "[data-yield]"
-      ).textContent =
-        fmt(
-          calc.yieldBuAc,
-          2
-        ) +
-        " bu/ac";
-
-      targetRow.querySelector(
-        "[data-details]"
-      ).textContent =
-        `${calc.cropName} | ` +
-        `${fmt(calc.cutWidthFt,0)} ft x ` +
-        `${fmt(calc.cutLengthFt,2)} ft | ` +
-        `${fmt(calc.acres,3)} ac | ` +
-        `${fmt(calc.wetWeightLb,0)} lb | ` +
-        `${fmt(calc.startMoisture,2)}% moisture`;
-
-      refreshSummary();
-
-      closeModal(
-        cyModal
-      );
-    }
-  );
+  refreshSummary();
+  closeModal(cyModal);
+});
 
 /* =========================================================
    SUMMARY
 ========================================================= */
 
 function getStripData(){
-
-  return getStripRows()
-    .map(
-      (row,index)=>{
-
-        return {
-
-          order:
-            index + 1,
-
-          type:
-            row.querySelector(
-              "[data-type]"
-            ).value,
-
-          notes:
-            row.querySelector(
-              "[data-notes]"
-            ).value.trim(),
-
-          yieldBuAc:
-            row._calc
-              ? row._calc
-                  .yieldBuAc
-              : null,
-
-          calculation:
-            row._calc
-              ? {
-                  ...row._calc
-                }
-              : null
-
-        };
-      }
-    );
+  return getStripRows().map((row,index)=>({
+    order:index + 1,
+    type:row.querySelector("[data-type]").value,
+    notes:row.querySelector("[data-notes]").value.trim(),
+    yieldBuAc:row._calc ? row._calc.yieldBuAc : null,
+    calculation:row._calc ? {...row._calc} : null
+  }));
 }
 
-function average(
-  values
-){
-
-  const clean =
-    values.filter(
-      Number.isFinite
-    );
-
-  if(
-    !clean.length
-  ){
-    return null;
-  }
-
-  return clean.reduce(
-    (sum,value) =>
-      sum +
-      value,
-    0
-  ) /
-  clean.length;
+function average(values){
+  const clean = values.filter(Number.isFinite);
+  if(!clean.length) return null;
+  return clean.reduce((sum,value)=>sum + value,0) / clean.length;
 }
 
 function refreshSummary(){
 
-  const strips =
-    getStripData();
-
-  const trialStrips =
-    strips.filter(
-      strip =>
-        strip.type ===
-        "Trial"
-    );
-
-  const checkStrips =
-    strips.filter(
-      strip =>
-        strip.type ===
-        "Check"
-    );
-
-  const trialAverage =
-    average(
-      trialStrips.map(
-        strip =>
-          strip.yieldBuAc
-      )
-    );
-
-  const checkAverage =
-    average(
-      checkStrips.map(
-        strip =>
-          strip.yieldBuAc
-      )
-    );
+  const strips = getStripData();
+  const trialStrips = strips.filter(strip=>strip.type === "Trial");
+  const checkStrips = strips.filter(strip=>strip.type === "Check");
+  const trialAverage = average(trialStrips.map(strip=>strip.yieldBuAc));
+  const checkAverage = average(checkStrips.map(strip=>strip.yieldBuAc));
 
   const differenceBuAc =
-    Number.isFinite(
-      trialAverage
-    ) &&
-    Number.isFinite(
-      checkAverage
-    )
-      ? trialAverage -
-        checkAverage
+    Number.isFinite(trialAverage) && Number.isFinite(checkAverage)
+      ? trialAverage - checkAverage
       : null;
 
   const differencePct =
-    Number.isFinite(
-      differenceBuAc
-    ) &&
-    checkAverage !== 0
-      ? (
-          differenceBuAc /
-          checkAverage
-        ) *
-        100
+    Number.isFinite(differenceBuAc) && checkAverage !== 0
+      ? (differenceBuAc / checkAverage) * 100
       : null;
 
-  $("trialCount").textContent =
-    trialStrips.length;
+  $("trialCount").textContent = trialStrips.length;
+  $("checkCount").textContent = checkStrips.length;
+  $("trialAvg").textContent = Number.isFinite(trialAverage) ? fmt(trialAverage,2) + " bu/ac" : "- bu/ac";
+  $("checkAvg").textContent = Number.isFinite(checkAverage) ? fmt(checkAverage,2) + " bu/ac" : "- bu/ac";
 
-  $("checkCount").textContent =
-    checkStrips.length;
+  const diffElement = $("yieldDiff");
+  const pctElement = $("yieldPct");
 
-  $("trialAvg").textContent =
-    Number.isFinite(
-      trialAverage
-    )
-      ? fmt(
-          trialAverage,
-          2
-        ) +
-        " bu/ac"
-      : "- bu/ac";
+  diffElement.textContent = Number.isFinite(differenceBuAc)
+    ? (differenceBuAc >= 0 ? "+" : "") + fmt(differenceBuAc,2) + " bu/ac"
+    : "- bu/ac";
 
-  $("checkAvg").textContent =
-    Number.isFinite(
-      checkAverage
-    )
-      ? fmt(
-          checkAverage,
-          2
-        ) +
-        " bu/ac"
-      : "- bu/ac";
+  pctElement.textContent = Number.isFinite(differencePct)
+    ? (differencePct >= 0 ? "+" : "") + fmt(differencePct,2) + "%"
+    : "-%";
 
-  const diffElement =
-    $("yieldDiff");
-
-  const pctElement =
-    $("yieldPct");
-
-  diffElement.textContent =
-    Number.isFinite(
-      differenceBuAc
-    )
-      ? (
-          differenceBuAc >= 0
-            ? "+"
-            : ""
-        ) +
-        fmt(
-          differenceBuAc,
-          2
-        ) +
-        " bu/ac"
-      : "- bu/ac";
-
-  pctElement.textContent =
-    Number.isFinite(
-      differencePct
-    )
-      ? (
-          differencePct >= 0
-            ? "+"
-            : ""
-        ) +
-        fmt(
-          differencePct,
-          2
-        ) +
-        "%"
-      : "-%";
-
-  diffElement.className =
-    "v " +
-    (
-      differenceBuAc > 0
-        ? "pos"
-        : differenceBuAc < 0
-          ? "neg"
-          : ""
-    );
-
-  pctElement.className =
-    "v " +
-    (
-      differencePct > 0
-        ? "pos"
-        : differencePct < 0
-          ? "neg"
-          : ""
-    );
+  diffElement.className = "v " + (differenceBuAc > 0 ? "pos" : differenceBuAc < 0 ? "neg" : "");
+  pctElement.className = "v " + (differencePct > 0 ? "pos" : differencePct < 0 ? "neg" : "");
 
   return {
-
-    trialStripCount:
-      trialStrips.length,
-
-    checkStripCount:
-      checkStrips.length,
-
-    trialYieldCount:
-      trialStrips.filter(
-        strip =>
-          Number.isFinite(
-            strip.yieldBuAc
-          )
-      ).length,
-
-    checkYieldCount:
-      checkStrips.filter(
-        strip =>
-          Number.isFinite(
-            strip.yieldBuAc
-          )
-      ).length,
-
+    trialStripCount:trialStrips.length,
+    checkStripCount:checkStrips.length,
+    trialYieldCount:trialStrips.filter(strip=>Number.isFinite(strip.yieldBuAc)).length,
+    checkYieldCount:checkStrips.filter(strip=>Number.isFinite(strip.yieldBuAc)).length,
     trialAverage,
-
     checkAverage,
-
     differenceBuAc,
-
     differencePct
-
   };
 }
 
@@ -3314,66 +2139,26 @@ function refreshSummary(){
    CLEAR
 ========================================================= */
 
-function clearCurrent(
-  askFirst=true
-){
+function clearCurrent(askFirst=true){
 
-  if(
-    askFirst &&
-    !confirm(
-      "Clear the current test and all unsaved strips?"
-    )
-  ){
-    return;
-  }
+  if(askFirst && !confirm("Clear the current test and all unsaved strips?")) return;
 
-  fieldId.value =
-    "";
-
-  trialId.value =
-    "";
-
-  otherName.value =
-    "";
-
-  fieldText.textContent =
-    "- Select Field -";
-
-  trialText.textContent =
-    "- Select Active Trial -";
-
-  fieldText.classList.add(
-    "placeholder"
-  );
-
-  trialText.classList.add(
-    "placeholder"
-  );
-
-  otherWrap.hidden =
-    true;
-
-  $("stripList").innerHTML =
-    "";
-
-  addStrip(
-    "Trial"
-  );
-
-  addStrip(
-    "Check"
-  );
-
+  fieldId.value = "";
+  trialId.value = "";
+  otherName.value = "";
+  fieldText.textContent = "- Select Field -";
+  trialText.textContent = "- Select Active Trial -";
+  fieldText.classList.add("placeholder");
+  trialText.classList.add("placeholder");
+  otherWrap.hidden = true;
+  $("stripList").innerHTML = "";
+  lastCalculatorDefaults = {crop:"corn",cutWidthFt:30};
+  addStrip("Trial");
+  addStrip("Check");
   renderTrialMeta();
 }
 
-$("clearCurrent")
-  .addEventListener(
-    "click",
-    ()=>clearCurrent(
-      true
-    )
-  );
+$("clearCurrent").addEventListener("click",()=>clearCurrent(true));
 
 /* =========================================================
    VALIDATION
@@ -3381,108 +2166,35 @@ $("clearCurrent")
 
 function validateCurrent(){
 
-  const problems =
-    [];
+  const problems = [];
+  const field = getSelectedField();
+  const trial = getSelectedTrial();
+  const strips = getStripData();
 
-  const field =
-    getSelectedField();
+  if(!field) problems.push("Select a field.");
+  if(!trial) problems.push("Select a trial or Other.");
 
-  const trial =
-    getSelectedTrial();
-
-  const strips =
-    getStripData();
-
-  if(
-    !field
-  ){
-    problems.push(
-      "Select a field."
-    );
-  }
-
-  if(
-    !trial
-  ){
-    problems.push(
-      "Select a trial or Other."
-    );
-  }
-
-  if(
-    trial &&
-    trial.isOther &&
-    !String(
-      otherName.value ||
-      ""
-    ).trim()
-  ){
-    problems.push(
-      "Enter a Trial Name for Other."
-    );
+  if(trial && trial.isOther && !String(otherName.value || "").trim()){
+    problems.push("Enter a Trial Name for Other.");
   }
 
   if(
     trial &&
     !trial.isOther &&
     field &&
-    !trial.links.some(
-      link =>
-        link.fieldId ===
-        field.id
-    )
+    !trial.links.some(link=>link.fieldId === field.id)
   ){
-    problems.push(
-      "That trial is not linked to the selected field."
-    );
+    problems.push("That trial is not linked to the selected field.");
   }
 
-  if(
-    !strips.length
-  ){
-    problems.push(
-      "Add at least one strip."
-    );
-  }
+  if(!strips.length) problems.push("Add at least one strip.");
 
-  strips.forEach(
-    (strip,index)=>{
+  strips.forEach((strip,index)=>{
+    if(!Number.isFinite(strip.yieldBuAc)) problems.push(`Strip ${index + 1} needs a yield.`);
+  });
 
-      if(
-        !Number.isFinite(
-          strip.yieldBuAc
-        )
-      ){
-        problems.push(
-          `Strip ${index + 1} needs a yield.`
-        );
-      }
-    }
-  );
-
-  if(
-    !strips.some(
-      strip =>
-        strip.type ===
-        "Trial"
-    )
-  ){
-    problems.push(
-      "Add at least one Trial strip."
-    );
-  }
-
-  if(
-    !strips.some(
-      strip =>
-        strip.type ===
-        "Check"
-    )
-  ){
-    problems.push(
-      "Add at least one Check strip."
-    );
-  }
+  if(!strips.some(strip=>strip.type === "Trial")) problems.push("Add at least one Trial strip.");
+  if(!strips.some(strip=>strip.type === "Check")) problems.push("Add at least one Check strip.");
 
   return problems;
 }
@@ -3491,827 +2203,311 @@ function validateCurrent(){
    SAVE
 ========================================================= */
 
-$("saveTrial")
-  .addEventListener(
-    "click",
-    async ()=>{
+$("saveTrial").addEventListener("click",async ()=>{
 
-      const problems =
-        validateCurrent();
+  const problems = validateCurrent();
 
-      if(
-        problems.length
-      ){
+  if(problems.length){
+    alert("Fix these before saving:\n\n- " + problems.join("\n- "));
+    return;
+  }
 
-        alert(
-          "Fix these before saving:\n\n- " +
-          problems.join(
-            "\n- "
-          )
-        );
+  const saveButton = $("saveTrial");
+  saveButton.disabled = true;
+  saveButton.textContent = "Saving...";
 
-        return;
-      }
+  try{
 
-      const saveButton =
-        $("saveTrial");
+    const field = getSelectedField();
+    const trial = getSelectedTrial();
+    const isOther = Boolean(trial.isOther);
+    const trialName = isOther ? String(otherName.value || "").trim() : trial.trialName;
+    const fieldTrialLink = isOther
+      ? null
+      : trial.links.find(link=>link.fieldId === field.id) || null;
 
-      saveButton.disabled =
-        true;
+    const strips = getStripData();
+    const summary = refreshSummary();
+    const user = auth && auth.currentUser ? auth.currentUser : null;
+    const now = new Date();
 
-      saveButton.textContent =
-        "Saving...";
+    const record = {
+      fieldId:field.id,
+      fieldName:field.name,
+      farmId:fieldTrialLink && fieldTrialLink.farmId ? fieldTrialLink.farmId : field.farmId || "",
+      farmName:fieldTrialLink && fieldTrialLink.farmName ? fieldTrialLink.farmName : field.farmName || "",
+      fieldTrialId:isOther ? "" : trial.id,
+      trialName,
+      testName:trialName,
+      trialType:isOther ? "Other" : trial.trialType,
+      treatmentProduct:isOther ? "" : trial.treatmentProduct,
+      check:isOther ? "" : trial.check,
+      crop:isOther ? "" : trial.crop,
+      cropYear:isOther ? null : trial.cropYear,
+      operationTask:isOther ? "" : trial.operationTask,
+      fieldTrialNotes:isOther ? "" : trial.notes,
+      trialFieldLinkId:isOther ? "" : fieldTrialLink ? fieldTrialLink.docId || "" : "",
+      trialFieldNotes:isOther ? "" : fieldTrialLink ? fieldTrialLink.notes || "" : "",
+      tillable:isOther ? null : fieldTrialLink ? fieldTrialLink.tillable : null,
+      trialAcres:isOther ? null : fieldTrialLink ? fieldTrialLink.trialAcres : null,
+      isOtherTrial:isOther,
+      strips,
+      summary,
+      trialStripCount:summary.trialStripCount,
+      checkStripCount:summary.checkStripCount,
+      trialAverage:summary.trialAverage,
+      checkAverage:summary.checkAverage,
+      differenceBuAc:summary.differenceBuAc,
+      differencePct:summary.differencePct,
+      createdAt:typeof fb.serverTimestamp === "function" ? fb.serverTimestamp() : now,
+      createdAtMs:Date.now(),
+      createdAtISO:now.toISOString(),
+      createdByUid:user ? user.uid || "" : "",
+      createdByEmail:user ? user.email || "" : "",
+      createdByName:user ? user.displayName || "" : ""
+    };
 
-      try{
+    await fb.addDoc(fb.collection(db,"trialYields"),record);
+    alert("Trial test saved to FarmVista.");
+    clearCurrent(false);
+    await loadHistory();
 
-        const field =
-          getSelectedField();
-
-        const trial =
-          getSelectedTrial();
-
-        const isOther =
-          Boolean(
-            trial.isOther
-          );
-
-        const trialName =
-          isOther
-            ? String(
-                otherName.value ||
-                ""
-              ).trim()
-            : trial.trialName;
-
-        const fieldTrialLink =
-          isOther
-            ? null
-            : trial.links.find(
-                link =>
-                  link.fieldId ===
-                  field.id
-              ) ||
-              null;
-
-        const strips =
-          getStripData();
-
-        const summary =
-          refreshSummary();
-
-        const user =
-          auth &&
-          auth.currentUser
-            ? auth.currentUser
-            : null;
-
-        const now =
-          new Date();
-
-        const record = {
-
-          fieldId:
-            field.id,
-
-          fieldName:
-            field.name,
-
-          farmId:
-            fieldTrialLink &&
-            fieldTrialLink.farmId
-              ? fieldTrialLink.farmId
-              : field.farmId ||
-                "",
-
-          farmName:
-            fieldTrialLink &&
-            fieldTrialLink.farmName
-              ? fieldTrialLink.farmName
-              : field.farmName ||
-                "",
-
-          fieldTrialId:
-            isOther
-              ? ""
-              : trial.id,
-
-          trialName,
-
-          testName:
-            trialName,
-
-          trialType:
-            isOther
-              ? "Other"
-              : trial.trialType,
-
-          treatmentProduct:
-            isOther
-              ? ""
-              : trial.treatmentProduct,
-
-          check:
-            isOther
-              ? ""
-              : trial.check,
-
-          crop:
-            isOther
-              ? ""
-              : trial.crop,
-
-          cropYear:
-            isOther
-              ? null
-              : trial.cropYear,
-
-          operationTask:
-            isOther
-              ? ""
-              : trial.operationTask,
-
-          fieldTrialNotes:
-            isOther
-              ? ""
-              : trial.notes,
-
-          trialFieldLinkId:
-            isOther
-              ? ""
-              : fieldTrialLink
-                ? fieldTrialLink.docId ||
-                  ""
-                : "",
-
-          trialFieldNotes:
-            isOther
-              ? ""
-              : fieldTrialLink
-                ? fieldTrialLink.notes ||
-                  ""
-                : "",
-
-          tillable:
-            isOther
-              ? null
-              : fieldTrialLink
-                ? fieldTrialLink.tillable
-                : null,
-
-          trialAcres:
-            isOther
-              ? null
-              : fieldTrialLink
-                ? fieldTrialLink.trialAcres
-                : null,
-
-          /*
-           * This flag makes reporting easy:
-           *
-           * true  = one-off / Other yield check
-           * false = linked fieldTrials record
-           */
-          isOtherTrial:
-            isOther,
-
-          strips,
-
-          summary,
-
-          trialStripCount:
-            summary.trialStripCount,
-
-          checkStripCount:
-            summary.checkStripCount,
-
-          trialAverage:
-            summary.trialAverage,
-
-          checkAverage:
-            summary.checkAverage,
-
-          differenceBuAc:
-            summary.differenceBuAc,
-
-          differencePct:
-            summary.differencePct,
-
-          createdAt:
-            typeof fb.serverTimestamp ===
-            "function"
-              ? fb.serverTimestamp()
-              : now,
-
-          createdAtMs:
-            Date.now(),
-
-          createdAtISO:
-            now.toISOString(),
-
-          createdByUid:
-            user
-              ? user.uid ||
-                ""
-              : "",
-
-          createdByEmail:
-            user
-              ? user.email ||
-                ""
-              : "",
-
-          createdByName:
-            user
-              ? user.displayName ||
-                ""
-              : ""
-
-        };
-
-        await fb.addDoc(
-          fb.collection(
-            db,
-            "trialYields"
-          ),
-          record
-        );
-
-        alert(
-          "Trial test saved to FarmVista."
-        );
-
-        clearCurrent(
-          false
-        );
-
-        await loadHistory();
-
-      }
-      catch(error){
-
-        console.error(
-          "[FV] Trial Yield save failed",
-          error
-        );
-
-        alert(
-          "FarmVista could not save this test.\n\n" +
-          (
-            error &&
-            error.message
-              ? error.message
-              : "Unknown error"
-          )
-        );
-      }
-      finally{
-
-        saveButton.disabled =
-          false;
-
-        saveButton.textContent =
-          "Save Test";
-      }
-    }
-  );
+  }catch(error){
+    console.error("[FV] Trial Yield save failed",error);
+    alert("FarmVista could not save this test.\n\n" + (error && error.message ? error.message : "Unknown error"));
+  }finally{
+    saveButton.disabled = false;
+    saveButton.textContent = "Save Test";
+  }
+});
 
 /* =========================================================
    HISTORY
 ========================================================= */
 
-function formatDate(
-  value
-){
+function formatDate(value){
 
   try{
-
     let date;
 
-    if(
-      value &&
-      typeof value.toDate ===
-      "function"
-    ){
-      date =
-        value.toDate();
-    }
-    else if(
-      value &&
-      value.seconds
-    ){
-      date =
-        new Date(
-          value.seconds *
-          1000
-        );
-    }
-    else{
-      date =
-        new Date(
-          value
-        );
-    }
+    if(value && typeof value.toDate === "function") date = value.toDate();
+    else if(value && value.seconds) date = new Date(value.seconds * 1000);
+    else date = new Date(value);
 
-    if(
-      Number.isNaN(
-        date.getTime()
-      )
-    ){
-      return "-";
-    }
-
+    if(Number.isNaN(date.getTime())) return "-";
     return date.toLocaleString();
-
-  }
-  catch{
+  }catch{
     return "-";
   }
 }
 
 async function loadHistory(){
 
-  const list =
-    $("historyList");
-
-  const empty =
-    $("historyEmpty");
-
-  list.innerHTML =
-    "";
-
-  empty.hidden =
-    false;
-
-  empty.textContent =
-    "Loading saved tests...";
+  const list = $("historyList");
+  const empty = $("historyEmpty");
+  list.innerHTML = "";
+  empty.hidden = false;
+  empty.textContent = "Loading saved tests...";
 
   try{
 
-    const snap =
-      await fb.getDocs(
-        fb.collection(
-          db,
-          "trialYields"
-        )
-      );
+    const snap = await fb.getDocs(fb.collection(db,"trialYields"));
+    const rows = [];
 
-    const rows =
-      [];
+    snap.forEach(docSnap=>{
+      rows.push({id:docSnap.id,...(docSnap.data() || {})});
+    });
 
-    snap.forEach(
-      docSnap => {
-
-        rows.push({
-
-          id:
-            docSnap.id,
-
-          ...(
-            docSnap.data() ||
-            {}
-          )
-
-        });
-      }
-    );
-
-    rows.sort(
-      (a,b) =>
-        Number(
-          b.createdAtMs ||
-          0
-        ) -
-        Number(
-          a.createdAtMs ||
-          0
-        )
-    );
-
-    HISTORY =
-      rows;
-
+    rows.sort((a,b)=>Number(b.createdAtMs || 0) - Number(a.createdAtMs || 0));
+    HISTORY = rows;
     renderHistory();
 
-  }
-  catch(error){
-
-    console.error(
-      "[FV] Trial history load failed",
-      error
-    );
-
-    empty.hidden =
-      false;
-
-    empty.textContent =
-      "Could not load saved tests.";
+  }catch(error){
+    console.error("[FV] Trial history load failed",error);
+    empty.hidden = false;
+    empty.textContent = "Could not load saved tests.";
   }
 }
 
 function renderHistory(){
 
-  const list =
-    $("historyList");
+  const list = $("historyList");
+  const empty = $("historyEmpty");
+  list.innerHTML = "";
 
-  const empty =
-    $("historyEmpty");
-
-  list.innerHTML =
-    "";
-
-  if(
-    !HISTORY.length
-  ){
-
-    empty.hidden =
-      false;
-
-    empty.textContent =
-      "No saved tests yet.";
-
+  if(!HISTORY.length){
+    empty.hidden = false;
+    empty.textContent = "No saved tests yet.";
     return;
   }
 
-  empty.hidden =
-    true;
+  empty.hidden = true;
 
-  HISTORY.forEach(
-    record => {
+  HISTORY.forEach(record=>{
 
-      const summary =
-        record.summary ||
-        record;
+    const summary = record.summary || record;
+    const row = document.createElement("div");
+    row.className = "history-row";
 
-      const row =
-        document.createElement(
-          "div"
-        );
+    const differenceText = Number.isFinite(summary.differenceBuAc)
+      ? (summary.differenceBuAc >= 0 ? "+" : "") + fmt(summary.differenceBuAc,1)
+      : "-";
 
-      row.className =
-        "history-row";
-
-      const differenceText =
-        Number.isFinite(
-          summary.differenceBuAc
-        )
-          ? (
-              summary.differenceBuAc >= 0
-                ? "+"
-                : ""
-            ) +
-            fmt(
-              summary.differenceBuAc,
-              1
-            )
-          : "-";
-
-      row.innerHTML = `
-
-        <div class="history-main">
-
-          <div class="history-info">
-
-            <div class="history-title">
-              ${esc(
-                record.testName ||
-                record.trialName ||
-                "Unnamed Test"
-              )}
-            </div>
-
-            <div class="history-sub">
-              ${esc(
-                record.fieldName ||
-                "Unknown Field"
-              )}
-              |
-              ${esc(
-                formatDate(
-                  record.createdAt ||
-                  record.createdAtISO
-                )
-              )}
-            </div>
-
-            <div class="history-sub">
-
-              Trial:
-              <strong>
-                ${fmt(
-                  summary.trialAverage,
-                  1
-                )}
-              </strong>
-              bu/ac
-
-              |
-
-              Check:
-              <strong>
-                ${fmt(
-                  summary.checkAverage,
-                  1
-                )}
-              </strong>
-              bu/ac
-
-              |
-
-              Difference:
-              <strong>
-                ${differenceText}
-              </strong>
-              bu/ac
-
-            </div>
-
+    row.innerHTML = `
+      <div class="history-main">
+        <div class="history-info">
+          <div class="history-title">${esc(record.testName || record.trialName || "Unnamed Test")}</div>
+          <div class="history-sub">
+            ${esc(record.fieldName || "Unknown Field")} | ${esc(formatDate(record.createdAt || record.createdAtISO))}
           </div>
-
-          <button
-            class="btn"
-            type="button"
-          >
-            View
-          </button>
-
+          <div class="history-sub">
+            Trial: <strong>${fmt(summary.trialAverage,1)}</strong> bu/ac |
+            Check: <strong>${fmt(summary.checkAverage,1)}</strong> bu/ac |
+            Difference: <strong>${differenceText}</strong> bu/ac
+          </div>
         </div>
-      `;
+        <button class="btn" type="button">View</button>
+      </div>
+    `;
 
-      row.querySelector(
-        "button"
-      ).addEventListener(
-        "click",
-        ()=>{
-          openHistory(
-            record
-          );
-        }
-      );
-
-      list.appendChild(
-        row
-      );
-    }
-  );
+    row.querySelector("button").addEventListener("click",()=>openHistory(record));
+    list.appendChild(row);
+  });
 }
 
-function openHistory(
-  record
-){
+function buildShareText(record){
 
-  const summary =
-    record.summary ||
-    record;
+  const summary = record.summary || record;
+  const strips = Array.isArray(record.strips) ? record.strips : [];
+  const signed = value => Number.isFinite(value)
+    ? (value >= 0 ? "+" : "") + fmt(value,2)
+    : "-";
 
-  const strips =
-    Array.isArray(
-      record.strips
-    )
-      ? record.strips
-      : [];
+  const lines = [
+    "FarmVista Trial Yield Results",
+    record.testName || record.trialName || "Unnamed Test",
+    `Field: ${record.fieldName || "Unknown Field"}`,
+    `Date: ${formatDate(record.createdAt || record.createdAtISO)}`,
+    "",
+    `Trial Average: ${fmt(summary.trialAverage,2)} bu/ac`,
+    `Check Average: ${fmt(summary.checkAverage,2)} bu/ac`,
+    `Difference: ${signed(summary.differenceBuAc)} bu/ac`,
+    `Difference: ${signed(summary.differencePct)}%`
+  ];
 
-  const value =
-    number =>
-      Number.isFinite(
-        number
-      )
-        ? fmt(
-            number,
-            2
-          )
-        : "-";
+  if(strips.length){
+    lines.push("","Individual Strips:");
+
+    strips.forEach((strip,index)=>{
+      const calc = strip.calculation || {};
+      const parts = [
+        `Strip ${index + 1} - ${strip.type || "-"}: ${fmt(strip.yieldBuAc,2)} bu/ac`
+      ];
+
+      if(calc.cropName) parts.push(calc.cropName);
+      if(Number.isFinite(calc.cutWidthFt)) parts.push(`${fmt(calc.cutWidthFt,0)} ft`);
+      if(Number.isFinite(calc.startMoisture)) parts.push(`${fmt(calc.startMoisture,2)}% moisture`);
+      if(strip.notes) parts.push(`Notes: ${strip.notes}`);
+
+      lines.push(parts.join(" | "));
+    });
+  }
+
+  return lines.join("\n");
+}
+
+async function shareHistoryRecord(){
+
+  const record = historyShareRecord;
+  if(!record) return;
+
+  const text = buildShareText(record);
+  const title = record.testName || record.trialName || "FarmVista Trial Yield Results";
+
+  if(navigator.share){
+    try{
+      await navigator.share({title,text});
+      return;
+    }catch(error){
+      if(error && error.name === "AbortError") return;
+      console.warn("[FV] Native share failed, trying SMS fallback",error);
+    }
+  }
+
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const separator = isIOS ? "&" : "?";
+  window.location.href = `sms:${separator}body=${encodeURIComponent(text)}`;
+}
+
+function openHistory(record){
+
+  historyShareRecord = record;
+  const summary = record.summary || record;
+  const strips = Array.isArray(record.strips) ? record.strips : [];
+  const value = number => Number.isFinite(number) ? fmt(number,2) : "-";
 
   let html = `
-
-    <h3 style="margin-top:0;">
-      ${esc(
-        record.testName ||
-        record.trialName ||
-        "Unnamed Test"
-      )}
-    </h3>
-
+    <h3 style="margin-top:0;">${esc(record.testName || record.trialName || "Unnamed Test")}</h3>
     <div class="history-sub">
-      ${esc(
-        record.fieldName ||
-        "Unknown Field"
-      )}
-      |
-      ${esc(
-        formatDate(
-          record.createdAt ||
-          record.createdAtISO
-        )
-      )}
+      ${esc(record.fieldName || "Unknown Field")} | ${esc(formatDate(record.createdAt || record.createdAtISO))}
     </div>
 
     <p>
-
-      <strong>
-        Trial Average:
-      </strong>
-      ${value(
-        summary.trialAverage
-      )}
-      bu/ac
-
-      <br>
-
-      <strong>
-        Check Average:
-      </strong>
-      ${value(
-        summary.checkAverage
-      )}
-      bu/ac
-
-      <br>
-
-      <strong>
-        Difference:
-      </strong>
-      ${value(
-        summary.differenceBuAc
-      )}
-      bu/ac
-
-      <br>
-
-      <strong>
-        Difference %:
-      </strong>
-      ${value(
-        summary.differencePct
-      )}%
-
+      <strong>Trial Average:</strong> ${value(summary.trialAverage)} bu/ac<br>
+      <strong>Check Average:</strong> ${value(summary.checkAverage)} bu/ac<br>
+      <strong>Difference:</strong> ${value(summary.differenceBuAc)} bu/ac<br>
+      <strong>Difference %:</strong> ${value(summary.differencePct)}%
     </p>
 
-    <strong>
-      Individual Strips
-    </strong>
+    <strong>Individual Strips</strong>
   `;
 
-  strips.forEach(
-    (strip,index)=>{
+  strips.forEach((strip,index)=>{
+    const calc = strip.calculation || {};
 
-      const calc =
-        strip.calculation ||
-        {};
+    html += `
+      <div class="detail-strip">
+        <strong>Strip ${index + 1} - ${esc(strip.type || "-")}</strong>
+        <div>Yield: ${value(strip.yieldBuAc)} bu/ac</div>
+        <div>Notes: ${esc(strip.notes || "-")}</div>
+        <div>Crop: ${esc(calc.cropName || "-")}</div>
+        <div>Width: ${value(calc.cutWidthFt)} ft</div>
+        <div>Length: ${value(calc.cutLengthFt)} ft</div>
+        <div>Area: ${value(calc.acres)} ac</div>
+        <div>Wet Weight: ${value(calc.wetWeightLb)} lb</div>
+        <div>Moisture: ${value(calc.startMoisture)}%</div>
+      </div>
+    `;
+  });
 
-      html += `
-
-        <div class="detail-strip">
-
-          <strong>
-            Strip ${index + 1}
-            -
-            ${esc(
-              strip.type ||
-              "-"
-            )}
-          </strong>
-
-          <div>
-            Yield:
-            ${value(
-              strip.yieldBuAc
-            )}
-            bu/ac
-          </div>
-
-          <div>
-            Notes:
-            ${esc(
-              strip.notes ||
-              "-"
-            )}
-          </div>
-
-          <div>
-            Crop:
-            ${esc(
-              calc.cropName ||
-              "-"
-            )}
-          </div>
-
-          <div>
-            Width:
-            ${value(
-              calc.cutWidthFt
-            )}
-            ft
-          </div>
-
-          <div>
-            Length:
-            ${value(
-              calc.cutLengthFt
-            )}
-            ft
-          </div>
-
-          <div>
-            Area:
-            ${value(
-              calc.acres
-            )}
-            ac
-          </div>
-
-          <div>
-            Wet Weight:
-            ${value(
-              calc.wetWeightLb
-            )}
-            lb
-          </div>
-
-          <div>
-            Moisture:
-            ${value(
-              calc.startMoisture
-            )}%
-          </div>
-
-        </div>
-      `;
-    }
-  );
-
-  $("historyBody")
-    .innerHTML =
-      html;
-
-  openModal(
-    $("historyModal")
-  );
+  $("historyBody").innerHTML = html;
+  openModal($("historyModal"));
 }
 
-$("historyClose")
-  .addEventListener(
-    "click",
-    ()=>closeModal(
-      $("historyModal")
-    )
-  );
+$("historyShare").addEventListener("click",shareHistoryRecord);
 
-$("refreshHistory")
-  .addEventListener(
-    "click",
-    loadHistory
-  );
+$("historyClose").addEventListener("click",()=>{
+  historyShareRecord = null;
+  closeModal($("historyModal"));
+});
+
+$("refreshHistory").addEventListener("click",loadHistory);
 
 /* =========================================================
    BOOT
 ========================================================= */
 
 try{
-
   await initFirebase();
-
-  /*
-   * Loads every active field,
-   * regardless of whether the field is in a trial.
-   */
   await loadFields();
-
-  /*
-   * Loads active fieldTrials and their field links.
-   */
   await loadTrials();
-
-  addStrip(
-    "Trial"
-  );
-
-  addStrip(
-    "Check"
-  );
-
-  upgradeCombos(
-    document
-  );
-
+  addStrip("Trial");
+  addStrip("Check");
+  upgradeCombos(document);
   await loadHistory();
-
-}
-catch(error){
-
-  console.error(
-    "[FV] Trial Yields boot failed",
-    error
-  );
-
-  alert(
-    "FarmVista could not initialize Trial Yields.\n\n" +
-    (
-      error &&
-      error.message
-        ? error.message
-        : "Unknown error"
-    )
-  );
+}catch(error){
+  console.error("[FV] Trial Yields boot failed",error);
+  alert("FarmVista could not initialize Trial Yields.\n\n" + (error && error.message ? error.message : "Unknown error"));
 }
 
 })();
