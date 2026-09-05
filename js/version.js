@@ -43,6 +43,9 @@
   const isGrainContracts =
     path.endsWith('/pages/grain/grain-contracts.html');
 
+  const isGrainSection =
+    path.includes('/pages/grain/');
+
   const isGrainInventory =
     path.endsWith('/pages/grain/index.html') ||
     path === '/pages/grain/' ||
@@ -227,52 +230,179 @@
   }
 
   /* ===================================================================
-     SEPT 3, 2026 — GRAIN INVENTORY DARK MODE
+     SEPT 4, 2026 — GRAIN SECTION DARK MODE
+
+     Apply a single dark-theme compatibility layer across every page under
+     /pages/grain/. Several older grain pages still contain light-mode surface
+     and table colors in page-local CSS. These rules intentionally win only
+     while dark theme is active, so light mode is untouched.
   =================================================================== */
 
-  if (!isGrainInventory || window.__FV_GRAIN_DARK_FIX_20260903) return;
-  window.__FV_GRAIN_DARK_FIX_20260903 = true;
+  if (!isGrainSection || window.__FV_GRAIN_DARK_FIX_20260904) return;
+  window.__FV_GRAIN_DARK_FIX_20260904 = true;
 
   const style = document.createElement('style');
-  style.id = 'fv-grain-inventory-dark-fix';
+  style.id = 'fv-grain-section-dark-fix';
   style.textContent = `
+    html.dark body,
+    html[data-theme="dark"] body {
+      color:#eef4ef !important;
+    }
+
+    html.dark .card,
+    html[data-theme="dark"] .card,
+    html.dark .workspace-card,
+    html[data-theme="dark"] .workspace-card,
+    html.dark .summary-card,
+    html[data-theme="dark"] .summary-card,
+    html.dark .panel,
+    html[data-theme="dark"] .panel,
+    html.dark .inventory-card,
+    html[data-theme="dark"] .inventory-card,
+    html.dark .ticket-card,
+    html[data-theme="dark"] .ticket-card,
+    html.dark .contract-card,
+    html[data-theme="dark"] .contract-card,
     html.dark .detail-box,
     html[data-theme="dark"] .detail-box,
     html.dark .mini-kpi,
     html[data-theme="dark"] .mini-kpi,
     html.dark .loads-pill,
-    html[data-theme="dark"] .loads-pill {
-      background:#18231b !important;
-      color:#eef4ef !important;
-      border-color:#314137 !important;
-    }
-
-    html.dark .inventory-table th,
-    html[data-theme="dark"] .inventory-table th,
-    html.dark .harvest-drill-table th,
-    html[data-theme="dark"] .harvest-drill-table th {
-      background:#1b271e !important;
-      color:#eef4ef !important;
-      border-color:#314137 !important;
-    }
-
-    html.dark .inventory-table td,
-    html[data-theme="dark"] .inventory-table td,
-    html.dark .harvest-drill-table td,
-    html[data-theme="dark"] .harvest-drill-table td {
-      color:#eef4ef !important;
-      border-color:#314137 !important;
-    }
-
+    html[data-theme="dark"] .loads-pill,
     html.dark .modal,
     html[data-theme="dark"] .modal,
-    html.dark .inventory-card,
-    html[data-theme="dark"] .inventory-card {
+    html.dark .modal-card,
+    html[data-theme="dark"] .modal-card,
+    html.dark .dialog,
+    html[data-theme="dark"] .dialog,
+    html.dark .sheet,
+    html[data-theme="dark"] .sheet {
       background:#111a14 !important;
       color:#eef4ef !important;
       border-color:#314137 !important;
     }
 
+    html.dark .summary-row,
+    html[data-theme="dark"] .summary-row {
+      color:#eef4ef !important;
+    }
+
+    html.dark .section-header,
+    html[data-theme="dark"] .section-header,
+    html.dark .section-body,
+    html[data-theme="dark"] .section-body {
+      border-color:#314137 !important;
+      color:#eef4ef !important;
+    }
+
+    html.dark input,
+    html[data-theme="dark"] input,
+    html.dark select,
+    html[data-theme="dark"] select,
+    html.dark textarea,
+    html[data-theme="dark"] textarea,
+    html.dark .input,
+    html[data-theme="dark"] .input,
+    html.dark .select,
+    html[data-theme="dark"] .select,
+    html.dark .filter-field input,
+    html[data-theme="dark"] .filter-field input,
+    html.dark .filter-field select,
+    html[data-theme="dark"] .filter-field select {
+      background:#18231b !important;
+      color:#eef4ef !important;
+      border-color:#314137 !important;
+    }
+
+    html.dark input::placeholder,
+    html[data-theme="dark"] input::placeholder,
+    html.dark textarea::placeholder,
+    html[data-theme="dark"] textarea::placeholder {
+      color:#a9b5ad !important;
+      opacity:1 !important;
+    }
+
+    html.dark .table-wrap,
+    html[data-theme="dark"] .table-wrap,
+    html.dark table,
+    html[data-theme="dark"] table {
+      border-color:#314137 !important;
+    }
+
+    html.dark .data-table,
+    html[data-theme="dark"] .data-table,
+    html.dark .inventory-table,
+    html[data-theme="dark"] .inventory-table,
+    html.dark .harvest-drill-table,
+    html[data-theme="dark"] .harvest-drill-table {
+      background:#111a14 !important;
+      color:#eef4ef !important;
+    }
+
+    html.dark .data-table th,
+    html[data-theme="dark"] .data-table th,
+    html.dark .inventory-table th,
+    html[data-theme="dark"] .inventory-table th,
+    html.dark .harvest-drill-table th,
+    html[data-theme="dark"] .harvest-drill-table th,
+    html.dark table thead th,
+    html[data-theme="dark"] table thead th {
+      background:#1b271e !important;
+      color:#eef4ef !important;
+      border-color:#314137 !important;
+    }
+
+    html.dark .data-table td,
+    html[data-theme="dark"] .data-table td,
+    html.dark .inventory-table td,
+    html[data-theme="dark"] .inventory-table td,
+    html.dark .harvest-drill-table td,
+    html[data-theme="dark"] .harvest-drill-table td,
+    html.dark table tbody td,
+    html[data-theme="dark"] table tbody td {
+      color:#eef4ef !important;
+      border-color:#314137 !important;
+    }
+
+    html.dark .data-table tbody tr,
+    html[data-theme="dark"] .data-table tbody tr,
+    html.dark table tbody tr,
+    html[data-theme="dark"] table tbody tr {
+      background:#111a14 !important;
+    }
+
+    html.dark .data-table tbody tr:hover,
+    html[data-theme="dark"] .data-table tbody tr:hover,
+    html.dark table tbody tr:hover,
+    html[data-theme="dark"] table tbody tr:hover {
+      background:#18231b !important;
+    }
+
+    html.dark .page-title,
+    html[data-theme="dark"] .page-title,
+    html.dark .section-title,
+    html[data-theme="dark"] .section-title,
+    html.dark .inventory-title,
+    html[data-theme="dark"] .inventory-title,
+    html.dark .modal-title,
+    html[data-theme="dark"] .modal-title,
+    html.dark .summary-value,
+    html[data-theme="dark"] .summary-value,
+    html.dark .detail-value,
+    html[data-theme="dark"] .detail-value,
+    html.dark .mini-kpi-value,
+    html[data-theme="dark"] .mini-kpi-value,
+    html.dark label,
+    html[data-theme="dark"] label {
+      color:#eef4ef !important;
+    }
+
+    html.dark .page-sub,
+    html[data-theme="dark"] .page-sub,
+    html.dark .section-sub,
+    html[data-theme="dark"] .section-sub,
+    html.dark .summary-label,
+    html[data-theme="dark"] .summary-label,
     html.dark .detail-label,
     html[data-theme="dark"] .detail-label,
     html.dark .inventory-sub,
@@ -280,36 +410,28 @@
     html.dark .inventory-foot,
     html[data-theme="dark"] .inventory-foot,
     html.dark .muted,
-    html[data-theme="dark"] .muted {
+    html[data-theme="dark"] .muted,
+    html.dark .help-text,
+    html[data-theme="dark"] .help-text,
+    html.dark .hint,
+    html[data-theme="dark"] .hint {
       color:#a9b5ad !important;
       opacity:1 !important;
     }
 
-    html.dark .detail-value,
-    html[data-theme="dark"] .detail-value,
-    html.dark .inventory-title,
-    html[data-theme="dark"] .inventory-title,
-    html.dark .modal-title,
-    html[data-theme="dark"] .modal-title,
-    html.dark .mini-kpi-value,
-    html[data-theme="dark"] .mini-kpi-value {
-      color:#eef4ef !important;
-    }
-
+    html.dark .btn-secondary,
+    html[data-theme="dark"] .btn-secondary,
+    html.dark .btn:not(.btn-primary):not(.btn-danger):not(.primary):not(.danger),
+    html[data-theme="dark"] .btn:not(.btn-primary):not(.btn-danger):not(.primary):not(.danger),
     html.dark .drill-back,
     html[data-theme="dark"] .drill-back,
     html.dark .modal-close,
     html[data-theme="dark"] .modal-close,
-    html.dark .btn:not(.primary),
-    html[data-theme="dark"] .btn:not(.primary) {
+    html.dark .show-voided-toggle,
+    html[data-theme="dark"] .show-voided-toggle {
       background:#233027 !important;
       color:#eef4ef !important;
       border-color:#3a4a3f !important;
-    }
-
-    html.dark .table-wrap,
-    html[data-theme="dark"] .table-wrap {
-      border-color:#314137 !important;
     }
 
     html.dark .modal-backdrop,
