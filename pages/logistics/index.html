@@ -148,8 +148,12 @@
     .defect-item{padding:11px;border:1px solid rgba(180,35,24,.28);border-radius:11px;background:rgba(180,35,24,.06)}
     .defect-name{font-weight:950}
     .defect-note{margin-top:5px;line-height:1.4}
-    .photo-link{display:inline-flex;margin-top:8px;color:var(--green);font-weight:900}
+    .photo-link{display:inline-flex;margin-top:8px;padding:0;border:0;background:none;color:var(--green);font-weight:900;text-decoration:underline;cursor:pointer}
     .remarks{white-space:pre-wrap;line-height:1.5}
+
+    dialog.media-sheet{width:min(1050px,96vw);max-height:94vh}
+    .media-body{padding:12px;display:flex;align-items:center;justify-content:center;min-height:220px;background:var(--surface-2,rgba(127,127,127,.05))}
+    .media-body img{display:block;max-width:100%;max-height:calc(94vh - 120px);width:auto;height:auto;object-fit:contain;border-radius:10px}
 
     @media(max-width:900px){
       .summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -295,6 +299,17 @@
     <div class="sheet-foot"><button id="detailClose2" class="btn" type="button">Close</button></div>
   </dialog>
 
+  <dialog id="mediaSheet" class="sheet media-sheet">
+    <div class="sheet-head">
+      <div id="mediaTitle" class="sheet-title">Defect Photo</div>
+      <button id="mediaClose" class="btn" type="button">Close</button>
+    </div>
+    <div class="media-body">
+      <img id="mediaImage" alt="Attached defect photo"/>
+    </div>
+    <div class="sheet-foot"><button id="mediaClose2" class="btn" type="button">Close</button></div>
+  </dialog>
+
   <script type="module">
 import {
   ready,
@@ -332,7 +347,12 @@ const PDF_FUNCTION_URL =
       detailTitle:document.getElementById("detailTitle"),
       detailBody:document.getElementById("detailBody"),
       detailClose:document.getElementById("detailClose"),
-      detailClose2:document.getElementById("detailClose2")
+      detailClose2:document.getElementById("detailClose2"),
+      mediaSheet:document.getElementById("mediaSheet"),
+      mediaTitle:document.getElementById("mediaTitle"),
+      mediaImage:document.getElementById("mediaImage"),
+      mediaClose:document.getElementById("mediaClose"),
+      mediaClose2:document.getElementById("mediaClose2")
     };
 
     const state={
@@ -472,6 +492,19 @@ function renderTable(){
       return `<div class="detail-card"><div class="detail-label">${escapeHtml(label)}</div><div class="detail-value">${escapeHtml(value||"—")}</div></div>`;
     }
 
+    function openMedia(url,title="Defect Photo"){
+      const src=clean(url);
+      if(!src)return;
+      elements.mediaTitle.textContent=title;
+      elements.mediaImage.src=src;
+      try{elements.mediaSheet.showModal()}catch{elements.mediaSheet.setAttribute("open","")}
+    }
+
+    function closeMedia(){
+      try{elements.mediaSheet.close()}catch{elements.mediaSheet.removeAttribute("open")}
+      elements.mediaImage.removeAttribute("src");
+    }
+
     function openDetail(row){
       const defects=(Array.isArray(row.responses)?row.responses:[]).filter(item=>normalized(item.status)==="defect");
       const statusBad=hasDefects(row);
@@ -481,7 +514,7 @@ function renderTable(){
         <div class="defect-item">
           <div class="defect-name">${escapeHtml(clean(item.section)?`${item.section} • ${item.label}`:item.label||"Defect")}</div>
           <div class="defect-note">${escapeHtml(clean(item.note)||"No description entered.")}</div>
-          ${item.photoUrl?`<a class="photo-link" href="${escapeHtml(item.photoUrl)}" target="_blank" rel="noopener">View attached photo or file</a>`:""}
+          ${item.photoUrl?`<button class="photo-link" type="button" data-photo-url="${escapeHtml(item.photoUrl)}" data-photo-title="${escapeHtml(clean(item.label)||"Defect Photo")}">View attached photo or file</button>`:""}
         </div>`).join(""):`<div class="muted">No defects were reported.</div>`;
 
       elements.detailBody.innerHTML=`
@@ -499,10 +532,18 @@ function renderTable(){
         <div class="subcard"><h3>Reported Defects</h3><div class="defect-list">${defectsHtml}</div></div>
         <div class="subcard"><h3>Remarks</h3><div class="remarks">${escapeHtml(clean(row.remarks)||"No remarks entered.")}</div></div>`;
 
+      elements.detailBody.querySelectorAll("[data-photo-url]").forEach(button=>{
+        button.addEventListener("click",event=>{
+          event.stopPropagation();
+          openMedia(button.dataset.photoUrl,button.dataset.photoTitle||"Defect Photo");
+        });
+      });
+
       try{elements.detailSheet.showModal()}catch{elements.detailSheet.setAttribute("open","")}
     }
 
     function closeDetail(){
+      if(elements.mediaSheet.open)closeMedia();
       try{elements.detailSheet.close()}catch{elements.detailSheet.removeAttribute("open")}
     }
 
@@ -722,6 +763,11 @@ elements.viewReportButton.addEventListener(
     elements.detailClose2.addEventListener("click",closeDetail);
     elements.detailSheet.addEventListener("click",event=>{
       if(event.target===elements.detailSheet)closeDetail();
+    });
+    elements.mediaClose.addEventListener("click",closeMedia);
+    elements.mediaClose2.addEventListener("click",closeMedia);
+    elements.mediaSheet.addEventListener("click",event=>{
+      if(event.target===elements.mediaSheet)closeMedia();
     });
 
     setToday();
