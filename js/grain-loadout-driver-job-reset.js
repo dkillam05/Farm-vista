@@ -62,8 +62,6 @@
   function forceBlank() {
     if (!isCreateModal()) return;
 
-    // Once the repeat-run module starts applying the NEW driver's own saved
-    // run, it owns the hauling-job value and this guard must not fight it.
     if (document.documentElement.classList.contains('fv-loadout-silent-preload')) {
       stopGuard();
       return;
@@ -72,8 +70,6 @@
     const select = $('loadout-hauling-job');
     if (!select) return;
 
-    // Remove only options injected by the repeat-run helper for the prior
-    // driver. Normal hauling-job options remain untouched.
     select.querySelectorAll('option[data-fv-repeat-injected="1"]')
       .forEach(option => option.remove());
 
@@ -94,8 +90,6 @@
 
     if (!isCreateModal()) return;
 
-    // Run after grain-ticket.html's own driver-change handler, then continue
-    // watching while that page rebuilds the hauling-job SELECT.
     queueMicrotask(() => {
       if (myToken !== resetToken) return;
       forceBlank();
@@ -146,7 +140,6 @@
     }
   }, true);
 
-  // Closing/reopening the modal must never leave a stale guard active.
   document.addEventListener('click', event => {
     const target = event.target;
     if (!(target instanceof Element)) return;
@@ -155,4 +148,15 @@
       stopGuard();
     }
   }, true);
+})();
+
+/* Sept 5, 2026 — prevent table scrolling gestures from opening Ticket Details. */
+(() => {
+  if (window.__FV_GRAIN_TICKET_ROW_TAP_GUARD_LOADER_20260905) return;
+  window.__FV_GRAIN_TICKET_ROW_TAP_GUARD_LOADER_20260905 = true;
+
+  const script = document.createElement('script');
+  script.src = '/js/grain-ticket-row-tap-guard.js?v=20260905-1';
+  script.dataset.fvGrainTicketRowTapGuard = '1';
+  document.head.appendChild(script);
 })();
