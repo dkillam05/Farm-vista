@@ -136,3 +136,16 @@
     bind();
   }
 })();
+
+/* Sept 5, 2026 — Ticket Details mobile viewer + OCR display tools. */
+(() => {
+  const path = String(location.pathname || '').toLowerCase();
+  if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) return;
+  if (window.__FV_TICKET_DETAIL_MOBILE_VIEWER_LOADER_20260905) return;
+  window.__FV_TICKET_DETAIL_MOBILE_VIEWER_LOADER_20260905 = true;
+
+  const script = document.createElement('script');
+  script.src = '/js/grain-ticket-detail-mobile-viewer.js?v=20260905-1';
+  script.dataset.fvTicketDetailMobileViewer = '1';
+  document.head.appendChild(script);
+})();
