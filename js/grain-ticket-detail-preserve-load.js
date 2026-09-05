@@ -130,16 +130,16 @@
 (() => {
   const path = String(location.pathname || '').toLowerCase();
   if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) return;
-  if (window.__FV_TICKET_DETAIL_MOBILE_VIEWER_LOADER_V3_20260905) return;
-  window.__FV_TICKET_DETAIL_MOBILE_VIEWER_LOADER_V3_20260905 = true;
+  if (window.__FV_TICKET_DETAIL_MOBILE_VIEWER_LOADER_V4_20260905) return;
+  window.__FV_TICKET_DETAIL_MOBILE_VIEWER_LOADER_V4_20260905 = true;
 
   const script = document.createElement('script');
-  script.src = '/js/grain-ticket-detail-mobile-viewer-v2.js?v=20260905-3';
+  script.src = '/js/grain-ticket-detail-mobile-viewer-v2.js?v=20260905-4';
   script.dataset.fvTicketDetailMobileViewer = '1';
   document.head.appendChild(script);
 
-  const portraitFix = document.createElement('script');
-  portraitFix.src = '/js/grain-ticket-detail-portrait-viewer-fix.js?v=20260905-1';
-  portraitFix.dataset.fvTicketDetailPortraitViewerFix = '1';
-  document.head.appendChild(portraitFix);
+  const firstLoadWake = document.createElement('script');
+  firstLoadWake.src = '/js/grain-ticket-detail-first-load-wake.js?v=20260905-1';
+  firstLoadWake.dataset.fvTicketDetailFirstLoadWake = '1';
+  document.head.appendChild(firstLoadWake);
 })();
