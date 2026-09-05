@@ -139,7 +139,7 @@
   document.head.appendChild(script);
 
   const portraitFix = document.createElement('script');
-  portraitFix.src = '/js/grain-ticket-detail-portrait-fix.js?v=20260905-1';
-  portraitFix.dataset.fvTicketDetailPortraitFix = '1';
+  portraitFix.src = '/js/grain-ticket-detail-portrait-viewer-fix.js?v=20260905-1';
+  portraitFix.dataset.fvTicketDetailPortraitViewerFix = '1';
   document.head.appendChild(portraitFix);
 })();
