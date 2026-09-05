@@ -4,24 +4,61 @@
 
   const path = String(location.pathname || '').toLowerCase();
   if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) return;
-  if (window.__FV_TICKET_DETAIL_MOBILE_VIEWER_V2_20260905) return;
-  window.__FV_TICKET_DETAIL_MOBILE_VIEWER_V2_20260905 = true;
+  if (window.__FV_TICKET_DETAIL_MOBILE_VIEWER_V3_20260905) return;
+  window.__FV_TICKET_DETAIL_MOBILE_VIEWER_V3_20260905 = true;
 
   const $ = id => document.getElementById(id);
+  const isPhoneLayout = () => matchMedia('(pointer:coarse)').matches || innerWidth <= 900;
 
   function installStyles() {
+    document.getElementById('fv-ticket-detail-mobile-v3-style')?.remove();
     const style = document.createElement('style');
-    style.id = 'fv-ticket-detail-mobile-v2-style';
+    style.id = 'fv-ticket-detail-mobile-v3-style';
     style.textContent = `
-      #ticketImageWrap{
+      .fv-mobile-ticket-photo{
+        position:absolute;
+        left:50%;
+        top:50%;
+        display:none;
+        max-width:none;
+        max-height:none;
+        user-select:none;
+        -webkit-user-select:none;
+        -webkit-user-drag:none;
+        pointer-events:none;
+        transform-origin:center center;
+        will-change:transform;
+      }
+
+      #ticketImageWrap.fv-phone-viewer{
+        overflow:hidden !important;
         touch-action:none !important;
         overscroll-behavior:contain !important;
+        cursor:grab !important;
       }
+
+      #ticketImageWrap.fv-phone-viewer #ticketImageStage{
+        width:100% !important;
+        height:100% !important;
+        min-width:100% !important;
+        min-height:100% !important;
+      }
+
+      #ticketImageWrap.fv-phone-viewer #ticketImage{
+        visibility:hidden !important;
+        pointer-events:none !important;
+      }
+
+      #ticketImageWrap.fv-phone-viewer .fv-mobile-ticket-photo{
+        display:block;
+      }
+
       #ticketImageWrap.fv-touch-panning{
         cursor:grabbing !important;
         user-select:none !important;
         -webkit-user-select:none !important;
       }
+
       .fv-ocr-toolbar{
         display:flex;align-items:center;justify-content:space-between;
         gap:8px;flex-wrap:wrap;margin:0 0 9px;
@@ -40,117 +77,249 @@
         .layout > aside,.image-card{width:100% !important;min-width:0 !important}
         .image-card{margin-left:auto !important;margin-right:auto !important}
         #ticketImageWrap{
-          width:100% !important;height:min(68dvh,680px) !important;
-          min-height:360px !important;margin-left:auto !important;margin-right:auto !important;
+          width:100% !important;
+          height:72dvh !important;
+          min-height:430px !important;
+          max-height:760px !important;
+          margin-left:auto !important;
+          margin-right:auto !important;
         }
         .image-actions{gap:8px !important}
         .image-actions .btn{flex:1 1 0 !important;min-width:0 !important;padding-left:8px !important;padding-right:8px !important}
       }
 
       @media (orientation:landscape) and (max-height:700px) and (min-width:701px){
-        .layout{align-items:start !important}
-        .layout > div,.layout > aside{
-          height:calc(100dvh - 150px) !important;
-          min-height:260px !important;
-          max-height:calc(100dvh - 150px) !important;
+        html,body{overflow-x:hidden !important}
+        .page{max-width:none !important;width:100% !important;padding-left:12px !important;padding-right:12px !important}
+        .layout{
+          grid-template-columns:minmax(0,1fr) minmax(420px,.92fr) !important;
+          align-items:start !important;
+          gap:14px !important;
+          width:100% !important;
+          overflow:hidden !important;
+        }
+        .layout > div,
+        .layout > aside{
+          min-width:0 !important;
+          width:100% !important;
+          max-width:100% !important;
+          height:calc(100dvh - 132px) !important;
+          min-height:360px !important;
+          max-height:calc(100dvh - 132px) !important;
           overflow-y:auto !important;
-          overscroll-behavior:contain !important;
+          overflow-x:hidden !important;
+          overscroll-behavior-y:contain !important;
+          overscroll-behavior-x:none !important;
           scrollbar-width:none !important;
           -ms-overflow-style:none !important;
+          position:static !important;
+          top:auto !important;
         }
-        .layout > div::-webkit-scrollbar,.layout > aside::-webkit-scrollbar{display:none !important;width:0 !important;height:0 !important}
-        .layout > aside{position:sticky !important;top:96px !important;align-self:start !important}
-        #ticketImageWrap{height:calc(100dvh - 290px) !important;min-height:240px !important}
+        .layout > div::-webkit-scrollbar,
+        .layout > aside::-webkit-scrollbar{display:none !important;width:0 !important;height:0 !important}
+        .layout > div > form,
+        .layout > aside > .image-card{
+          min-width:0 !important;
+          max-width:100% !important;
+          overflow-x:hidden !important;
+        }
+        .image-card{margin:0 !important}
+        #ticketImageWrap{
+          width:100% !important;
+          height:calc(100dvh - 225px) !important;
+          min-height:360px !important;
+          max-height:none !important;
+        }
       }
     `;
     document.head.appendChild(style);
   }
 
-  function centerTicket() {
+  function setupPhoneViewer() {
     const wrap = $('ticketImageWrap');
     const stage = $('ticketImageStage');
-    const image = $('ticketImage');
-    if (!wrap || !stage || !image || image.hidden) return;
-    requestAnimationFrame(() => {
-      wrap.scrollLeft = Math.max(0, (stage.scrollWidth - wrap.clientWidth) / 2);
-      wrap.scrollTop = Math.max(0, (stage.scrollHeight - wrap.clientHeight) / 2);
-    });
-  }
+    const source = $('ticketImage');
+    if (!wrap || !stage || !source) return;
 
-  function bindTouchPan() {
-    const wrap = $('ticketImageWrap');
-    const image = $('ticketImage');
-    if (!wrap || !image) return;
+    let photo = wrap.querySelector('.fv-mobile-ticket-photo');
+    if (!photo) {
+      photo = document.createElement('img');
+      photo.className = 'fv-mobile-ticket-photo';
+      photo.alt = 'Scanned grain ticket';
+      photo.draggable = false;
+      stage.appendChild(photo);
+    }
 
-    let active = false;
-    let sx = 0, sy = 0, sl = 0, st = 0;
+    let scale = 1;
+    let rotation = 0;
+    let x = 0;
+    let y = 0;
+    let baseWidth = 0;
+    let baseHeight = 0;
+    let panning = false;
+    let panStartX = 0;
+    let panStartY = 0;
+    let panOriginX = 0;
+    let panOriginY = 0;
+    let pinchStartDistance = 0;
+    let pinchStartScale = 1;
 
-    const anchor = touch => {
-      active = true;
-      sx = touch.clientX;
-      sy = touch.clientY;
-      sl = wrap.scrollLeft;
-      st = wrap.scrollTop;
-      wrap.classList.add('fv-touch-panning');
-    };
+    const clampScale = value => Math.min(6, Math.max(1, value));
+
+    function fitPhoto(resetPan = true) {
+      if (!isPhoneLayout() || !photo.naturalWidth || !photo.naturalHeight) return;
+
+      wrap.classList.add('fv-phone-viewer');
+
+      const sideways = Math.abs(rotation % 180) === 90;
+      const sourceW = sideways ? photo.naturalHeight : photo.naturalWidth;
+      const sourceH = sideways ? photo.naturalWidth : photo.naturalHeight;
+      const availW = Math.max(1, wrap.clientWidth - 18);
+      const availH = Math.max(1, wrap.clientHeight - 18);
+      const fit = Math.min(availW / sourceW, availH / sourceH);
+
+      baseWidth = photo.naturalWidth * fit;
+      baseHeight = photo.naturalHeight * fit;
+      photo.style.width = `${baseWidth}px`;
+      photo.style.height = `${baseHeight}px`;
+
+      if (resetPan) {
+        scale = 1;
+        x = 0;
+        y = 0;
+      }
+      applyTransform();
+    }
+
+    function panBounds() {
+      const sideways = Math.abs(rotation % 180) === 90;
+      const visualW = (sideways ? baseHeight : baseWidth) * scale;
+      const visualH = (sideways ? baseWidth : baseHeight) * scale;
+      return {
+        x: Math.max(0, (visualW - wrap.clientWidth) / 2),
+        y: Math.max(0, (visualH - wrap.clientHeight) / 2)
+      };
+    }
+
+    function clampPan() {
+      const bounds = panBounds();
+      x = Math.max(-bounds.x, Math.min(bounds.x, x));
+      y = Math.max(-bounds.y, Math.min(bounds.y, y));
+    }
+
+    function applyTransform() {
+      clampPan();
+      photo.style.transform = `translate(-50%, -50%) translate(${x}px, ${y}px) rotate(${rotation}deg) scale(${scale})`;
+    }
+
+    function syncSource() {
+      const src = source.currentSrc || source.src || '';
+      if (!src) return;
+      if (photo.src !== src) photo.src = src;
+      if (!source.hidden) wrap.classList.add('fv-phone-viewer');
+    }
+
+    photo.addEventListener('load', () => setTimeout(() => fitPhoto(true), 0));
+
+    const sourceObserver = new MutationObserver(syncSource);
+    sourceObserver.observe(source, {attributes:true,attributeFilter:['src','hidden']});
+    syncSource();
+
+    function distance(touches) {
+      if (!touches || touches.length < 2) return 0;
+      return Math.hypot(
+        touches[1].clientX - touches[0].clientX,
+        touches[1].clientY - touches[0].clientY
+      );
+    }
 
     wrap.addEventListener('touchstart', event => {
-      if (image.hidden || event.touches.length !== 1) {
-        active = false;
+      if (!isPhoneLayout() || source.hidden || !photo.naturalWidth) return;
+
+      if (event.touches.length === 2) {
+        event.preventDefault();
+        panning = false;
         wrap.classList.remove('fv-touch-panning');
+        pinchStartDistance = distance(event.touches);
+        pinchStartScale = scale;
         return;
       }
-      anchor(event.touches[0]);
-    }, {capture:true,passive:true});
 
-    wrap.addEventListener('touchmove', event => {
-      if (!active || event.touches.length !== 1) return;
-      const stage = $('ticketImageStage');
-      if (!stage) return;
-      const panX = stage.scrollWidth > wrap.clientWidth + 1;
-      const panY = stage.scrollHeight > wrap.clientHeight + 1;
-      if (!panX && !panY) return;
-
-      event.preventDefault();
-      const touch = event.touches[0];
-      if (panX) wrap.scrollLeft = sl - (touch.clientX - sx);
-      if (panY) wrap.scrollTop = st - (touch.clientY - sy);
+      if (event.touches.length === 1) {
+        const touch = event.touches[0];
+        panning = true;
+        panStartX = touch.clientX;
+        panStartY = touch.clientY;
+        panOriginX = x;
+        panOriginY = y;
+        wrap.classList.add('fv-touch-panning');
+      }
     }, {capture:true,passive:false});
 
-    const finish = event => {
-      if (event.touches?.length === 1) {
-        anchor(event.touches[0]);
+    wrap.addEventListener('touchmove', event => {
+      if (!isPhoneLayout() || source.hidden || !photo.naturalWidth) return;
+
+      if (event.touches.length === 2 && pinchStartDistance) {
+        event.preventDefault();
+        const next = pinchStartScale * (distance(event.touches) / pinchStartDistance);
+        scale = clampScale(next);
+        applyTransform();
         return;
       }
-      active = false;
-      wrap.classList.remove('fv-touch-panning');
-    };
-    wrap.addEventListener('touchend', finish, {capture:true,passive:true});
-    wrap.addEventListener('touchcancel', finish, {capture:true,passive:true});
 
-    /* Only watch source/visibility. Do NOT observe style because the native
-       pinch zoom changes transform continuously and must never be re-centered
-       while the user is pinching. */
-    const observer = new MutationObserver(mutations => {
-      if (mutations.some(m => m.attributeName === 'src' || m.attributeName === 'hidden')) {
-        setTimeout(centerTicket, 80);
+      if (event.touches.length === 1 && panning) {
+        event.preventDefault();
+        const touch = event.touches[0];
+        x = panOriginX + (touch.clientX - panStartX);
+        y = panOriginY + (touch.clientY - panStartY);
+        applyTransform();
       }
-    });
-    observer.observe(image, {attributes:true,attributeFilter:['src','hidden']});
+    }, {capture:true,passive:false});
 
-    ['rotateLeftBtn','rotateRightBtn'].forEach(id => {
-      $(id)?.addEventListener('click', () => setTimeout(centerTicket, 90));
+    wrap.addEventListener('touchend', event => {
+      if (event.touches.length < 2) pinchStartDistance = 0;
+      if (event.touches.length === 1) {
+        const touch = event.touches[0];
+        panning = true;
+        panStartX = touch.clientX;
+        panStartY = touch.clientY;
+        panOriginX = x;
+        panOriginY = y;
+        return;
+      }
+      panning = false;
+      wrap.classList.remove('fv-touch-panning');
+    }, {capture:true,passive:true});
+
+    wrap.addEventListener('touchcancel', () => {
+      panning = false;
+      pinchStartDistance = 0;
+      wrap.classList.remove('fv-touch-panning');
+    }, {capture:true,passive:true});
+
+    $('rotateLeftBtn')?.addEventListener('click', () => {
+      if (!isPhoneLayout()) return;
+      rotation -= 90;
+      setTimeout(() => fitPhoto(true), 0);
     });
 
-    let timer = 0;
-    const afterLayout = () => {
-      clearTimeout(timer);
-      timer = setTimeout(centerTicket, 200);
+    $('rotateRightBtn')?.addEventListener('click', () => {
+      if (!isPhoneLayout()) return;
+      rotation += 90;
+      setTimeout(() => fitPhoto(true), 0);
+    });
+
+    let resizeTimer = 0;
+    const refit = () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => fitPhoto(true), 180);
     };
-    window.addEventListener('resize', afterLayout, {passive:true});
-    window.addEventListener('orientationchange', afterLayout, {passive:true});
+    window.addEventListener('resize', refit, {passive:true});
+    window.addEventListener('orientationchange', refit, {passive:true});
 
-    if (image.complete && image.naturalWidth) setTimeout(centerTicket, 80);
+    setTimeout(syncSource, 250);
+    setTimeout(() => fitPhoto(true), 500);
+    setTimeout(() => fitPhoto(true), 1200);
   }
 
   function organize(text) {
@@ -188,7 +357,8 @@
 
   function bindOcr() {
     const pre = $('ocrRawText');
-    if (!pre) return;
+    if (!pre || pre.dataset.fvOcrV3 === '1') return;
+    pre.dataset.fvOcrV3 = '1';
 
     const toolbar = document.createElement('div');
     toolbar.className = 'fv-ocr-toolbar';
@@ -274,11 +444,9 @@
 
   function boot() {
     installStyles();
-    bindTouchPan();
+    setupPhoneViewer();
     bindOcr();
     updateHelp();
-    setTimeout(centerTicket,250);
-    setTimeout(centerTicket,900);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded',boot,{once:true});
