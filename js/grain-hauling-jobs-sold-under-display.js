@@ -97,6 +97,36 @@
         border-color:#314137 !important;
       }
 
+      /* Linked-contract rows are rendered dynamically inside each hauling
+         job card and some carry their own light inline surface. Force those
+         interactive rows to use a readable dark surface too. */
+      html.dark .hauling-job-drop-card button,
+      html[data-theme="dark"] .hauling-job-drop-card button,
+      html.dark .hauling-job-drop-card a,
+      html[data-theme="dark"] .hauling-job-drop-card a,
+      html.dark .hauling-job-drop-card [role="button"],
+      html[data-theme="dark"] .hauling-job-drop-card [role="button"],
+      html.dark .hauling-job-drop-card [style*="background"],
+      html[data-theme="dark"] .hauling-job-drop-card [style*="background"] {
+        background:#18231b !important;
+        background-color:#18231b !important;
+        color:#eef4ef !important;
+        -webkit-text-fill-color:#eef4ef !important;
+        border-color:#314137 !important;
+      }
+
+      html.dark .hauling-job-drop-card button:hover,
+      html[data-theme="dark"] .hauling-job-drop-card button:hover,
+      html.dark .hauling-job-drop-card a:hover,
+      html[data-theme="dark"] .hauling-job-drop-card a:hover,
+      html.dark .hauling-job-drop-card [role="button"]:hover,
+      html[data-theme="dark"] .hauling-job-drop-card [role="button"]:hover {
+        background:#223128 !important;
+        background-color:#223128 !important;
+        color:#fff !important;
+        -webkit-text-fill-color:#fff !important;
+      }
+
       html.dark .hauling-dnd-message.ready,
       html[data-theme="dark"] .hauling-dnd-message.ready,
       html.dark .reconcile-filter-message.ready,
