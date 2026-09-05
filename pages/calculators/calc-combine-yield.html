@@ -5,1088 +5,122 @@
   <title>FarmVista - Combine Yield</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#3B7E46">
-
   <script defer src="../../js/theme-boot.js"></script>
-  
   <link rel="manifest" href="../../manifest.webmanifest">
   <link rel="stylesheet" href="../../assets/css/theme.css">
   <link rel="stylesheet" href="../../assets/css/app.css">
   <script defer src="../../js/fv-shell.js"></script>
-
   <style>
-    :root{ --accent:#2F6C3C; --card-max:1100px; --ring: rgba(47,108,60,.20); }
-    body{ background: var(--app-bg, var(--surface)); }
-    .page{max-width:var(--card-max); margin:0 auto; padding:clamp(14px,3vw,22px);
-      padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important;}
-    .muted{ color:var(--muted,#67706B); }
-
-    .hero{
-      border:1px solid var(--border);
-      border-radius:14px;
-      background:var(--surface);
-      box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));
-      overflow:visible; /* ✅ dropdowns escape */
-    }
-
-    .hero-head{display:flex; gap:12px; align-items:flex-start; padding:14px 16px;
-      background:linear-gradient(90deg, rgba(47,108,60,.12), transparent);
-      border-bottom:1px solid var(--border);}
-    .hero-head .icon{width:28px;height:28px;color:var(--accent);margin-top:2px;}
-    .hero-head h1{margin:0;font-size:clamp(20px,3.2vw,26px);line-height:1.2;}
-    .body{padding:16px; display:grid; gap:14px;}
-
-    .row{display:grid; gap:10px; grid-template-columns:1fr 1fr;}
-    @media (max-width:880px){ .row{ grid-template-columns:1fr; } }
-
-    .field label{display:block; font-weight:800; margin:0 0 6px 0;}
-    .input,.select,.textarea{width:100%; font:inherit; font-size:16px; color:var(--text);
-      background:var(--card-surface,var(--surface)); border:1px solid var(--border);
-      border-radius:10px; padding:12px; outline:none;}
-    .input:focus,.select:focus,.textarea:focus{
-      border-color: rgba(47,108,60,.42);
-      box-shadow: 0 0 0 4px var(--ring);
-    }
-    .input[readonly]{
-      opacity:.92;
-      background: color-mix(in srgb, var(--card-surface,var(--surface)) 92%, #000 8%);
-    }
-
-    .label-row{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      margin-bottom:6px;
-    }
-    .label-row label{ margin:0; font-weight:800; }
-    .help-btn{
-      appearance:none;
-      border:1px solid var(--border);
-      background:var(--surface);
-      border-radius:999px;
-      width:26px;
-      height:26px;
-      display:inline-grid;
-      place-items:center;
-      cursor:pointer;
-      color: var(--text) !important;
-      padding:0;
-    }
-    .help-btn:focus{
-      outline:none;
-      border-color: rgba(47,108,60,.42);
-      box-shadow: 0 0 0 4px var(--ring);
-    }
-    .help-btn svg{ width:16px; height:16px; }
-
-    .error{ color:#b00020; font-weight:800; }
-
-    .card{border:1px solid var(--border); border-radius:12px; background:var(--card-surface,var(--surface)); padding:12px;}
-
-    .actions{display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:flex-end;}
-    .btn{display:inline-flex; align-items:center; justify-content:center; min-width:148px; padding:12px 16px;
-      border-radius:12px; border:1px solid var(--border); background:var(--card-surface,var(--surface));
-      font-weight:800; color:var(--text); cursor:pointer;}
-    .btn-primary{border-color:transparent; background:#2F6C3C; color:#fff;}
-    .btn[disabled]{ opacity:.6; cursor:not-allowed; }
-
-    .summary{border:1px solid var(--border); border-radius:12px; padding:14px;
-      background:linear-gradient(180deg, rgba(47,108,60,.06), transparent);}
-
-    .result-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-    @media (max-width:760px){ .result-grid{ grid-template-columns:1fr; } }
-    .tile{ border:1px solid var(--border); border-radius:12px; padding:12px;
-      background: linear-gradient(180deg, rgba(47,108,60,.06), transparent 55%); }
-    .tile h3{ margin:0 0 8px; font-size:16px; }
-    .kv{ display:grid; grid-template-columns:1fr auto; gap:6px 12px; align-items:baseline; }
-    .kv .val{ font-weight:800; }
-
-    .hist-head{display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-top:1px solid var(--border);}
-    .hist-title{font-size:clamp(18px, 2.6vw, 22px); font-weight:800;}
-    .hist-clear{border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:8px 12px; font-weight:700; cursor:pointer; color:var(--text) !important;}
-    .hist{padding:14px 16px; display:grid; gap:12px;}
-    .hist-item{border:1px solid var(--border); border-radius:12px; padding:12px; background:var(--card-surface,var(--surface));
-      display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;}
-    .hist-item .view{border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:8px 12px; font-weight:700; cursor:pointer; color:var(--text) !important;}
-
-    .modal{ position:fixed; inset:0; display:none; place-items:center; background:rgba(0,0,0,.42);
-      z-index:9999; transition:opacity .15s; opacity:0; }
-    .modal[open]{ display:grid; opacity:1; }
-    .dialog{ width:min(760px,92vw); max-height:85vh; display:flex; flex-direction:column; background:var(--surface); color:var(--text);
-      border-radius:14px; border:1px solid var(--border); box-shadow:0 16px 36px rgba(0,0,0,.28); }
-    .dialog-head{ padding:12px 14px; border-bottom:1px solid var(--border);
-      display:flex; justify-content:space-between; align-items:center; gap:10px; }
-    .dialog-body{ padding:14px; overflow:auto; flex:1 1 auto; min-height:0; -webkit-overflow-scrolling:touch; }
-    .closex{ border:1px solid var(--border); background:var(--surface); border-radius:10px;
-      padding:8px 12px; cursor:pointer; font-weight:700; color:var(--text) !important; }
-    html.no-scroll, body.no-scroll{ overflow:hidden; }
-
-    .help-note{ margin:0 0 10px; color:var(--muted); font-size:13px; line-height:1.35; }
-    .bul{ margin:8px 0 0; padding-left:18px; }
-    .bul li{ margin:8px 0; line-height:1.35; }
-    .k{
-      display:inline-block;
-      padding:1px 8px;
-      border:1px solid var(--border);
-      border-radius:999px;
-      background:var(--card-surface,var(--surface));
-      font-weight:700;
-      font-size:12px;
-      color:var(--text);
-    }
-
-    /* Context card */
-    .ctx{
-      border:1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
-      background:linear-gradient(180deg, rgba(47,108,60,.08), transparent);
-    }
-
-    /* === DEV-STYLE INLINE COMBOS (Farm / Field) === */
-    :root{
-      --combo-gap:4px;
-      --combo-radius:12px;
-      --combo-btn-radius:10px;
-      --combo-shadow:0 12px 26px rgba(0,0,0,.18);
-      --combo-item-pad:10px 8px;
-      --combo-max-h:50vh;
-    }
-    .buttonish{
-      width:100%;
-      font:inherit;
-      font-size:16px;
-      color:var(--text);
-      background:var(--card-surface,var(--surface));
-      border:1px solid var(--border);
-      border-radius:var(--combo-btn-radius);
-      padding:12px;
-      padding-right:42px;
-      outline:none;
-      text-align:left;
-      cursor:pointer;
-      position:relative;
-    }
-    .buttonish.has-caret::after{
-      content:"";
-      position:absolute;
-      right:14px;
-      top:50%;
-      width:0;
-      height:0;
-      border-left:6px solid transparent;
-      border-right:6px solid transparent;
-      border-top:7px solid var(--muted,#67706B);
-      transform:translateY(-50%);
-      pointer-events:none;
-    }
-    .combo{ position:relative; }
-    .combo .combo-anchor{
-      position:relative;
-      display:inline-block;
-      width:100%;
-    }
-    .combo-panel{
-      position:absolute;
-      left:0; right:0;
-      top:calc(100% + var(--combo-gap));
-      background:var(--surface);
-      border:1px solid var(--border);
-      border-radius:var(--combo-radius);
-      box-shadow:var(--combo-shadow);
-      padding:8px;
-      display:none;
-      z-index:9999;
-    }
-    .combo-panel.show{ display:block; }
-    .combo-panel .search{
-      padding:4px 2px 8px;
-    }
-    .combo-panel .search input{
-      width:100%;
-      padding:10px;
-      border:1px solid var(--border);
-      border-radius:var(--combo-btn-radius);
-      background:var(--card-surface,var(--surface));
-      color:var(--text);
-    }
-    .combo-panel .list{
-      max-height:var(--combo-max-h);
-      overflow:auto;
-      border-top:1px solid var(--border);
-    }
-    .combo-item{
-      padding:var(--combo-item-pad);
-      border-bottom:1px solid var(--border);
-      cursor:pointer;
-    }
-    .combo-item:hover{ background:rgba(0,0,0,.04); }
-    .combo-item:last-child{ border-bottom:none; }
-    .combo-empty{
-      padding:var(--combo-item-pad);
-      color:#67706B;
-    }
+    :root{--accent:#2F6C3C;--card-max:1100px;--ring:rgba(47,108,60,.20)}
+    body{background:var(--app-bg,var(--surface))}
+    .page{max-width:var(--card-max);margin:0 auto;padding:clamp(14px,3vw,22px);padding-bottom:calc(env(safe-area-inset-bottom,0px) + var(--ftr-h,42px) + 96px)!important}
+    .muted{color:var(--muted,#67706B)}
+    .hero{border:1px solid var(--border);border-radius:14px;background:var(--surface);box-shadow:var(--shadow,0 8px 20px rgba(0,0,0,.08));overflow:visible}
+    .hero-head{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;background:linear-gradient(90deg,rgba(47,108,60,.12),transparent);border-bottom:1px solid var(--border)}
+    .hero-head .icon{width:28px;height:28px;color:var(--accent);margin-top:2px}.hero-head h1{margin:0;font-size:clamp(20px,3.2vw,26px);line-height:1.2}
+    .body{padding:16px;display:grid;gap:14px}.row{display:grid;gap:10px;grid-template-columns:1fr 1fr}@media(max-width:880px){.row{grid-template-columns:1fr}}
+    .field label{display:block;font-weight:800;margin:0 0 6px}.input,.select{width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));border:1px solid var(--border);border-radius:10px;padding:12px;outline:none}
+    .input:focus,.select:focus{border-color:rgba(47,108,60,.42);box-shadow:0 0 0 4px var(--ring)}.input[readonly]{opacity:.92;background:color-mix(in srgb,var(--card-surface,var(--surface)) 92%,#000 8%)}
+    .label-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}.label-row label{margin:0;font-weight:800}
+    .help-btn{appearance:none;border:1px solid var(--border);background:var(--surface);border-radius:999px;width:26px;height:26px;display:inline-grid;place-items:center;cursor:pointer;color:var(--text)!important;padding:0}.help-btn svg{width:16px;height:16px}
+    .error{color:#b00020;font-weight:800}.card{border:1px solid var(--border);border-radius:12px;background:var(--card-surface,var(--surface));padding:12px}.ctx{border:1px solid color-mix(in srgb,var(--accent) 38%,var(--border));background:linear-gradient(180deg,rgba(47,108,60,.08),transparent)}
+    .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:flex-end}.btn{display:inline-flex;align-items:center;justify-content:center;min-width:148px;padding:12px 16px;border-radius:12px;border:1px solid var(--border);background:var(--card-surface,var(--surface));font-weight:800;color:var(--text);cursor:pointer}.btn-primary{border-color:transparent;background:#2F6C3C;color:#fff}.btn[disabled]{opacity:.6;cursor:not-allowed}
+    .edit-banner{display:none;border:1px solid rgba(47,108,60,.4);background:rgba(47,108,60,.09);border-radius:10px;padding:10px 12px;font-weight:800}.edit-banner.show{display:block}
+    .summary{border:1px solid var(--border);border-radius:12px;padding:14px;background:linear-gradient(180deg,rgba(47,108,60,.06),transparent)}.result-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:760px){.result-grid{grid-template-columns:1fr}}
+    .tile{border:1px solid var(--border);border-radius:12px;padding:12px;background:linear-gradient(180deg,rgba(47,108,60,.06),transparent 55%)}.tile h3{margin:0 0 8px;font-size:16px}.kv{display:grid;grid-template-columns:1fr auto;gap:6px 12px;align-items:baseline}.kv .val{font-weight:800}
+    .hist-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-top:1px solid var(--border)}.hist-title{font-size:clamp(18px,2.6vw,22px);font-weight:800}.hist-clear{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;color:var(--text)!important}.hist{padding:14px 16px;display:grid;gap:12px}
+    .hist-item{border:1px solid var(--border);border-radius:12px;padding:12px;background:var(--card-surface,var(--surface));display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.hist-actions{display:flex;gap:8px;flex-wrap:wrap}.hist-item button{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer;color:var(--text)!important}.hist-item .edit{border-color:rgba(47,108,60,.45)}
+    .modal{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.42);z-index:9999;opacity:0}.modal[open]{display:grid;opacity:1}.dialog{width:min(760px,92vw);max-height:85vh;display:flex;flex-direction:column;background:var(--surface);color:var(--text);border-radius:14px;border:1px solid var(--border);box-shadow:0 16px 36px rgba(0,0,0,.28)}.dialog-head{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px}.dialog-body{padding:14px;overflow:auto;flex:1 1 auto;min-height:0;-webkit-overflow-scrolling:touch}.closex{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:700;color:var(--text)!important}html.no-scroll,body.no-scroll{overflow:hidden}
+    .help-note{margin:0 0 10px;color:var(--muted);font-size:13px;line-height:1.35}.bul{margin:8px 0 0;padding-left:18px}.bul li{margin:8px 0;line-height:1.35}.k{display:inline-block;padding:1px 8px;border:1px solid var(--border);border-radius:999px;background:var(--card-surface,var(--surface));font-weight:700;font-size:12px;color:var(--text)}
+    :root{--combo-gap:4px;--combo-radius:12px;--combo-btn-radius:10px;--combo-shadow:0 12px 26px rgba(0,0,0,.18);--combo-item-pad:10px 8px;--combo-max-h:50vh}.buttonish{width:100%;font:inherit;font-size:16px;color:var(--text);background:var(--card-surface,var(--surface));border:1px solid var(--border);border-radius:var(--combo-btn-radius);padding:12px 42px 12px 12px;outline:none;text-align:left;cursor:pointer;position:relative}.buttonish.has-caret::after{content:"";position:absolute;right:14px;top:50%;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:7px solid var(--muted,#67706B);transform:translateY(-50%);pointer-events:none}.combo{position:relative}.combo .combo-anchor{position:relative;display:inline-block;width:100%}.combo-panel{position:absolute;left:0;right:0;top:calc(100% + var(--combo-gap));background:var(--surface);border:1px solid var(--border);border-radius:var(--combo-radius);box-shadow:var(--combo-shadow);padding:8px;display:none;z-index:9999}.combo-panel.show{display:block}.combo-panel .search{padding:4px 2px 8px}.combo-panel .search input{width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--combo-btn-radius);background:var(--card-surface,var(--surface));color:var(--text)}.combo-panel .list{max-height:var(--combo-max-h);overflow:auto;border-top:1px solid var(--border)}.combo-item{padding:var(--combo-item-pad);border-bottom:1px solid var(--border);cursor:pointer}.combo-item:hover{background:rgba(0,0,0,.04)}.combo-item:last-child{border-bottom:none}.combo-empty{padding:var(--combo-item-pad);color:#67706B}
   </style>
 </head>
 <body>
   <fv-shell>
     <div class="page container">
       <section class="hero">
-        <header class="hero-head">
-          <div class="icon" aria-hidden="true">🌾</div>
-          <div>
-            <h1>Combine Yield</h1>
-            <div class="muted">Enter cut <strong>Length</strong> and pick the <strong>Cut Width</strong>. Area is computed automatically. Add wet weight & moisture, then calculate.</div>
-          </div>
-        </header>
-
+        <header class="hero-head"><div class="icon" aria-hidden="true">🌾</div><div><h1>Combine Yield</h1><div class="muted">Enter cut <strong>Length</strong> and pick the <strong>Cut Width</strong>. Area is computed automatically. Add wet weight &amp; moisture, then calculate.</div></div></header>
         <div class="body" id="form">
-
+          <div id="editBanner" class="edit-banner">Editing previous calculation — make your change, then tap Save Changes.</div>
           <div id="ctxCard" class="card ctx">
             <div class="row">
-              <div class="field combo">
-                <label for="farmBtn">Farm</label>
-                <div class="combo-anchor">
-                  <button id="farmBtn" class="buttonish has-caret" type="button">Select farm…</button>
-                  <div class="combo-panel" id="farmPanel" role="listbox" aria-label="Farm list">
-                    <div class="search"><input id="farmSearch" type="search" placeholder="Search farms…"></div>
-                    <div class="list" id="farmList"></div>
-                  </div>
-                </div>
-                <input id="farmId" type="hidden" value="">
-              </div>
-
-              <div class="field combo">
-                <label for="fieldBtn">Field</label>
-                <div class="combo-anchor">
-                  <button id="fieldBtn" class="buttonish has-caret" type="button">Select field…</button>
-                  <div class="combo-panel" id="fieldPanel" role="listbox" aria-label="Field list">
-                    <div class="search"><input id="fieldSearch" type="search" placeholder="Search fields…"></div>
-                    <div class="list" id="fieldList"></div>
-                  </div>
-                </div>
-                <input id="fieldId" type="hidden" value="">
-              </div>
+              <div class="field combo"><label for="farmBtn">Farm</label><div class="combo-anchor"><button id="farmBtn" class="buttonish has-caret" type="button">Select farm…</button><div class="combo-panel" id="farmPanel" role="listbox"><div class="search"><input id="farmSearch" type="search" placeholder="Search farms…"></div><div class="list" id="farmList"></div></div></div><input id="farmId" type="hidden"></div>
+              <div class="field combo"><label for="fieldBtn">Field</label><div class="combo-anchor"><button id="fieldBtn" class="buttonish has-caret" type="button">Select field…</button><div class="combo-panel" id="fieldPanel" role="listbox"><div class="search"><input id="fieldSearch" type="search" placeholder="Search fields…"></div><div class="list" id="fieldList"></div></div></div><input id="fieldId" type="hidden"></div>
             </div>
-
-            <div id="combineRow" class="row" hidden>
-              <div class="field">
-                <label for="combineName">Combine</label>
-                <input id="combineName" class="input" readonly value="—">
-              </div>
-              <div class="field"></div>
-            </div>
-
-            <div class="row">
-              <div class="field">
-                <label for="submittedBy">Submitted by</label>
-                <input id="submittedBy" class="input" readonly value="">
-              </div>
-              <div class="field">
-                <label for="submittedDate">Date</label>
-                <input id="submittedDate" class="input" type="date" value="">
-              </div>
-            </div>
-
+            <div id="combineRow" class="row" hidden><div class="field"><label for="combineName">Combine</label><input id="combineName" class="input" readonly value="—"></div><div></div></div>
+            <div class="row"><div class="field"><label for="submittedBy">Submitted by</label><input id="submittedBy" class="input" readonly></div><div class="field"><label for="submittedDate">Date</label><input id="submittedDate" class="input" type="date"></div></div>
             <div id="ctxErr" class="error" hidden></div>
           </div>
-
-          <div class="row">
-            <div class="field">
-              <label for="crop">Crop</label>
-              <select id="crop" class="select">
-                <option value="corn">Corn (TW 56, Std 15.5%)</option>
-                <option value="soy">Soybeans (TW 60, Std 13.0%)</option>
-              </select>
-            </div>
-
-            <div class="field">
-              <div class="label-row">
-                <label for="mode">Shrink Mode</label>
-                <button class="help-btn" id="modeHelp" type="button" aria-label="Help: Shrink Mode" title="What is Shrink Mode?">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2-3 4"></path>
-                    <path d="M12 17h.01"></path>
-                  </svg>
-                </button>
-              </div>
-              <select id="mode" class="select">
-                <option value="both" selected>Compare Both</option>
-                <option value="true">True Only</option>
-                <option value="elev">Elevator Only</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="row">
-            <div class="field">
-              <label for="len">Cut Length</label>
-              <input id="len" class="input" inputmode="decimal" placeholder="e.g. 600">
-            </div>
-
-            <div class="field">
-              <label for="wid">Cut Width</label>
-              <select id="wid" class="select">
-                <option value="30">30 ft</option>
-                <option value="35">35 ft</option>
-                <option value="40">40 ft</option>
-                <option value="45">45 ft</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="row">
-            <div class="field">
-              <label for="acRO">Area (computed)</label>
-              <input id="acRO" class="input" disabled placeholder="0.000">
-            </div>
-            <div class="field"></div>
-          </div>
-
-          <div class="row">
-            <div class="field">
-              <label for="wt">Wet Weight</label>
-              <input id="wt" class="input" inputmode="decimal" placeholder="e.g. 20,000">
-            </div>
-
-            <div class="field">
-              <label for="start">Start Moisture</label>
-              <input id="start" class="input" inputmode="decimal" placeholder="e.g. 16.5">
-            </div>
-          </div>
-
-          <div class="actions">
-            <button type="button" class="btn" id="clearInputs">Clear</button>
-            <button type="button" class="btn btn-primary" id="doCalc">Calculate</button>
-          </div>
-
+          <div class="row"><div class="field"><label for="crop">Crop</label><select id="crop" class="select"><option value="corn">Corn (TW 56, Std 15.5%)</option><option value="soy">Soybeans (TW 60, Std 13.0%)</option></select></div><div class="field"><div class="label-row"><label for="mode">Shrink Mode</label><button class="help-btn" id="modeHelp" type="button" aria-label="Help: Shrink Mode"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2-3 4"></path><path d="M12 17h.01"></path></svg></button></div><select id="mode" class="select"><option value="both" selected>Compare Both</option><option value="true">True Only</option><option value="elev">Elevator Only</option></select></div></div>
+          <div class="row"><div class="field"><label for="len">Cut Length</label><input id="len" class="input" inputmode="decimal" placeholder="e.g. 600"></div><div class="field"><label for="wid">Cut Width</label><select id="wid" class="select"><option value="30">30 ft</option><option value="35">35 ft</option><option value="40">40 ft</option><option value="45">45 ft</option></select></div></div>
+          <div class="row"><div class="field"><label for="acRO">Area (computed)</label><input id="acRO" class="input" disabled placeholder="0.000"></div><div></div></div>
+          <div class="row"><div class="field"><label for="wt">Wet Weight</label><input id="wt" class="input" inputmode="decimal" placeholder="e.g. 20,000"></div><div class="field"><label for="start">Start Moisture</label><input id="start" class="input" inputmode="decimal" placeholder="e.g. 16.5"></div></div>
+          <div class="actions"><button type="button" class="btn" id="clearInputs">Clear</button><button type="button" class="btn btn-primary" id="doCalc">Calculate</button></div>
           <div class="summary" id="summary" hidden></div>
-
-          <div class="result-grid" id="results" hidden>
-            <div class="tile" id="trueTile">
-              <h3>True Shrink Yield</h3>
-              <div class="kv">
-                <div>Yield</div>  <div class="val" id="trueY">- bu/ac</div>
-                <div>Bushels</div> <div class="val" id="trueBu">- bu</div>
-              </div>
-            </div>
-            <div class="tile" id="elevTile">
-              <h3>Elevator Shrink Yield</h3>
-              <div class="kv">
-                <div>Yield</div>  <div class="val" id="elevY">- bu/ac</div>
-                <div>Bushels</div> <div class="val" id="elevBu">- bu</div>
-              </div>
-            </div>
-          </div>
+          <div class="result-grid" id="results" hidden><div class="tile" id="trueTile"><h3>True Shrink Yield</h3><div class="kv"><div>Yield</div><div class="val" id="trueY">- bu/ac</div><div>Bushels</div><div class="val" id="trueBu">- bu</div></div></div><div class="tile" id="elevTile"><h3>Elevator Shrink Yield</h3><div class="kv"><div>Yield</div><div class="val" id="elevY">- bu/ac</div><div>Bushels</div><div class="val" id="elevBu">- bu</div></div></div></div>
         </div>
-
-        <div class="hist-head">
-          <div class="hist-title">Previous Calculations</div>
-          <button class="hist-clear" id="clearHist" type="button">Clear</button>
-        </div>
-        <div class="hist" id="hlist">
-          <div class="muted" id="nohist">No previous combine yield calculations.</div>
-        </div>
+        <div class="hist-head"><div class="hist-title">Previous Calculations</div><button class="hist-clear" id="clearHist" type="button">Clear</button></div><div class="hist" id="hlist"><div class="muted" id="nohist">No previous combine yield calculations.</div></div>
       </section>
     </div>
   </fv-shell>
-
-  <div class="modal" id="modal" aria-hidden="true">
-    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mdTitle">
-      <div class="dialog-head">
-        <h3 id="mdTitle">Combine Yield — Details</h3>
-        <button class="closex" id="mdClose" type="button">Back</button>
-      </div>
-      <div class="dialog-body" id="mdBody"></div>
-    </div>
-  </div>
-
-  <div class="modal" id="helpModal" aria-hidden="true">
-    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
-      <div class="dialog-head">
-        <h3 id="helpTitle">Shrink Mode — What it does</h3>
-        <button class="closex" id="helpClose" type="button">Back</button>
-      </div>
-      <div class="dialog-body" id="helpBody">
-        <p class="help-note">
-          Shrink Mode only changes what you <strong>see</strong>. The calculator always computes both methods.
-        </p>
-        <h4 style="margin:0 0 6px">Modes</h4>
-        <ul class="bul">
-          <li><strong>Compare Both</strong> — shows True Shrink and Elevator Shrink side-by-side.</li>
-          <li><strong>True Only</strong> — shows only the True Shrink tile.</li>
-          <li><strong>Elevator Only</strong> — shows only the Elevator Shrink tile.</li>
-        </ul>
-        <h4 style="margin:14px 0 6px">Rules used in this calculator</h4>
-        <ul class="bul" id="rulesList"></ul>
-      </div>
-    </div>
-  </div>
-
+  <div class="modal" id="modal" aria-hidden="true"><div class="dialog" role="dialog" aria-modal="true"><div class="dialog-head"><h3>Combine Yield — Details</h3><button class="closex" id="mdClose" type="button">Back</button></div><div class="dialog-body" id="mdBody"></div></div></div>
+  <div class="modal" id="helpModal" aria-hidden="true"><div class="dialog" role="dialog" aria-modal="true"><div class="dialog-head"><h3>Shrink Mode — What it does</h3><button class="closex" id="helpClose" type="button">Back</button></div><div class="dialog-body"><p class="help-note">Shrink Mode only changes what you <strong>see</strong>. The calculator always computes both methods.</p><h4>Modes</h4><ul class="bul"><li><strong>Compare Both</strong> — shows both methods.</li><li><strong>True Only</strong> — shows True Shrink only.</li><li><strong>Elevator Only</strong> — shows Elevator Shrink only.</li></ul><h4>Rules used in this calculator</h4><ul class="bul" id="rulesList"></ul></div></div></div>
   <script type="module">
-    import {
-      ready,
-      getFirestore,
-      collection, doc, getDoc, getDocs, addDoc,
-      query, orderBy,
-      serverTimestamp,
-      getAuth,
-      onAuthStateChanged
-    } from '../../js/firebase-init.js';
-
+    import {ready,getFirestore,collection,doc,getDoc,getDocs,addDoc,updateDoc,query,orderBy,serverTimestamp,getAuth,onAuthStateChanged} from '../../js/firebase-init.js';
     (function(){
       "use strict";
-      if(window.__FV_COMBINE_YIELD_SAVE_V2__) return; window.__FV_COMBINE_YIELD_SAVE_V2__=true;
-
-      const SQFT_PER_ACRE=43560;
-      const CORN_STD=15.5, CORN_TW=56, CORN_SLOPE=(21.0/(29.0-15.5)), CORN_CAP_M=40.0, CORN_CAP_SH=CORN_SLOPE*(CORN_CAP_M-CORN_STD);
-      const SOY_STD=13.0, SOY_TW=60;
-      const SOY_ELEV_PER_PT=1.5;
-
-      const LS_KEY="fv_calc_combine_yield_history_v7";
-      const FS_COLLECTION="combine_yield";
-
-      const $ = id => document.getElementById(id);
-      const esc = s => String(s ?? "").replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]));
-      const fmt = (n,d=2)=> Number(n).toLocaleString(undefined,{maximumFractionDigits:d});
-      const num = v => parseFloat(String(v||"").replace(/,/g,""));
-
-      const qs = new URLSearchParams(location.search);
-      const RAW_COMBINE_ID = (qs.get('combineId') || qs.get('combine') || qs.get('equipmentId') || qs.get('equipId') || qs.get('eqId') || '').trim() || "";
-      const IS_HUB = /^[A-Za-z0-9_-]{12,}$/.test(RAW_COMBINE_ID);
-      const HUB_COMBINE_ID = IS_HUB ? RAW_COMBINE_ID : null;
-
-      let __db = null; /* ✅ FIX: declare __db so boot() can assign it */
-
-      const ctxErr = $("ctxErr");
-      const combineRow = $("combineRow");
-      const combineNameEl = $("combineName");
-      const submittedByEl = $("submittedBy");
-      const submittedDateEl = $("submittedDate");
-
-      const farmBtn = $("farmBtn"), farmPanel=$("farmPanel"), farmList=$("farmList"), farmSearch=$("farmSearch");
-      const fieldBtn = $("fieldBtn"), fieldPanel=$("fieldPanel"), fieldList=$("fieldList"), fieldSearch=$("fieldSearch");
-      const farmIdEl = $("farmId"), fieldIdEl = $("fieldId");
-
-      const cropEl=$("crop"), modeEl=$("mode"), lenEl=$("len"), widEl=$("wid"), acRO=$("acRO"), wtEl=$("wt"), mEl=$("start");
-      const results=$("results"), trueTile=$("trueTile"), elevTile=$("elevTile");
-      const trueY=$("trueY"), trueBu=$("trueBu"), elevY=$("elevY"), elevBu=$("elevBu");
-      const summary=$("summary");
-
-      const helpModal=$("helpModal"), helpClose=$("helpClose"), helpBtn=$("modeHelp"), rulesList=$("rulesList");
-      const modal=$("modal"), mdBody=$("mdBody"), mdClose=$("mdClose");
-      const hlist=$("hlist"), nohist=$("nohist");
-
-      const state = { farms:[], fields:[], farm:null, field:null };
-
-      function showErr(msg){
-        if(!ctxErr) return;
-        if(msg){
-          ctxErr.textContent = msg;
-          ctxErr.hidden = false;
-        }else{
-          ctxErr.textContent = "";
-          ctxErr.hidden = true;
-        }
+      if(window.__FV_COMBINE_YIELD_SAVE_V3__) return; window.__FV_COMBINE_YIELD_SAVE_V3__=true;
+      const SQFT_PER_ACRE=43560,CORN_STD=15.5,CORN_TW=56,CORN_SLOPE=(21/(29-15.5)),CORN_CAP_M=40,CORN_CAP_SH=CORN_SLOPE*(CORN_CAP_M-CORN_STD),SOY_STD=13,SOY_TW=60,SOY_ELEV_PER_PT=1.5;
+      const LS_KEY="fv_calc_combine_yield_history_v7",FS_COLLECTION="combine_yield";
+      const $=id=>document.getElementById(id),esc=s=>String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m])),fmt=(n,d=2)=>Number(n).toLocaleString(undefined,{maximumFractionDigits:d}),num=v=>parseFloat(String(v||"").replace(/,/g,""));
+      const qs=new URLSearchParams(location.search),RAW_COMBINE_ID=(qs.get('combineId')||qs.get('combine')||qs.get('equipmentId')||qs.get('equipId')||qs.get('eqId')||'').trim(),IS_HUB=/^[A-Za-z0-9_-]{12,}$/.test(RAW_COMBINE_ID),HUB_COMBINE_ID=IS_HUB?RAW_COMBINE_ID:null;
+      let __db=null,editing=null,lastOpener=null,trapHandler=null;
+      const ctxErr=$("ctxErr"),combineRow=$("combineRow"),combineNameEl=$("combineName"),submittedByEl=$("submittedBy"),submittedDateEl=$("submittedDate"),farmBtn=$("farmBtn"),farmPanel=$("farmPanel"),farmList=$("farmList"),farmSearch=$("farmSearch"),fieldBtn=$("fieldBtn"),fieldPanel=$("fieldPanel"),fieldList=$("fieldList"),fieldSearch=$("fieldSearch"),farmIdEl=$("farmId"),fieldIdEl=$("fieldId"),cropEl=$("crop"),modeEl=$("mode"),lenEl=$("len"),widEl=$("wid"),acRO=$("acRO"),wtEl=$("wt"),mEl=$("start"),results=$("results"),trueTile=$("trueTile"),elevTile=$("elevTile"),trueY=$("trueY"),trueBu=$("trueBu"),elevY=$("elevY"),elevBu=$("elevBu"),summary=$("summary"),helpModal=$("helpModal"),helpClose=$("helpClose"),helpBtn=$("modeHelp"),rulesList=$("rulesList"),modal=$("modal"),mdBody=$("mdBody"),mdClose=$("mdClose"),hlist=$("hlist"),nohist=$("nohist"),editBanner=$("editBanner"),doCalc=$("doCalc"),clearInputs=$("clearInputs");
+      const state={farms:[],fields:[],farm:null,field:null};
+      function showErr(msg){ctxErr.textContent=msg||"";ctxErr.hidden=!msg}
+      function refToId(v){try{if(!v)return null;if(typeof v==='string')return v.trim()||null;if(typeof v.id==='string')return v.id.trim()||null;if(typeof v.path==='string'){const p=v.path.split('/').filter(Boolean);return p[p.length-1]||null}}catch{}return null}
+      function pickName(d){return d.name||d.farmName||d.fieldName||d.label||d.title||"Unnamed"}
+      function serialLast6(s){s=String(s||'').trim().toUpperCase();return s.length<=6?s:s.slice(-6)}
+      function todayISO(){const d=new Date(),p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`}
+      function closeAllCombos(except=null){document.querySelectorAll('.combo-panel.show').forEach(p=>{if(p!==except)p.classList.remove('show')})}
+      document.addEventListener('click',()=>closeAllCombos());document.addEventListener('keydown',e=>{if(e.key==='Escape')closeAllCombos()});
+      function makeCombo({btn,panel,list,searchInput,formatter,onPick}){panel.addEventListener('click',e=>e.stopPropagation());let DATA=[];function render(q=""){q=q.toLowerCase();const rows=DATA.filter(x=>!q||String(formatter(x)).toLowerCase().includes(q));list.innerHTML=rows.length?rows.map(x=>`<div class="combo-item" data-id="${esc(x.id)}">${esc(formatter(x))}</div>`).join(''):`<div class="combo-empty">(no matches)</div>`}btn.addEventListener('click',e=>{e.stopPropagation();closeAllCombos(panel);panel.classList.toggle('show');render();if(panel.classList.contains('show')){searchInput.value='';searchInput.focus()}});list.addEventListener('mousedown',e=>{const row=e.target.closest('.combo-item');if(!row)return;const it=DATA.find(x=>String(x.id)===String(row.dataset.id));if(it){onPick(it);panel.classList.remove('show')}});searchInput.addEventListener('input',e=>render(e.target.value));return{setItems(a){DATA=a||[];render(searchInput.value||'')}}}
+      let farmCombo=null,fieldCombo=null;
+      function refreshFieldComboForFarm(farmId){let list=state.fields;if(farmId)list=list.filter(f=>String(f.farmId||'')===String(farmId));fieldCombo&&fieldCombo.setItems(list);if(state.field&&farmId&&String(state.field.farmId||'')!==String(farmId)){state.field=null;fieldBtn.textContent='Select field…';fieldIdEl.value=''}}
+      function selectFarmById(id){const f=state.farms.find(x=>String(x.id)===String(id));if(!f)return;state.farm=f;farmBtn.textContent=f.name;farmIdEl.value=f.id;refreshFieldComboForFarm(f.id)}
+      function selectFieldById(id){const f=state.fields.find(x=>String(x.id)===String(id));if(!f)return;state.field=f;fieldBtn.textContent=f.name;fieldIdEl.value=f.id;if(f.farmId)selectFarmById(f.farmId);fieldBtn.textContent=f.name;fieldIdEl.value=f.id}
+      function restrict2(el,allowComma=false){el.addEventListener('input',()=>{let s=String(el.value||'');if(allowComma)s=s.replace(/,/g,'');s=s.replace(/[^\d.]/g,'');let p=s.split('.');if(p.length>2){s=p.shift()+'.'+p.join('');p=s.split('.')}if(p.length===2)s=p[0]+'.'+p[1].slice(0,2);el.value=s});el.addEventListener('blur',()=>{const v=num(el.value);el.value=isFinite(v)?Number(v).toLocaleString(undefined,{maximumFractionDigits:2}):''})}
+      restrict2(lenEl);restrict2(wtEl,true);restrict2(mEl);
+      function computeArea(){const L=num(lenEl.value),W=parseFloat(widEl.value),A=L>0&&W>0?(L*W)/SQFT_PER_ACRE:NaN;acRO.value=isFinite(A)?Number(A).toLocaleString(undefined,{maximumFractionDigits:3}):'';return isFinite(A)?A:null}lenEl.addEventListener('input',computeArea);widEl.addEventListener('change',computeArea);
+      function trapFocus(root){const f=[...root.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')].filter(el=>!el.disabled&&el.offsetParent!==null);if(!f.length)return;const first=f[0],last=f[f.length-1];trapHandler=e=>{if(e.key!=='Tab')return;if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}};root.addEventListener('keydown',trapHandler)}
+      function openAnyModal(root,focusEl){root.setAttribute('open','');root.setAttribute('aria-hidden','false');document.documentElement.classList.add('no-scroll');document.body.classList.add('no-scroll');focusEl&&focusEl.focus();trapFocus(root)}function closeAnyModal(root){root.removeAttribute('open');root.setAttribute('aria-hidden','true');document.documentElement.classList.remove('no-scroll');document.body.classList.remove('no-scroll');if(trapHandler){root.removeEventListener('keydown',trapHandler);trapHandler=null}lastOpener&&lastOpener.focus()}
+      function buildRules(){const crop=cropEl.value,std=crop==='corn'?CORN_STD:SOY_STD,truePerPt=100/(100-std);rulesList.innerHTML=crop==='corn'?`<li><strong>Corn elevator shrink:</strong> linear from <span class="k">15.5%</span> to <span class="k">29%</span> equals <span class="k">21%</span> shrink.</li>`:`<li><strong>Soybean elevator shrink:</strong> <span class="k">${fmt(SOY_ELEV_PER_PT,2)}% per point</span> above 13.0%.</li>`;rulesList.innerHTML+=`<li><strong>True shrink rate:</strong> <span class="k">${fmt(truePerPt,4)}% per point</span> above standard.</li>`}
+      helpBtn.addEventListener('click',()=>{lastOpener=helpBtn;buildRules();openAnyModal(helpModal,helpClose)});helpClose.addEventListener('click',()=>closeAnyModal(helpModal));helpModal.addEventListener('click',e=>{if(e.target===helpModal)closeAnyModal(helpModal)});
+      function elevPct(crop,m){if(crop!=='corn')return Math.max(0,(m-SOY_STD)*SOY_ELEV_PER_PT);if(m<=CORN_STD)return 0;return Math.min(CORN_SLOPE*(Math.min(m,CORN_CAP_M)-CORN_STD),CORN_CAP_SH)}
+      function calcYield(){showErr('');const farmId=String(farmIdEl.value||'').trim(),fieldId=String(fieldIdEl.value||'').trim();if(!farmId||!fieldId){showErr('Select Farm and Field.');return null}const by=String(submittedByEl.value||'').trim(),dt=String(submittedDateEl.value||'').trim();if(!by){showErr('Submitted by is required.');return null}if(!dt){showErr('Date is required.');return null}const crop=cropEl.value,mode=modeEl.value,area=computeArea();if(!(area>0)){showErr('Enter cut length and choose a cut width.');return null}const Wt=num(wtEl.value),M=num(mEl.value);if(!(Wt>0&&M>0)){showErr('Enter wet weight and moisture.');return null}const std=crop==='corn'?CORN_STD:SOY_STD,tw=crop==='corn'?CORN_TW:SOY_TW,trueWt=Wt*((100-M)/(100-std)),trueBushels=trueWt/tw,trueYield=trueBushels/area,ePct=elevPct(crop,M),eWt=Wt*(1-ePct/100),eBushels=eWt/tw,eYield=eBushels/area,base=editing&&editing.original?editing.original:null,combineId=base?.combineId||String(window.__fv_hub_combine_id||''),combineLabel=base?.combineLabel||String(window.__fv_hub_combine_label||''),farmName=state.farms.find(x=>String(x.id)===farmId)?.name||'',fieldName=state.fields.find(x=>String(x.id)===fieldId)?.name||'';return{t:base?.t||Date.now(),fsDocId:base?.fsDocId||null,farmId,farmName,fieldId,fieldName,combineId,combineLabel,submittedBy:by,submittedDate:dt,crop,mode,area,len:num(lenEl.value),wid:parseFloat(widEl.value),wt:Wt,m:M,trueY:trueYield,trueBu:trueBushels,elevY:eYield,elevBu:eBushels}}
+      function showOutput(o){if(!o){results.hidden=true;summary.hidden=true;return}trueY.textContent=fmt(o.trueY,2)+' bu/ac';trueBu.textContent=fmt(o.trueBu,2)+' bu';elevY.textContent=fmt(o.elevY,2)+' bu/ac';elevBu.textContent=fmt(o.elevBu,2)+' bu';trueTile.style.display=o.mode==='elev'?'none':'block';elevTile.style.display=o.mode==='true'?'none':'block';summary.innerHTML=`<strong>Result:</strong> ${o.combineLabel?esc(o.combineLabel)+' • ':''}${o.crop==='corn'?'Corn':'Soybeans'} → <strong>T ${fmt(o.trueY,1)}</strong> / <strong>E ${fmt(o.elevY,1)}</strong> bu/ac`;summary.hidden=false;results.hidden=false}
+      function loadHist(){try{const a=JSON.parse(localStorage.getItem(LS_KEY)||'[]');return Array.isArray(a)?a:[]}catch{return[]}}function saveHist(a){localStorage.setItem(LS_KEY,JSON.stringify(a.slice(0,10)))}
+      function renderHist(){const h=loadHist();hlist.innerHTML='';if(!h.length){hlist.innerHTML='<div class="muted" id="nohist">No previous combine yield calculations.</div>';return}h.forEach((it,idx)=>{const c=it.combineLabel?it.combineLabel+' • ':'';const line=`${c}${it.crop==='corn'?'Corn':'Soy'} • ${fmt(it.area,3)} ac • T ${fmt(it.trueY,1)} / E ${fmt(it.elevY,1)} bu/ac`;const div=document.createElement('div');div.className='hist-item';div.innerHTML=`<div class="hline">${esc(line)}</div><div class="hist-actions"><button class="view" type="button">View</button><button class="edit" type="button">Edit</button></div>`;div.querySelector('.view').addEventListener('click',()=>openDetail(loadHist()[idx],div.querySelector('.view')));div.querySelector('.edit').addEventListener('click',()=>beginEdit(idx));hlist.appendChild(div)})}
+      function openDetail(it,opener){if(!it)return;lastOpener=opener||null;mdBody.innerHTML='<div class="kv">'+(it.combineLabel?'<div>Combine</div><div class="val">'+esc(it.combineLabel)+'</div>':'')+'<div>Submitted by</div><div class="val">'+esc(it.submittedBy||'—')+'</div><div>Date</div><div class="val">'+esc(it.submittedDate||'—')+'</div><div>Farm</div><div class="val">'+esc(it.farmName||it.farmId||'—')+'</div><div>Field</div><div class="val">'+esc(it.fieldName||it.fieldId||'—')+'</div><div>Crop</div><div class="val">'+(it.crop==='corn'?'Corn':'Soybeans')+'</div><div>Area</div><div class="val">'+fmt(it.area,3)+' ac</div><div>Cut</div><div class="val">'+fmt(it.len,2)+' ft × '+fmt(it.wid,0)+' ft</div><div>Wet Weight</div><div class="val">'+fmt(it.wt,2)+' lb</div><div>Moisture</div><div class="val">'+fmt(it.m,2)+'%</div><div>True Yield</div><div class="val">'+fmt(it.trueY,2)+' bu/ac ('+fmt(it.trueBu,2)+' bu)</div><div>Elevator Yield</div><div class="val">'+fmt(it.elevY,2)+' bu/ac ('+fmt(it.elevBu,2)+' bu)</div></div>';openAnyModal(modal,mdClose)}
+      mdClose.addEventListener('click',()=>closeAnyModal(modal));modal.addEventListener('click',e=>{if(e.target===modal)closeAnyModal(modal)});
+      function beginEdit(idx){const h=loadHist(),it=h[idx];if(!it)return;editing={idx,original:{...it}};if(it.farmId)selectFarmById(it.farmId);if(it.fieldId)selectFieldById(it.fieldId);submittedDateEl.value=it.submittedDate||todayISO();cropEl.value=it.crop||'corn';modeEl.value=it.mode||'both';lenEl.value=fmt(it.len,2);widEl.value=String(it.wid||30);wtEl.value=fmt(it.wt,2);mEl.value=fmt(it.m,2);computeArea();showOutput(it);editBanner.classList.add('show');doCalc.textContent='Save Changes';clearInputs.textContent='Cancel Edit';document.getElementById('form').scrollIntoView({behavior:'smooth',block:'start'})}
+      function cancelEdit(clear=true){editing=null;editBanner.classList.remove('show');doCalc.textContent='Calculate';clearInputs.textContent='Clear';if(clear){[lenEl,wtEl,mEl].forEach(i=>i.value='');computeArea();results.hidden=true;summary.hidden=true;showErr('')}}
+      function firestorePayload(rec,includeCreated=false){const p={type:'combine_yield',farmId:rec.farmId||null,farmName:rec.farmName||null,fieldId:rec.fieldId||null,fieldName:rec.fieldName||null,combineId:rec.combineId||null,combineName:rec.combineLabel||null,submittedBy:rec.submittedBy||null,submittedDate:rec.submittedDate||null,crop:rec.crop||null,mode:rec.mode||null,cutLengthFt:Number.isFinite(rec.len)?rec.len:null,cutWidthFt:Number.isFinite(rec.wid)?rec.wid:null,areaAc:Number.isFinite(rec.area)?rec.area:null,wetWeightLb:Number.isFinite(rec.wt)?rec.wt:null,moisturePct:Number.isFinite(rec.m)?rec.m:null,trueYieldBuAc:Number.isFinite(rec.trueY)?rec.trueY:null,trueBushels:Number.isFinite(rec.trueBu)?rec.trueBu:null,elevatorYieldBuAc:Number.isFinite(rec.elevY)?rec.elevY:null,elevatorBushels:Number.isFinite(rec.elevBu)?rec.elevBu:null,updatedAt:serverTimestamp()};if(includeCreated)p.createdAt=serverTimestamp();return p}
+      async function saveToFirestore(rec){const ref=await addDoc(collection(__db,FS_COLLECTION),firestorePayload(rec,true));return ref.id}
+      const near=(a,b,t=.02)=>Number.isFinite(Number(a))&&Number.isFinite(Number(b))&&Math.abs(Number(a)-Number(b))<=t;
+      async function findOldFirestoreDoc(old){if(old.fsDocId)return old.fsDocId;const snap=await getDocs(collection(__db,FS_COLLECTION));let best=null;for(const ds of snap.docs){const d=ds.data()||{};if(String(d.submittedDate||'')!==String(old.submittedDate||''))continue;if(String(d.crop||'')!==String(old.crop||''))continue;if(String(d.submittedBy||'')!==String(old.submittedBy||''))continue;if(!near(d.cutLengthFt,old.len)||!near(d.cutWidthFt,old.wid)||!near(d.wetWeightLb,old.wt,.1)||!near(d.moisturePct,old.m,.02))continue;if(old.trueY!=null&&!near(d.trueYieldBuAc,old.trueY,.05))continue;best=ds.id;break}return best}
+      async function updateFirestore(old,rec){const id=await findOldFirestoreDoc(old);if(!id)return null;await updateDoc(doc(__db,FS_COLLECTION,id),firestorePayload(rec,false));return id}
+      $("clearHist").addEventListener('click',()=>{localStorage.removeItem(LS_KEY);cancelEdit(false);renderHist()});
+      doCalc.addEventListener('click',async()=>{const out=calcYield();if(!out)return;showOutput(out);if(editing){const h=loadHist(),idx=editing.idx,old=editing.original;try{const id=await updateFirestore(old,out);if(id)out.fsDocId=id}catch(e){console.error('Could not update combine_yield record:',e)}h[idx]=out;saveHist(h);renderHist();cancelEdit(false);summary.innerHTML='<strong>Updated:</strong> previous calculation saved.';summary.hidden=false}else{try{out.fsDocId=await saveToFirestore(out)}catch(e){console.error(e)}const h=loadHist();h.unshift(out);saveHist(h);renderHist()}});
+      clearInputs.addEventListener('click',()=>{if(editing){cancelEdit(true);return}[lenEl,wtEl,mEl].forEach(i=>i.value='');computeArea();results.hidden=true;summary.hidden=true;showErr('')});
+      async function boot(){await ready;__db=getFirestore();submittedByEl.value='';submittedDateEl.value=todayISO();try{const auth=getAuth();onAuthStateChanged(auth,async u=>{if(!u){submittedByEl.value='';return}let name='';try{const s=await getDoc(doc(__db,'employees',u.uid));if(s.exists()){const d=s.data()||{};name=String(d.displayName||'').trim()||[d.firstName,d.lastName].filter(Boolean).join(' ').trim()||String(d.name||'').trim()}}catch{}if(!name&&u.email){try{const ss=await getDocs(collection(__db,'employees')),email=String(u.email).trim().toLowerCase();for(const ds of ss.docs){const d=ds.data()||{};if(String(d.email||'').trim().toLowerCase()===email){name=String(d.displayName||'').trim()||[d.firstName,d.lastName].filter(Boolean).join(' ').trim()||String(d.name||'').trim();if(name)break}}}catch{}}submittedByEl.value=name||String(u.displayName||'').trim()||String(u.email||'').trim()})}catch(e){console.error(e)}
+        farmCombo=makeCombo({btn:farmBtn,panel:farmPanel,list:farmList,searchInput:farmSearch,formatter:x=>x.name,onPick:it=>{state.farm=it;farmBtn.textContent=it.name;farmIdEl.value=it.id;refreshFieldComboForFarm(it.id)}});fieldCombo=makeCombo({btn:fieldBtn,panel:fieldPanel,list:fieldList,searchInput:fieldSearch,formatter:x=>x.name,onPick:it=>selectFieldById(it.id)});
+        try{const s=await getDocs(query(collection(__db,'farms'),orderBy('name')));state.farms=s.docs.map(ds=>{const d=ds.data()||{};return d.archived?null:{id:ds.id,name:pickName(d)}}).filter(Boolean).sort((a,b)=>a.name.localeCompare(b.name));farmCombo.setItems(state.farms)}catch(e){console.error(e)}
+        try{const s=await getDocs(query(collection(__db,'fields'),orderBy('name')));state.fields=s.docs.map(ds=>{const d=ds.data()||{};if(d.archived)return null;return{id:ds.id,name:pickName(d),farmId:refToId(d.farmId)||refToId(d.farm)||refToId(d.farmRef)||refToId(d.farmDocId)||refToId(d.farmRefId)||refToId(d.farm_id)||null}}).filter(Boolean).sort((a,b)=>a.name.localeCompare(b.name));refreshFieldComboForFarm(null)}catch(e){console.error(e)}
+        if(!IS_HUB){try{combineRow.remove()}catch{}window.__fv_hub_combine_id='';window.__fv_hub_combine_label=''}else{combineRow.hidden=false;combineNameEl.value='Loading…';try{const s=await getDoc(doc(__db,'equipment',HUB_COMBINE_ID));const d=s.exists()?(s.data()||{}):{},mk=String(d.makeName||'').trim(),md=String(d.modelName||'').trim(),s6=serialLast6(d.serial||''),mm=[mk,md].filter(Boolean).join(' ').trim(),label=mm?(s6?`${mm} — #${s6}`:mm):(s6?`Combine — #${s6}`:`Combine (${HUB_COMBINE_ID.slice(-6)})`);combineNameEl.value=label;window.__fv_hub_combine_id=HUB_COMBINE_ID;window.__fv_hub_combine_label=label}catch(e){console.error(e)}}
+        computeArea();renderHist();
       }
-
-      function refToId(v){
-        try{
-          if(!v) return null;
-          if(typeof v === 'string') return v.trim() || null;
-          if(typeof v.id === 'string') return v.id.trim() || null;
-          if(typeof v.path === 'string'){
-            const p = v.path.trim();
-            if(!p) return null;
-            const parts = p.split('/').filter(Boolean);
-            return parts.length ? parts[parts.length-1] : null;
-          }
-          return null;
-        }catch{ return null; }
-      }
-
-      function pickName(data){
-        return data.name || data.farmName || data.fieldName || data.label || data.title || "Unnamed";
-      }
-
-      function normalizeSerial(s){ return String(s||'').trim().toUpperCase(); }
-      function serialLast6(serial){
-        const s = normalizeSerial(serial || '');
-        if(!s) return '';
-        return s.length <= 6 ? s : s.slice(-6);
-      }
-
-      function todayISO(){
-        const d = new Date();
-        const pad = n => String(n).padStart(2,'0');
-        return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-      }
-
-      function closeAllCombos(exceptPanel=null){
-        document.querySelectorAll('.combo-panel.show').forEach(p=>{
-          if(p!==exceptPanel) p.classList.remove('show');
-        });
-      }
-      document.addEventListener('click', ()=> closeAllCombos());
-      document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllCombos(); });
-
-      function makeCombo({ btn, panel, list, searchInput, items=[], formatter, onPick }){
-        panel.addEventListener('click', e=> e.stopPropagation());
-        panel.addEventListener('mousedown', e=> e.stopPropagation());
-
-        let DATA = items || [];
-
-        function render(q=""){
-          const qq = (q||"").toLowerCase();
-          const rows = (DATA||[]).filter(x=>{
-            const label = String(formatter(x)||"").toLowerCase();
-            return !qq || label.includes(qq);
-          });
-
-          if(rows.length){
-            list.innerHTML = rows.map(x=>`<div class="combo-item" data-id="${esc(String(x.id))}">${esc(formatter(x))}</div>`).join('');
-          }else{
-            list.innerHTML = `<div class="combo-empty">(no matches)</div>`;
-          }
-        }
-
-        function open(){
-          closeAllCombos(panel);
-          panel.classList.add('show');
-          render("");
-          if(searchInput){
-            searchInput.value = "";
-            searchInput.focus();
-          }
-        }
-        function close(){ panel.classList.remove('show'); }
-
-        btn.addEventListener('click', e=>{
-          e.stopPropagation();
-          panel.classList.contains('show') ? close() : open();
-        });
-
-        list.addEventListener('mousedown', e=>{
-          const row = e.target.closest('.combo-item');
-          if(!row) return;
-          const id = row.dataset.id;
-          const it = (DATA||[]).find(x=>String(x.id)===String(id));
-          if(!it) return;
-          onPick && onPick(it);
-          close();
-        });
-
-        if(searchInput){
-          searchInput.addEventListener('input', e=> render(e.target.value));
-        }
-
-        return {
-          setItems(arr){
-            DATA = arr || [];
-            render(searchInput ? searchInput.value : "");
-          }
-        };
-      }
-
-      let farmCombo=null, fieldCombo=null;
-
-      function refreshFieldComboForFarm(farmId){
-        let list = state.fields;
-        if(farmId){
-          list = list.filter(f=>String(f.farmId||"") === String(farmId));
-        }
-        fieldCombo && fieldCombo.setItems(list);
-
-        if(state.field && farmId && String(state.field.farmId||"") !== String(farmId)){
-          state.field = null;
-          fieldBtn.textContent = "Select field…";
-          fieldIdEl.value = "";
-        }
-      }
-
-      function selectFarmById(farmId){
-        if(!farmId) return;
-        const farm = state.farms.find(f=>String(f.id)===String(farmId));
-        if(!farm) return;
-        state.farm = farm;
-        farmBtn.textContent = farm.name;
-        farmIdEl.value = farm.id;
-      }
-
-      function restrict2(el, opts){
-        opts = opts || {};
-        const allowComma = !!opts.allowComma;
-
-        el.addEventListener("input", ()=>{
-          let s = String(el.value || "");
-          if(allowComma) s = s.replace(/,/g,"");
-          s = s.replace(/[^\d.]/g,"");
-
-          let parts = s.split(".");
-          if(parts.length > 2){
-            s = parts.shift() + "." + parts.join("");
-            parts = s.split(".");
-          }
-          if(parts.length === 2){
-            parts[1] = parts[1].slice(0,2);
-            s = parts[0] + "." + parts[1];
-          }
-          el.value = s;
-        });
-
-        el.addEventListener("blur", ()=>{
-          const v = num(el.value);
-          if(!isFinite(v)){ el.value=""; return; }
-          el.value = Number(v).toLocaleString(undefined,{maximumFractionDigits:2});
-        });
-      }
-
-      restrict2(lenEl);
-      restrict2(wtEl, { allowComma:true });
-      restrict2(mEl);
-
-      function computeArea(){
-        const L=num(lenEl.value), W=parseFloat(widEl.value);
-        const A=(L>0 && W>0) ? (L*W)/SQFT_PER_ACRE : NaN;
-        acRO.value = isFinite(A) ? Number(A).toLocaleString(undefined,{maximumFractionDigits:3}) : "";
-        return isFinite(A) ? A : null;
-      }
-      lenEl.addEventListener("input", computeArea);
-      widEl.addEventListener("change", computeArea);
-
-      let lastOpener=null, trapHandler=null;
-
-      function trapFocus(root){
-        const focusables=[].slice.call(root.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])'))
-          .filter(el=> !el.disabled && el.offsetParent!==null);
-        if(!focusables.length) return;
-        const first=focusables[0], last=focusables[focusables.length-1];
-        trapHandler=(e)=>{
-          if(e.key!=="Tab") return;
-          if(e.shiftKey && document.activeElement===first){ e.preventDefault(); last.focus(); }
-          else if(!e.shiftKey && document.activeElement===last){ e.preventDefault(); first.focus(); }
-        };
-        root.addEventListener("keydown", trapHandler);
-      }
-      function releaseFocus(root){ if(trapHandler){ root.removeEventListener("keydown", trapHandler); trapHandler=null; } }
-      function openAnyModal(root, focusEl){
-        root.setAttribute("open",""); root.setAttribute("aria-hidden","false");
-        document.documentElement.classList.add("no-scroll"); document.body.classList.add("no-scroll");
-        if(focusEl) focusEl.focus(); trapFocus(root);
-      }
-      function closeAnyModal(root){
-        root.removeAttribute("open"); root.setAttribute("aria-hidden","true");
-        document.documentElement.classList.remove("no-scroll"); document.body.classList.remove("no-scroll");
-        releaseFocus(root); if(lastOpener) lastOpener.focus();
-      }
-
-      function buildRules(){
-        const crop = cropEl.value;
-        const std  = (crop==="corn") ? CORN_STD : SOY_STD;
-        const truePerPt = 100/(100-std);
-
-        rulesList.innerHTML = "";
-        if(crop==="corn"){
-          const li1=document.createElement("li");
-          li1.innerHTML = "<strong>Corn elevator shrink:</strong> linear from <span class='k'>15.5%</span> to <span class='k'>29%</span> equals <span class='k'>21%</span> shrink ⇒ <span class='k'>"+fmt(CORN_SLOPE,4)+"% per point</span>. Capped at <span class='k'>40%</span> moisture.";
-          rulesList.appendChild(li1);
-        } else {
-          const li2=document.createElement("li");
-          li2.innerHTML = "<strong>Soybean elevator shrink:</strong> simple per-point rule from <span class='k'>13.0%</span> standard at <span class='k'>"+fmt(SOY_ELEV_PER_PT,2)+"% per point</span> above standard.";
-          rulesList.appendChild(li2);
-        }
-
-        const li3=document.createElement("li");
-        li3.innerHTML = "<strong>True shrink rate:</strong> based on standard moisture only: <span class='k'>"+fmt(truePerPt,4)+"% per point</span> above standard.";
-        rulesList.appendChild(li3);
-      }
-
-      function openHelp(){ lastOpener = helpBtn; buildRules(); openAnyModal(helpModal, helpClose); }
-      function closeHelp(){ closeAnyModal(helpModal); }
-
-      helpBtn.addEventListener("click", openHelp);
-      helpClose.addEventListener("click", closeHelp);
-      helpModal.addEventListener("click", (e)=>{ if(e.target===helpModal) closeHelp(); });
-
-      document.addEventListener("keydown", (e)=>{
-        if(helpModal.hasAttribute("open") && e.key==="Escape") closeHelp();
-        if(modal.hasAttribute("open") && e.key==="Escape") closeModal();
-      });
-
-      cropEl.addEventListener("change", ()=>{ if(helpModal.hasAttribute("open")) buildRules(); });
-
-      function elevPct(crop, m){
-        if(crop!=="corn") return Math.max(0, (m-SOY_STD)*SOY_ELEV_PER_PT);
-        if(m<=CORN_STD) return 0;
-        const used=Math.min(m, CORN_CAP_M);
-        const pct=CORN_SLOPE*(used-CORN_STD);
-        return Math.min(pct, CORN_CAP_SH);
-      }
-
-      function calcYield(){
-        showErr("");
-
-        const farmId = String(farmIdEl.value||"").trim();
-        const fieldId = String(fieldIdEl.value||"").trim();
-        if(!farmId || !fieldId){ showErr("Select Farm and Field."); return null; }
-
-        const by = String(submittedByEl.value||"").trim();
-        const dt = String(submittedDateEl.value||"").trim();
-        if(!by){ showErr("Submitted by is required (login missing?)."); return null; }
-        if(!dt){ showErr("Date is required."); return null; }
-
-        const crop=cropEl.value, mode=modeEl.value;
-        const area = computeArea();
-        if(!(area>0)) { showErr("Enter cut length and choose a cut width."); return null; }
-
-        const Wt=num(wtEl.value), M=num(mEl.value);
-        if(!(Wt>0 && M>0)) { showErr("Enter wet weight and moisture."); return null; }
-
-        const std = (crop==="corn"?CORN_STD:SOY_STD), tw=(crop==="corn"?CORN_TW:SOY_TW);
-
-        const trueWt = Wt * ((100 - M)/(100 - std));
-        const trueBushels = trueWt / tw;
-        const trueYield = trueBushels / area;
-
-        const ePct = elevPct(crop, M);
-        const eWt = Wt * (1 - ePct/100);
-        const eBushels = eWt / tw;
-        const eYield = eBushels / area;
-
-        const combineId = String(window.__fv_hub_combine_id || "");
-        const combineLabel = String(window.__fv_hub_combine_label || "");
-
-        const farmName = (()=>{ const f = state.farms.find(x=>String(x.id)===farmId); return f ? f.name : ""; })();
-        const fieldName = (()=>{ const f = state.fields.find(x=>String(x.id)===fieldId); return f ? f.name : ""; })();
-
-        return {
-          t: Date.now(),
-          farmId, farmName,
-          fieldId, fieldName,
-          combineId, combineLabel,
-          submittedBy: by,
-          submittedDate: dt,
-          crop, mode,
-          area,
-          len: num(lenEl.value),
-          wid: parseFloat(widEl.value),
-          wt: Wt,
-          m: M,
-          trueY: trueYield,
-          trueBu: trueBushels,
-          elevY: eYield,
-          elevBu: eBushels
-        };
-      }
-
-      function showOutput(o){
-        if(!o){ results.hidden=true; summary.hidden=true; return; }
-
-        trueY.textContent = fmt(o.trueY,2)+" bu/ac";
-        trueBu.textContent = fmt(o.trueBu,2)+" bu";
-        elevY.textContent = fmt(o.elevY,2)+" bu/ac";
-        elevBu.textContent = fmt(o.elevBu,2)+" bu";
-
-        trueTile.style.display = (o.mode==="true") ? "block" : (o.mode==="elev" ? "none" : "block");
-        elevTile.style.display = (o.mode==="elev") ? "block" : (o.mode==="true" ? "none" : "block");
-
-        const c = o.combineLabel ? (o.combineLabel + " • ") : "";
-        const cropLabel = (o.crop==="corn" ? "Corn" : "Soybeans");
-        summary.innerHTML = `<strong>Result:</strong> ${c}${cropLabel} → <strong>T ${fmt(o.trueY,1)}</strong> / <strong>E ${fmt(o.elevY,1)}</strong> bu/ac`;
-        summary.hidden = false;
-
-        results.hidden = false;
-      }
-
-      function loadHist(){
-        try{
-          const arr = JSON.parse(localStorage.getItem(LS_KEY)||"[]");
-          return Array.isArray(arr) ? arr : [];
-        }catch{ return []; }
-      }
-      function saveHist(arr){
-        localStorage.setItem(LS_KEY, JSON.stringify(arr.slice(0,10)));
-      }
-
-      function renderHist(){
-        const h = loadHist();
-        hlist.innerHTML = "";
-        if(!h.length){
-          nohist.hidden = false;
-          return;
-        }
-        nohist.hidden = true;
-
-        h.forEach((it, idx)=>{
-          const c = it.combineLabel ? (it.combineLabel + " • ") : "";
-          const line = `${c}${it.crop==="corn"?"Corn":"Soy"} • ${fmt(it.area,3)} ac • T ${fmt(it.trueY,1)} / E ${fmt(it.elevY,1)} bu/ac`;
-          const div = document.createElement("div");
-          div.className = "hist-item";
-          div.innerHTML = `<div class="hline">${esc(line)}</div><button class="view" type="button">View</button>`;
-          div.querySelector(".view").addEventListener("click", ()=> openDetail(loadHist()[idx], div.querySelector(".view")));
-          hlist.appendChild(div);
-        });
-      }
-
-      $("clearHist").addEventListener("click", ()=>{
-        localStorage.removeItem(LS_KEY);
-        renderHist();
-      });
-
-      function openDetail(it, opener){
-        lastOpener = opener || null;
-        mdBody.innerHTML = '<div class="kv">'
-          +(it.combineLabel?('<div>Combine</div><div class="val">'+esc(it.combineLabel)+'</div>'):'')
-          +'<div>Submitted by</div><div class="val">'+esc(it.submittedBy||"—")+'</div>'
-          +'<div>Date</div><div class="val">'+esc(it.submittedDate||"—")+'</div>'
-          +'<div>Farm</div><div class="val">'+esc(it.farmName||it.farmId||"—")+'</div>'
-          +'<div>Field</div><div class="val">'+esc(it.fieldName||it.fieldId||"—")+'</div>'
-          +'<div>Crop</div><div class="val">'+esc(it.crop==="corn"?"Corn":"Soybeans")+'</div>'
-          +'<div>Area</div><div class="val">'+fmt(it.area,3)+' ac</div>'
-          +'<div>Cut</div><div class="val">'+fmt(it.len,2)+' ft × '+fmt(it.wid,0)+' ft</div>'
-          +'<div>Wet Weight</div><div class="val">'+fmt(it.wt,2)+' lb</div>'
-          +'<div>Moisture</div><div class="val">'+fmt(it.m,2)+'%</div>'
-          +'<div>True Yield</div><div class="val">'+fmt(it.trueY,2)+' bu/ac ('+fmt(it.trueBu,2)+' bu)</div>'
-          +'<div>Elevator Yield</div><div class="val">'+fmt(it.elevY,2)+' bu/ac ('+fmt(it.elevBu,2)+' bu)</div>'
-          +'</div>';
-        openAnyModal(modal, mdClose);
-      }
-
-      function closeModal(){ closeAnyModal(modal); }
-      mdClose.addEventListener("click", closeModal);
-      modal.addEventListener("click", (e)=>{ if(e.target===modal) closeModal(); });
-
-      async function saveToFirestore(rec){
-        const payload = {
-          type: "combine_yield",
-          farmId: rec.farmId || null,
-          farmName: rec.farmName || null,
-          fieldId: rec.fieldId || null,
-          fieldName: rec.fieldName || null,
-
-          combineId: rec.combineId || null,
-          combineName: rec.combineLabel || null,
-
-          submittedBy: rec.submittedBy || null,
-          submittedDate: rec.submittedDate || null,
-
-          crop: rec.crop || null,
-          mode: rec.mode || null,
-
-          cutLengthFt: (typeof rec.len === "number") ? rec.len : null,
-          cutWidthFt: (typeof rec.wid === "number") ? rec.wid : null,
-          areaAc: (typeof rec.area === "number") ? rec.area : null,
-
-          wetWeightLb: (typeof rec.wt === "number") ? rec.wt : null,
-          moisturePct: (typeof rec.m === "number") ? rec.m : null,
-
-          trueYieldBuAc: (typeof rec.trueY === "number") ? rec.trueY : null,
-          trueBushels: (typeof rec.trueBu === "number") ? rec.trueBu : null,
-          elevatorYieldBuAc: (typeof rec.elevY === "number") ? rec.elevY : null,
-          elevatorBushels: (typeof rec.elevBu === "number") ? rec.elevBu : null,
-
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        };
-
-        await addDoc(collection(__db, FS_COLLECTION), payload);
-      }
-
-      async function boot(){
-        await ready;
-        __db = getFirestore();
-
-// Submitted by + date
-// Always show the currently logged-in FarmVista employee.
-// Field stays readonly and cannot be changed.
-submittedByEl.value = "";
-submittedDateEl.value = todayISO();
-
-try{
-  const auth = getAuth();
-
-  onAuthStateChanged(auth, async (u)=>{
-    if(!u){
-      submittedByEl.value = "";
-      return;
-    }
-
-    let displayName = "";
-
-    try{
-      // First try employee document keyed by Firebase Auth UID
-      const employeeSnap = await getDoc(doc(__db, "employees", u.uid));
-
-      if(employeeSnap.exists()){
-        const d = employeeSnap.data() || {};
-
-        displayName =
-          String(d.displayName || "").trim() ||
-          [d.firstName, d.lastName].filter(Boolean).join(" ").trim() ||
-          String(d.name || "").trim();
-      }
-    }catch(e){
-      console.warn("Could not load employee by UID:", e);
-    }
-
-    // If employee document IDs are not Auth UIDs,
-    // match the logged-in user's email against employees.
-    if(!displayName && u.email){
-      try{
-        const employeeSnap = await getDocs(collection(__db, "employees"));
-        const loginEmail = String(u.email || "").trim().toLowerCase();
-
-        for(const ds of employeeSnap.docs){
-          const d = ds.data() || {};
-          const employeeEmail = String(d.email || "").trim().toLowerCase();
-
-          if(employeeEmail && employeeEmail === loginEmail){
-            displayName =
-              String(d.displayName || "").trim() ||
-              [d.firstName, d.lastName].filter(Boolean).join(" ").trim() ||
-              String(d.name || "").trim();
-
-            if(displayName) break;
-          }
-        }
-      }catch(e){
-        console.warn("Could not match employee by email:", e);
-      }
-    }
-
-    // Final fallback to Firebase Auth
-    if(!displayName){
-      displayName =
-        String(u.displayName || "").trim() ||
-        String(u.email || "").trim();
-    }
-
-    submittedByEl.value = displayName;
-  });
-
-}catch(e){
-  console.error("Submitted By initialization failed:", e);
-}
-
-        farmCombo = makeCombo({
-          btn:farmBtn, panel:farmPanel, list:farmList, searchInput:farmSearch,
-          items:[], formatter:x=>x.name,
-          onPick: it=>{
-            state.farm = it;
-            farmBtn.textContent = it.name;
-            farmIdEl.value = it.id;
-            refreshFieldComboForFarm(it.id);
-          }
-        });
-
-        fieldCombo = makeCombo({
-          btn:fieldBtn, panel:fieldPanel, list:fieldList, searchInput:fieldSearch,
-          items:[], formatter:x=>x.name,
-          onPick: it=>{
-            state.field = it;
-            fieldBtn.textContent = it.name;
-            fieldIdEl.value = it.id;
-            if(it.farmId){
-              selectFarmById(it.farmId);
-              farmIdEl.value = it.farmId;
-              refreshFieldComboForFarm(it.farmId);
-              fieldBtn.textContent = it.name;
-              fieldIdEl.value = it.id;
-            }
-          }
-        });
-
-        try{
-          const fsnap = await getDocs(query(collection(__db,"farms"), orderBy("name")));
-          state.farms = fsnap.docs.map(ds=>{
-            const d = ds.data() || {};
-            if(!!d.archived) return null;
-            return { id: ds.id, name: pickName(d) };
-          }).filter(Boolean).sort((a,b)=>a.name.localeCompare(b.name));
-          farmCombo.setItems(state.farms);
-        }catch(e){ console.error(e); }
-
-        try{
-          const xsnap = await getDocs(query(collection(__db,"fields"), orderBy("name")));
-          state.fields = xsnap.docs.map(ds=>{
-            const d = ds.data() || {};
-            if(!!d.archived) return null;
-
-            const farmId =
-              refToId(d.farmId) ||
-              refToId(d.farm) ||
-              refToId(d.farmRef) ||
-              refToId(d.farmDocId) ||
-              refToId(d.farmRefId) ||
-              refToId(d.farm_id) ||
-              null;
-
-            return { id: ds.id, name: pickName(d), farmId };
-          }).filter(Boolean).sort((a,b)=>a.name.localeCompare(b.name));
-          refreshFieldComboForFarm(state.farm ? state.farm.id : null);
-        }catch(e){ console.error(e); }
-
-        if(!IS_HUB){
-          try{ combineRow.remove(); }catch{}
-          window.__fv_hub_combine_id = "";
-          window.__fv_hub_combine_label = "";
-        }else{
-          combineRow.hidden = false;
-          combineNameEl.value = "Loading…";
-          try{
-            const snap = await getDoc(doc(__db,"equipment",HUB_COMBINE_ID));
-            if(snap.exists()){
-              const d = snap.data() || {};
-              const mk = String(d.makeName||"").trim();
-              const md = String(d.modelName||"").trim();
-              const s6 = serialLast6(d.serial || "");
-              const mm = [mk, md].filter(Boolean).join(" ").trim();
-              const label = mm ? (s6 ? `${mm} — #${s6}` : mm) : (s6 ? `Combine — #${s6}` : `Combine (${HUB_COMBINE_ID.slice(-6)})`);
-              combineNameEl.value = label;
-              window.__fv_hub_combine_id = HUB_COMBINE_ID;
-              window.__fv_hub_combine_label = label;
-            }else{
-              const label = `Combine (${HUB_COMBINE_ID.slice(-6)})`;
-              combineNameEl.value = label;
-              window.__fv_hub_combine_id = HUB_COMBINE_ID;
-              window.__fv_hub_combine_label = label;
-            }
-          }catch(e){
-            console.error(e);
-            const label = `Combine (${HUB_COMBINE_ID.slice(-6)})`;
-            combineNameEl.value = label;
-            window.__fv_hub_combine_id = HUB_COMBINE_ID;
-            window.__fv_hub_combine_label = label;
-          }
-        }
-
-        computeArea();
-        renderHist();
-      }
-
-      $("doCalc").addEventListener("click", async ()=>{
-        const out = calcYield();
-        if(!out) return;
-        showOutput(out);
-
-        const h = loadHist(); h.unshift(out); saveHist(h);
-        renderHist();
-
-        try{
-          await saveToFirestore(out);
-        }catch(e){
-          console.error(e);
-        }
-      });
-
-      $("clearInputs").addEventListener("click", ()=>{
-        [lenEl, wtEl, mEl].forEach(i=>{ if(i) i.value=""; });
-        computeArea();
-        results.hidden = true;
-        summary.hidden = true;
-        showErr("");
-      });
-
-      boot();
+      document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(helpModal.hasAttribute('open'))closeAnyModal(helpModal);if(modal.hasAttribute('open'))closeAnyModal(modal)}});boot();
     })();
   </script>
 </body>
