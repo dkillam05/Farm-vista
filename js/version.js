@@ -230,6 +230,26 @@
   }
 
   /* ===================================================================
+     SEPT 5, 2026 — GRAIN INVENTORY TICKET IMAGE ZOOM + PAN
+
+     The Grain Inventory harvest drill-in opens saved tickets inside its own
+     image modal. Add photo-viewer controls there only: mouse-wheel zoom and
+     click-drag on desktop; pinch zoom and touch-drag on phones/tablets.
+  =================================================================== */
+
+  if (
+    isGrainInventory &&
+    !window.__FV_GRAIN_INVENTORY_TICKET_ZOOM_LOADER_20260905
+  ) {
+    window.__FV_GRAIN_INVENTORY_TICKET_ZOOM_LOADER_20260905 = true;
+
+    const script = document.createElement('script');
+    script.src = '/js/grain-inventory-ticket-zoom.js?v=20260905-1';
+    script.dataset.fvGrainInventoryTicketZoom = '1';
+    document.head.appendChild(script);
+  }
+
+  /* ===================================================================
      SEPT 4, 2026 — GRAIN SECTION DARK MODE
 
      Apply a single dark-theme compatibility layer across every page under
