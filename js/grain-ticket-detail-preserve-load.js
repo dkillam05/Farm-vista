@@ -145,7 +145,7 @@
   window.__FV_TICKET_DETAIL_MOBILE_VIEWER_LOADER_20260905 = true;
 
   const script = document.createElement('script');
-  script.src = '/js/grain-ticket-detail-mobile-viewer.js?v=20260905-1';
+  script.src = '/js/grain-ticket-detail-mobile-viewer-v2.js?v=20260905-2';
   script.dataset.fvTicketDetailMobileViewer = '1';
   document.head.appendChild(script);
 })();
