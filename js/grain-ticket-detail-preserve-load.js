@@ -139,7 +139,7 @@
   document.head.appendChild(script);
 
   const firstLoadWake = document.createElement('script');
-  firstLoadWake.src = '/js/grain-ticket-detail-first-load-wake.js?v=20260905-1';
+  firstLoadWake.src = '/js/grain-ticket-detail-first-load-wake.js?v=20260905-2';
   firstLoadWake.dataset.fvTicketDetailFirstLoadWake = '1';
   document.head.appendChild(firstLoadWake);
 })();
