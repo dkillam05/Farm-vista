@@ -19,18 +19,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Apply patch
-        run: python3 .github/scripts/fix-contract-hauling-unlink.py
+      - name: Apply combine calibration patch
+        run: python3 .github/scripts/fv_combine_calibration_flow_fix.py
 
-      - name: Commit patched FarmVista files
+      - name: Restore workflow and remove one-time helpers
         run: |
-          if git diff --quiet -- js/grain-hauling-jobs.js js/grain-contracts.js js/grain-contract-list.js; then
-            echo "No changes needed."
-            exit 0
-          fi
+          git checkout HEAD^ -- .github/workflows/fv-contract-hauling-unlink-fix.yml
+          rm -f .github/scripts/fv_combine_calibration_flow_fix.py
+          rm -f .github/workflows/fv-combine-calibration-flow-fix.yml
+
+      - name: Commit patched FarmVista file
+        run: |
           git config user.name "FarmVista Fix Bot"
           git config user.email "actions@users.noreply.github.com"
-          git add js/grain-hauling-jobs.js js/grain-contracts.js js/grain-contract-list.js
-          git commit -m "Fix contract hauling-job unlink behavior [skip auto-version]"
+          git add pages/calculators/calc-combine-yield-calibration.html .github/workflows/fv-contract-hauling-unlink-fix.yml .github/scripts/fv_combine_calibration_flow_fix.py .github/workflows/fv-combine-calibration-flow-fix.yml
+          git commit -m "Improve combine calibration save flow [skip auto-version]"
           git pull --rebase origin main
           git push origin main
