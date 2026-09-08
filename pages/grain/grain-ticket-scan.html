@@ -8109,7 +8109,10 @@ function haulingJobMatchesTicketDate(
 
 
 function matchingActiveHaulingJobsForTicket(
-  grainTicket
+  grainTicket,
+  customer = null,
+  locationOverride = null,
+  buyerOverride = null
 ) {
 
   const crop =
@@ -8117,57 +8120,51 @@ function matchingActiveHaulingJobsForTicket(
       grainTicket?.crop
     );
 
-
-  if (
-    !crop
-  ) {
-
+  if (!crop) {
     return [];
-
   }
-
-
-  /*
-    Try to identify the actual delivery destination
-    from the scanned ticket.
-
-    If FarmVista can confidently identify it, the
-    hauling job MUST belong to that destination.
-
-    If destination cannot be confidently matched,
-    we safely fall back to Crop + Ticket Date only.
-  */
 
   const locationMatch =
     findDeliveryLocationMatch(
       grainTicket
     );
 
+  const matchedLocation =
+    locationOverride ||
+    (
+      locationMatch?.matched
+        ? locationMatch.location
+        : null
+    );
 
   const matchedLocationId =
-    locationMatch?.matched &&
-    locationMatch?.location?.id
-      ? String(
-          locationMatch.location.id
-        ).trim()
-      : "";
+    String(
+      matchedLocation?.id ||
+      ""
+    ).trim();
 
+  const matchedBuyerId =
+    String(
+      buyerOverride?.id ||
+      matchedLocation?.buyerId ||
+      ""
+    ).trim();
+
+  const customerId =
+    String(
+      customer?.id ||
+      ""
+    ).trim();
 
   let matches =
     haulingJobs
-
       .filter(
         haulingJobIsActive
       )
-
       .filter(
         job =>
-          haulingJobCrop(
-            job
-          ) ===
-            crop
+          haulingJobCrop(job) === crop
       )
-
       .filter(
         job =>
           haulingJobMatchesTicketDate(
@@ -8176,108 +8173,134 @@ function matchingActiveHaulingJobsForTicket(
           )
       );
 
-
-  /*
-    Destination is a strong elimination rule.
-
-    Example:
-
-      Bartlett Jacksonville — Corn
-      ADM Decatur — Corn
-
-    Both may be active on the same date.
-
-    If OCR says Bartlett Jacksonville, ADM Decatur
-    must not remain a possible hauling job.
-  */
-
-  if (
-    matchedLocationId
-  ) {
-
+  if (matchedLocationId) {
     matches =
       matches.filter(
         job =>
-          haulingJobLocationId(
-            job
-          ) ===
+          haulingJobLocationId(job) ===
             matchedLocationId
       );
-
   }
 
+  /*
+    Sold Under and Hauling Job work in both directions.
+    Once Sold Under is known, keep only jobs with an OPEN linked
+    contract for that customer and crop.
+  */
+  if (customerId) {
+    matches =
+      matches.filter(
+        job =>
+          contracts.some(
+            contract => {
+              if (!contractIsAvailableForDriverAssist(contract)) {
+                return false;
+              }
+
+              const contractJobId =
+                String(
+                  contract?.haulingJobId ||
+                  ""
+                ).trim();
+
+              const contractCustomerId =
+                String(
+                  firstExistingValue(
+                    contract,
+                    ["customerId", "grainCustomerId"]
+                  ) ||
+                  ""
+                ).trim();
+
+              const contractCrop =
+                normalizeScannedCrop(
+                  firstExistingValue(
+                    contract,
+                    ["crop", "commodity"]
+                  )
+                );
+
+              const contractLocationId =
+                String(
+                  firstExistingValue(
+                    contract,
+                    [
+                      "deliveryLocationId",
+                      "locationId",
+                      "destinationId"
+                    ]
+                  ) ||
+                  ""
+                ).trim();
+
+              const contractBuyerId =
+                String(
+                  firstExistingValue(
+                    contract,
+                    ["buyerId", "elevatorId"]
+                  ) ||
+                  ""
+                ).trim();
+
+              return (
+                contractJobId === String(job.id || "").trim() &&
+                contractCustomerId === customerId &&
+                (!contractCrop || contractCrop === crop) &&
+                (
+                  !matchedLocationId ||
+                  !contractLocationId ||
+                  contractLocationId === matchedLocationId
+                ) &&
+                (
+                  !matchedBuyerId ||
+                  !contractBuyerId ||
+                  contractBuyerId === matchedBuyerId
+                )
+              );
+            }
+          )
+      );
+  }
 
   console.log(
     "[Grain Ticket] Hauling job candidates:",
     {
-
       crop,
-
-      ticketDate:
-        grainTicket?.ticketDate ||
-        null,
-
-      destinationMatched:
-        Boolean(
-          matchedLocationId
-        ),
-
-      destinationId:
-        matchedLocationId ||
-        null,
-
-      destinationName:
-        locationMatch?.location
-          ? getLocationName(
-              locationMatch.location
-            )
-          : null,
-
-      count:
-        matches.length,
-
-      jobs:
-        matches.map(
-          job => ({
-            id:
-              job.id,
-
-            label:
-              haulingJobDisplayLabel(
-                job
-              ).label,
-
-            locationId:
-              haulingJobLocationId(
-                job
-              )
-          })
-        )
-
+      ticketDate: grainTicket?.ticketDate || null,
+      destinationId: matchedLocationId || null,
+      soldUnderId: customerId || null,
+      count: matches.length,
+      jobs: matches.map(
+        job => ({
+          id: job.id,
+          label: haulingJobDisplayLabel(job).label,
+          locationId: haulingJobLocationId(job)
+        })
+      )
     }
   );
 
-
   return matches;
-
 }
 
 
 function automaticHaulingJobForTicket(
-  grainTicket
+  grainTicket,
+  customer = null,
+  locationOverride = null,
+  buyerOverride = null
 ) {
-
   const matches =
     matchingActiveHaulingJobsForTicket(
-      grainTicket
+      grainTicket,
+      customer,
+      locationOverride,
+      buyerOverride
     );
 
-
-  return matches.length ===
-    1
-      ? matches[0]
-      : null;
-
+  return matches.length === 1
+    ? matches[0]
+    : null;
 }
 
 
@@ -8926,504 +8949,55 @@ async function runDriverAssistQuestions(
   matching
 ) {
 
-  if (
-    isGuestScan
-  ) {
-
+  if (isGuestScan) {
     return matching;
-
   }
 
+  const skippedReasons = [];
 
-  const skippedReasons =
-    [];
+  let source = null;
+  let haulingJob = null;
+  let location = matching?.locationMatch?.location || null;
+  let buyer = matching?.buyerMatch?.buyer || null;
 
-
-  let source =
-    null;
-
-
-  let haulingJob =
-    null;
-
-
-  let location =
-    matching?.locationMatch?.location ||
-    null;
-
-
-  let buyer =
-    matching?.buyerMatch?.buyer ||
-    null;
-
-
-  let customer =
-    matching?.customerMatch?.customer ||
-    null;
-
+  /*
+    Sold Under is ticket truth and does not require a hauling job.
+    Keep a confident OCR customer match while the hauling job is unresolved.
+  */
+  let customer = matching?.customerMatch?.customer || null;
 
   let crop =
     normalizeScannedCrop(
       grainTicket.crop
     );
 
-
-  processingScreen.classList.remove(
-    "show"
-  );
-
-
-  /*
-    HAULING JOB IS AN OFFICE CONCEPT.
-
-    Drivers are never asked to choose one.
-
-    Auto-assign only when FarmVista can prove there is exactly ONE
-    active hauling job matching:
-
-      - scanned / driver-confirmed crop
-      - ticket date inside the hauling-job delivery window
-
-    If zero or multiple jobs match, haulingJob stays blank and the
-    office can assign it later.
-  */
-
-  haulingJob =
-    automaticHaulingJobForTicket(
-      grainTicket
-    );
-
-
-  if (
-    haulingJob
-  ) {
-
-    const jobLocationId =
-      haulingJobLocationId(
-        haulingJob
-      );
-
-
-const jobCrop =
-  haulingJobCrop(
-    haulingJob
-  );
-
-
-location =
-  deliveryLocations.find(
-    item =>
-      item.id ===
-        jobLocationId
-  ) ||
-  location;
-
-
-buyer =
-  location
-    ? buyers.find(
-        item =>
-          String(
-            item.id
-          ) ===
-          String(
-            location.buyerId
-          )
-      ) ||
-      buyer
-    : buyer;
-
-
-/*
-  ============================================================
-  SOLD UNDER FROM CONTRACTS LINKED TO THIS HAULING JOB
-  ============================================================
-
-  Hauling jobs no longer own one customer.
-
-  The valid Sold Under possibilities come from OPEN contracts
-  linked to this hauling job.
-
-  Example:
-
-    Hauling Job
-      ├─ Contract A → John C. Dowson
-      ├─ Contract B → John C. Dowson
-      └─ Contract C → Commodity FS
-
-  Valid Sold Under choices:
-      John C. Dowson
-      Commodity FS
-
-  John only appears once.
-*/
-
-
-const linkedCustomerIds =
-  new Set();
-
-
-contracts.forEach(
-  contract => {
-
-    if (
-      !contractIsAvailableForDriverAssist(
-        contract
-      )
-    ) {
-
-      return;
-
-    }
-
-
-    if (
-      String(
-        contract?.haulingJobId ||
-        ""
-      ).trim() !==
-      String(
-        haulingJob.id ||
-        ""
-      ).trim()
-    ) {
-
-      return;
-
-    }
-
-
-    const customerId =
-      String(
-        firstExistingValue(
-          contract,
-          [
-            "customerId",
-            "grainCustomerId"
-          ]
-        ) ||
-        ""
-      ).trim();
-
-
-    if (
-      customerId
-    ) {
-
-      linkedCustomerIds.add(
-        customerId
-      );
-
-    }
-
-  }
-);
-
-
-const linkedCustomers =
-  customers.filter(
-    item =>
-      linkedCustomerIds.has(
-        String(
-          item.id
-        )
-      )
-  );
-
-
-/*
-  First look at the OCR customer FarmVista already matched.
-*/
-
-const ocrMatchedCustomer =
-  matching?.customerMatch
-    ?.customer ||
-  null;
-
-
-/*
-  If OCR matched a customer AND that customer is actually
-  represented by an open contract linked to this hauling job,
-  keep it.
-
-  Otherwise do not force a customer.
-*/
-
-if (
-  ocrMatchedCustomer &&
-  linkedCustomerIds.has(
-    String(
-      ocrMatchedCustomer.id
-    )
-  )
-) {
-
-  customer =
-    ocrMatchedCustomer;
-
-}
-else {
-
-  customer =
-    null;
-
-
-  /*
-    Try matching the OCR customer wording again, but ONLY
-    against the small set of customers valid for this job.
-  */
-
-  const ocrCustomerText =
-    String(
-      grainTicket?.customerText ||
-      ""
-    ).trim();
-
-
-  if (
-    ocrCustomerText &&
-    linkedCustomers.length
-  ) {
-
-    const scoredCustomers =
-      linkedCustomers
-        .map(
-          item => {
-
-            const name =
-              getCustomerName(
-                item
-              );
-
-
-            return {
-              customer:
-                item,
-
-              similarity:
-                smartNameSimilarity(
-                  ocrCustomerText,
-                  name
-                ),
-
-              exact:
-                normalizeMatchText(
-                  ocrCustomerText
-                ) ===
-                normalizeMatchText(
-                  name
-                )
-            };
-
-          }
-        )
-        .sort(
-          (
-            a,
-            b
-          ) => {
-
-            if (
-              a.exact !==
-              b.exact
-            ) {
-
-              return a.exact
-                ? -1
-                : 1;
-
-            }
-
-
-            return (
-              b.similarity -
-              a.similarity
-            );
-
-          }
-        );
-
-
-    const best =
-      scoredCustomers[0] ||
-      null;
-
-
-    const second =
-      scoredCustomers[1] ||
-      null;
-
-
-    const clearlyBetter =
-      !second ||
-      (
-        best.similarity -
-        second.similarity
-      ) >=
-        0.20;
-
-
-    if (
-      best &&
-      (
-        best.exact ||
-        (
-          best.similarity >=
-            0.75 &&
-          clearlyBetter
-        )
-      )
-    ) {
-
-      customer =
-        best.customer;
-
-    }
-
-  }
-
-
-  /*
-    If we still cannot confidently identify Sold Under,
-    leave it unresolved.
-
-    Do NOT assign the first customer just because only
-    one hauling job was found.
-  */
-
-  if (
-    !customer
-  ) {
-
-    skippedReasons.push(
-      "sold_under_requires_review"
-    );
-
-  }
-
-}
-
-
-crop =
-  jobCrop ||
-  crop;
-
-
-    if (
-      crop
-    ) {
-
-      grainTicket.crop =
-        crop;
-
-    }
-
-
-    ocrResult.driverContext = {
-      ...(
-        ocrResult.driverContext ||
-        {}
-      ),
-
-      haulingJob: {
-        id:
-          haulingJob.id,
-
-        name:
-          haulingJobDisplayLabel(
-            haulingJob
-          ).label,
-
-        source:
-          "automatic_crop_date_match"
-      }
-    };
-
-  }
-  else {
-
-    /*
-      This is not a driver error. It simply means FarmVista could
-      not uniquely determine the office hauling-job bucket.
-    */
-
-    skippedReasons.push(
-      "hauling_job_not_auto_assigned"
-    );
-
-  }
-
-
-  /*
-    GRAIN SOURCE
-
-    This is operational information the driver actually knows.
-    Back works inside Field / Grain Storage so a mistaken tap can
-    return to the source-type choice.
-  */
-
-  if (
-    crop
-  ) {
-
+  processingScreen.classList.remove("show");
+
+  /* ========================================================
+     GRAIN SOURCE
+  ======================================================== */
+  if (crop) {
     source =
-      await askDriverForGrainSource(
-        crop
-      );
+      await askDriverForGrainSource(crop);
 
-
-    if (
-      !source
-    ) {
-
-      skippedReasons.push(
-        "grain_source_not_selected"
-      );
-
+    if (!source) {
+      skippedReasons.push("grain_source_not_selected");
     }
-
   }
   else {
-
-    skippedReasons.push(
-      "grain_source_not_selected"
-    );
-
+    skippedReasons.push("grain_source_not_selected");
   }
 
-
-  /*
-    DESTINATION
-
-    Usually OCR or the unique hauling job supplies this.
-    Ask only when FarmVista still does not know it.
-
-    Back returns the driver to Grain Source so they can correct
-    the prior operational choice.
-  */
-
-  let destinationNeedsQuestion =
-    !location;
-
-
-  while (
-    destinationNeedsQuestion
-  ) {
-
+  /* ========================================================
+     DESTINATION
+  ======================================================== */
+  while (!location) {
     const selectedLocation =
       await askDriverSearchList({
-        step:
-          "Destination",
-
-        title:
-          "Where was this load delivered?",
-
-        text:
-          "FarmVista could not confidently match the destination from the scale ticket.",
-
-        placeholder:
-          "Search elevator, location, or city…",
-
+        step: "Destination",
+        title: "Where was this load delivered?",
+        text: "FarmVista could not confidently match the destination from the scale ticket.",
+        placeholder: "Search elevator, location, or city…",
         items:
           deliveryLocations
             .map(
@@ -9431,647 +9005,265 @@ crop =
                 label:
                   [
                     item.buyerName,
-                    getLocationName(
-                      item
-                    ),
+                    getLocationName(item),
                     [
-                      getLocationCity(
-                        item
-                      ),
-                      getLocationState(
-                        item
-                      )
+                      getLocationCity(item),
+                      getLocationState(item)
                     ]
-                      .filter(
-                        Boolean
-                      )
-                      .join(
-                        ", "
-                      )
+                      .filter(Boolean)
+                      .join(", ")
                   ]
-                    .filter(
-                      Boolean
-                    )
-                    .join(
-                      " — "
-                    ),
-
+                    .filter(Boolean)
+                    .join(" — "),
                 searchText:
                   [
                     item.buyerName,
-                    getLocationName(
-                      item
-                    ),
-                    getLocationStreet(
-                      item
-                    ),
-                    getLocationCity(
-                      item
-                    ),
-                    getLocationState(
-                      item
-                    ),
-                    getLocationZip(
-                      item
-                    )
+                    getLocationName(item),
+                    getLocationStreet(item),
+                    getLocationCity(item),
+                    getLocationState(item),
+                    getLocationZip(item)
                   ]
-                    .filter(
-                      Boolean
-                    )
-                    .join(
-                      " "
-                    ),
-
-                value:
-                  item
+                    .filter(Boolean)
+                    .join(" "),
+                value: item
               })
             )
             .sort(
-              (
-                a,
-                b
-              ) =>
+              (a, b) =>
                 a.label.localeCompare(
                   b.label,
                   undefined,
                   {
-                    numeric:
-                      true,
-
-                    sensitivity:
-                      "base"
+                    numeric: true,
+                    sensitivity: "base"
                   }
                 )
             ),
-
-        allowSkip:
-          true,
-
-        allowBack:
-          true
+        allowSkip: true,
+        allowBack: true
       });
 
-
-    if (
-      selectedLocation ===
-        DRIVER_ASSIST_BACK
-    ) {
-
-      if (
-        crop
-      ) {
-
+    if (selectedLocation === DRIVER_ASSIST_BACK) {
+      if (crop) {
         const correctedSource =
-          await askDriverForGrainSource(
-            crop
-          );
+          await askDriverForGrainSource(crop);
 
-
-        if (
-          correctedSource
-        ) {
-
-          source =
-            correctedSource;
-
+        if (correctedSource) {
+          source = correctedSource;
         }
-
       }
-
-
       continue;
-
     }
 
-
-    if (
-      selectedLocation
-    ) {
-
-      location =
-        selectedLocation;
-
-
-      const selectedBuyerId =
-        String(
-          selectedLocation.buyerId ||
-          ""
-        );
-
-
-      buyer =
-        buyers.find(
-          item =>
-            String(
-              item.id
-            ) ===
-              selectedBuyerId
-        ) ||
-        null;
-
-
-      const originalEvidence =
-        buildLocationAliasText(
-          grainTicket
-        );
-
-
-      ocrResult.manualCorrections = {
-        ...(
-          ocrResult.manualCorrections ||
-          {}
-        ),
-
-        destination: {
-          originalValue:
-            originalEvidence ||
-            null,
-
-          selectedId:
-            selectedLocation.id,
-
-          selectedValue:
-            getLocationName(
-              selectedLocation
-            ),
-
-          source:
-            "driver_selection",
-
-          learningEligible:
-            Boolean(
-              originalEvidence
-            ),
-
-          learningReason:
-            originalEvidence
-              ? "ocr_evidence_confirmed"
-              : "driver_supplied_missing_value"
-        }
-      };
-
-    }
-    else {
-
-      skippedReasons.push(
-        "delivery_location_not_selected"
-      );
-
+    if (!selectedLocation) {
+      skippedReasons.push("delivery_location_not_selected");
+      break;
     }
 
+    location = selectedLocation;
 
-    destinationNeedsQuestion =
-      false;
+    buyer =
+      buyers.find(
+        item =>
+          String(item.id) ===
+            String(selectedLocation.buyerId || "")
+      ) ||
+      null;
 
+    const originalEvidence =
+      buildLocationAliasText(grainTicket);
+
+    ocrResult.manualCorrections = {
+      ...(ocrResult.manualCorrections || {}),
+      destination: {
+        originalValue: originalEvidence || null,
+        selectedId: selectedLocation.id,
+        selectedValue: getLocationName(selectedLocation),
+        source: "driver_selection",
+        learningEligible: Boolean(originalEvidence),
+        learningReason:
+          originalEvidence
+            ? "ocr_evidence_confirmed"
+            : "driver_supplied_missing_value"
+      }
+    };
   }
 
+  if (location && !buyer) {
+    buyer =
+      buyers.find(
+        item =>
+          String(item.id) ===
+            String(location.buyerId || "")
+      ) ||
+      null;
+  }
 
-  /*
-    SOLD UNDER
-
-    Re-run the smart customer matcher after a driver-selected
-    destination before asking another question.
-  */
-
-  if (
-    location &&
-    buyer &&
-    !customer &&
-    !skippedReasons.includes(
-      "sold_under_requires_review"
-    )
-  ) {
-
+  /* ========================================================
+     SOLD UNDER — INDEPENDENT OF HAULING JOB
+  ======================================================== */
+  if (location && buyer && !customer) {
     const refreshedCustomerMatch =
       findCustomerMatch(
         grainTicket,
         {
-          matched:
-            true,
-
-          matchType:
-            "driver_selected",
-
+          matched: true,
+          matchType: "driver_or_ocr_destination",
           location
         },
         {
-          matched:
-            true,
-
-          matchType:
-            "location_buyer",
-
+          matched: true,
+          matchType: "location_buyer",
           buyer
         }
       );
 
-
     customer =
-      refreshedCustomerMatch.customer ||
-      null;
-
+      refreshedCustomerMatch.customer || null;
   }
 
+  const baseHaulingJobs =
+    matchingActiveHaulingJobsForTicket(
+      grainTicket,
+      null,
+      location,
+      buyer
+    );
 
-  while (
-    !customer &&
-    location &&
-    grainTicket?.crop &&
-    !skippedReasons.includes(
-      "sold_under_requires_review"
-    )
-  ) {
+  const uniqueContextJob =
+    baseHaulingJobs.length === 1
+      ? baseHaulingJobs[0]
+      : null;
 
+  if (!customer && location && grainTicket?.crop) {
     const eligibleCustomers =
       getDriverAssistCustomers(
         grainTicket,
         location,
-        buyer
+        buyer,
+        uniqueContextJob
       );
 
-
-    const selectedCustomer =
-      await askDriverSearchList({
-        step:
-          "Sold Under",
-
-        title:
-          "Who is this load sold under?",
-
-        text:
-          `Only customers with an open ${grainTicket.crop} contract for ${getLocationName(location)} are shown.`,
-
-        placeholder:
-          "Search Sold Under…",
-
-        items:
-          eligibleCustomers.map(
-            item => ({
-              label:
-                getCustomerName(
-                  item
-                ),
-
-              searchText:
-                getCustomerName(
-                  item
-                ),
-
-              value:
-                item
-            })
-          ),
-
-        allowSkip:
-          true,
-
-        allowBack:
-          true
-      });
-
-
-    if (
-      selectedCustomer ===
-        DRIVER_ASSIST_BACK
-    ) {
-
-      /*
-        If destination was driver-supplied, let them choose it again.
-        Otherwise go back to Grain Source, because the matched
-        destination did not require a driver question.
-      */
-
-      if (
-        ocrResult.manualCorrections
-          ?.destination
-      ) {
-
-        location =
-          null;
-
-        buyer =
-          null;
-
-        customer =
-          null;
-
-        destinationNeedsQuestion =
-          true;
-
-
-        while (
-          destinationNeedsQuestion
-        ) {
-
-          const replacementLocation =
-            await askDriverSearchList({
-              step:
-                "Destination",
-
-              title:
-                "Where was this load delivered?",
-
-              text:
-                "Choose the correct destination.",
-
-              placeholder:
-                "Search elevator, location, or city…",
-
-              items:
-                deliveryLocations
-                  .map(
-                    item => ({
-                      label:
-                        [
-                          item.buyerName,
-                          getLocationName(
-                            item
-                          ),
-                          [
-                            getLocationCity(
-                              item
-                            ),
-                            getLocationState(
-                              item
-                            )
-                          ]
-                            .filter(
-                              Boolean
-                            )
-                            .join(
-                              ", "
-                            )
-                        ]
-                          .filter(
-                            Boolean
-                          )
-                          .join(
-                            " — "
-                          ),
-
-                      searchText:
-                        [
-                          item.buyerName,
-                          getLocationName(
-                            item
-                          ),
-                          getLocationStreet(
-                            item
-                          ),
-                          getLocationCity(
-                            item
-                          ),
-                          getLocationState(
-                            item
-                          ),
-                          getLocationZip(
-                            item
-                          )
-                        ]
-                          .filter(
-                            Boolean
-                          )
-                          .join(
-                            " "
-                          ),
-
-                      value:
-                        item
-                    })
-                  ),
-
-              allowSkip:
-                true,
-
-              allowBack:
-                true
-            });
-
-
-          if (
-            replacementLocation ===
-              DRIVER_ASSIST_BACK
-          ) {
-
-            if (
-              crop
-            ) {
-
-              const correctedSource =
-                await askDriverForGrainSource(
-                  crop
-                );
-
-
-              if (
-                correctedSource
-              ) {
-
-                source =
-                  correctedSource;
-
-              }
-
-            }
-
-
-            continue;
-
-          }
-
-
-          if (
-            replacementLocation
-          ) {
-
-            location =
-              replacementLocation;
-
-
-            buyer =
-              buyers.find(
-                item =>
-                  String(
-                    item.id
-                  ) ===
-                  String(
-                    replacementLocation.buyerId ||
-                    ""
-                  )
-              ) ||
-              null;
-
-          }
-
-
-          destinationNeedsQuestion =
-            false;
-
-        }
-
-
-        if (
-          location &&
-          buyer
-        ) {
-
-          const refreshedCustomerMatch =
-            findCustomerMatch(
-              grainTicket,
-              {
-                matched:
-                  true,
-
-                matchType:
-                  "driver_selected",
-
-                location
-              },
-              {
-                matched:
-                  true,
-
-                matchType:
-                  "location_buyer",
-
-                buyer
-              }
-            );
-
-
-          customer =
-            refreshedCustomerMatch.customer ||
-            null;
-
-        }
-
-
-        continue;
-
-      }
-
-
-      if (
-        crop
-      ) {
-
-        const correctedSource =
-          await askDriverForGrainSource(
-            crop
-          );
-
-
-        if (
-          correctedSource
-        ) {
-
-          source =
-            correctedSource;
-
-        }
-
-      }
-
-
-      continue;
-
+    if (eligibleCustomers.length === 1) {
+      customer = eligibleCustomers[0];
     }
-
-
-    if (
-      selectedCustomer
-    ) {
-
-      customer =
-        selectedCustomer;
-
-
-      const originalEvidence =
-        String(
-          grainTicket.customerText ||
-          ""
-        ).trim();
-
-
-      ocrResult.manualCorrections = {
-        ...(
-          ocrResult.manualCorrections ||
-          {}
-        ),
-
-        customer: {
-          originalValue:
-            originalEvidence ||
-            null,
-
-          selectedId:
-            selectedCustomer.id,
-
-          selectedValue:
-            getCustomerName(
-              selectedCustomer
+    else if (eligibleCustomers.length > 1) {
+      const selectedCustomer =
+        await askDriverSearchList({
+          step: "Sold Under",
+          title: "Who is this load sold under?",
+          text:
+            uniqueContextJob
+              ? "Choose the Sold Under customer from the open contracts linked to this hauling job."
+              : `Choose the Sold Under customer for this ${grainTicket.crop} delivery.`,
+          placeholder: "Search Sold Under…",
+          items:
+            eligibleCustomers.map(
+              item => ({
+                label: getCustomerName(item),
+                searchText: getCustomerName(item),
+                value: item
+              })
             ),
+          allowSkip: true,
+          allowBack: true
+        });
 
-          source:
-            "driver_selection",
+      if (selectedCustomer === DRIVER_ASSIST_BACK) {
+        if (crop) {
+          const correctedSource =
+            await askDriverForGrainSource(crop);
+          if (correctedSource) {
+            source = correctedSource;
+          }
+        }
+      }
+      else if (selectedCustomer) {
+        customer = selectedCustomer;
 
-          learningEligible:
-            Boolean(
+        const originalEvidence =
+          String(
+            grainTicket.customerText ||
+            ""
+          ).trim();
+
+        ocrResult.manualCorrections = {
+          ...(ocrResult.manualCorrections || {}),
+          customer: {
+            originalValue: originalEvidence || null,
+            selectedId: selectedCustomer.id,
+            selectedValue: getCustomerName(selectedCustomer),
+            source: "driver_selection",
+            learningEligible: Boolean(originalEvidence),
+            learningReason:
               originalEvidence
-            ),
-
-          learningReason:
-            originalEvidence
-              ? "ocr_evidence_confirmed"
-              : "driver_supplied_missing_value"
-        }
-      };
-
+                ? "ocr_evidence_confirmed"
+                : "driver_supplied_missing_value"
+          }
+        };
+      }
+      else {
+        skippedReasons.push("customer_not_selected");
+      }
     }
-    else {
-
-      skippedReasons.push(
-        "customer_not_selected"
-      );
-
-      break;
-
-    }
-
   }
 
+  /* ========================================================
+     HAULING JOB — NARROWED BY SOLD UNDER WHEN KNOWN
+  ======================================================== */
+  haulingJob =
+    automaticHaulingJobForTicket(
+      grainTicket,
+      customer,
+      location,
+      buyer
+    );
 
-  if (
-    source
-  ) {
+  if (haulingJob) {
+    const jobCrop = haulingJobCrop(haulingJob);
+    crop = jobCrop || crop;
+
+    if (crop) {
+      grainTicket.crop = crop;
+    }
 
     ocrResult.driverContext = {
-      ...(
-        ocrResult.driverContext ||
-        {}
-      ),
-
-      grainSource: {
-        ...source,
-
+      ...(ocrResult.driverContext || {}),
+      haulingJob: {
+        id: haulingJob.id,
+        name: haulingJobDisplayLabel(haulingJob).label,
         source:
-          "driver_selection",
-
-        learningEligible:
-          false,
-
-        learningReason:
-          "operational_context_not_ocr_field"
+          customer?.id
+            ? "automatic_crop_destination_sold_under_match"
+            : "automatic_crop_destination_match"
       }
     };
-
+  }
+  else {
+    skippedReasons.push("hauling_job_not_auto_assigned");
   }
 
+  if (
+    !customer &&
+    !skippedReasons.includes("customer_not_selected")
+  ) {
+    skippedReasons.push("customer_not_selected");
+  }
 
-  showProcessing(
-    "Finishing grain ticket…"
-  );
+  if (source) {
+    ocrResult.driverContext = {
+      ...(ocrResult.driverContext || {}),
+      grainSource: {
+        ...source,
+        source: "driver_selection",
+        learningEligible: false,
+        learningReason: "operational_context_not_ocr_field"
+      }
+    };
+  }
 
+  showProcessing("Finishing grain ticket…");
 
   return rebuildMatchingAfterDriverAssist(
     grainTicket,
@@ -10083,7 +9275,6 @@ crop =
     matching,
     skippedReasons
   );
-
 }
 
 

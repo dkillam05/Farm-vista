@@ -5822,11 +5822,7 @@ function syncCustomerButton() {
 
     elements.customerButtonText.textContent =
       selected?.name ||
-      (
-        elements.contractSelect.value
-          ? "Select Sold Under"
-          : "Select hauling job first"
-      );
+      "Select Sold Under";
 
   }
 
@@ -5889,6 +5885,10 @@ function chooseCustomer(
   closeAllLoadMenus();
 
 
+  /* Sold Under narrows the hauling-job list immediately. */
+  renderContractOptions();
+
+
   clearMessage();
 
 
@@ -5924,53 +5924,30 @@ function renderCustomerOptions(
 
 
   /*
-    Sold Under is determined from contracts
-    linked to the selected hauling job.
-
-    No hauling job = no Sold Under list yet.
+    Sold Under is independent ticket information.
+    Crop + destination are enough to build the choices.
+    A selected hauling job narrows them further, but is not required.
   */
-  elements.customerButton.disabled =
-    !haulingJob;
+  const customerLocation =
+    state.locations.find(
+      location =>
+        location.id ===
+        clean(
+          elements.locationSelect.value
+        )
+    ) ||
+    null;
 
 
-  if (
-    !haulingJob
-  ) {
-
-    elements.customerSelect.value =
-      "";
-
-
-    state.selectedCustomer =
-      null;
-
-
-    elements.customerButtonText.textContent =
-      "Select hauling job first";
-
-
-    const empty =
-      document.createElement(
-        "div"
-      );
-
-
-    empty.className =
-      "load-picker-empty";
-
-
-    empty.textContent =
-      "Select a hauling job first.";
-
-
-    elements.customerMenu.appendChild(
-      empty
+  const customerCrop =
+    normalize(
+      elements.crop.value
     );
 
 
-    return;
-
-  }
+  elements.customerButton.disabled =
+    !customerCrop ||
+    !customerLocation;
 
 
   const searchWrap =
@@ -6091,16 +6068,35 @@ function renderCustomerOptions(
   state.contracts
 
     .filter(
-      contract =>
-        contractIsOpen(
-          contract
-        ) &&
-        clean(
-          contract?.haulingJobId
-        ) ===
-          clean(
-            haulingJob.id
+      contract => {
+        if (!contractIsOpen(contract)) {
+          return false;
+        }
+
+        if (contractCrop(contract) !== customerCrop) {
+          return false;
+        }
+
+        if (
+          customerLocation &&
+          !contractMatchesLocation(
+            contract,
+            customerLocation
           )
+        ) {
+          return false;
+        }
+
+        if (
+          haulingJob &&
+          clean(contract?.haulingJobId) !==
+            clean(haulingJob.id)
+        ) {
+          return false;
+        }
+
+        return true;
+      }
     )
 
     .forEach(
@@ -6160,6 +6156,64 @@ function renderCustomerOptions(
     );
 
 
+  /*
+    Use OCR Sold Under even when no hauling job has been selected.
+    Exact/contained OCR customer matches auto-fill. If there is only
+    one possible Sold Under, that customer is selected automatically.
+  */
+  if (
+    !search &&
+    !clean(
+      elements.customerSelect.value
+    )
+  ) {
+    const allEligibleCustomers =
+      Array.from(
+        customerMap.values()
+      );
+
+    const ocrCustomer =
+      normalize(
+        state.ticket?.ocrCustomerText ||
+        ""
+      );
+
+    const ocrMatch =
+      ocrCustomer
+        ? allEligibleCustomers.find(
+            customer => {
+              const name = normalize(customer.name);
+              return (
+                name === ocrCustomer ||
+                (name && ocrCustomer.includes(name)) ||
+                (ocrCustomer && name.includes(ocrCustomer))
+              );
+            }
+          ) || null
+        : null;
+
+    const automaticCustomer =
+      ocrMatch ||
+      (
+        allEligibleCustomers.length === 1
+          ? allEligibleCustomers[0]
+          : null
+      );
+
+    if (automaticCustomer) {
+      elements.customerSelect.value =
+        automaticCustomer.id;
+
+      state.selectedCustomer =
+        state.customers.find(
+          customer =>
+            customer.id === automaticCustomer.id
+        ) ||
+        automaticCustomer;
+    }
+  }
+
+
   const linkedCustomers =
     Array.from(
       customerMap.values()
@@ -6205,9 +6259,11 @@ function renderCustomerOptions(
 
 
   const hasUnallocatedCapacity =
-    haulingJobHasUnallocatedContractCapacity(
-      haulingJob
-    );
+    haulingJob
+      ? haulingJobHasUnallocatedContractCapacity(
+          haulingJob
+        )
+      : false;
 
 
   const otherCustomers =
@@ -6273,7 +6329,9 @@ function renderCustomerOptions(
 
 
     linkedGroup.textContent =
-      "Linked Contracts";
+      haulingJob
+        ? "Linked Contracts"
+        : "Matching Contracts";
 
 
     elements.customerMenu.appendChild(
@@ -8556,6 +8614,12 @@ function renderContractOptions() {
     );
 
 
+  const selectedCustomerId =
+    clean(
+      elements.customerSelect.value
+    );
+
+
   const jobs =
     state.haulingJobs
 
@@ -8677,6 +8741,36 @@ function renderContractOptions() {
 
             return false;
 
+          }
+
+
+          /*
+            When Sold Under is known, keep only hauling jobs with an
+            OPEN linked contract for that customer/crop. Unknown does
+            not force a contract match.
+          */
+          if (
+            selectedCustomerId &&
+            selectedCustomerId !== "__unknown__"
+          ) {
+            const customerCompatible =
+              state.contracts.some(
+                contract =>
+                  contractIsOpen(contract) &&
+                  clean(contract?.haulingJobId) ===
+                    clean(job.id) &&
+                  contractCustomerId(contract) ===
+                    selectedCustomerId &&
+                  (
+                    !selectedCrop ||
+                    contractCrop(contract) ===
+                      selectedCrop
+                  )
+              );
+
+            if (!customerCompatible) {
+              return false;
+            }
           }
 
 
@@ -8802,7 +8896,11 @@ function renderContractOptions() {
         job.id ===
         wantedId
     ) ||
-    null;
+    (
+      jobs.length === 1
+        ? jobs[0]
+        : null
+    );
 
 
   elements.contractSelect.value =
