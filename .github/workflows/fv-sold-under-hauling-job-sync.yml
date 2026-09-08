@@ -1,0 +1,1437 @@
+name: FarmVista Sold Under and hauling job sync
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fv-sold-under-hauling-job-sync.yml'
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch scan and ticket detail matching
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_between(text, start, end, replacement):
+              a = text.index(start)
+              b = text.index(end, a)
+              return text[:a] + replacement.rstrip() + "\n\n\n" + text[b:]
+
+          # ==========================================================
+          # SCAN PAGE
+          # ==========================================================
+          p = Path('pages/grain/grain-ticket-scan.html')
+          s = p.read_text()
+
+          scan_match_block = r'''function matchingActiveHaulingJobsForTicket(
+            grainTicket,
+            customer = null,
+            locationOverride = null,
+            buyerOverride = null
+          ) {
+
+            const crop =
+              normalizeScannedCrop(
+                grainTicket?.crop
+              );
+
+
+            if (
+              !crop
+            ) {
+
+              return [];
+
+            }
+
+
+            const locationMatch =
+              findDeliveryLocationMatch(
+                grainTicket
+              );
+
+
+            const matchedLocation =
+              locationOverride ||
+              (
+                locationMatch?.matched
+                  ? locationMatch.location
+                  : null
+              );
+
+
+            const matchedLocationId =
+              String(
+                matchedLocation?.id ||
+                ""
+              ).trim();
+
+
+            const matchedBuyerId =
+              String(
+                buyerOverride?.id ||
+                matchedLocation?.buyerId ||
+                ""
+              ).trim();
+
+
+            const customerId =
+              String(
+                customer?.id ||
+                ""
+              ).trim();
+
+
+            let matches =
+              haulingJobs
+
+                .filter(
+                  haulingJobIsActive
+                )
+
+                .filter(
+                  job =>
+                    haulingJobCrop(
+                      job
+                    ) ===
+                      crop
+                )
+
+                .filter(
+                  job =>
+                    haulingJobMatchesTicketDate(
+                      job,
+                      grainTicket?.ticketDate
+                    )
+                );
+
+
+            if (
+              matchedLocationId
+            ) {
+
+              matches =
+                matches.filter(
+                  job =>
+                    haulingJobLocationId(
+                      job
+                    ) ===
+                      matchedLocationId
+                );
+
+            }
+
+
+            /*
+              Sold Under and Hauling Job work in both directions.
+
+              Once Sold Under is known, a hauling job remains possible only
+              when it has an OPEN linked contract for that exact customer and crop.
+              This prevents a same-destination job for another customer from being
+              auto-selected just because the crop/date also happen to match.
+            */
+            if (
+              customerId
+            ) {
+
+              matches =
+                matches.filter(
+                  job =>
+                    contracts.some(
+                      contract => {
+
+                        if (
+                          !contractIsAvailableForDriverAssist(
+                            contract
+                          )
+                        ) {
+
+                          return false;
+
+                        }
+
+
+                        const contractJobId =
+                          String(
+                            contract?.haulingJobId ||
+                            ""
+                          ).trim();
+
+
+                        const contractCustomerId =
+                          String(
+                            firstExistingValue(
+                              contract,
+                              [
+                                "customerId",
+                                "grainCustomerId"
+                              ]
+                            ) ||
+                            ""
+                          ).trim();
+
+
+                        const contractCrop =
+                          normalizeScannedCrop(
+                            firstExistingValue(
+                              contract,
+                              [
+                                "crop",
+                                "commodity"
+                              ]
+                            )
+                          );
+
+
+                        const contractLocationId =
+                          String(
+                            firstExistingValue(
+                              contract,
+                              [
+                                "deliveryLocationId",
+                                "locationId",
+                                "destinationId"
+                              ]
+                            ) ||
+                            ""
+                          ).trim();
+
+
+                        const contractBuyerId =
+                          String(
+                            firstExistingValue(
+                              contract,
+                              [
+                                "buyerId",
+                                "elevatorId"
+                              ]
+                            ) ||
+                            ""
+                          ).trim();
+
+
+                        return (
+                          contractJobId ===
+                            String(
+                              job.id ||
+                              ""
+                            ).trim() &&
+                          contractCustomerId ===
+                            customerId &&
+                          (
+                            !contractCrop ||
+                            contractCrop ===
+                              crop
+                          ) &&
+                          (
+                            !matchedLocationId ||
+                            !contractLocationId ||
+                            contractLocationId ===
+                              matchedLocationId
+                          ) &&
+                          (
+                            !matchedBuyerId ||
+                            !contractBuyerId ||
+                            contractBuyerId ===
+                              matchedBuyerId
+                          )
+                        );
+
+                      }
+                    )
+                );
+
+            }
+
+
+            console.log(
+              "[Grain Ticket] Hauling job candidates:",
+              {
+                crop,
+                ticketDate:
+                  grainTicket?.ticketDate ||
+                  null,
+                destinationId:
+                  matchedLocationId ||
+                  null,
+                soldUnderId:
+                  customerId ||
+                  null,
+                count:
+                  matches.length,
+                jobs:
+                  matches.map(
+                    job => ({
+                      id:
+                        job.id,
+                      label:
+                        haulingJobDisplayLabel(
+                          job
+                        ).label,
+                      locationId:
+                        haulingJobLocationId(
+                          job
+                        )
+                    })
+                  )
+              }
+            );
+
+
+            return matches;
+
+          }
+
+
+          function automaticHaulingJobForTicket(
+            grainTicket,
+            customer = null,
+            locationOverride = null,
+            buyerOverride = null
+          ) {
+
+            const matches =
+              matchingActiveHaulingJobsForTicket(
+                grainTicket,
+                customer,
+                locationOverride,
+                buyerOverride
+              );
+
+
+            return matches.length ===
+              1
+                ? matches[0]
+                : null;
+
+          }'''
+
+          s = replace_between(
+              s,
+              'function matchingActiveHaulingJobsForTicket(',
+              'function haulingJobDisplayLabel(',
+              scan_match_block
+          )
+
+          scan_driver_assist = r'''async function runDriverAssistQuestions(
+            grainTicket,
+            ocrResult,
+            matching
+          ) {
+
+            if (
+              isGuestScan
+            ) {
+
+              return matching;
+
+            }
+
+
+            const skippedReasons =
+              [];
+
+
+            let source =
+              null;
+
+
+            let haulingJob =
+              null;
+
+
+            let location =
+              matching?.locationMatch?.location ||
+              null;
+
+
+            let buyer =
+              matching?.buyerMatch?.buyer ||
+              null;
+
+
+            /*
+              IMPORTANT:
+              Sold Under is ticket truth and does NOT require a hauling job.
+              Keep a confident OCR customer match even when the hauling job is
+              still unknown. Hauling Job is narrowed afterward from Sold Under.
+            */
+            let customer =
+              matching?.customerMatch?.customer ||
+              null;
+
+
+            let crop =
+              normalizeScannedCrop(
+                grainTicket.crop
+              );
+
+
+            processingScreen.classList.remove(
+              "show"
+            );
+
+
+            /* ========================================================
+               GRAIN SOURCE
+            ======================================================== */
+            if (
+              crop
+            ) {
+
+              source =
+                await askDriverForGrainSource(
+                  crop
+                );
+
+
+              if (
+                !source
+              ) {
+
+                skippedReasons.push(
+                  "grain_source_not_selected"
+                );
+
+              }
+
+            }
+            else {
+
+              skippedReasons.push(
+                "grain_source_not_selected"
+              );
+
+            }
+
+
+            /* ========================================================
+               DESTINATION
+            ======================================================== */
+            while (
+              !location
+            ) {
+
+              const selectedLocation =
+                await askDriverSearchList({
+                  step:
+                    "Destination",
+                  title:
+                    "Where was this load delivered?",
+                  text:
+                    "FarmVista could not confidently match the destination from the scale ticket.",
+                  placeholder:
+                    "Search elevator, location, or city…",
+                  items:
+                    deliveryLocations
+                      .map(
+                        item => ({
+                          label:
+                            [
+                              item.buyerName,
+                              getLocationName(
+                                item
+                              ),
+                              [
+                                getLocationCity(
+                                  item
+                                ),
+                                getLocationState(
+                                  item
+                                )
+                              ]
+                                .filter(
+                                  Boolean
+                                )
+                                .join(
+                                  ", "
+                                )
+                            ]
+                              .filter(
+                                Boolean
+                              )
+                              .join(
+                                " — "
+                              ),
+                          searchText:
+                            [
+                              item.buyerName,
+                              getLocationName(
+                                item
+                              ),
+                              getLocationStreet(
+                                item
+                              ),
+                              getLocationCity(
+                                item
+                              ),
+                              getLocationState(
+                                item
+                              ),
+                              getLocationZip(
+                                item
+                              )
+                            ]
+                              .filter(
+                                Boolean
+                              )
+                              .join(
+                                " "
+                              ),
+                          value:
+                            item
+                        })
+                      )
+                      .sort(
+                        (
+                          a,
+                          b
+                        ) =>
+                          a.label.localeCompare(
+                            b.label,
+                            undefined,
+                            {
+                              numeric:
+                                true,
+                              sensitivity:
+                                "base"
+                            }
+                          )
+                      ),
+                  allowSkip:
+                    true,
+                  allowBack:
+                    true
+                });
+
+
+              if (
+                selectedLocation ===
+                  DRIVER_ASSIST_BACK
+              ) {
+
+                if (
+                  crop
+                ) {
+
+                  const correctedSource =
+                    await askDriverForGrainSource(
+                      crop
+                    );
+
+
+                  if (
+                    correctedSource
+                  ) {
+
+                    source =
+                      correctedSource;
+
+                  }
+
+                }
+
+
+                continue;
+
+              }
+
+
+              if (
+                !selectedLocation
+              ) {
+
+                skippedReasons.push(
+                  "delivery_location_not_selected"
+                );
+
+                break;
+
+              }
+
+
+              location =
+                selectedLocation;
+
+
+              buyer =
+                buyers.find(
+                  item =>
+                    String(
+                      item.id
+                    ) ===
+                    String(
+                      selectedLocation.buyerId ||
+                      ""
+                    )
+                ) ||
+                null;
+
+
+              const originalEvidence =
+                buildLocationAliasText(
+                  grainTicket
+                );
+
+
+              ocrResult.manualCorrections = {
+                ...(
+                  ocrResult.manualCorrections ||
+                  {}
+                ),
+                destination: {
+                  originalValue:
+                    originalEvidence ||
+                    null,
+                  selectedId:
+                    selectedLocation.id,
+                  selectedValue:
+                    getLocationName(
+                      selectedLocation
+                    ),
+                  source:
+                    "driver_selection",
+                  learningEligible:
+                    Boolean(
+                      originalEvidence
+                    ),
+                  learningReason:
+                    originalEvidence
+                      ? "ocr_evidence_confirmed"
+                      : "driver_supplied_missing_value"
+                }
+              };
+
+            }
+
+
+            if (
+              location &&
+              !buyer
+            ) {
+
+              buyer =
+                buyers.find(
+                  item =>
+                    String(
+                      item.id
+                    ) ===
+                    String(
+                      location.buyerId ||
+                      ""
+                    )
+                ) ||
+                null;
+
+            }
+
+
+            /* ========================================================
+               SOLD UNDER — INDEPENDENT OF HAULING JOB
+            ======================================================== */
+            if (
+              location &&
+              buyer &&
+              !customer
+            ) {
+
+              const refreshedCustomerMatch =
+                findCustomerMatch(
+                  grainTicket,
+                  {
+                    matched:
+                      true,
+                    matchType:
+                      "driver_or_ocr_destination",
+                    location
+                  },
+                  {
+                    matched:
+                      true,
+                    matchType:
+                      "location_buyer",
+                    buyer
+                  }
+                );
+
+
+              customer =
+                refreshedCustomerMatch.customer ||
+                null;
+
+            }
+
+
+            /*
+              If Sold Under is still unknown, Hauling Job may narrow the
+              choices only when the job itself is already unique from the
+              known crop/date/destination. Otherwise show customers from all
+              open contracts at that crop/destination.
+            */
+            const baseHaulingJobs =
+              matchingActiveHaulingJobsForTicket(
+                grainTicket,
+                null,
+                location,
+                buyer
+              );
+
+
+            const uniqueContextJob =
+              baseHaulingJobs.length ===
+                1
+                ? baseHaulingJobs[0]
+                : null;
+
+
+            if (
+              !customer &&
+              location &&
+              grainTicket?.crop
+            ) {
+
+              const eligibleCustomers =
+                getDriverAssistCustomers(
+                  grainTicket,
+                  location,
+                  buyer,
+                  uniqueContextJob
+                );
+
+
+              if (
+                eligibleCustomers.length ===
+                  1
+              ) {
+
+                customer =
+                  eligibleCustomers[0];
+
+              }
+              else if (
+                eligibleCustomers.length >
+                  1
+              ) {
+
+                const selectedCustomer =
+                  await askDriverSearchList({
+                    step:
+                      "Sold Under",
+                    title:
+                      "Who is this load sold under?",
+                    text:
+                      uniqueContextJob
+                        ? "Choose the Sold Under customer from the open contracts linked to this hauling job."
+                        : `Choose the Sold Under customer for this ${grainTicket.crop} delivery.`,
+                    placeholder:
+                      "Search Sold Under…",
+                    items:
+                      eligibleCustomers.map(
+                        item => ({
+                          label:
+                            getCustomerName(
+                              item
+                            ),
+                          searchText:
+                            getCustomerName(
+                              item
+                            ),
+                          value:
+                            item
+                        })
+                      ),
+                    allowSkip:
+                      true,
+                    allowBack:
+                      true
+                  });
+
+
+                if (
+                  selectedCustomer ===
+                    DRIVER_ASSIST_BACK
+                ) {
+
+                  if (
+                    crop
+                  ) {
+
+                    const correctedSource =
+                      await askDriverForGrainSource(
+                        crop
+                      );
+
+
+                    if (
+                      correctedSource
+                    ) {
+
+                      source =
+                        correctedSource;
+
+                    }
+
+                  }
+
+                }
+                else if (
+                  selectedCustomer
+                ) {
+
+                  customer =
+                    selectedCustomer;
+
+
+                  const originalEvidence =
+                    String(
+                      grainTicket.customerText ||
+                      ""
+                    ).trim();
+
+
+                  ocrResult.manualCorrections = {
+                    ...(
+                      ocrResult.manualCorrections ||
+                      {}
+                    ),
+                    customer: {
+                      originalValue:
+                        originalEvidence ||
+                        null,
+                      selectedId:
+                        selectedCustomer.id,
+                      selectedValue:
+                        getCustomerName(
+                          selectedCustomer
+                        ),
+                      source:
+                        "driver_selection",
+                      learningEligible:
+                        Boolean(
+                          originalEvidence
+                        ),
+                      learningReason:
+                        originalEvidence
+                          ? "ocr_evidence_confirmed"
+                          : "driver_supplied_missing_value"
+                    }
+                  };
+
+                }
+                else {
+
+                  skippedReasons.push(
+                    "customer_not_selected"
+                  );
+
+                }
+
+              }
+
+            }
+
+
+            /* ========================================================
+               HAULING JOB — NARROWED BY SOLD UNDER WHEN KNOWN
+            ======================================================== */
+            haulingJob =
+              automaticHaulingJobForTicket(
+                grainTicket,
+                customer,
+                location,
+                buyer
+              );
+
+
+            if (
+              haulingJob
+            ) {
+
+              const jobCrop =
+                haulingJobCrop(
+                  haulingJob
+                );
+
+
+              crop =
+                jobCrop ||
+                crop;
+
+
+              if (
+                crop
+              ) {
+
+                grainTicket.crop =
+                  crop;
+
+              }
+
+
+              ocrResult.driverContext = {
+                ...(
+                  ocrResult.driverContext ||
+                  {}
+                ),
+                haulingJob: {
+                  id:
+                    haulingJob.id,
+                  name:
+                    haulingJobDisplayLabel(
+                      haulingJob
+                    ).label,
+                  source:
+                    customer?.id
+                      ? "automatic_crop_destination_sold_under_match"
+                      : "automatic_crop_destination_match"
+                }
+              };
+
+            }
+            else {
+
+              skippedReasons.push(
+                "hauling_job_not_auto_assigned"
+              );
+
+            }
+
+
+            if (
+              !customer &&
+              !skippedReasons.includes(
+                "customer_not_selected"
+              )
+            ) {
+
+              skippedReasons.push(
+                "customer_not_selected"
+              );
+
+            }
+
+
+            if (
+              source
+            ) {
+
+              ocrResult.driverContext = {
+                ...(
+                  ocrResult.driverContext ||
+                  {}
+                ),
+                grainSource: {
+                  ...source,
+                  source:
+                    "driver_selection",
+                  learningEligible:
+                    false,
+                  learningReason:
+                    "operational_context_not_ocr_field"
+                }
+              };
+
+            }
+
+
+            showProcessing(
+              "Finishing grain ticket…"
+            );
+
+
+            return rebuildMatchingAfterDriverAssist(
+              grainTicket,
+              haulingJob,
+              location,
+              buyer,
+              customer,
+              source,
+              matching,
+              skippedReasons
+            );
+
+          }'''
+
+          s = replace_between(
+              s,
+              'async function runDriverAssistQuestions(',
+              '// ==========================================================\n// SAVE SCANNED GRAIN TICKET',
+              scan_driver_assist
+          )
+
+          p.write_text(s)
+
+          # ==========================================================
+          # DETAIL PAGE
+          # ==========================================================
+          p = Path('pages/grain/grain-ticket-detail.html')
+          s = p.read_text()
+
+          old = '''    elements.customerButtonText.textContent =
+              selected?.name ||
+              (
+                elements.contractSelect.value
+                  ? "Select Sold Under"
+                  : "Select hauling job first"
+              );'''
+          new = '''    elements.customerButtonText.textContent =
+              selected?.name ||
+              "Select Sold Under";'''
+          assert old in s, 'syncCustomerButton fallback not found'
+          s = s.replace(old, new, 1)
+
+          old = '''  syncCustomerButton();
+
+
+  closeAllLoadMenus();
+
+
+  clearMessage();'''
+          new = '''  syncCustomerButton();
+
+
+  closeAllLoadMenus();
+
+
+  /* Sold Under narrows the hauling-job list immediately. */
+  renderContractOptions();
+
+
+  clearMessage();'''
+          assert old in s, 'chooseCustomer refresh block not found'
+          s = s.replace(old, new, 1)
+
+          old = '''  /*
+            Sold Under is determined from contracts
+            linked to the selected hauling job.
+
+            No hauling job = no Sold Under list yet.
+          */
+          elements.customerButton.disabled =
+            !haulingJob;
+
+
+          if (
+            !haulingJob
+          ) {
+
+            elements.customerSelect.value =
+              "";
+
+
+            state.selectedCustomer =
+              null;
+
+
+            elements.customerButtonText.textContent =
+              "Select hauling job first";
+
+
+            const empty =
+              document.createElement(
+                "div"
+              );
+
+
+            empty.className =
+              "load-picker-empty";
+
+
+            empty.textContent =
+              "Select a hauling job first.";
+
+
+            elements.customerMenu.appendChild(
+              empty
+            );
+
+
+            return;
+
+          }'''
+          new = '''  /*
+            Sold Under is independent ticket information.
+            Crop + destination are enough to build the choices.
+            A selected hauling job narrows them further, but is not required.
+          */
+          const customerLocation =
+            state.locations.find(
+              location =>
+                location.id ===
+                clean(
+                  elements.locationSelect.value
+                )
+            ) ||
+            null;
+
+
+          const customerCrop =
+            normalize(
+              elements.crop.value
+            );
+
+
+          elements.customerButton.disabled =
+            !customerCrop ||
+            !customerLocation;'''
+          assert old in s, 'old hauling-job prerequisite block not found'
+          s = s.replace(old, new, 1)
+
+          old = '''  state.contracts
+
+            .filter(
+              contract =>
+                contractIsOpen(
+                  contract
+                ) &&
+                clean(
+                  contract?.haulingJobId
+                ) ===
+                  clean(
+                    haulingJob.id
+                  )
+            )'''
+          new = '''  state.contracts
+
+            .filter(
+              contract => {
+
+                if (
+                  !contractIsOpen(
+                    contract
+                  )
+                ) {
+
+                  return false;
+
+                }
+
+
+                if (
+                  contractCrop(
+                    contract
+                  ) !==
+                    customerCrop
+                ) {
+
+                  return false;
+
+                }
+
+
+                if (
+                  customerLocation &&
+                  !contractMatchesLocation(
+                    contract,
+                    customerLocation
+                  )
+                ) {
+
+                  return false;
+
+                }
+
+
+                if (
+                  haulingJob &&
+                  clean(
+                    contract?.haulingJobId
+                  ) !==
+                    clean(
+                      haulingJob.id
+                    )
+                ) {
+
+                  return false;
+
+                }
+
+
+                return true;
+
+              }
+            )'''
+          assert old in s, 'linked customer contract filter not found'
+          s = s.replace(old, new, 1)
+
+          old = '''  const linkedCustomers =
+            Array.from(
+              customerMap.values()
+            )'''
+          new = '''  /*
+            Use OCR Sold Under even when no hauling job has been selected.
+            If OCR is an exact/contained customer match, fill it. If there is
+            only one possible Sold Under, fill that one automatically too.
+          */
+          if (
+            !search &&
+            !clean(
+              elements.customerSelect.value
+            )
+          ) {
+
+            const allEligibleCustomers =
+              Array.from(
+                customerMap.values()
+              );
+
+
+            const ocrCustomer =
+              normalize(
+                state.ticket?.ocrCustomerText ||
+                ""
+              );
+
+
+            const ocrMatch =
+              ocrCustomer
+                ? allEligibleCustomers.find(
+                    customer => {
+
+                      const name =
+                        normalize(
+                          customer.name
+                        );
+
+
+                      return (
+                        name ===
+                          ocrCustomer ||
+                        (
+                          name &&
+                          ocrCustomer.includes(
+                            name
+                          )
+                        ) ||
+                        (
+                          ocrCustomer &&
+                          name.includes(
+                            ocrCustomer
+                          )
+                        )
+                      );
+
+                    }
+                  ) ||
+                  null
+                : null;
+
+
+            const automaticCustomer =
+              ocrMatch ||
+              (
+                allEligibleCustomers.length ===
+                  1
+                  ? allEligibleCustomers[0]
+                  : null
+              );
+
+
+            if (
+              automaticCustomer
+            ) {
+
+              elements.customerSelect.value =
+                automaticCustomer.id;
+
+
+              state.selectedCustomer =
+                state.customers.find(
+                  customer =>
+                    customer.id ===
+                    automaticCustomer.id
+                ) ||
+                automaticCustomer;
+
+            }
+
+          }
+
+
+          const linkedCustomers =
+            Array.from(
+              customerMap.values()
+            )'''
+          assert old in s, 'linkedCustomers declaration not found'
+          s = s.replace(old, new, 1)
+
+          old = '''  const hasUnallocatedCapacity =
+            haulingJobHasUnallocatedContractCapacity(
+              haulingJob
+            );'''
+          new = '''  const hasUnallocatedCapacity =
+            haulingJob
+              ? haulingJobHasUnallocatedContractCapacity(
+                  haulingJob
+                )
+              : false;'''
+          assert old in s, 'unallocated hauling job capacity block not found'
+          s = s.replace(old, new, 1)
+
+          old = '''    linkedGroup.textContent =
+              "Linked Contracts";'''
+          new = '''    linkedGroup.textContent =
+              haulingJob
+                ? "Linked Contracts"
+                : "Matching Contracts";'''
+          assert old in s, 'linked contracts label not found'
+          s = s.replace(old, new, 1)
+
+          # renderContractOptions: capture the selected Sold Under before filtering jobs.
+          old = '''  const selectedLocationId =
+            clean(
+              elements.locationSelect.value
+            );
+
+
+          const jobs ='''
+          new = '''  const selectedLocationId =
+            clean(
+              elements.locationSelect.value
+            );
+
+
+          const selectedCustomerId =
+            clean(
+              elements.customerSelect.value
+            );
+
+
+          const jobs ='''
+          assert old in s, 'renderContractOptions location block not found'
+          s = s.replace(old, new, 1)
+
+          old = '''          if (
+                    selectedLocationId &&
+                    jobLocationId &&
+                    jobLocationId !==
+                      selectedLocationId
+                  ) {
+
+                    return false;
+
+                  }
+
+
+                  return true;'''
+          new = '''          if (
+                    selectedLocationId &&
+                    jobLocationId &&
+                    jobLocationId !==
+                      selectedLocationId
+                  ) {
+
+                    return false;
+
+                  }
+
+
+                  /*
+                    When Sold Under is known, only keep hauling jobs that
+                    have an OPEN linked contract for that customer/crop.
+                    Unknown intentionally does not force a contract match.
+                  */
+                  if (
+                    selectedCustomerId &&
+                    selectedCustomerId !==
+                      "__unknown__"
+                  ) {
+
+                    const customerCompatible =
+                      state.contracts.some(
+                        contract =>
+                          contractIsOpen(
+                            contract
+                          ) &&
+                          clean(
+                            contract?.haulingJobId
+                          ) ===
+                            clean(
+                              job.id
+                            ) &&
+                          contractCustomerId(
+                            contract
+                          ) ===
+                            selectedCustomerId &&
+                          (
+                            !selectedCrop ||
+                            contractCrop(
+                              contract
+                            ) ===
+                              selectedCrop
+                          )
+                      );
+
+
+                    if (
+                      !customerCompatible
+                    ) {
+
+                      return false;
+
+                    }
+
+                  }
+
+
+                  return true;'''
+          assert old in s, 'renderContractOptions job location return block not found'
+          s = s.replace(old, new, 1)
+
+          old = '''  const validWanted =
+            jobs.find(
+              job =>
+                job.id ===
+                wantedId
+            ) ||
+            null;'''
+          new = '''  const validWanted =
+            jobs.find(
+              job =>
+                job.id ===
+                wantedId
+            ) ||
+            (
+              jobs.length ===
+                1
+                ? jobs[0]
+                : null
+            );'''
+          assert old in s, 'validWanted hauling job block not found'
+          s = s.replace(old, new, 1)
+
+          p.write_text(s)
+
+      - name: Validate inline JavaScript syntax
+        shell: python
+        run: |
+          from pathlib import Path
+          import re, subprocess, tempfile
+
+          for html in [
+              Path('pages/grain/grain-ticket-scan.html'),
+              Path('pages/grain/grain-ticket-detail.html')
+          ]:
+              text = html.read_text()
+              scripts = re.findall(r'<script\b[^>]*>([\s\S]*?)</script>', text, re.I)
+              for i, script in enumerate(scripts):
+                  if not script.strip():
+                      continue
+                  tmp = Path(tempfile.gettempdir()) / f'{html.stem}-{i}.mjs'
+                  tmp.write_text(script)
+                  subprocess.run(['node', '--check', str(tmp)], check=True)
+
+      - name: Commit FarmVista matching update
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pages/grain/grain-ticket-scan.html pages/grain/grain-ticket-detail.html
+          git commit -m 'Sync Sold Under with hauling jobs and contracts'
+          git push
