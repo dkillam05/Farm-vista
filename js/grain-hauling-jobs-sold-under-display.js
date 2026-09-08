@@ -1,22 +1,390 @@
-// FarmVista — Hauling Jobs Sold Under display cleanup
-// Sept. 4, 2026
+// FarmVista — Hauling Jobs page compatibility helpers
+// Sept. 8, 2026
 //
-// Display-only cleanup for the Hauling Jobs table:
-//   • If linked contract customers exist, hide the "Unknown" placeholder.
-//   • If "Unknown" is the only value, display a simple hyphen.
-//
-// Also applies the page-specific dark-theme overrides for the Grain Contracts
-// hauling workspace. Several headers/messages in this page use local
-// --surface / --surface-2 fallbacks that can stay light while dark text rules
-// are active, producing unreadable near-white text on white cards.
-//
-// This intentionally does not change the underlying hauling-job / contract
-// data or the Unknown option used by load-out workflows.
+// Keeps the Hauling Jobs table clean, preserves the page-specific dark-theme
+// fixes, and keeps the Hauling Job buyer picker synchronized with Firestore.
+// The picker also exposes "+ Add New Buyer" and saves buyers using the same
+// grain_buyers collection/fields used by the Grain Contract add form.
 
 (() => {
   'use strict';
 
   const TABLE_BODY_ID = 'hauling-jobs-table-body';
+  const BUYER_SELECT_ID = 'hauling-job-buyer';
+  const JOB_MODAL_ID = 'hauling-job-modal';
+  const ADD_BUYER_VALUE = '__fv_add_new_buyer__';
+  const ADD_BUYER_MODAL_ID = 'fv-hauling-add-buyer-modal';
+
+  let firebaseContextPromise = null;
+  let tableObserver = null;
+  let jobModalObserver = null;
+  let buyerSelectWired = false;
+  let buyerSyncToken = 0;
+
+  const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+  function clean(value) {
+    return String(value ?? '').trim();
+  }
+
+  function normalizeBuyerName(value) {
+    return clean(value).replace(/\s+/g, ' ');
+  }
+
+  async function getFirebaseContext() {
+    if (!firebaseContextPromise) {
+      firebaseContextPromise = import('/js/firebase-init.js').then(async firebase => {
+        await firebase.ready;
+        return {
+          firebase,
+          db: firebase.getFirestore()
+        };
+      });
+    }
+
+    return firebaseContextPromise;
+  }
+
+  async function loadLiveBuyers() {
+    const { firebase, db } = await getFirebaseContext();
+    const snapshot = await firebase.getDocs(
+      firebase.collection(db, 'grain_buyers')
+    );
+
+    return snapshot.docs
+      .map(docSnapshot => ({
+        id: docSnapshot.id,
+        name: normalizeBuyerName(docSnapshot.data()?.name)
+      }))
+      .filter(buyer => buyer.name)
+      .sort((a, b) => a.name.localeCompare(
+        b.name,
+        undefined,
+        { numeric: true, sensitivity: 'base' }
+      ));
+  }
+
+  function requestCoreHaulingRefresh() {
+    const refreshButton = document.getElementById('refresh-hauling-link-btn');
+    refreshButton?.click();
+  }
+
+  function appendAddBuyerOption(select) {
+    if (!select) return;
+
+    const existing = Array.from(select.options).find(
+      option => option.value === ADD_BUYER_VALUE
+    );
+
+    if (existing) {
+      existing.textContent = '+ Add New Buyer';
+      return;
+    }
+
+    const option = document.createElement('option');
+    option.value = ADD_BUYER_VALUE;
+    option.textContent = '+ Add New Buyer';
+    select.appendChild(option);
+  }
+
+  async function syncBuyerSelect(preferredId = '') {
+    const select = document.getElementById(BUYER_SELECT_ID);
+    if (!select) return;
+
+    const token = ++buyerSyncToken;
+    const previousValue =
+      preferredId ||
+      (select.value !== ADD_BUYER_VALUE ? clean(select.value) : '');
+
+    try {
+      select.disabled = true;
+      select.setAttribute('aria-busy', 'true');
+
+      // The original hauling module keeps a private state.buyers snapshot.
+      // Refresh it first so saveJob() and matchingBuyer() know about buyers
+      // created after this page was initially loaded (including bfcache cases).
+      requestCoreHaulingRefresh();
+
+      const buyers = await loadLiveBuyers();
+
+      // Let the original refresh finish loading its six Firestore collections
+      // before the user can submit the hauling-job form.
+      await delay(700);
+
+      if (token !== buyerSyncToken || !select.isConnected) return;
+
+      select.innerHTML = '<option value="">Select buyer</option>';
+
+      buyers.forEach(buyer => {
+        const option = document.createElement('option');
+        option.value = buyer.id;
+        option.textContent = buyer.name;
+        select.appendChild(option);
+      });
+
+      appendAddBuyerOption(select);
+
+      if (
+        previousValue &&
+        Array.from(select.options).some(option => option.value === previousValue)
+      ) {
+        select.value = previousValue;
+      } else {
+        select.value = '';
+      }
+
+      select.dataset.fvPreviousBuyer = select.value;
+    } catch (error) {
+      console.warn('[Hauling Jobs] live buyer refresh failed:', error);
+      appendAddBuyerOption(select);
+    } finally {
+      if (token === buyerSyncToken && select.isConnected) {
+        select.disabled = false;
+        select.removeAttribute('aria-busy');
+      }
+    }
+  }
+
+  function installAddBuyerModal() {
+    if (document.getElementById(ADD_BUYER_MODAL_ID)) return;
+
+    const modal = document.createElement('div');
+    modal.className = 'fv-modal';
+    modal.id = ADD_BUYER_MODAL_ID;
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-labelledby', 'fv-hauling-add-buyer-title');
+
+    modal.innerHTML = `
+      <div class="modal-card">
+        <div class="modal-header">
+          <div>
+            <div class="modal-title" id="fv-hauling-add-buyer-title">
+              Add Buyer / Elevator
+            </div>
+            <div class="modal-sub">
+              Enter the buyer or elevator name.
+            </div>
+          </div>
+          <button
+            type="button"
+            class="modal-close"
+            id="fv-close-hauling-add-buyer"
+            aria-label="Close add buyer"
+          >×</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="field">
+            <label for="fv-hauling-new-buyer-name">
+              Buyer / Elevator <span class="required">*</span>
+            </label>
+            <input
+              id="fv-hauling-new-buyer-name"
+              type="text"
+              autocomplete="organization"
+              placeholder="Buyer or elevator name"
+            />
+          </div>
+          <div
+            id="fv-hauling-add-buyer-message"
+            class="hauling-form-message"
+          ></div>
+        </div>
+
+        <div class="modal-actions">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            id="fv-cancel-hauling-add-buyer"
+          >Cancel</button>
+          <button
+            type="button"
+            class="btn btn-hauling"
+            id="fv-save-hauling-add-buyer"
+          >Add Buyer</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const close = () => {
+      modal.classList.remove('open');
+      const input = document.getElementById('fv-hauling-new-buyer-name');
+      const message = document.getElementById('fv-hauling-add-buyer-message');
+      if (input) input.value = '';
+      if (message) {
+        message.textContent = '';
+        message.className = 'hauling-form-message';
+      }
+    };
+
+    document.getElementById('fv-close-hauling-add-buyer')
+      ?.addEventListener('click', close);
+
+    document.getElementById('fv-cancel-hauling-add-buyer')
+      ?.addEventListener('click', close);
+
+    modal.addEventListener('click', event => {
+      if (event.target === modal) close();
+    });
+
+    document.getElementById('fv-hauling-new-buyer-name')
+      ?.addEventListener('keydown', event => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          document.getElementById('fv-save-hauling-add-buyer')?.click();
+        }
+      });
+
+    document.getElementById('fv-save-hauling-add-buyer')
+      ?.addEventListener('click', saveNewBuyerFromHauling);
+  }
+
+  function openAddBuyerModal() {
+    installAddBuyerModal();
+
+    const modal = document.getElementById(ADD_BUYER_MODAL_ID);
+    const input = document.getElementById('fv-hauling-new-buyer-name');
+    const message = document.getElementById('fv-hauling-add-buyer-message');
+
+    if (message) {
+      message.textContent = '';
+      message.className = 'hauling-form-message';
+    }
+
+    modal?.classList.add('open');
+
+    setTimeout(() => {
+      input?.focus();
+      input?.select();
+    }, 0);
+  }
+
+  function showAddBuyerMessage(message, type = 'error') {
+    const element = document.getElementById('fv-hauling-add-buyer-message');
+    if (!element) return;
+
+    element.textContent = message || '';
+    element.className = `hauling-form-message${message ? ` show ${type}` : ''}`;
+  }
+
+  async function saveNewBuyerFromHauling() {
+    const input = document.getElementById('fv-hauling-new-buyer-name');
+    const saveButton = document.getElementById('fv-save-hauling-add-buyer');
+    const name = normalizeBuyerName(input?.value);
+
+    if (!name) {
+      showAddBuyerMessage('Enter the buyer or elevator name.');
+      input?.focus();
+      return;
+    }
+
+    if (saveButton) {
+      saveButton.disabled = true;
+      saveButton.textContent = 'Adding...';
+    }
+
+    try {
+      const buyers = await loadLiveBuyers();
+      const duplicate = buyers.find(
+        buyer => buyer.name.toLowerCase() === name.toLowerCase()
+      );
+
+      let buyerId = duplicate?.id || '';
+
+      if (!buyerId) {
+        const { firebase, db } = await getFirebaseContext();
+        const ref = await firebase.addDoc(
+          firebase.collection(db, 'grain_buyers'),
+          {
+            name,
+            createdAt: firebase.serverTimestamp(),
+            updatedAt: firebase.serverTimestamp()
+          }
+        );
+        buyerId = ref.id;
+      }
+
+      // Refresh the original hauling module's private buyer state, then rebuild
+      // the visible picker from Firestore and select the new buyer.
+      requestCoreHaulingRefresh();
+      await delay(900);
+      await syncBuyerSelect(buyerId);
+
+      const select = document.getElementById(BUYER_SELECT_ID);
+      if (select && buyerId) {
+        select.value = buyerId;
+        select.dataset.fvPreviousBuyer = buyerId;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+      document.getElementById(ADD_BUYER_MODAL_ID)?.classList.remove('open');
+    } catch (error) {
+      console.error('[Hauling Jobs] add buyer failed:', error);
+      showAddBuyerMessage(
+        error?.message || 'FarmVista could not add that buyer. Please try again.'
+      );
+    } finally {
+      if (saveButton) {
+        saveButton.disabled = false;
+        saveButton.textContent = 'Add Buyer';
+      }
+    }
+  }
+
+  function wireBuyerSelect() {
+    const select = document.getElementById(BUYER_SELECT_ID);
+    if (!select) return false;
+
+    appendAddBuyerOption(select);
+
+    if (buyerSelectWired) return true;
+    buyerSelectWired = true;
+
+    // Capture phase prevents the original hauling-job change handler from
+    // treating the synthetic Add New option as a real buyer id.
+    select.addEventListener('change', event => {
+      if (event.target.value === ADD_BUYER_VALUE) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+
+        event.target.value = clean(event.target.dataset.fvPreviousBuyer);
+        openAddBuyerModal();
+        return;
+      }
+
+      event.target.dataset.fvPreviousBuyer = event.target.value;
+    }, true);
+
+    return true;
+  }
+
+  function watchHaulingJobModal() {
+    const modal = document.getElementById(JOB_MODAL_ID);
+    if (!modal) return false;
+
+    wireBuyerSelect();
+
+    if (jobModalObserver) jobModalObserver.disconnect();
+
+    jobModalObserver = new MutationObserver(() => {
+      if (!modal.classList.contains('open')) return;
+
+      // Every open gets a live Firestore read. This fixes the case where a
+      // buyer was added from the contract form and the browser restored the
+      // contracts page from its old in-memory snapshot.
+      syncBuyerSelect();
+    });
+
+    jobModalObserver.observe(modal, {
+      attributes: true,
+      attributeFilter: ['class']
+    });
+
+    return true;
+  }
 
   function installContractsDarkThemeFix() {
     if (document.getElementById('fv-grain-contracts-dark-theme-fix')) return;
@@ -97,9 +465,6 @@
         border-color:#314137 !important;
       }
 
-      /* Linked-contract rows are rendered dynamically inside each hauling
-         job card and some carry their own light inline surface. Force those
-         interactive rows to use a readable dark surface too. */
       html.dark .hauling-job-drop-card button,
       html[data-theme="dark"] .hauling-job-drop-card button,
       html.dark .hauling-job-drop-card a,
@@ -134,6 +499,13 @@
         background:#182c1d !important;
         color:#dff0e3 !important;
       }
+
+      html.dark #${ADD_BUYER_MODAL_ID} .modal-card,
+      html[data-theme="dark"] #${ADD_BUYER_MODAL_ID} .modal-card {
+        background:#111a14 !important;
+        color:#eef4ef !important;
+        border-color:#314137 !important;
+      }
     `;
 
     (document.head || document.documentElement).appendChild(style);
@@ -166,16 +538,10 @@
 
     body.querySelectorAll('tr').forEach(row => {
       const cells = row.querySelectorAll(':scope > td');
-
-      // Empty-state rows have one colspan cell. Normal hauling-job rows
-      // have Sold Under in the fifth column.
       if (cells.length < 5) return;
-
       cleanSoldUnderCell(cells[4]);
     });
   }
-
-  let tableObserver = null;
 
   function attachToTable() {
     const body = document.getElementById(TABLE_BODY_ID);
@@ -183,9 +549,7 @@
 
     cleanTable();
 
-    if (tableObserver) {
-      tableObserver.disconnect();
-    }
+    if (tableObserver) tableObserver.disconnect();
 
     tableObserver = new MutationObserver(cleanTable);
     tableObserver.observe(body, {
@@ -197,18 +561,32 @@
     return true;
   }
 
-  installContractsDarkThemeFix();
+  function boot() {
+    installContractsDarkThemeFix();
+    installAddBuyerModal();
+    wireBuyerSelect();
+    watchHaulingJobModal();
 
-  if (!attachToTable()) {
-    const pageObserver = new MutationObserver(() => {
-      if (attachToTable()) {
-        pageObserver.disconnect();
-      }
-    });
+    if (!attachToTable()) {
+      const pageObserver = new MutationObserver(() => {
+        wireBuyerSelect();
+        watchHaulingJobModal();
 
-    pageObserver.observe(document.documentElement, {
-      childList: true,
-      subtree: true
-    });
+        if (attachToTable()) {
+          pageObserver.disconnect();
+        }
+      });
+
+      pageObserver.observe(document.documentElement, {
+        childList: true,
+        subtree: true
+      });
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot, { once: true });
+  } else {
+    boot();
   }
 })();
