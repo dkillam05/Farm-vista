@@ -12,9 +12,9 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Patch Sold Under driver fallback
-        shell: python
+      - name: Patch scan Sold Under fallback
         run: |
+          python - <<'PY'
           from pathlib import Path
           p = Path('pages/grain/grain-ticket-scan.html')
           s = p.read_text()
@@ -30,7 +30,6 @@ jobs:
           allowSkip: true,
           allowBack: true
         });'''
-
           new = '''          items: [
             ...eligibleCustomers.map(
               item => ({
@@ -48,8 +47,7 @@ jobs:
           allowSkip: true,
           allowBack: true
         });'''
-
-          assert old in s, 'Sold Under customer picker block not found'
+          assert old in s, 'Sold Under picker block not found'
           s = s.replace(old, new, 1)
 
           old = '''      else if (selectedCustomer) {
@@ -60,15 +58,9 @@ jobs:
             grainTicket.customerText ||
             ""
           ).trim();'''
-
           new = '''      else if (
         selectedCustomer === "__unknown_sold_under__"
       ) {
-        /*
-          Driver explicitly could not identify Sold Under.
-          Allow the scan to continue, but keep the ticket unresolved
-          so the office must review it later.
-        */
         customer = null;
         skippedReasons.push("sold_under_unknown");
 
@@ -93,8 +85,7 @@ jobs:
             grainTicket.customerText ||
             ""
           ).trim();'''
-
-          assert old in s, 'Sold Under selected customer handler not found'
+          assert old in s, 'Sold Under handler not found'
           s = s.replace(old, new, 1)
 
           old = '''      else {
@@ -106,12 +97,7 @@ jobs:
   /* ========================================================
      HAULING JOB — NARROWED BY SOLD UNDER WHEN KNOWN
   ======================================================== */'''
-
           new = '''      else {
-        /*
-          Skip is allowed as a backup so the driver is never blocked.
-          A skipped Sold Under must remain Needs Review.
-        */
         skippedReasons.push("sold_under_driver_skipped");
       }
     }
@@ -120,32 +106,27 @@ jobs:
   /* ========================================================
      HAULING JOB — NARROWED BY SOLD UNDER WHEN KNOWN
   ======================================================== */'''
-
-          assert old in s, 'Sold Under skip handler not found'
+          assert old in s, 'Sold Under skip block not found'
           s = s.replace(old, new, 1)
 
           p.write_text(s)
-      - name: Validate inline JavaScript
-        shell: python
+          PY
+      - name: Validate JavaScript
         run: |
           python - <<'PY'
           from pathlib import Path
           import re, subprocess, tempfile
           text = Path('pages/grain/grain-ticket-scan.html').read_text()
-          scripts = re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>', text, flags=re.S|re.I)
-          checked = 0
-          for script in scripts:
+          for script in re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>', text, flags=re.S|re.I):
               if not script.strip():
                   continue
               with tempfile.NamedTemporaryFile('w', suffix='.mjs', delete=False) as f:
                   f.write(script)
                   name = f.name
-              proc = subprocess.run(['node', '--check', name], capture_output=True, text=True)
-              if proc.returncode:
-                  print(proc.stderr)
-                  raise SystemExit(proc.returncode)
-              checked += 1
-          print(f'Validated {checked} inline script blocks')
+              result = subprocess.run(['node', '--check', name], capture_output=True, text=True)
+              if result.returncode:
+                  print(result.stderr)
+                  raise SystemExit(result.returncode)
           PY
       - name: Commit
         run: |
