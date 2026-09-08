@@ -9158,14 +9158,20 @@ async function runDriverAssistQuestions(
               ? "Choose the Sold Under customer from the open contracts linked to this hauling job."
               : `Choose the Sold Under customer for this ${grainTicket.crop} delivery.`,
           placeholder: "Search Sold Under…",
-          items:
-            eligibleCustomers.map(
+          items: [
+            ...eligibleCustomers.map(
               item => ({
                 label: getCustomerName(item),
                 searchText: getCustomerName(item),
                 value: item
               })
             ),
+            {
+              label: "Unknown / I'm not sure",
+              searchText: "unknown not sure don't know",
+              value: "__unknown_sold_under__"
+            }
+          ],
           allowSkip: true,
           allowBack: true
         });
@@ -9178,6 +9184,25 @@ async function runDriverAssistQuestions(
             source = correctedSource;
           }
         }
+      }
+      else if (
+        selectedCustomer === "__unknown_sold_under__"
+      ) {
+        customer = null;
+        skippedReasons.push("sold_under_unknown");
+
+        ocrResult.manualCorrections = {
+          ...(ocrResult.manualCorrections || {}),
+          customer: {
+            originalValue:
+              String(grainTicket.customerText || "").trim() || null,
+            selectedId: null,
+            selectedValue: "Unknown",
+            source: "driver_unknown",
+            learningEligible: false,
+            learningReason: "driver_could_not_identify_sold_under"
+          }
+        };
       }
       else if (selectedCustomer) {
         customer = selectedCustomer;
@@ -9204,7 +9229,7 @@ async function runDriverAssistQuestions(
         };
       }
       else {
-        skippedReasons.push("customer_not_selected");
+        skippedReasons.push("sold_under_driver_skipped");
       }
     }
   }
