@@ -4387,8 +4387,8 @@ function renderLinkWorkspace() {
           activeFilters.join(
             " • "
           )
-        }. Drag a contract from the left onto the correct hauling job. Location is checked when you drop it.`
-      : "Showing all unlinked contracts and hauling jobs. Drag a contract from the left onto the correct hauling job. Location is checked when you drop it.",
+        }. Drag an unlinked contract onto the correct hauling job. To undo a link, drag the linked contract back into Unlinked Contracts. Location is checked when you drop it.`
+      : "Showing all unlinked contracts and hauling jobs. Drag an unlinked contract onto the correct hauling job. To undo a link, drag the linked contract back into Unlinked Contracts. Location is checked when you drop it.",
     true
   );
 
@@ -5033,101 +5033,96 @@ function bindJobDropTarget(
 
 function setupUnassignDrop() {
 
-  const zone =
-    $(
-      "hauling-unassign-drop"
-    );
+  const targets = [
+    $("hauling-unassign-drop"),
+    $("hauling-unlinked-contract-list")
+  ].filter(Boolean);
 
-
-  if (
-    !zone
-  ) {
-
-    return;
-
-  }
-
-
-  zone.addEventListener(
-    "dragover",
-    event => {
-
-      const contract =
-        state.contracts.find(
-          item =>
-            item.id ===
-            state.draggingContractId
-        );
-
+  targets.forEach(
+    target => {
 
       if (
-        !contract ||
-        !clean(
-          contract?.haulingJobId
-        )
+        target.dataset.haulingUnassignBound ===
+          "1"
       ) {
-
         return;
-
       }
 
+      target.dataset.haulingUnassignBound =
+        "1";
 
-      event.preventDefault();
+      target.addEventListener(
+        "dragover",
+        event => {
 
+          const contract =
+            state.contracts.find(
+              item =>
+                item.id ===
+                state.draggingContractId
+            );
 
-      clearDndHighlights();
+          if (
+            !contract ||
+            !clean(
+              contract?.haulingJobId
+            )
+          ) {
+            return;
+          }
 
-
-      zone.classList.add(
-        "drag-over"
+          event.preventDefault();
+          clearDndHighlights();
+          target.classList.add(
+            "drag-over"
+          );
+        }
       );
 
-    }
-  );
-
-
-  zone.addEventListener(
-    "dragleave",
-    () =>
-      zone.classList.remove(
-        "drag-over"
-      )
-  );
-
-
-  zone.addEventListener(
-    "drop",
-    async event => {
-
-      event.preventDefault();
-
-
-      const contractId =
-        state.draggingContractId ||
-        clean(
-          event.dataTransfer
-            ?.getData(
-              "text/plain"
+      target.addEventListener(
+        "dragleave",
+        event => {
+          if (
+            !event.relatedTarget ||
+            !target.contains(
+              event.relatedTarget
             )
-        );
+          ) {
+            target.classList.remove(
+              "drag-over"
+            );
+          }
+        }
+      );
 
+      target.addEventListener(
+        "drop",
+        async event => {
 
-      clearDndHighlights();
+          event.preventDefault();
 
+          const contractId =
+            state.draggingContractId ||
+            clean(
+              event.dataTransfer
+                ?.getData(
+                  "text/plain"
+                )
+            );
 
-      if (
-        contractId
-      ) {
+          clearDndHighlights();
 
-        await unlinkContract(
-          contractId
-        );
-
-      }
-
+          if (
+            contractId
+          ) {
+            await unlinkContract(
+              contractId
+            );
+          }
+        }
+      );
     }
   );
-
 }
 
 
@@ -5529,7 +5524,7 @@ function updateTouchTarget(
 
   const unassign =
     targetElement.closest(
-      "#hauling-unassign-drop"
+      "#hauling-unassign-drop, #hauling-unlinked-contract-list"
     );
 
 

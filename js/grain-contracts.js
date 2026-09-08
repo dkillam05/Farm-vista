@@ -2703,6 +2703,24 @@ async function voidActiveContract() {
                 latest.openBushels
               ),
 
+            haulingJobId:
+              null,
+
+            haulingJobName:
+              null,
+
+            haulingJobLinkedAt:
+              null,
+
+            haulingJobLinkedByUid:
+              null,
+
+            haulingJobLinkedByName:
+              null,
+
+            haulingJobLinkedByEmail:
+              null,
+
             updatedAt:
               serverTimestamp()
           }
@@ -2712,6 +2730,8 @@ async function voidActiveContract() {
 
     contract.voided = true;
     contract.voidReason = reason;
+    contract.haulingJobId = null;
+    contract.haulingJobName = null;
 
     closeEditModal();
 

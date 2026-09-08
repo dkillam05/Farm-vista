@@ -1202,6 +1202,24 @@ async function voidActiveContract() {
           activeContract.openBushels
         ),
 
+      haulingJobId:
+        null,
+
+      haulingJobName:
+        null,
+
+      haulingJobLinkedAt:
+        null,
+
+      haulingJobLinkedByUid:
+        null,
+
+      haulingJobLinkedByName:
+        null,
+
+      haulingJobLinkedByEmail:
+        null,
+
       updatedAt:
         serverTimestamp()
 
