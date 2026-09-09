@@ -1,8 +1,9 @@
 name: FarmVista bulk customer alias matcher fix
 on:
+  workflow_dispatch:
   push:
     paths:
-      - '.github/workflows/fv-fix-bulk-customer-alias.yml'
+      - .github/workflows/fv-fix-bulk-customer-alias.yml
 
 jobs:
   patch:
@@ -11,14 +12,13 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-
       - name: Expand unresolved customer evidence matching
-        shell: python
+        shell: bash
         run: |
+          python3 - <<'PY'
           from pathlib import Path
           p = Path('pages/grain/grain-ticket-detail.html')
           s = p.read_text()
-
           old = '''    function soldUnderOcrEvidence(
       ticket
     ) {
@@ -40,7 +40,6 @@ jobs:
       };
 
     }'''
-
           new = '''    function soldUnderOcrEvidence(
       ticket
     ) {
@@ -82,15 +81,14 @@ jobs:
       };
 
     }'''
-
           count = s.count(old)
           if count < 1:
-            raise SystemExit('soldUnderOcrEvidence block not found')
-          s = s.replace(old, new)
-          p.write_text(s)
+              raise SystemExit('soldUnderOcrEvidence block not found')
+          p.write_text(s.replace(old, new))
           print(f'Updated {count} soldUnderOcrEvidence block(s)')
-
+          PY
       - name: Commit
+        shell: bash
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
