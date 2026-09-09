@@ -121,8 +121,8 @@
     button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();activateImage(image,button);});
     prepareForShare(image,button);return button;
   }
-  function makeRow(image,key){const row=document.createElement('div');row.className='fv-ticket-download-row';row.dataset.fvTicketDownloadRow=key;row.appendChild(makeButton(image,key));return row;}
-  function refreshPreparation(image,button){if(!image||!button)return;const url=clean(image.currentSrc||image.src);const state=prepared.get(image);if(url&&state?.url!==url)prepareForShare(image,button);}
+  function makeRow(image,key){const row=document.createElement('div');row.className='fv-ticket-download-row';row.dataset.fvTicketDownloadRow=key;row.hidden=!clean(image?.currentSrc||image?.getAttribute('src')||image?.src);row.appendChild(makeButton(image,key));return row;}
+  function refreshPreparation(image,button){if(!image||!button)return;const url=clean(image.currentSrc||image.getAttribute('src')||image.src);const row=button.closest('.fv-ticket-download-row');if(row)row.hidden=!url;if(!url)return;const state=prepared.get(image);if(state?.url!==url)prepareForShare(image,button);}
 
   function enhanceDetail(){
     const image=document.getElementById('ticketImage');if(!image)return;const card=image.closest('.image-card')||image.closest('.card');const wrap=document.getElementById('ticketImageWrap')||image.parentElement;if(!card||!wrap)return;
