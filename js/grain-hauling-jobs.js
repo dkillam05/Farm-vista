@@ -297,9 +297,57 @@ function jobBuyerId(
   job
 ) {
 
-  return clean(
-    job?.buyerId
-  );
+  const savedId =
+    clean(
+      job?.buyerId
+    );
+
+
+  if (
+    savedId &&
+    state.buyers.some(
+      buyer => buyer.id === savedId
+    )
+  ) {
+
+    return savedId;
+
+  }
+
+
+  const savedName =
+    norm(
+      job?.buyerName ||
+      job?.buyer
+    );
+
+
+  if (
+    savedName
+  ) {
+
+    const match =
+      state.buyers.find(
+        buyer =>
+          norm(
+            buyer?.name
+          ) ===
+          savedName
+      );
+
+
+    if (
+      match
+    ) {
+
+      return match.id;
+
+    }
+
+  }
+
+
+  return savedId;
 
 }
 
@@ -308,11 +356,85 @@ function jobLocationId(
   job
 ) {
 
-  return clean(
-    job?.deliveryLocationId ||
-    job?.locationId ||
-    job?.destinationId
-  );
+  const savedId =
+    clean(
+      job?.deliveryLocationId ||
+      job?.locationId ||
+      job?.destinationId
+    );
+
+
+  if (
+    savedId &&
+    state.locations.some(
+      location => location.id === savedId
+    )
+  ) {
+
+    return savedId;
+
+  }
+
+
+  const savedName =
+    norm(
+      job?.deliveryLocationName ||
+      job?.locationName ||
+      job?.destinationName ||
+      job?.destination
+    );
+
+
+  if (
+    savedName
+  ) {
+
+    const buyerId =
+      jobBuyerId(
+        job
+      );
+
+
+    const sameBuyer =
+      state.locations.find(
+        location =>
+          norm(
+            location?.locationName
+          ) ===
+            savedName &&
+          (
+            !buyerId ||
+            clean(
+              location?.buyerId
+            ) ===
+              buyerId
+          )
+      );
+
+
+    const match =
+      sameBuyer ||
+      state.locations.find(
+        location =>
+          norm(
+            location?.locationName
+          ) ===
+          savedName
+      );
+
+
+    if (
+      match
+    ) {
+
+      return match.id;
+
+    }
+
+  }
+
+
+  return savedId;
 
 }
 
@@ -333,10 +455,51 @@ function jobCrop(
   job
 ) {
 
-  return clean(
-    job?.crop ||
-    job?.commodity
-  );
+  const raw =
+    clean(
+      job?.crop ||
+      job?.commodity
+    );
+
+
+  const key =
+    norm(
+      raw
+    )
+      .replace(
+        /[^a-z]/g,
+        ""
+      );
+
+
+  if (
+    key === "corn" ||
+    key === "yellowcorn"
+  ) {
+
+    return "Corn";
+
+  }
+
+
+  if (
+    [
+      "soy",
+      "soybean",
+      "soybeans",
+      "bean",
+      "beans"
+    ].includes(
+      key
+    )
+  ) {
+
+    return "Soybeans";
+
+  }
+
+
+  return raw;
 
 }
 
@@ -2851,6 +3014,13 @@ function openEditJob(
     return;
 
   }
+
+
+  /* Always clear values left by the previously opened hauling job first. */
+  $(
+    "hauling-job-form"
+  )
+    ?.reset();
 
 
   setJobMessage(
