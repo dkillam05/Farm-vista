@@ -327,6 +327,15 @@ section[data-hide-for-now]{ display:none !important; }
   color:#8A5A00;
 }
 
+.ticket-status.warning{
+  background:#F8D7DA;
+  color:#A61B24;
+}
+
+.ticket-warning-row{
+  background:rgba(201,68,77,.07);
+}
+
 
 .ticket-review-row{
   background:
@@ -3074,9 +3083,27 @@ function ticketHasHaulingJob(
 
   }
 
+  function isSpotLoad(
+    ticket
+  ) {
+
+    return (
+      ticket?.spotLoad === true ||
+      String(ticket?.allocationType || "").trim().toLowerCase() === "spot_load" ||
+      String(ticket?.haulingJobType || "").trim().toLowerCase() === "spot_load"
+    );
+
+  }
+
+
   function isNeedsHaulingJob(
     ticket
   ) {
+
+    // A manually confirmed Spot Load is intentionally not tied to a hauling job.
+    if (isSpotLoad(ticket)) {
+      return false;
+    }
 
     if (
       isNeedsReview(
@@ -3092,6 +3119,36 @@ function ticketHasHaulingJob(
     return !ticketHasHaulingJob(
       ticket
     );
+
+  }
+
+
+  function isTicketWarning(
+    ticket
+  ) {
+
+    if (!isNeedsReview(ticket)) return false;
+
+    const reasons = Array.isArray(ticket?.reviewReasons)
+      ? ticket.reviewReasons.map(value => String(value || "").trim().toLowerCase())
+      : [];
+
+    const warningReasons = new Set([
+      "buyer_not_matched",
+      "delivery_location_not_matched",
+      "delivery_location_conflict",
+      "destination_not_matched",
+      "destination_conflict",
+      "customer_not_matched",
+      "customer_not_selected",
+      "sold_under_unknown",
+      "sold_under_requires_review",
+      "elevator_mismatch",
+      "buyer_mismatch",
+      "customer_mismatch"
+    ]);
+
+    return reasons.some(reason => warningReasons.has(reason));
 
   }
 
@@ -6951,6 +7008,9 @@ else {
         const review =
           isNeedsReview(ticket);
 
+        const warning =
+          isTicketWarning(ticket);
+
         const needsHaulingJob =
           isNeedsHaulingJob(ticket);
 
@@ -6969,14 +7029,15 @@ else {
           );
 
 
-        if (
-          review
-        ) {
-
+        if (warning) {
+          row.classList.add(
+            "ticket-warning-row"
+          );
+        }
+        else if (review) {
           row.classList.add(
             "ticket-review-row"
           );
-
         }
 
 
@@ -6986,19 +7047,23 @@ else {
 
               <span
                 class="ticket-status ${
-                  review
-                    ? "review"
-                    : needsHaulingJob
-                      ? "job"
-                      : "good"
+                  warning
+                    ? "warning"
+                    : review
+                      ? "review"
+                      : needsHaulingJob
+                        ? "job"
+                        : "good"
                 }"
               >
                 ${
-                  review
-                    ? "Review"
-                    : needsHaulingJob
-                      ? "Needs Hauling Job"
-                      : "Good"
+                  warning
+                    ? "Warning"
+                    : review
+                      ? "Review"
+                      : needsHaulingJob
+                        ? "Needs Hauling Job"
+                        : "Good"
                 }
               </span>
 
