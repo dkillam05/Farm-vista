@@ -1,5 +1,5 @@
 /* FarmVista grain ticket OCR grade normalizer
-   Rev 2026-09-09c — labeled-row and reversed-row grade recovery
+   Rev 2026-09-09d — Scoular-Waverly authoritative grade template
 
    Re-associates explicit grade labels with the numeric value OCR already read.
    This is deliberately conservative: FarmVista never invents an unlabeled
@@ -236,33 +236,29 @@ function scoularGradeBlock(rawText) {
   const text = clean(rawText);
   if (!text || !/\bscoular\b/i.test(text)) return null;
 
+  const isWaverlyTemplate =
+    /scoular\s*[-–]?\s*waverly/i.test(text) ||
+    /elevator\s*id\s*:?\s*wave\b/i.test(text) ||
+    /15379\s+jasmine\s+road/i.test(text);
+
+  if (!isWaverlyTemplate) return null;
+
   /*
-    Scoular's printed grade table is a visual two-column block:
+    SCOULAR-WAVERLY TEMPLATE
 
-      Test Weight                 60.4
-      Moisture                    14.5
-      Damaged Kernels (total)      2.2
-      Broken Corn & Foreign Mat    1.0
-
-    Google OCR does not always preserve those rows. It may return all labels
-    first and the values later, and it may even place the final FM value just
-    AFTER the words "GROSS LBS". Example seen 09/09/2026:
-
-      60.4
+    Known printed grade order:
       Test Weight
-      Moisture
+      Moisture / OCR may read "Voisture"
       Damaged Kernels (total)
       Broken Corn & Foreign Mat
-      14.5
-      2.2
-      GROSS LBS:
-      10:15:40
-      1.0
-      82,960 LBS
 
-    Therefore do NOT stop the Scoular grade recovery at GROSS LBS. Continue
-    through the weight heading area and stop before NET LBS / bushels. Times
-    and whole-pound weights cannot match the decimal-only grade extractor.
+    Google OCR can return these as normal rows, number-before-label rows,
+    labels first with values later, or with a faint decimal split as "15 2".
+    Keep this tolerance limited to Scoular-Waverly so generic ticket parsing
+    remains conservative.
+
+    Regression ticket 448225 (09/09/2026):
+      TW 61.5, MO 15.2, DM 1.8, FM 1.0
   */
   const upper = text.toUpperCase();
   let start = upper.indexOf('GRADE:');
@@ -274,52 +270,120 @@ function scoularGradeBlock(rawText) {
   if (end < 0) end = upper.indexOf('NET L.BS', start);
   if (end < 0) end = upper.indexOf('GROSS BUSHELS', start);
   if (end < 0) end = upper.indexOf('NET BUSHELS', start);
-  if (end < 0) return null;
+  if (end < 0) end = Math.min(text.length, start + 1800);
 
   const section = text.slice(start, end);
+  const lines = section
+    .split(/\n+/)
+    .map(line => line.trim())
+    .filter(Boolean);
 
-  const hasExpectedLabels =
-    /TEST\s+WEIGHT/i.test(section) &&
-    /(?:MOISTURE|VOISTURE)/i.test(section) &&
-    /DAMAGED\s+KERNELS?/i.test(section) &&
-    /BROKEN\s+CORN\s*(?:&|AND)\s*FOREIGN\s+MAT/i.test(section);
+  const labelPatterns = {
+    testWeight: /\bTEST\s*(?:WEIGHT|WT)\b/i,
+    moisture: /\b(?:MOISTURE|VOISTURE|MOIST\s*URE)\b/i,
+    damage: /\b(?:DAMAGED?\s+KERNELS?(?:\s*\(TOTAL\))?|DAMAGE)\b/i,
+    foreignMaterial: /\b(?:BROKEN\s+CORN\s*(?:&|AND)\s*FOREIGN\s+MAT(?:ERIAL)?|FOREIGN\s+MATERIAL)\b/i
+  };
 
-  if (!hasExpectedLabels) return null;
-
-  const decimals = [];
-  const decimalRegex = /(?:^|\s)(\d{1,2}\.\d{1,2})(?=\s|$)/g;
-  let match;
-  while ((match = decimalRegex.exec(section))) {
-    const value = Number(match[1]);
-    if (Number.isFinite(value)) decimals.push(value);
+  if (!Object.values(labelPatterns).every(pattern => pattern.test(section))) {
+    return null;
   }
 
-  if (decimals.length < 4) return null;
+  function flexibleNumber(valueText, field) {
+    const value = clean(valueText);
+    if (!value) return null;
+
+    let match = value.match(/(?:^|[^0-9])(\d{1,2})\s*[.,]\s*(\d{1,2})(?!\d)/);
+    if (match) {
+      const n = Number(`${match[1]}.${match[2]}`);
+      return inRange(field, n) ? n : null;
+    }
+
+    /* A faint decimal is sometimes OCR'd as a space: 15.2 -> "15 2". */
+    match = value.match(/(?:^|[^0-9])(\d{1,2})\s+(\d)(?!\d)/);
+    if (match) {
+      const n = Number(`${match[1]}.${match[2]}`);
+      return inRange(field, n) ? n : null;
+    }
+
+    return null;
+  }
+
+  function sameRowValue(field) {
+    const pattern = labelPatterns[field];
+    for (const line of lines) {
+      if (!pattern.test(line)) continue;
+      const withoutLabel = line.replace(pattern, ' ');
+      const value = flexibleNumber(withoutLabel, field);
+      if (value !== null) return value;
+    }
+    return null;
+  }
+
+  const rowValues = {
+    testWeight: sameRowValue('testWeight'),
+    moisture: sameRowValue('moisture'),
+    damage: sameRowValue('damage'),
+    foreignMaterial: sameRowValue('foreignMaterial')
+  };
 
   /*
-    The first four decimal grade values in Scoular's grade/weight-header region
-    are TW, Moisture, Damage, FM in printed column order. Never substitute a
-    structured OCR value here: that is exactly how 14.5 moisture previously
-    leaked into FM and caused a false severe alert.
+    Split-column fallback. Gather only decimal-like grade readings; whole-pound
+    weights and clock times are intentionally ignored. The first four readings
+    in this known Scoular-Waverly block are TW, MO, DM, FM.
   */
-  const [testWeight, moisture, damage, foreignMaterial] = decimals.slice(0, 4);
+  const sequence = [];
+  for (const line of lines) {
+    if (/\b(?:NET|TARE)\s+L\.?BS\b/i.test(line)) break;
+    if (/\b\d{1,2}:\d{2}(?::\d{2})?\b/.test(line)) {
+      /* A line may contain a clock time next to a grade; remove time first. */
+      const stripped = line.replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, ' ');
+      const n = flexibleNumber(stripped, sequence.length === 0 ? 'testWeight' : 'foreignMaterial');
+      if (n !== null) sequence.push(n);
+      continue;
+    }
+
+    let match;
+    const decimalRegex = /(?:^|[^0-9])(\d{1,2})\s*[.,]\s*(\d{1,2})(?!\d)/g;
+    while ((match = decimalRegex.exec(line))) {
+      sequence.push(Number(`${match[1]}.${match[2]}`));
+    }
+
+    if (!match && /^\s*\d{1,2}\s+\d\s*$/.test(line)) {
+      const split = line.trim().match(/^(\d{1,2})\s+(\d)$/);
+      if (split) sequence.push(Number(`${split[1]}.${split[2]}`));
+    }
+  }
+
+  const positional = sequence.length >= 4
+    ? {
+        testWeight: sequence[0],
+        moisture: sequence[1],
+        damage: sequence[2],
+        foreignMaterial: sequence[3]
+      }
+    : {};
+
+  const values = {
+    testWeight: rowValues.testWeight ?? positional.testWeight ?? null,
+    moisture: rowValues.moisture ?? positional.moisture ?? null,
+    damage: rowValues.damage ?? positional.damage ?? null,
+    foreignMaterial: rowValues.foreignMaterial ?? positional.foreignMaterial ?? null
+  };
 
   if (
-    !inRange('testWeight', testWeight) ||
-    !inRange('moisture', moisture) ||
-    !inRange('damage', damage) ||
-    !inRange('foreignMaterial', foreignMaterial)
+    !inRange('testWeight', values.testWeight) ||
+    !inRange('moisture', values.moisture) ||
+    !inRange('damage', values.damage) ||
+    !inRange('foreignMaterial', values.foreignMaterial)
   ) {
     return null;
   }
 
   return {
-    testWeight,
-    moisture,
-    damage,
-    foreignMaterial,
+    ...values,
     evidence: section,
-    source: 'scoular_grade_column_order_v2'
+    source: 'scoular_waverly_template_v3'
   };
 }
 
@@ -406,7 +470,7 @@ export function normalizeGrainTicketGrades(result) {
 
       if (
         chosen.source === 'raw_label_value' ||
-        chosen.source === 'scoular_grade_column_order_v2'
+        chosen.source === 'scoular_waverly_template_v3'
       ) {
         result.fields[field] = chosen.value;
       }
@@ -418,7 +482,7 @@ export function normalizeGrainTicketGrades(result) {
   }
 
   result.grainTicket.gradeParser = {
-    version: 'farmvista-grade-v5',
+    version: 'farmvista-grade-v6',
     elevatorFamily: family,
     fields: audit,
     customer: scoularCustomer
