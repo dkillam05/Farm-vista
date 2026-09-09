@@ -1,0 +1,59 @@
+name: FarmVista spot load status patch
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch grain ticket dashboard
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('pages/grain/grain-ticket.html')
+          s=p.read_text()
+          old='''  function isNeedsHaulingJob(\n    ticket\n  ) {\n\n    if (\n      isNeedsReview(\n        ticket\n      )\n    ) {\n\n      return false;\n\n    }\n\n\n    return !ticketHasHaulingJob(\n      ticket\n    );\n\n  }'''
+          new='''  function isSpotLoad(\n    ticket\n  ) {\n\n    return (\n      ticket?.spotLoad === true ||\n      String(ticket?.allocationType || "").trim().toLowerCase() === "spot_load" ||\n      String(ticket?.haulingJobType || "").trim().toLowerCase() === "spot_load"\n    );\n\n  }\n\n\n  function isNeedsHaulingJob(\n    ticket\n  ) {\n\n    // A manually confirmed Spot Load is intentionally not tied to a hauling job.\n    if (isSpotLoad(ticket)) {\n      return false;\n    }\n\n    if (\n      isNeedsReview(\n        ticket\n      )\n    ) {\n\n      return false;\n\n    }\n\n\n    return !ticketHasHaulingJob(\n      ticket\n    );\n\n  }\n\n\n  function isTicketWarning(\n    ticket\n  ) {\n\n    if (!isNeedsReview(ticket)) return false;\n\n    const reasons = Array.isArray(ticket?.reviewReasons)\n      ? ticket.reviewReasons.map(value => String(value || "").trim().toLowerCase())\n      : [];\n\n    const warningReasons = new Set([\n      "buyer_not_matched",\n      "delivery_location_not_matched",\n      "delivery_location_conflict",\n      "destination_not_matched",\n      "destination_conflict",\n      "customer_not_matched",\n      "customer_not_selected",\n      "sold_under_unknown",\n      "sold_under_requires_review",\n      "elevator_mismatch",\n      "buyer_mismatch",\n      "customer_mismatch"\n    ]);\n\n    return reasons.some(reason => warningReasons.has(reason));\n\n  }'''
+          if old not in s: raise SystemExit('status function target not found')
+          s=s.replace(old,new,1)
+          oldcss='''.ticket-status.review{\n  background:#FFF1CC;\n  color:#8A5A00;\n}\n'''
+          newcss='''.ticket-status.review{\n  background:#FFF1CC;\n  color:#8A5A00;\n}\n\n.ticket-status.warning{\n  background:#F8D7DA;\n  color:#A61B24;\n}\n\n.ticket-warning-row{\n  background:rgba(201,68,77,.07);\n}\n'''
+          if oldcss not in s: raise SystemExit('status css target not found')
+          s=s.replace(oldcss,newcss,1)
+          oldrender='''        const review =\n          isNeedsReview(ticket);\n\n        const needsHaulingJob =\n          isNeedsHaulingJob(ticket);'''
+          newrender='''        const review =\n          isNeedsReview(ticket);\n\n        const warning =\n          isTicketWarning(ticket);\n\n        const needsHaulingJob =\n          isNeedsHaulingJob(ticket);'''
+          if oldrender not in s: raise SystemExit('render vars target not found')
+          s=s.replace(oldrender,newrender,1)
+          oldrow='''        if (\n          review\n        ) {\n\n          row.classList.add(\n            "ticket-review-row"\n          );\n\n        }'''
+          newrow='''        if (warning) {\n          row.classList.add(\n            "ticket-warning-row"\n          );\n        }\n        else if (review) {\n          row.classList.add(\n            "ticket-review-row"\n          );\n        }'''
+          if oldrow not in s: raise SystemExit('row class target not found')
+          s=s.replace(oldrow,newrow,1)
+          oldstatus='''                  review\n                    ? "review"\n                    : needsHaulingJob\n                      ? "job"\n                      : "good"'''
+          newstatus='''                  warning\n                    ? "warning"\n                    : review\n                      ? "review"\n                      : needsHaulingJob\n                        ? "job"\n                        : "good"'''
+          if oldstatus not in s: raise SystemExit('status class target not found')
+          s=s.replace(oldstatus,newstatus,1)
+          oldlabel='''                  review\n                    ? "Review"\n                    : needsHaulingJob\n                      ? "Needs Hauling Job"\n                      : "Good"'''
+          newlabel='''                  warning\n                    ? "Warning"\n                    : review\n                      ? "Review"\n                      : needsHaulingJob\n                        ? "Needs Hauling Job"\n                        : "Good"'''
+          if oldlabel not in s: raise SystemExit('status label target not found')
+          s=s.replace(oldlabel,newlabel,1)
+          p.write_text(s)
+
+          v=Path('js/version.js')
+          x=v.read_text()
+          if 'number:  "09.09.05"' not in x: raise SystemExit('unexpected version')
+          x=x.replace('number:  "09.09.05"','number:  "09.09.06"',1)
+          v.write_text(x)
+          PY
+      - name: Commit
+        run: |
+          git config user.name "FarmVista Bot"
+          git config user.email "actions@farmvista.app"
+          git add pages/grain/grain-ticket.html js/version.js
+          git diff --cached --check
+          git commit -m "Treat spot loads as good and flag matching warnings [skip auto-version]"
+          git pull --rebase origin main
+          git push origin HEAD:main
