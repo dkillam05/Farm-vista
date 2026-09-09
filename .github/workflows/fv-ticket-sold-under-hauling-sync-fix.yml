@@ -1,0 +1,958 @@
+name: FarmVista ticket Sold Under hauling-job sync fix
+on:
+  push:
+    paths: ['.github/workflows/fv-ticket-sold-under-hauling-sync-fix.yml']
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Patch ticket detail Sold Under and hauling job behavior
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          detail = Path('pages/grain/grain-ticket-detail.html')
+          s = detail.read_text()
+
+          # 1) Choosing Sold Under must NOT remove a valid hauling job just because
+          #    that job has no linked grain contract yet.
+          old = '''          /*
+            When Sold Under is known, keep only hauling jobs with an
+            OPEN linked contract for that customer/crop. Unknown does
+            not force a contract match.
+          */
+          if (
+            selectedCustomerId &&
+            selectedCustomerId !== "__unknown__"
+          ) {
+            const customerCompatible =
+              state.contracts.some(
+                contract =>
+                  contractIsOpen(contract) &&
+                  clean(contract?.haulingJobId) ===
+                    clean(job.id) &&
+                  contractCustomerId(contract) ===
+                    selectedCustomerId &&
+                  (
+                    !selectedCrop ||
+                    contractCrop(contract) ===
+                      selectedCrop
+                  )
+              );
+
+            if (!customerCompatible) {
+              return false;
+            }
+          }
+'''
+          new = '''          /*
+            Sold Under can be learned from a ticket BEFORE a grain contract exists.
+            Preserve a matching hauling job when:
+              - the hauling job itself is already tagged to this customer, OR
+              - an open linked contract belongs to this customer, OR
+              - the hauling job has no linked contracts yet (the office is teaching
+                FarmVista who this job is Sold Under for from the actual ticket).
+          */
+          if (
+            selectedCustomerId &&
+            selectedCustomerId !== "__unknown__"
+          ) {
+            const storedJobCustomerId =
+              clean(
+                job?.customerId ||
+                job?.grainCustomerId
+              );
+
+            const linkedContracts =
+              state.contracts.filter(
+                contract =>
+                  contractIsOpen(contract) &&
+                  clean(contract?.haulingJobId) ===
+                    clean(job.id)
+              );
+
+            const customerCompatible =
+              storedJobCustomerId === selectedCustomerId ||
+              linkedContracts.some(
+                contract =>
+                  contractCustomerId(contract) ===
+                    selectedCustomerId &&
+                  (
+                    !selectedCrop ||
+                    contractCrop(contract) ===
+                      selectedCrop
+                  )
+              ) ||
+              (
+                !storedJobCustomerId &&
+                linkedContracts.length === 0
+              );
+
+            if (!customerCompatible) {
+              return false;
+            }
+          }
+'''
+          if old not in s:
+              raise SystemExit('renderContractOptions customer compatibility block not found')
+          s = s.replace(old, new, 1)
+
+          # 2) Once a hauling job is selected, preserve its stored Sold Under or,
+          #    when the job has no contracts/customer yet, preserve the user's real
+          #    customer selection instead of blanking it.
+          old = '''  const eligibleCustomerIds =
+    new Set(
+      state.contracts
+
+        .filter(
+          contract =>
+            contractIsOpen(
+              contract
+            ) &&
+            clean(
+              contract?.haulingJobId
+            ) ===
+              clean(
+                job.id
+              )
+        )
+
+        .map(
+          contract =>
+            contractCustomerId(
+              contract
+            )
+        )
+
+        .filter(
+          Boolean
+        )
+    );
+'''
+          new = old + '''\n\n  const storedJobCustomerId =\n    clean(\n      job?.customerId ||\n      job?.grainCustomerId\n    );\n\n\n  if (\n    storedJobCustomerId\n  ) {\n\n    eligibleCustomerIds.add(\n      storedJobCustomerId\n    );\n\n  }\n'''
+          if old not in s:
+              raise SystemExit('applySelectedHaulingJob eligible customers block not found')
+          s = s.replace(old, new, 1)
+
+          old = '''  else if (
+    currentCustomerId &&
+    eligibleCustomerIds.has(
+      currentCustomerId
+    )
+  ) {
+'''
+          new = '''  else if (
+    currentCustomerId &&
+    (
+      eligibleCustomerIds.size === 0 ||
+      eligibleCustomerIds.has(
+        currentCustomerId
+      )
+    )
+  ) {
+'''
+          if old not in s:
+              raise SystemExit('applySelectedHaulingJob customer preservation condition not found')
+          s = s.replace(old, new, 1)
+
+          # 3) Auto-match can use the customer learned directly on a hauling job,
+          #    even when no contract exists yet.
+          marker = '''  const eligibleCustomers =
+    state.customers.filter(
+      customer =>
+        eligibleCustomerIds.has(
+          customer.id
+        )
+    );
+'''
+          replacement = '''  const storedJobCustomerId =
+    clean(
+      haulingJob?.customerId ||
+      haulingJob?.grainCustomerId
+    );
+
+
+  if (
+    storedJobCustomerId
+  ) {
+
+    eligibleCustomerIds.add(
+      storedJobCustomerId
+    );
+
+  }
+
+
+''' + marker
+          if marker not in s:
+              raise SystemExit('autoMatchCustomer eligibleCustomers marker not found')
+          s = s.replace(marker, replacement, 1)
+
+          old = '''  if (
+    savedCustomerId
+  ) {
+
+    const saved =
+      eligibleCustomers.find(
+        customer =>
+          customer.id ===
+          savedCustomerId
+      );
+
+
+    if (
+      saved
+    ) {
+
+      return saved;
+
+    }
+
+  }
+'''
+          new = '''  if (
+    savedCustomerId
+  ) {
+
+    const saved =
+      state.customers.find(
+        customer =>
+          customer.id ===
+          savedCustomerId
+      ) ||
+      null;
+
+
+    if (
+      saved &&
+      (
+        eligibleCustomerIds.size === 0 ||
+        eligibleCustomerIds.has(
+          savedCustomerId
+        )
+      )
+    ) {
+
+      return saved;
+
+    }
+
+  }
+'''
+          if old not in s:
+              raise SystemExit('autoMatchCustomer saved customer block not found')
+          s = s.replace(old, new, 1)
+
+          # 4) Add helpers for learning Sold Under onto a hauling job and for
+          #    finding the same hauling job on matching under-review tickets.
+          marker = '''    // ==========================================================
+    // BULK SOLD UNDER CORRECTION FOR REVIEW TICKETS
+    // ==========================================================
+'''
+          helpers = r'''    async function syncSoldUnderToHaulingJob(
+      job,
+      selectedCustomer,
+      sourceTicketId = ticketId
+    ) {
+
+      if (
+        !job?.id ||
+        !selectedCustomer?.id ||
+        selectedCustomer?.unknown === true
+      ) {
+
+        return false;
+
+      }
+
+
+      const linkedOpenContracts =
+        state.contracts.filter(
+          contract =>
+            contractIsOpen(contract) &&
+            clean(contract?.haulingJobId) ===
+              clean(job.id)
+        );
+
+
+      const linkedCustomerIds =
+        new Set(
+          linkedOpenContracts
+            .map(contractCustomerId)
+            .filter(Boolean)
+        );
+
+
+      /*
+        Never rewrite a hauling job against conflicting linked contracts.
+        With no contracts yet, the actual reviewed elevator ticket is allowed
+        to teach FarmVista who the hauling job is Sold Under for.
+      */
+      if (
+        linkedCustomerIds.size > 0 &&
+        !linkedCustomerIds.has(
+          clean(selectedCustomer.id)
+        )
+      ) {
+
+        return false;
+
+      }
+
+
+      const patch = {
+        customerId:
+          selectedCustomer.id,
+
+        grainCustomerId:
+          selectedCustomer.id,
+
+        customerName:
+          selectedCustomer.name,
+
+        soldUnderSource:
+          "grain_ticket_review",
+
+        soldUnderLearnedFromTicketId:
+          sourceTicketId,
+
+        soldUnderLearnedAt:
+          serverTimestamp(),
+
+        updatedAt:
+          serverTimestamp()
+      };
+
+
+      await updateDoc(
+        doc(
+          db,
+          "grain_hauling_jobs",
+          job.id
+        ),
+        patch
+      );
+
+
+      Object.assign(
+        job,
+        patch
+      );
+
+
+      return true;
+
+    }
+
+
+    function matchingHaulingJobForReviewTicket(
+      ticket
+    ) {
+
+      const existingId =
+        clean(
+          ticket?.haulingJobId
+        );
+
+
+      if (
+        existingId
+      ) {
+
+        const existing =
+          state.haulingJobs.find(
+            job =>
+              clean(job.id) ===
+                existingId
+          ) ||
+          null;
+
+
+        if (
+          existing
+        ) {
+
+          return existing;
+
+        }
+
+      }
+
+
+      const crop =
+        normalize(
+          ticket?.crop
+        );
+
+      const locationId =
+        clean(
+          ticket?.deliveryLocationId ||
+          ticket?.destinationId
+        );
+
+      const ticketDate =
+        clean(
+          ticket?.ticketDate
+        );
+
+
+      const matches =
+        state.haulingJobs.filter(
+          job => {
+
+            if (
+              job?.active === false ||
+              job?.voided === true
+            ) {
+
+              return false;
+
+            }
+
+
+            const status =
+              normalize(
+                job?.status
+              );
+
+
+            if (
+              status.includes("void") ||
+              status.includes("closed") ||
+              status.includes("cancel") ||
+              status.includes("complete")
+            ) {
+
+              return false;
+
+            }
+
+
+            if (
+              crop &&
+              normalize(
+                job?.crop ||
+                job?.commodity
+              ) !==
+                crop
+            ) {
+
+              return false;
+
+            }
+
+
+            const jobLocationId =
+              clean(
+                job?.deliveryLocationId ||
+                job?.locationId ||
+                job?.destinationId
+              );
+
+
+            if (
+              locationId &&
+              jobLocationId &&
+              jobLocationId !==
+                locationId
+            ) {
+
+              return false;
+
+            }
+
+
+            const start =
+              clean(
+                job?.deliveryStartDate ||
+                job?.deliveryStart
+              );
+
+            const end =
+              clean(
+                job?.deliveryEndDate ||
+                job?.deliveryEnd
+              );
+
+
+            if (
+              ticketDate &&
+              start &&
+              ticketDate < start
+            ) {
+
+              return false;
+
+            }
+
+
+            if (
+              ticketDate &&
+              end &&
+              ticketDate > end
+            ) {
+
+              return false;
+
+            }
+
+
+            return true;
+
+          }
+        );
+
+
+      return matches.length === 1
+        ? matches[0]
+        : null;
+
+    }
+
+
+'''
+          if marker not in s:
+              raise SystemExit('bulk correction marker not found')
+          s = s.replace(marker, helpers + marker, 1)
+
+          # 5) Bulk correction must clear the current review reason and preserve /
+          #    restore the uniquely matching hauling job as well.
+          old = '''      const customerReviewReasons =
+        new Set([
+          "customer_not_matched",
+          "customer_not_selected",
+          "sold_under_unknown",
+          "sold_under_driver_skipped"
+        ]);
+'''
+          new = '''      const customerReviewReasons =
+        new Set([
+          "customer_not_matched",
+          "customer_not_selected",
+          "sold_under_unknown",
+          "sold_under_driver_skipped",
+          "sold_under_requires_review"
+        ]);
+'''
+          if old not in s:
+              raise SystemExit('bulk review reason set not found')
+          s = s.replace(old, new, 1)
+
+          old = '''        const reviewReasons =
+          existingReasons.filter(
+            reason =>
+              !customerReviewReasons.has(
+                String(
+                  reason ||
+                  ""
+                )
+              )
+          );
+
+
+        try {
+
+          await updateDoc(
+'''
+          new = '''        const matchingJob =
+          matchingHaulingJobForReviewTicket(
+            ticket
+          );
+
+
+        const reviewReasons =
+          existingReasons.filter(
+            reason => {
+              const key =
+                String(
+                  reason ||
+                  ""
+                );
+
+              if (
+                customerReviewReasons.has(
+                  key
+                )
+              ) {
+
+                return false;
+
+              }
+
+              if (
+                matchingJob &&
+                key === "hauling_job_not_assigned"
+              ) {
+
+                return false;
+
+              }
+
+              return true;
+            }
+          );
+
+
+        try {
+
+          if (
+            matchingJob
+          ) {
+
+            await syncSoldUnderToHaulingJob(
+              matchingJob,
+              selectedCustomer,
+              ticketId
+            );
+
+          }
+
+
+          await updateDoc(
+'''
+          if old not in s:
+              raise SystemExit('bulk update pre-update block not found')
+          s = s.replace(old, new, 1)
+
+          old = '''              customerName:
+                selectedCustomer.name,
+
+              reviewReasons,
+'''
+          new = '''              customerName:
+                selectedCustomer.name,
+
+              haulingJobId:
+                matchingJob?.id ||
+                ticket?.haulingJobId ||
+                null,
+
+              haulingJobName:
+                matchingJob
+                  ? contractLabel(
+                      matchingJob
+                    )
+                  : (
+                      ticket?.haulingJobName ||
+                      null
+                    ),
+
+              haulingJobMatched:
+                Boolean(
+                  matchingJob ||
+                  ticket?.haulingJobId
+                ),
+
+              matchingHaulingJobIds:
+                matchingJob
+                  ? [matchingJob.id]
+                  : (
+                      Array.isArray(
+                        ticket?.matchingHaulingJobIds
+                      )
+                        ? ticket.matchingHaulingJobIds
+                        : []
+                    ),
+
+              reviewReasons,
+'''
+          if old not in s:
+              raise SystemExit('bulk payload customerName block not found')
+          s = s.replace(old, new, 1)
+
+          old = '''          ticket.customerName =
+            selectedCustomer.name;
+
+          ticket.reviewReasons =
+            reviewReasons;
+'''
+          new = '''          ticket.customerName =
+            selectedCustomer.name;
+
+          if (
+            matchingJob
+          ) {
+
+            ticket.haulingJobId =
+              matchingJob.id;
+
+            ticket.haulingJobName =
+              contractLabel(
+                matchingJob
+              );
+
+            ticket.haulingJobMatched =
+              true;
+
+            ticket.matchingHaulingJobIds =
+              [matchingJob.id];
+
+          }
+
+          ticket.reviewReasons =
+            reviewReasons;
+'''
+          if old not in s:
+              raise SystemExit('bulk local state block not found')
+          s = s.replace(old, new, 1)
+
+          # 6) Teach the selected hauling job BEFORE bulk correcting the other
+          #    tickets, so future tickets can auto-match Sold Under with no contract.
+          marker = '''        /*
+          Apply an office Sold Under correction to every OTHER ticket
+          still under review with the same exact OCR customer identity.
+        */
+'''
+          insert = '''        if (
+          state.selectedContract &&
+          state.selectedCustomer &&
+          state.selectedCustomer.unknown !== true &&
+          state.selectedCustomer.id
+        ) {
+
+          await syncSoldUnderToHaulingJob(
+            state.selectedContract,
+            state.selectedCustomer,
+            ticketId
+          );
+
+        }
+
+
+'''
+          if marker not in s:
+              raise SystemExit('bulk call marker not found')
+          s = s.replace(marker, insert + marker, 1)
+
+          # 7) OCR alias learning: store BOTH the printed name and the elevator
+          #    customer/account ID (for Scoular this is DOWSJC1).
+          old = '''    async function saveAlias(
+      type,
+      targetId,
+      targetName
+    ) {
+
+      const ocrText =
+        aliasValueForType(
+          type
+        );
+'''
+          new = '''    async function saveAlias(
+      type,
+      targetId,
+      targetName,
+      ocrTextOverride = ""
+    ) {
+
+      const ocrText =
+        clean(
+          ocrTextOverride
+        ) ||
+        aliasValueForType(
+          type
+        );
+'''
+          if old not in s:
+              raise SystemExit('saveAlias signature block not found')
+          s = s.replace(old, new, 1)
+
+          old = '''state.selectedCustomer &&
+state.selectedCustomer.unknown !==
+  true &&
+state.selectedCustomer.id
+  ? saveAlias(
+      "customer",
+      state.selectedCustomer.id,
+      state.selectedCustomer.name
+    )
+  : Promise.resolve(),
+'''
+          new = '''state.selectedCustomer &&
+state.selectedCustomer.unknown !==
+  true &&
+state.selectedCustomer.id
+  ? Promise.all([
+      saveAlias(
+        "customer",
+        state.selectedCustomer.id,
+        state.selectedCustomer.name
+      ),
+      clean(
+        state.ticket?.ocrCustomerAccountText ||
+        state.ticket?.customerAccountText
+      )
+        ? saveAlias(
+            "customer",
+            state.selectedCustomer.id,
+            state.selectedCustomer.name,
+            state.ticket?.ocrCustomerAccountText ||
+            state.ticket?.customerAccountText
+          )
+        : Promise.resolve()
+    ])
+  : Promise.resolve(),
+'''
+          if old not in s:
+              raise SystemExit('customer saveAlias call not found')
+          s = s.replace(old, new, 1)
+
+          # 8) Update the page copy so the UI matches the new data model.
+          s = s.replace(
+            'Sold Under comes from contracts linked to the hauling job.',
+            'Sold Under can come from the hauling job or linked contracts. A reviewed ticket can teach the hauling job its Sold Under before a contract exists.',
+            1
+          )
+
+          detail.write_text(s)
+
+          # Hauling Jobs page: show a Sold Under learned directly on the hauling job
+          # even when there are no linked contracts yet.
+          jobs = Path('js/grain-hauling-jobs.js')
+          j = jobs.read_text()
+
+          old = '''/*
+  Sold Under belongs to the contracts linked to a hauling job,
+  not to the hauling job itself.
+
+  Unknown is ALWAYS available.
+'''
+          new = '''/*
+  Sold Under may be learned directly on a hauling job from a reviewed
+  elevator ticket before any grain contract exists. Linked contracts remain
+  additional authoritative Sold Under sources.
+
+  Unknown is ALWAYS available.
+'''
+          if old not in j:
+              raise SystemExit('jobSoldUnderOptions comment marker not found')
+          j = j.replace(old, new, 1)
+
+          marker = '''  const seen =
+    new Set();
+
+
+  contractsForJob(
+    jobId
+  )
+'''
+          insert = '''  const seen =
+    new Set();
+
+
+  const job =
+    state.jobs.find(
+      item =>
+        clean(item.id) ===
+          clean(jobId)
+    ) ||
+    null;
+
+
+  const storedCustomerId =
+    jobCustomerId(
+      job
+    );
+
+
+  const storedCustomerName =
+    clean(
+      job?.customerName ||
+      matchingCustomer(
+        storedCustomerId
+      )?.name
+    );
+
+
+  if (
+    storedCustomerId ||
+    storedCustomerName
+  ) {
+
+    const key =
+      storedCustomerId
+        ? `id:${storedCustomerId}`
+        : `name:${norm(storedCustomerName)}`;
+
+
+    seen.add(
+      key
+    );
+
+
+    options.push({
+      id:
+        storedCustomerId,
+
+      name:
+        storedCustomerName ||
+        "Unknown",
+
+      unknown:
+        false
+    });
+
+  }
+
+
+  contractsForJob(
+    jobId
+  )
+'''
+          if marker not in j:
+              raise SystemExit('jobSoldUnderOptions seen marker not found')
+          j = j.replace(marker, insert, 1)
+
+          jobs.write_text(j)
+
+          # Force current code on Grain Contracts and Ticket Detail.
+          contracts = Path('pages/grain/grain-contracts.html')
+          c = contracts.read_text()
+          c = re.sub(
+            r'/js/grain-hauling-jobs\.js(?:\?v=[^"\']*)?',
+            '/js/grain-hauling-jobs.js?v=20260909-1142',
+            c,
+            count=1
+          )
+          contracts.write_text(c)
+
+      - name: Validate JavaScript
+        shell: bash
+        run: |
+          node --check js/grain-hauling-jobs.js
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, subprocess, tempfile
+          html = Path('pages/grain/grain-ticket-detail.html')
+          text = html.read_text()
+          scripts = re.findall(r'<script\b[^>]*>([\s\S]*?)</script>', text, re.I)
+          checked = 0
+          for i, script in enumerate(scripts):
+              if not script.strip():
+                  continue
+              tmp = Path(tempfile.gettempdir()) / f'fv-ticket-detail-{i}.mjs'
+              tmp.write_text(script)
+              subprocess.run(['node', '--check', str(tmp)], check=True)
+              checked += 1
+          print('checked inline scripts:', checked)
+          PY
+      - name: Commit fix
+        shell: bash
+        run: |
+          rm -f .github/workflows/fv-ticket-sold-under-hauling-sync-fix.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pages/grain/grain-ticket-detail.html pages/grain/grain-contracts.html js/grain-hauling-jobs.js .github/workflows/fv-ticket-sold-under-hauling-sync-fix.yml
+          git commit -m 'Keep hauling job when Sold Under is learned from ticket [skip auto-version]'
+          for i in 1 2 3 4 5; do
+            git pull --rebase origin main
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 3
+          done
+          exit 1
