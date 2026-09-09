@@ -458,7 +458,9 @@ function jobCrop(
   const raw =
     clean(
       job?.crop ||
-      job?.commodity
+      job?.commodity ||
+      job?.cropName ||
+      job?.cropType
     );
 
 
@@ -2823,6 +2825,105 @@ function populateJobLocationSelect(
 }
 
 
+function setJobCropSelectValue(job) {
+
+  const select =
+    $(
+      "hauling-job-crop"
+    );
+
+
+  if (
+    !select
+  ) {
+
+    return;
+
+  }
+
+
+  const desired =
+    jobCrop(
+      job
+    );
+
+
+  const desiredKey =
+    norm(
+      desired
+    )
+      .replace(
+        /[^a-z]/g,
+        ""
+      );
+
+
+  const match =
+    [
+      ...select.options
+    ].find(
+      option => {
+
+        const optionKey =
+          norm(
+            option.value ||
+            option.textContent
+          )
+            .replace(
+              /[^a-z]/g,
+              ""
+            );
+
+
+        if (
+          optionKey === desiredKey
+        ) {
+
+          return true;
+
+        }
+
+
+        if (
+          desiredKey === "corn" ||
+          desiredKey === "yellowcorn"
+        ) {
+
+          return optionKey === "corn";
+
+        }
+
+
+        if (
+          [
+            "soy",
+            "soybean",
+            "soybeans",
+            "bean",
+            "beans"
+          ].includes(
+            desiredKey
+          )
+        ) {
+
+          return optionKey === "soybeans";
+
+        }
+
+
+        return false;
+
+      }
+    );
+
+
+  select.value =
+    match?.value ||
+    "";
+
+}
+
+
 function setJobModalMode(
   job =
     null
@@ -3054,21 +3155,9 @@ function openEditJob(
   );
 
 
-  if (
-    $(
-      "hauling-job-crop"
-    )
-  ) {
-
-    $(
-      "hauling-job-crop"
-    )
-      .value =
-        jobCrop(
-          job
-        );
-
-  }
+  setJobCropSelectValue(
+    job
+  );
 
 
   if (
@@ -3396,6 +3485,11 @@ setJobMessage(
       location.locationName,
 
     crop,
+
+    // Keep both current and legacy crop fields synchronized so every
+    // FarmVista hauling-job surface reads the same saved crop.
+    commodity:
+      crop,
 
     startingBushels,
 
