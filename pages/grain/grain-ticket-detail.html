@@ -12820,13 +12820,35 @@ async function saveVerifiedTicketWithInventory(
       ticket
     ) {
 
+      const storedCustomerId =
+        clean(
+          ticket?.grainCustomerId ||
+          ticket?.customerId
+        );
+
       const hasResolvedCustomer =
         Boolean(
-          clean(
-            ticket?.grainCustomerId ||
-            ticket?.customerId
+          storedCustomerId &&
+          state.customers.some(
+            customer =>
+              clean(customer?.id) ===
+              storedCustomerId
           )
         );
+
+      const unresolvedStoredCustomer =
+        !hasResolvedCustomer
+          ? (
+              ticket?.customerAccount ||
+              ticket?.customerCode ||
+              ticket?.customerNumber ||
+              storedCustomerId ||
+              ticket?.customerName ||
+              ticket?.customer ||
+              ticket?.soldUnder ||
+              ""
+            )
+          : "";
 
       return {
         account:
@@ -12836,6 +12858,7 @@ async function saveVerifiedTicketWithInventory(
             ticket?.customerAccount ||
             ticket?.customerCode ||
             ticket?.customerNumber ||
+            (!hasResolvedCustomer ? storedCustomerId : "") ||
             ""
           ),
 
@@ -12845,14 +12868,8 @@ async function saveVerifiedTicketWithInventory(
             ticket?.customerText ||
             ticket?.scannedCustomerText ||
             ticket?.rawCustomerName ||
-            (!hasResolvedCustomer
-              ? (
-                  ticket?.customerName ||
-                  ticket?.customer ||
-                  ticket?.soldUnder ||
-                  ""
-                )
-              : "")
+            unresolvedStoredCustomer ||
+            ""
           )
       };
 
@@ -12942,23 +12959,53 @@ async function saveVerifiedTicketWithInventory(
 
       const matches =
         state.tickets.filter(
-          ticket =>
-            ticket?.id !==
-              ticketId &&
-            normalize(
-              ticket?.validationStatus
-            ) ===
-              "needs_review" &&
-            clean(
-              ticket?.customerId
-            ) !==
+          ticket => {
+            if (
+              ticket?.id ===
+                ticketId
+            ) {
+              return false;
+            }
+
+            const candidateCustomerId =
               clean(
-                selectedCustomer.id
-              ) &&
-            sameSoldUnderOcrEvidence(
-              state.ticket,
-              ticket
-            )
+                ticket?.grainCustomerId ||
+                ticket?.customerId
+              );
+
+            if (
+              candidateCustomerId ===
+                clean(selectedCustomer.id)
+            ) {
+              return false;
+            }
+
+            const candidateStatus =
+              normalize(
+                ticket?.validationStatus ||
+                ticket?.status ||
+                ""
+              );
+
+            const candidateReasons =
+              Array.isArray(ticket?.reviewReasons)
+                ? ticket.reviewReasons
+                : [];
+
+            const stillNeedsReview =
+              candidateStatus === "needs_review" ||
+              candidateStatus === "review" ||
+              candidateStatus === "needs review" ||
+              candidateReasons.length > 0;
+
+            return (
+              stillNeedsReview &&
+              sameSoldUnderOcrEvidence(
+                state.ticket,
+                ticket
+              )
+            );
+          }
         );
 
 
