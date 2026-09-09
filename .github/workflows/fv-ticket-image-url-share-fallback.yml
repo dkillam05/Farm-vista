@@ -1,0 +1,50 @@
+name: FarmVista ticket image URL share fallback
+on:
+  push:
+    paths:
+      - '.github/workflows/fv-ticket-image-url-share-fallback.yml'
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch mobile image share fallback
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p = Path('js/grain-ticket-image-download.js')
+          s = p.read_text()
+
+          old = '''  async function shareMobile(image,button){\n    let state=prepared.get(image);\n    let file=state?.file;\n    if(!file){\n      const old=button.textContent;\n      button.disabled=true;\n      button.textContent='Preparing…';\n      try{\n        file=await buildFile(image);\n        state={url:clean(image.currentSrc||image.src),file,promise:Promise.resolve(file),error:null};\n        prepared.set(image,state);\n      }catch(error){\n        console.warn('[FarmVista] Ticket image share preparation failed:',error);\n        alert('FarmVista could not prepare this ticket image for sharing. Please try again.');\n        return;\n      }finally{\n        button.disabled=false;\n        button.textContent=old;\n      }\n    }\n    if(navigator.canShare&&!navigator.canShare({files:[file]})){\n      alert('This device cannot share the saved ticket image as a file.');\n      return;\n    }\n    try{\n      await navigator.share({files:[file],title:'Grain Ticket Image'});\n    }catch(error){\n      if(error?.name==='AbortError') return;\n      console.warn('[FarmVista] Native ticket-image share failed:',error);\n      alert('The iPhone share sheet could not open. Please try again.');\n    }\n  }'''
+
+          new = '''  function shareUrlDirect(url){\n    if(!url || !navigator.share) return false;\n    navigator.share({title:'Grain Ticket Image',url}).catch(error=>{\n      if(error?.name==='AbortError') return;\n      console.warn('[FarmVista] Native ticket-image URL share failed:',error);\n      alert('The iPhone share sheet could not open. Please try again.');\n    });\n    return true;\n  }\n\n  async function shareMobile(image,button){\n    const url=clean(image?.currentSrc||image?.getAttribute('src')||image?.src);\n    let state=prepared.get(image);\n    let file=state?.file;\n\n    // If prefetch already proved Firebase will not expose image bytes,\n    // share the saved image URL directly from this user tap. This keeps\n    // Safari on FarmVista and opens the native share sheet immediately.\n    if(!file && state?.error && url){\n      shareUrlDirect(url);\n      return;\n    }\n\n    if(!file){\n      const old=button.textContent;\n      button.disabled=true;\n      button.textContent='Preparing…';\n      try{\n        file=await buildFile(image);\n        state={url,file,promise:Promise.resolve(file),error:null};\n        prepared.set(image,state);\n      }catch(error){\n        console.warn('[FarmVista] Ticket image file share unavailable; using URL share:',error);\n        if(url){\n          shareUrlDirect(url);\n          return;\n        }\n        alert('FarmVista could not access this ticket image. Please try again.');\n        return;\n      }finally{\n        button.disabled=false;\n        button.textContent=old;\n      }\n    }\n\n    if(navigator.canShare&&!navigator.canShare({files:[file]})){\n      if(url){shareUrlDirect(url);return;}\n      alert('This device cannot share the saved ticket image.');\n      return;\n    }\n\n    try{\n      await navigator.share({files:[file],title:'Grain Ticket Image'});\n    }catch(error){\n      if(error?.name==='AbortError') return;\n      console.warn('[FarmVista] Native ticket-image file share failed; trying URL share:',error);\n      if(url){shareUrlDirect(url);return;}\n      alert('The iPhone share sheet could not open. Please try again.');\n    }\n  }'''
+
+          assert old in s, 'shareMobile block not found'
+          s = s.replace(old, new, 1)
+          s = s.replace('Rev 2026-09-09c', 'Rev 2026-09-09d', 1)
+          s = s.replace('__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260909C', '__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260909D')
+          p.write_text(s)
+
+          for name in [
+            'pages/grain/grain-ticket-detail.html',
+            'pages/grain/index.html',
+            'pages/reports/report-grain-contracts.html',
+          ]:
+            path = Path(name)
+            text = path.read_text()
+            assert '/js/grain-ticket-image-download.js?v=20260909-4' in text, f'v4 helper hook not found in {name}'
+            path.write_text(text.replace('/js/grain-ticket-image-download.js?v=20260909-4','/js/grain-ticket-image-download.js?v=20260909-5'))
+
+      - name: Commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add js/grain-ticket-image-download.js pages/grain/grain-ticket-detail.html pages/grain/index.html pages/reports/report-grain-contracts.html
+          git commit -m 'Fall back to native URL share for ticket images [skip auto-version]'
+          git pull --rebase origin main
+          git push
