@@ -5342,11 +5342,20 @@ function chooseDestination(
   state.selectedCustomer =
     null;
 
+  const keepSpotLoad =
+    state.spotLoad ===
+      true;
+
   elements.contractSelect.value =
-    "";
+    keepSpotLoad
+      ? "__spot_load__"
+      : "";
 
   state.selectedContract =
     null;
+
+  state.spotLoad =
+    keepSpotLoad;
 
 
   syncDestinationButton();
@@ -5497,54 +5506,15 @@ function renderDestinationOptions(
 
 
   /*
-    A destination is eligible only when an OPEN contract exists for
-    the selected crop at that exact delivery location.
+    Destination is physical ticket truth and is independent of whether
+    FarmVista currently has an open contract or hauling job there.
+
+    This is required for legitimate spot loads: the reviewer must be able
+    to select any existing FarmVista elevator/location, then explicitly
+    choose Spot Load — No Hauling Job below.
   */
-  const cropContracts =
-    contractsForSelectedCrop();
-
-
-const savedLocationId =
-  clean(
-    elements.locationSelect.value ||
-    state.ticket?.deliveryLocationId ||
-    state.loadout?.destinationId ||
-    state.loadout?.deliveryLocationId
-  );
-
-
-const eligibleLocations =
-  state.locations
-    .filter(
-      location =>
-        (
-          cropContracts.some(
-            contract =>
-              contractMatchesLocation(
-                contract,
-                location
-              )
-          ) ||
-
-          /*
-            IMPORTANT:
-
-            A destination already saved on the grain ticket is
-            historical ticket truth.
-
-            Keep it visible even if there is no CURRENT active hauling job
-            for that destination.
-
-            Hauling Job availability determines what can be assigned
-            below. It must never erase the ticket's saved destination.
-          */
-          (
-            savedLocationId &&
-            location.id ===
-              savedLocationId
-          )
-        )
-    );
+  const eligibleLocations =
+    [...state.locations];
 
 
   const filtered =
@@ -5695,7 +5665,7 @@ const eligibleLocations =
 
 
     empty.textContent =
-      `No destination has an open ${clean(elements.crop.value)} contract.`;
+      `No FarmVista destination matches “${clean(searchText)}”.`;
 
 
     elements.destinationMenu.appendChild(
@@ -6266,8 +6236,21 @@ function renderCustomerOptions(
       : false;
 
 
+  const allowAllExistingCustomers =
+    state.spotLoad ===
+      true ||
+    (
+      !haulingJob &&
+      linkedCustomers.length ===
+        0
+    );
+
+
   const otherCustomers =
-    hasUnallocatedCapacity
+    (
+      hasUnallocatedCapacity ||
+      allowAllExistingCustomers
+    )
       ? state.customers
           .filter(
             customer =>
@@ -6363,15 +6346,17 @@ function renderCustomerOptions(
 
 
         otherGroup.textContent =
-          `Other Customers — ${haulingJobUnallocatedContractBushels(
-            haulingJob
-          ).toLocaleString(
-            "en-US",
-            {
-              maximumFractionDigits:
-                2
-            }
-          )} bu unallocated`;
+          allowAllExistingCustomers
+            ? "All Existing Customers"
+            : `Other Customers — ${haulingJobUnallocatedContractBushels(
+                haulingJob
+              ).toLocaleString(
+                "en-US",
+                {
+                  maximumFractionDigits:
+                    2
+                }
+              )} bu unallocated`;
 
 
         elements.customerMenu.appendChild(
@@ -8576,9 +8561,24 @@ function renderContractOptions() {
     );
 
 
+  const savedSpotLoad =
+    state.loadout?.spotLoad ===
+      true ||
+    state.ticket?.spotLoad ===
+      true ||
+    normalize(
+      state.ticket?.reconciliationStatus
+    ) ===
+      "spot_load";
+
+
   const wantedId =
     currentlySelected ||
-    savedId;
+    (
+      savedSpotLoad
+        ? "__spot_load__"
+        : savedId
+    );
 
 
   elements.contractSelect.innerHTML =
@@ -8832,11 +8832,11 @@ function renderContractOptions() {
   ) {
 
     elements.contractSelect.disabled =
-      true;
+      false;
 
 
     blank.textContent =
-      "No active hauling jobs";
+      "Select hauling job option";
 
 
     elements.contractSelect.appendChild(
@@ -8844,16 +8844,57 @@ function renderContractOptions() {
     );
 
 
-    elements.contractStatus.className =
-      "contract-box warning";
+    const spotOption =
+      document.createElement(
+        "option"
+      );
 
 
-    elements.contractStatus.textContent =
-      "No active hauling job is available for this crop, destination, and ticket date.";
+    spotOption.value =
+      "__spot_load__";
+
+
+    spotOption.textContent =
+      "Spot Load — No Hauling Job";
+
+
+    elements.contractSelect.appendChild(
+      spotOption
+    );
+
+
+    const chooseSavedSpot =
+      wantedId ===
+        "__spot_load__";
+
+
+    elements.contractSelect.value =
+      chooseSavedSpot
+        ? "__spot_load__"
+        : "";
 
 
     state.selectedContract =
       null;
+
+
+    state.spotLoad =
+      chooseSavedSpot;
+
+
+    elements.contractStatus.className =
+      chooseSavedSpot
+        ? "contract-box good"
+        : "contract-box warning";
+
+
+    elements.contractStatus.textContent =
+      chooseSavedSpot
+        ? "Spot Load selected — this ticket will not be linked to a hauling job or grain contract."
+        : "No active hauling job is available. Choose Spot Load — No Hauling Job if this delivery was intentional.";
+
+
+    updateReviewUI();
 
 
     return;
@@ -8874,6 +8915,25 @@ function renderContractOptions() {
 
   elements.contractSelect.appendChild(
     blank
+  );
+
+
+  const spotOption =
+    document.createElement(
+      "option"
+    );
+
+
+  spotOption.value =
+    "__spot_load__";
+
+
+  spotOption.textContent =
+    "Spot Load — No Hauling Job";
+
+
+  elements.contractSelect.appendChild(
+    spotOption
   );
 
 
@@ -8904,26 +8964,44 @@ function renderContractOptions() {
   );
 
 
+  const choosingSpot =
+    wantedId ===
+      "__spot_load__";
+
+
   const validWanted =
-    jobs.find(
-      job =>
-        job.id ===
-        wantedId
-    ) ||
-    (
-      jobs.length === 1
-        ? jobs[0]
-        : null
-    );
+    choosingSpot
+      ? null
+      : (
+          jobs.find(
+            job =>
+              job.id ===
+              wantedId
+          ) ||
+          (
+            jobs.length === 1 &&
+            !savedSpotLoad
+              ? jobs[0]
+              : null
+          )
+        );
 
 
   elements.contractSelect.value =
-    validWanted?.id ||
-    "";
+    choosingSpot
+      ? "__spot_load__"
+      : (
+          validWanted?.id ||
+          ""
+        );
 
 
   state.selectedContract =
     validWanted;
+
+
+  state.spotLoad =
+    choosingSpot;
 
 
   elements.contractStatus.className =
@@ -8931,7 +9009,9 @@ function renderContractOptions() {
 
 
   elements.contractStatus.textContent =
-    `${jobs.length} active hauling job${jobs.length === 1 ? "" : "s"} available.`;
+    choosingSpot
+      ? "Spot Load selected — this ticket will not be linked to a hauling job or grain contract."
+      : `${jobs.length} active hauling job${jobs.length === 1 ? "" : "s"} available.`;
 
 
   updateReviewUI();
@@ -8940,6 +9020,40 @@ function renderContractOptions() {
 
 
 function applySelectedHaulingJob() {
+
+  if (
+    elements.contractSelect.value ===
+      "__spot_load__"
+  ) {
+
+    state.selectedContract =
+      null;
+
+    state.spotLoad =
+      true;
+
+
+    elements.contractStatus.className =
+      "contract-box good";
+
+
+    elements.contractStatus.textContent =
+      "Spot Load selected — this ticket will not be linked to a hauling job or grain contract.";
+
+
+    renderCustomerOptions();
+    syncCustomerButton();
+    clearMessage();
+    updateReviewUI();
+
+    return;
+
+  }
+
+
+  state.spotLoad =
+    false;
+
 
   const job =
     state.haulingJobs.find(
@@ -9231,6 +9345,76 @@ function autoMatchCustomer() {
     {};
 
 
+  const savedSpotLoad =
+    state.loadout?.spotLoad ===
+      true ||
+    ticket.spotLoad ===
+      true ||
+    normalize(
+      ticket.reconciliationStatus
+    ) ===
+      "spot_load";
+
+
+  if (
+    savedSpotLoad
+  ) {
+
+    const savedCustomerId =
+      clean(
+        state.loadout?.customerId ||
+        ticket.customerId
+      );
+
+
+    const savedCustomer =
+      state.customers.find(
+        customer =>
+          customer.id ===
+          savedCustomerId
+      ) ||
+      null;
+
+
+    if (
+      savedCustomer
+    ) {
+
+      return savedCustomer;
+
+    }
+
+
+    const source =
+      clean(
+        ticket.ocrCustomerText ||
+        ticket.ocrCustomerAccountText ||
+        ticket.customerName
+      );
+
+
+    const matched =
+      state.customers.find(
+        customer =>
+          compactNormalize(customer.name) ===
+            compactNormalize(source) ||
+          normalizeNameWords(customer.name) ===
+            normalizeNameWords(source)
+      ) ||
+      null;
+
+
+    if (
+      matched
+    ) {
+
+      return matched;
+
+    }
+
+  }
+
+
   /*
     If the ticket was already explicitly saved as Unknown,
     preserve that state.
@@ -9499,61 +9683,7 @@ function autoMatchCustomer() {
           byId
         ) {
 
-          const savedOcrCity =
-            compactNormalize(
-              state.ticket.ocrDeliveryCity ||
-              state.ticket.deliveryCity
-            );
-
-          const savedOcrState =
-            compactNormalize(
-              state.ticket.ocrDeliveryState ||
-              state.ticket.deliveryState
-            );
-
-          const savedOcrZip =
-            compactNormalize(
-              state.ticket.ocrDeliveryZip ||
-              state.ticket.deliveryZip
-            );
-
-          const savedLocationMatchesEvidence =
-            (
-              !savedOcrCity ||
-              compactNormalize(byId.city) ===
-                savedOcrCity
-            ) &&
-            (
-              !savedOcrState ||
-              compactNormalize(byId.state) ===
-                savedOcrState
-            ) &&
-            (
-              !savedOcrZip ||
-              compactNormalize(byId.zip) ===
-                savedOcrZip
-            );
-
-          if (
-            savedLocationMatchesEvidence
-          ) {
-
-            return byId;
-
-          }
-
-          console.warn(
-            "[Grain Ticket Detail] Ignoring saved destination because OCR location evidence conflicts.",
-            {
-              savedLocationId,
-              savedLocationName: byId.locationName,
-              savedLocationCity: byId.city,
-              savedLocationState: byId.state,
-              ocrCity: savedOcrCity,
-              ocrState: savedOcrState,
-              ocrZip: savedOcrZip
-            }
-          );
+          return byId;
 
         }
 
@@ -9647,7 +9777,61 @@ function autoMatchCustomer() {
           byId
         ) {
 
-          return byId;
+          const savedOcrCity =
+            compactNormalize(
+              state.ticket.ocrDeliveryCity ||
+              state.ticket.deliveryCity
+            );
+
+          const savedOcrState =
+            compactNormalize(
+              state.ticket.ocrDeliveryState ||
+              state.ticket.deliveryState
+            );
+
+          const savedOcrZip =
+            compactNormalize(
+              state.ticket.ocrDeliveryZip ||
+              state.ticket.deliveryZip
+            );
+
+          const savedLocationMatchesEvidence =
+            (
+              !savedOcrCity ||
+              compactNormalize(byId.city) ===
+                savedOcrCity
+            ) &&
+            (
+              !savedOcrState ||
+              compactNormalize(byId.state) ===
+                savedOcrState
+            ) &&
+            (
+              !savedOcrZip ||
+              compactNormalize(byId.zip) ===
+                savedOcrZip
+            );
+
+          if (
+            savedLocationMatchesEvidence
+          ) {
+
+            return byId;
+
+          }
+
+          console.warn(
+            "[Grain Ticket Detail] Ignoring saved destination because OCR location evidence conflicts.",
+            {
+              savedLocationId,
+              savedLocationName: byId.locationName,
+              savedLocationCity: byId.city,
+              savedLocationState: byId.state,
+              ocrCity: savedOcrCity,
+              ocrState: savedOcrState,
+              ocrZip: savedOcrZip
+            }
+          );
 
         }
 
@@ -10764,7 +10948,9 @@ function currentReviewReasons() {
 
 
   if (
-    !state.selectedContract
+    !state.selectedContract &&
+    state.spotLoad !==
+      true
   ) {
 
     reasons.push(
@@ -11060,13 +11246,22 @@ function updateSelectedReferences() {
     contractSelect is actually the HAULING JOB picker
     on this page.
   */
+  state.spotLoad =
+    elements.contractSelect.value ===
+      "__spot_load__";
+
+
   state.selectedContract =
-    state.haulingJobs.find(
-      job =>
-        job.id ===
-        elements.contractSelect.value
-    ) ||
-    null;
+    state.spotLoad
+      ? null
+      : (
+          state.haulingJobs.find(
+            job =>
+              job.id ===
+              elements.contractSelect.value
+          ) ||
+          null
+        );
 
 }
 
@@ -13608,18 +13803,38 @@ customerName:
           allocationModelVersion:
             2,
 
+          spotLoad:
+            state.spotLoad ===
+              true,
+
+          spotLoadLabel:
+            state.spotLoad ===
+              true
+              ? "Spot Load — No Hauling Job"
+              : null,
+
           spotBushels:
-            0,
+            state.spotLoad ===
+              true
+              ? ticketNetBushels
+              : 0,
 
           unassignedBushels:
+            state.spotLoad ===
+              true ||
             selectedGrainContract
               ? 0
               : ticketNetBushels,
 
           reconciliationStatus:
-            selectedGrainContract
-              ? "reconciled"
-              : "needs_contract",
+            state.spotLoad ===
+              true
+              ? "spot_load"
+              : (
+                  selectedGrainContract
+                    ? "reconciled"
+                    : "needs_contract"
+                ),
 
           haulingJobId:
             state.selectedContract?.id ||
@@ -13865,6 +14080,10 @@ customerName:
               selectedSource?.cropYear ||
               null,
 
+            spotLoad:
+              state.spotLoad ===
+                true,
+
             haulingJobId:
               state.selectedContract?.id ||
               null,
@@ -13881,7 +14100,11 @@ customerName:
                 ? contractLabel(
                     state.selectedContract
                   )
-                : null,
+                : (
+                    state.spotLoad === true
+                      ? "Spot Load — No Hauling Job"
+                      : null
+                  ),
 
 
             updatedAt:
@@ -14409,6 +14632,9 @@ elements.ticketImageWrap
 
             state.selectedContract =
               null;
+
+            state.spotLoad =
+              false;
 
 
             syncGrainSourceButton();
