@@ -129,13 +129,31 @@
 
   function putAddLocationAtTop(select) {
     if (!select) return;
-    Array.from(select.options)
-      .filter(option => option.value === ADD_LOCATION_VALUE)
-      .forEach(option => option.remove());
 
     const buyerId = clean(document.getElementById(BUYER_SELECT_ID)?.value);
-    if (!buyerId || buyerId === ADD_BUYER_VALUE) return;
+    const existing = Array.from(select.options)
+      .filter(option => option.value === ADD_LOCATION_VALUE);
 
+    if (!buyerId || buyerId === ADD_BUYER_VALUE) {
+      existing.forEach(option => option.remove());
+      return;
+    }
+
+    /*
+      This function is called by a MutationObserver watching this same select.
+      If the Add New option is already correct, do nothing. Removing/reinserting
+      it on every callback creates a self-triggering mutation loop that can freeze
+      the Grain Contracts page when the hauling-job modal opens.
+    */
+    if (
+      existing.length === 1 &&
+      select.options[1] === existing[0] &&
+      existing[0].textContent === '+ Add New Location'
+    ) {
+      return;
+    }
+
+    existing.forEach(option => option.remove());
     const addOption = makeAddOption(ADD_LOCATION_VALUE, '+ Add New Location');
     if (select.options.length > 0) {
       select.insertBefore(addOption, select.options[1] || null);
@@ -570,7 +588,16 @@
     }
 
     if (locationObserver) locationObserver.disconnect();
-    locationObserver = new MutationObserver(() => putAddLocationAtTop(select));
+    locationObserver = new MutationObserver(() => {
+      locationObserver.disconnect();
+      try {
+        putAddLocationAtTop(select);
+      } finally {
+        if (select.isConnected) {
+          locationObserver.observe(select, { childList: true });
+        }
+      }
+    });
     locationObserver.observe(select, { childList: true });
     return true;
   }
