@@ -3978,15 +3978,90 @@ function findDeliveryLocationMatch(
       location
     ) {
 
-      return {
-        matched:
-          true,
+      const aliasHeaderCityState =
+        findCityStateInTicketHeader(
+          grainTicket
+        );
 
-        matchType:
-          "learned_alias",
+      const aliasOcrCity =
+        normalizeMatchText(
+          aliasHeaderCityState.city ||
+          grainTicket?.deliveryCity ||
+          ""
+        );
 
-        location
-      };
+      const aliasOcrState =
+        normalizeMatchText(
+          aliasHeaderCityState.state ||
+          grainTicket?.deliveryState ||
+          ""
+        );
+
+      const aliasOcrZip =
+        normalizeZipForMatch(
+          aliasHeaderCityState.zip ||
+          grainTicket?.deliveryZip
+        );
+
+      const aliasLocationCity =
+        normalizeMatchText(
+          getLocationCity(location)
+        );
+
+      const aliasLocationState =
+        normalizeMatchText(
+          getLocationState(location)
+        );
+
+      const aliasLocationZip =
+        normalizeZipForMatch(
+          getLocationZip(location)
+        );
+
+      const aliasContradictsLocation =
+        (
+          aliasOcrCity &&
+          aliasLocationCity &&
+          aliasOcrCity !== aliasLocationCity
+        ) ||
+        (
+          aliasOcrState &&
+          aliasLocationState &&
+          aliasOcrState !== aliasLocationState
+        ) ||
+        (
+          aliasOcrZip &&
+          aliasLocationZip &&
+          aliasOcrZip !== aliasLocationZip
+        );
+
+      if (
+        !aliasContradictsLocation
+      ) {
+
+        return {
+          matched:
+            true,
+
+          matchType:
+            "learned_alias",
+
+          location
+        };
+
+      }
+
+      console.warn(
+        "[Grain Ticket] Rejected learned destination alias because the ticket location conflicts.",
+        {
+          learnedLocationId: location.id,
+          learnedLocationName: getLocationName(location),
+          learnedLocationCity: getLocationCity(location),
+          ticketCity: aliasOcrCity,
+          ticketState: aliasOcrState,
+          ticketZip: aliasOcrZip
+        }
+      );
 
     }
 
@@ -4116,6 +4191,44 @@ function findDeliveryLocationMatch(
                 location
               )
             );
+
+
+          /*
+            Hard safety rule: strong physical location evidence is allowed
+            to DISQUALIFY a destination. A buyer-family/company name such as
+            CHS must never overcome a conflicting city/state/ZIP.
+          */
+          const physicalLocationConflict =
+            (
+              ocrCity &&
+              locationCity &&
+              ocrCity !== locationCity
+            ) ||
+            (
+              ocrState &&
+              locationState &&
+              ocrState !== locationState
+            ) ||
+            (
+              ocrZip &&
+              locationZip &&
+              ocrZip !== locationZip
+            );
+
+
+          if (
+            physicalLocationConflict
+          ) {
+
+            return {
+              location,
+              score: 0,
+              reasons: [
+                "physical_location_conflict"
+              ]
+            };
+
+          }
 
 
           const locationName =
