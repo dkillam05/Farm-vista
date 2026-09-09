@@ -56,11 +56,10 @@ jobs:
     }
 
     /*
-      IMPORTANT: this function is called by a MutationObserver watching this
-      same select. If the Add New option is already correct, do nothing.
-      Removing/reinserting it on every observer callback creates a self-triggering
-      mutation loop that can freeze the Grain Contracts page on iPhone/PWA when
-      the hauling-job modal opens.
+      This function is called by a MutationObserver watching this same select.
+      If the Add New option is already correct, do nothing. Removing/reinserting
+      it on every callback creates a self-triggering mutation loop that can freeze
+      the Grain Contracts page when the hauling-job modal opens.
     */
     if (
       existing.length === 1 &&
@@ -80,9 +79,10 @@ jobs:
   }
 '''
 
-          if old not in text:
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif 'self-triggering mutation loop' not in text:
               raise SystemExit('putAddLocationAtTop marker not found')
-          text = text.replace(old, new, 1)
 
           old2 = '''    if (locationObserver) locationObserver.disconnect();
     locationObserver = new MutationObserver(() => putAddLocationAtTop(select));
@@ -101,9 +101,11 @@ jobs:
     });
     locationObserver.observe(select, { childList: true });
 '''
-          if old2 not in text:
+          if old2 in text:
+              text = text.replace(old2, new2, 1)
+          elif 'locationObserver.disconnect();\n      try {' not in text:
               raise SystemExit('location observer marker not found')
-          text = text.replace(old2, new2, 1)
+
           path.write_text(text)
           PY
 
