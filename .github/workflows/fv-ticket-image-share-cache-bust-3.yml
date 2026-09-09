@@ -1,0 +1,36 @@
+name: FarmVista ticket image share cache bust 3
+on:
+  push:
+    paths:
+      - '.github/workflows/fv-ticket-image-share-cache-bust-3.yml'
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bump helper version
+        shell: python
+        run: |
+          from pathlib import Path
+          files = [
+            Path('pages/grain/grain-ticket-detail.html'),
+            Path('pages/grain/index.html'),
+            Path('pages/reports/report-grain-contracts.html'),
+          ]
+          old = '/js/grain-ticket-image-download.js?v=20260909-2'
+          new = '/js/grain-ticket-image-download.js?v=20260909-3'
+          for path in files:
+            text = path.read_text()
+            assert old in text, f'old helper version not found in {path}'
+            path.write_text(text.replace(old, new))
+      - name: Commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pages/grain/grain-ticket-detail.html pages/grain/index.html pages/reports/report-grain-contracts.html
+          git commit -m 'Refresh ticket image share cache key [skip auto-version]'
+          git pull --rebase origin main
+          git push
