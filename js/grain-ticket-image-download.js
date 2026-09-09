@@ -1,12 +1,12 @@
 /* FarmVista — saved grain ticket image download/share
-   Rev 2026-09-09f
+   Rev 2026-09-09g
    Uniform support for Ticket Detail, Grain Inventory drill-down,
    and Grain Contract Report ticket popup.
 */
 (() => {
   'use strict';
-  if (window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260909F) return;
-  window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260909F = true;
+  if (window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260909G) return;
+  window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260909G = true;
 
   const style = document.createElement('style');
   style.id = 'fv-ticket-image-download-style';
@@ -57,6 +57,7 @@
     const response=await fetch(url,{mode:'cors',credentials:'omit',cache:'force-cache'});
     if(!response.ok) throw new Error(`Image request failed (${response.status})`);
     const blob=await response.blob();
+    if(!blob.size) throw new Error('Ticket image was empty.');
     const ext=extensionFrom(blob,url);
     const type=mimeFor(ext,blob);
     return new File([blob],`${ticketName()}.${ext}`,{type});
@@ -66,14 +67,14 @@
     if(!button?.isConnected) return;
     if(error){
       button.disabled=false;
-      button.textContent=isAppleMobile()?'Share Image':'Download Image';
-      button.title=isAppleMobile()?'Open the iPhone share sheet for this grain ticket image.':'';
+      button.textContent=isAppleMobile()?'Retry Save Image':'Retry Download';
+      button.title='FarmVista could not prepare the actual image file. Tap to try again.';
       return;
     }
     if(ready){
       button.disabled=false;
       button.textContent=readyLabel();
-      button.title=isAppleMobile()?'Open the iPhone share sheet for this grain ticket image.':'';
+      button.title=isAppleMobile()?'Save the actual grain ticket image to your iPhone Photos.':'';
       return;
     }
     button.disabled=true;
@@ -81,7 +82,7 @@
     button.title='Preparing the saved grain ticket image.';
   }
 
-  function prepareForShare(image,button){
+  function prepareForShare(image,button,{force=false}={}){
     if(!isMobileShareDevice()||!navigator.share){
       setButton(button,{ready:true});
       return;
@@ -92,7 +93,7 @@
       return;
     }
     const existing=prepared.get(image);
-    if(existing?.url===url){
+    if(!force&&existing?.url===url){
       if(existing.file){setButton(button,{ready:true});return;}
       if(existing.error){setButton(button,{error:true});return;}
       if(existing.promise){setButton(button);return;}
@@ -107,22 +108,9 @@
       return file;
     }).catch(error=>{
       state.error=error;
-      console.warn('[FarmVista] Ticket image file prefetch unavailable; URL share will be used:',error);
+      console.warn('[FarmVista] Ticket image file preparation failed:',error);
       setButton(button,{error:true});
       return null;
-    });
-  }
-
-  function shareUrlDirect(image){
-    const url=clean(image?.currentSrc||image?.getAttribute('src')||image?.src);
-    if(!url||!navigator.share){
-      alert('FarmVista could not open the share sheet for this ticket image.');
-      return;
-    }
-    navigator.share({title:'Grain Ticket Image',url}).catch(error=>{
-      if(error?.name==='AbortError') return;
-      console.warn('[FarmVista] Native ticket-image URL share failed:',error);
-      alert('The iPhone share sheet could not open. Please try again.');
     });
   }
 
@@ -132,7 +120,7 @@
 
     if(!file){
       if(state?.error){
-        shareUrlDirect(image);
+        prepareForShare(image,button,{force:true});
         return;
       }
       prepareForShare(image,button);
@@ -140,16 +128,14 @@
     }
 
     if(navigator.canShare && !navigator.canShare({files:[file]})){
-      shareUrlDirect(image);
+      alert('This device cannot save this ticket image as a file from the share sheet.');
       return;
     }
 
-    // Important on iPhone: call navigator.share directly from the tap event.
-    // Do not await a fetch first or iOS can drop the user-activation permission.
     navigator.share({files:[file],title:'Grain Ticket Image'}).catch(error=>{
       if(error?.name==='AbortError') return;
-      console.warn('[FarmVista] Native ticket-image file share failed; using direct URL share:',error);
-      shareUrlDirect(image);
+      console.warn('[FarmVista] Native ticket-image file share failed:',error);
+      alert('FarmVista could not open this grain ticket as an image file. Please try again.');
     });
   }
 
@@ -191,7 +177,7 @@
     button.className='fv-ticket-download-btn';
     button.textContent=readyLabel();
     button.dataset.fvTicketDownload=key;
-    button.setAttribute('aria-label',isAppleMobile()?'Open share sheet for grain ticket image':'Download saved grain ticket image');
+    button.setAttribute('aria-label',isAppleMobile()?'Save grain ticket image to Photos':'Download saved grain ticket image');
     button.addEventListener('click',event=>{
       event.preventDefault();
       event.stopPropagation();
