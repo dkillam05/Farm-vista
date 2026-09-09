@@ -1,0 +1,5432 @@
+
+===== No active hauling job is available for this crop, destination, and ticket date. =====
+
+.filter(
+                contract =>
+                  contractIsOpen(contract) &&
+                  clean(contract?.haulingJobId) ===
+                    clean(job.id)
+              );
+
+            const customerCompatible =
+              storedJobCustomerId === selectedCustomerId ||
+              linkedContracts.some(
+                contract =>
+                  contractCustomerId(contract) === selectedCustomerId &&
+                  (
+                    !selectedCrop ||
+                    contractCrop(contract) === selectedCrop
+                  )
+              ) ||
+              (
+                !storedJobCustomerId &&
+                linkedContracts.length === 0
+              );
+
+            if (!customerCompatible) {
+              return false;
+            }
+          }
+
+
+          return true;
+
+        }
+      )
+
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          clean(
+            a?.deliveryStartDate ||
+            a?.deliveryStart
+          )
+            .localeCompare(
+              clean(
+                b?.deliveryStartDate ||
+                b?.deliveryStart
+              )
+            ) ||
+          contractLabel(
+            a
+          )
+            .localeCompare(
+              contractLabel(
+                b
+              ),
+              undefined,
+              {
+                numeric:
+                  true,
+
+                sensitivity:
+                  "base"
+              }
+            )
+      );
+
+
+  if (
+    !jobs.length
+  ) {
+
+    elements.contractSelect.disabled =
+      true;
+
+
+    blank.textContent =
+      "No active hauling jobs";
+
+
+    elements.contractSelect.appendChild(
+      blank
+    );
+
+
+    elements.contractStatus.className =
+      "contract-box warning";
+
+
+    elements.contractStatus.textContent =
+      "No active hauling job is available for this crop, destination, and ticket date.";
+
+
+    state.selectedContract =
+      null;
+
+
+    return;
+
+  }
+
+
+  elements.contractSelect.disabled =
+    false;
+
+
+  blank.textContent =
+    jobs.length ===
+      1
+      ? "Select hauling job"
+      : `Select one of ${jobs.length} hauling jobs`;
+
+
+  elements.contractSelect.appendChild(
+    blank
+  );
+
+
+  jobs.forEach(
+    job => {
+
+      const option =
+        document.createElement(
+          "option"
+        );
+
+
+      option.value =
+        job.id;
+
+
+      option.textContent =
+        haulingJobDropdownLabel(
+          job
+        );
+
+
+      elements.contractSelect.appendChild(
+        option
+      );
+
+    }
+  );
+
+
+  const validWanted =
+    jobs.find(
+      job =>
+        job.id ===
+        wantedId
+    ) ||
+    (
+      jobs.length === 1
+        ? jobs[0]
+        : null
+    );
+
+
+  elements.contractSelect.value =
+    validWanted?.id ||
+    "";
+
+
+  state.selectedContract =
+    validWanted;
+
+
+  elements.contractStatus.className =
+    "contract-box good";
+
+
+  elements.contractStatus.textContent =
+    `${jobs.length} active hauling job${jobs.length === 1 ? "" : "s"} available.`;
+
+
+  updateReviewUI();
+
+}
+
+
+function applySelectedHaulingJob() {
+
+  const job =
+    state.haulingJobs.find(
+      item =>
+        item.id ===
+        elements.contractSelect.value
+    ) ||
+    null;
+
+
+  state.selectedContract =
+    job;
+
+
+  if (
+    !job
+  ) {
+
+    updateReviewUI();
+
+    return;
+
+  }
+
+
+  /*
+    ========================================================
+    CROP
+    ========================================================
+  */
+
+  const crop =
+    clean(
+      job.crop ||
+      job.commodity
+    );
+
+
+  if (
+    crop
+  ) {
+
+    const cropNorm =
+      normalize(
+        crop
+      );
+
+
+    if (
+      cropNorm.includes(
+        "corn"
+      )
+    ) {
+
+      elements.crop.value =
+        "Corn";
+
+    }
+    else if (
+      cropNorm.includes(
+        "soy"
+      )
+    ) {
+
+      elements.crop.value =
+        "Soybeans";
+
+    }
+    else if (
+      cropNorm.includes(
+        "wheat"
+      )
+    ) {
+
+      elements.crop.value =
+        "Wheat";
+
+    }
+
+  }
+
+
+  /*
+    ========================================================
+    DESTINATION / BUYER
+    ========================================================
+  */
+
+  const locationId =
+    clean(
+      job.deliveryLocationId ||
+      job.locationId ||
+      job.destinationId
+    );
+
+
+  state.selectedLocation =
+    state.locations.find(
+      location =>
+        location.id ===
+        locationId
+    ) ||
+    null;
+
+
+  elements.locationSelect.value =
+    state.selectedLocation?.id ||
+    locationId ||
+    "";
+
+
+  const buyerId =
+    clean(
+      job.buyerId ||
+      state.selectedLocation?.buyerId
+    );
+
+
+  state.selectedBuyer =
+    state.buyers.find(
+      buyer =>
+        buyer.id ===
+        buyerId
+    ) ||
+    (
+      buyerId
+        ? {
+            id:
+              buyerId,
+
+            name:
+              clean(
+                job.buy
+
+===== hauling_job_not_assigned =====
+
+ GROSS - SHRINK = NET CHECK
+    ==========================================================
+  */
+
+  if (
+    Math.abs(
+      expected -
+      net
+    ) >
+    0.02
+  ) {
+
+    elements.bushelCheck.className =
+      "contract-box warning";
+
+
+    elements.bushelCheck.textContent =
+      `${gross.toFixed(2)} Gross - ${shrink.toFixed(2)} Shrink = ${expected.toFixed(2)} Net, but ticket shows ${net.toFixed(2)}.`;
+
+
+    return false;
+
+  }
+
+
+  elements.bushelCheck.className =
+    "contract-box good";
+
+
+  elements.bushelCheck.textContent =
+    `✓ ${gross.toFixed(2)} Gross - ${shrink.toFixed(2)} Shrink = ${net.toFixed(2)} Net Bushels.`;
+
+
+  return true;
+
+}
+
+
+function currentReviewReasons() {
+
+  updateSelectedReferences();
+
+
+  const reasons =
+    [];
+
+
+  if (
+    !state.selectedLocation
+  ) {
+
+    reasons.push(
+      "delivery_location_not_matched"
+    );
+
+  }
+
+
+  /*
+    Sold Under rules:
+
+    - no selection = review
+    - Unknown = review
+    - real linked customer = resolved
+  */
+  if (
+    !state.selectedCustomer
+  ) {
+
+    reasons.push(
+      "customer_not_matched"
+    );
+
+  }
+  else if (
+    state.selectedCustomer.unknown ===
+      true
+  ) {
+
+    reasons.push(
+      "sold_under_requires_review"
+    );
+
+  }
+
+
+  if (
+    !clean(
+      elements.crop.value
+    )
+  ) {
+
+    reasons.push(
+      "crop_not_matched"
+    );
+
+  }
+
+
+  if (
+    !state.selectedSource
+  ) {
+
+    reasons.push(
+      "grain_source_not_assigned"
+    );
+
+  }
+  else if (
+    clean(
+      elements.crop.value
+    ) &&
+    clean(
+      state.selectedSource.crop
+    ) &&
+    normalize(
+      elements.crop.value
+    ) !==
+      normalize(
+        state.selectedSource.crop
+      )
+  ) {
+
+    reasons.push(
+      "grain_source_crop_mismatch"
+    );
+
+  }
+
+
+  if (
+    !state.selectedContract
+  ) {
+
+    reasons.push(
+      "hauling_job_not_assigned"
+    );
+
+  }
+
+
+  /*
+    If a REAL Sold Under customer is selected,
+    confirm that customer still has at least one
+    OPEN contract linked to the selected hauling job.
+  */
+  if (
+    state.selectedContract &&
+    state.selectedCustomer &&
+    state.selectedCustomer.unknown !==
+      true
+  ) {
+
+    const validSoldUnder =
+      state.contracts.some(
+        contract =>
+          contractIsOpen(
+            contract
+          ) &&
+          clean(
+            contract?.haulingJobId
+          ) ===
+            clean(
+              state.selectedContract.id
+            ) &&
+          contractCustomerId(
+            contract
+          ) ===
+            clean(
+              state.selectedCustomer.id
+            )
+      );
+
+
+    if (
+      !validSoldUnder &&
+      !haulingJobHasUnallocatedContractCapacity(
+        state.selectedContract
+      )
+    ) {
+
+      reasons.push(
+        "sold_under_requires_review"
+      );
+
+    }
+
+  }
+
+
+  if (
+    !clean(
+      elements.ticketNumber.value
+    )
+  ) {
+
+    reasons.push(
+      "ticket_number_missing"
+    );
+
+  }
+
+
+  if (
+    !clean(
+      elements.ticketDate.value
+    )
+  ) {
+
+    reasons.push(
+      "ticket_date_missing"
+    );
+
+  }
+
+
+  if (
+    !validateWeights()
+  ) {
+
+    reasons.push(
+      "ticket_weights_invalid"
+    );
+
+  }
+
+
+  if (
+    !validateBushels()
+  ) {
+
+    reasons.push(
+      "ticket_bushels_invalid"
+    );
+
+  }
+
+
+  return Array.from(
+    new Set(
+      reasons
+    )
+  );
+
+}
+
+
+    function updateReviewUI() {
+
+      if (
+        !state.ticket
+      ) {
+
+        return;
+
+      }
+
+
+      const reasons =
+        currentReviewReasons();
+
+
+      const verified =
+        reasons.length ===
+        0;
+
+
+      elements.statusPill.className =
+        verified
+          ? "status-pill good"
+          : "status-pill review";
+
+
+      elements.statusPill.textContent =
+        verified
+          ? "Verified"
+          : "Needs Review";
+
+
+      elements.reviewList.innerHTML =
+        "";
+
+
+      if (
+        verified
+      ) {
+
+        elements.reviewBox.classList.remove(
+          "show"
+        );
+
+
+        elements.saveBtn.textContent =
+          state.saving
+            ? "Saving…"
+            : "Save & Verify Ticket";
+
+
+        return;
+
+      }
+
+
+      elements.reviewBox.classList.add(
+        "show"
+      );
+
+
+      reasons.forEach(
+        reason => {
+
+          const item =
+            document.createElement(
+              "li"
+            );
+
+
+          item.textContent =
+            reviewLabel(
+              reason
+            );
+
+
+          elements.reviewList.appendChild(
+            item
+          );
+
+        }
+      );
+
+
+      elements.saveBtn.textContent =
+        state.saving
+          ? "Saving…"
+          : "Save Ticket";
+
+    }
+
+
+
+    // ==========================================================
+    // CURRENT DROPDOWN VALUES
+    // ==========================================================
+
+function updateSelectedReferences() {
+
+  const customerValue =
+    cle
+s.filter(
+          ticket => {
+            if (
+              ticket?.id ===
+                ticketId
+            ) {
+              return false;
+            }
+
+            const candidateCustomerId =
+              clean(
+                ticket?.grainCustomerId ||
+                ticket?.customerId
+              );
+
+            if (
+              candidateCustomerId ===
+                clean(selectedCustomer.id)
+            ) {
+              return false;
+            }
+
+            const candidateStatus =
+              normalize(
+                ticket?.validationStatus ||
+                ticket?.status ||
+                ""
+              );
+
+            const candidateReasons =
+              Array.isArray(ticket?.reviewReasons)
+                ? ticket.reviewReasons
+                : [];
+
+            const stillNeedsReview =
+              candidateStatus === "needs_review" ||
+              candidateStatus === "review" ||
+              candidateStatus === "needs review" ||
+              candidateReasons.length > 0;
+
+            return (
+              stillNeedsReview &&
+              sameSoldUnderOcrEvidence(
+                state.ticket,
+                ticket
+              )
+            );
+          }
+        );
+
+
+      let updatedCount =
+        0;
+
+
+      for (
+        const ticket of
+        matches
+      ) {
+
+        const existingReasons =
+          Array.isArray(
+            ticket.reviewReasons
+          )
+            ? ticket.reviewReasons
+            : [];
+
+
+        const matchingJob =
+          matchingHaulingJobForReviewTicket(ticket);
+
+        const reviewReasons =
+          existingReasons.filter(reason => {
+            const key = String(reason || "");
+            if (customerReviewReasons.has(key)) return false;
+            if (matchingJob && key === "hauling_job_not_assigned") return false;
+            return true;
+          });
+
+
+        try {
+
+          if (matchingJob) {
+            await syncSoldUnderToHaulingJob(
+              matchingJob,
+              selectedCustomer,
+              ticketId
+            );
+          }
+
+          await updateDoc(
+            doc(
+              db,
+              "grain_tickets",
+              ticket.id
+            ),
+            {
+              customerId:
+                selectedCustomer.id,
+
+              customerName:
+                selectedCustomer.name,
+
+              haulingJobId:
+                matchingJob?.id ||
+                ticket?.haulingJobId ||
+                null,
+
+              haulingJobName:
+                matchingJob
+                  ? contractLabel(matchingJob)
+                  : (ticket?.haulingJobName || null),
+
+              haulingJobMatched:
+                Boolean(matchingJob || ticket?.haulingJobId),
+
+              matchingHaulingJobIds:
+                matchingJob
+                  ? [matchingJob.id]
+                  : (
+                      Array.isArray(ticket?.matchingHaulingJobIds)
+                        ? ticket.matchingHaulingJobIds
+                        : []
+                    ),
+
+              reviewReasons,
+
+              soldUnderBulkCorrectedFromTicketId:
+                ticketId,
+
+              soldUnderBulkCorrectionSource:
+                sourceEvidence.account
+                  ? "exact_ocr_customer_account"
+                  : "exact_ocr_customer_text",
+
+              soldUnderBulkCorrectedAt:
+                serverTimestamp(),
+
+              soldUnderBulkCorrectedByUid:
+                state.user?.uid ||
+                null,
+
+              soldUnderBulkCorrectedByName:
+                state.user?.displayName ||
+                state.user?.email ||
+                "FarmVista User",
+
+              updatedAt:
+                serverTimestamp()
+            }
+          );
+
+
+          ticket.customerId =
+            selectedCustomer.id;
+
+          ticket.customerName =
+            selectedCustomer.name;
+
+          if (matchingJob) {
+            ticket.haulingJobId = matchingJob.id;
+            ticket.haulingJobName = contractLabel(matchingJob);
+            ticket.haulingJobMatched = true;
+            ticket.matchingHaulingJobIds = [matchingJob.id];
+          }
+
+          ticket.reviewReasons =
+            reviewReasons;
+
+          updatedCount++;
+
+        }
+        catch (
+          error
+        ) {
+
+          console.warn(
+            "[Grain Ticket Detail] Matching Sold Under review ticket could not be updated:",
+            {
+              ticketId:
+                ticket.id,
+              error
+            }
+          );
+
+        }
+
+      }
+
+
+      return updatedCount;
+
+    }
+
+
+    // ==========================================================
+    // SAVE / APPROVE
+    // ==========================================================
+
+    async function saveTicket(
+      event
+    ) {
+
+      event.preve
+
+===== selectedContract.id =====
+
+rs.find(
+      buyer =>
+        buyer.id ===
+        buyerId
+    ) ||
+    (
+      buyerId
+        ? {
+            id:
+              buyerId,
+
+            name:
+              clean(
+                load.buyerName ||
+                state.selectedLocation?.buyerName
+              )
+          }
+        : null
+    );
+
+
+  elements.buyerSelect.value =
+    state.selectedBuyer?.id ||
+    "";
+
+
+/*
+  ========================================================
+  HAULING JOB
+  ========================================================
+*/
+
+const haulingJobId =
+  clean(
+    load.haulingJobId ||
+    state.ticket?.haulingJobId
+  );
+
+
+state.selectedContract =
+  state.haulingJobs.find(
+    job =>
+      job.id ===
+      haulingJobId
+  ) ||
+  null;
+
+
+/*
+  ========================================================
+  SOLD UNDER / CUSTOMER
+  ========================================================
+
+  A load may contain:
+    - a real linked customer
+    - Unknown
+    - nothing yet
+
+  A real customer is only accepted when an OPEN contract
+  for that customer is linked to this hauling job.
+*/
+
+const loadCustomerId =
+  clean(
+    load.customerId
+  );
+
+
+const loadCustomerName =
+  clean(
+    load.customerName
+  );
+
+
+if (
+  normalize(
+    loadCustomerName
+  ) ===
+    "unknown" ||
+  (
+    !loadCustomerId &&
+    normalize(
+      state.ticket?.customerName
+    ) ===
+      "unknown"
+  )
+) {
+
+  state.selectedCustomer = {
+    id: null,
+    name: "Unknown",
+    unknown: true
+  };
+
+
+  elements.customerSelect.value =
+    "__unknown__";
+
+}
+else if (
+  loadCustomerId &&
+  state.selectedContract
+) {
+
+  const validCustomer =
+    state.contracts.some(
+      contract =>
+        contractIsOpen(
+          contract
+        ) &&
+        clean(
+          contract?.haulingJobId
+        ) ===
+          clean(
+            state.selectedContract.id
+          ) &&
+        contractCustomerId(
+          contract
+        ) ===
+          loadCustomerId
+    );
+
+
+  if (
+    validCustomer
+  ) {
+
+    state.selectedCustomer =
+      state.customers.find(
+        customer =>
+          customer.id ===
+          loadCustomerId
+      ) ||
+      null;
+
+
+    elements.customerSelect.value =
+      state.selectedCustomer?.id ||
+      "";
+
+  }
+  else {
+
+    state.selectedCustomer = {
+      id: null,
+      name: "Unknown",
+      unknown: true
+    };
+
+
+    elements.customerSelect.value =
+      "__unknown__";
+
+  }
+
+}
+else {
+
+  state.selectedCustomer = {
+    id: null,
+    name: "Unknown",
+    unknown: true
+  };
+
+
+  elements.customerSelect.value =
+    "__unknown__";
+
+}
+
+
+  /*
+    ========================================================
+    DRIVER
+    ========================================================
+  */
+
+  elements.driverName.textContent =
+    clean(
+      load.driverName
+    ) ||
+    clean(
+      state.ticket?.driverName
+    ) ||
+    "—";
+
+
+  /*
+    Refresh all visible controls.
+  */
+
+  syncGrainSourceButton();
+
+  syncDestinationButton();
+
+  syncCustomerButton();
+
+
+  renderGrainSourceOptions();
+
+  renderDestinationOptions();
+
+  renderCustomerOptions();
+
+  renderContractOptions();
+
+
+  if (
+    state.selectedContract
+  ) {
+
+    elements.contractSelect.value =
+      state.selectedContract.id;
+
+  }
+
+
+  renderLoadoutInformation();
+
+  updateReviewUI();
+
+
+  showMessage(
+    `Load ${clean(load.loadNumber) || ""} selected. Its load details were filled into this ticket. Save the ticket to complete the link.`,
+    "success"
+  );
+
+}
+
+    // ==========================================================
+    // LOAD TICKET
+    // ==========================================================
+
+    async function loadTicket() {
+
+      if (
+        !ticketId
+      ) {
+
+        throw new Error(
+          "No grain ticket ID was provided."
+        );
+
+      }
+
+
+      const snapshot =
+        await getDoc(
+          doc(
+            db,
+            "grain_tickets",
+            ticketId
+          )
+        );
+
+
+      if (
+        !snapshot.exists()
+      ) {
+
+        throw new Error(
+          "This grain ticket could not be found."
+        );
+
+      }
+
+
+      state.ticket = {
+
+        id:
+          snapshot.id,
+
+        ...snapshot.data()
+
+      };
+
+    }
+
+
+
+    // ==========================================================
+    // LOAD LINKED LOADOUT
+    // ==========================================================
+
+    async function loadLinkedLoadout() {
+
+      state.loadout =
+        null;
+
+
+      const ticket =
+        state.ticket ||
+        {};
+
+
+      const savedLoadoutId =
+        clean(
+          ticket.loadoutId ||
+          ticket.loadOutId ||
+          ticket.grainLoadoutId ||
+          ticket.loadId
+        );
+
+
+      const savedLoadNumber =
+        clean(
+          ticket.loadNumber
+        );
+
+
+      const ticketNumber =
+        clean(
+          ticket.ticketNumber
+        );
+
+
+      /*
+        IMPORT
+     "unknown"
+  )
+) {
+
+  state.selectedCustomer = {
+    id: null,
+    name: "Unknown",
+    unknown: true
+  };
+
+
+  elements.customerSelect.value =
+    "__unknown__";
+
+}
+else if (
+  loadCustomerId &&
+  state.selectedContract
+) {
+
+  const validCustomer =
+    state.contracts.some(
+      contract =>
+        contractIsOpen(
+          contract
+        ) &&
+        clean(
+          contract?.haulingJobId
+        ) ===
+          clean(
+            state.selectedContract.id
+          ) &&
+        contractCustomerId(
+          contract
+        ) ===
+          loadCustomerId
+    );
+
+
+  if (
+    validCustomer
+  ) {
+
+    state.selectedCustomer =
+      state.customers.find(
+        customer =>
+          customer.id ===
+          loadCustomerId
+      ) ||
+      null;
+
+
+    elements.customerSelect.value =
+      state.selectedCustomer?.id ||
+      "";
+
+  }
+  else {
+
+    state.selectedCustomer = {
+      id: null,
+      name: "Unknown",
+      unknown: true
+    };
+
+
+    elements.customerSelect.value =
+      "__unknown__";
+
+  }
+
+}
+else {
+
+  state.selectedCustomer = {
+    id: null,
+    name: "Unknown",
+    unknown: true
+  };
+
+
+  elements.customerSelect.value =
+    "__unknown__";
+
+}
+
+
+  /*
+    ========================================================
+    DRIVER
+    ========================================================
+  */
+
+  elements.driverName.textContent =
+    clean(
+      load.driverName
+    ) ||
+    clean(
+      state.ticket?.driverName
+    ) ||
+    "—";
+
+
+  /*
+    Refresh all visible controls.
+  */
+
+  syncGrainSourceButton();
+
+  syncDestinationButton();
+
+  syncCustomerButton();
+
+
+  renderGrainSourceOptions();
+
+  renderDestinationOptions();
+
+  renderCustomerOptions();
+
+  renderContractOptions();
+
+
+  if (
+    state.selectedContract
+  ) {
+
+    elements.contractSelect.value =
+      state.selectedContract.id;
+
+  }
+
+
+  renderLoadoutInformation();
+
+  updateReviewUI();
+
+
+  showMessage(
+    `Load ${clean(load.loadNumber) || ""} selected. Its load details were filled into this ticket. Save the ticket to complete the link.`,
+    "success"
+  );
+
+}
+
+    // ==========================================================
+    // LOAD TICKET
+    // ==========================================================
+
+    async function loadTicket() {
+
+      if (
+        !ticketId
+      ) {
+
+        throw new Error(
+          "No grain ticket ID was provided."
+        );
+
+      }
+
+
+      const snapshot =
+        await getDoc(
+          doc(
+            db,
+            "grain_tickets",
+            ticketId
+          )
+        );
+
+
+      if (
+        !snapshot.exists()
+      ) {
+
+        throw new Error(
+          "This grain ticket could not be found."
+        );
+
+      }
+
+
+      state.ticket = {
+
+        id:
+          snapshot.id,
+
+        ...snapshot.data()
+
+      };
+
+    }
+
+
+
+    // ==========================================================
+    // LOAD LINKED LOADOUT
+    // ==========================================================
+
+    async function loadLinkedLoadout() {
+
+      state.loadout =
+        null;
+
+
+      const ticket =
+        state.ticket ||
+        {};
+
+
+      const savedLoadoutId =
+        clean(
+          ticket.loadoutId ||
+          ticket.loadOutId ||
+          ticket.grainLoadoutId ||
+          ticket.loadId
+        );
+
+
+      const savedLoadNumber =
+        clean(
+          ticket.loadNumber
+        );
+
+
+      const ticketNumber =
+        clean(
+          ticket.ticketNumber
+        );
+
+
+      /*
+        IMPORTANT — EXPLICIT LINKS ONLY
+
+        This detail page must NEVER guess which dispatch load belongs
+        to a grain ticket.
+
+        Safe relationships are limited to:
+
+          1) ticket.loadoutId -> exact grain_loadouts document
+          2) grain_loadouts.grainTicketId -> this exact ticket ID
+          3) ticket.loadNumber -> one unique, exact FarmVista load number
+
+        We intentionally DO NOT match by:
+          - elevator ticket number
+          - driver
+          - destination
+          - customer
+          - buyer
+          - crop
+          - contract
+          - ticket date
+          - load date
+          - created time / time proximity
+
+        Those values are useful for humans reviewing the ticket, but
+        they are not a safe key for creating a permanent relationship.
+
+        The scan / dispatch workflow is responsible for creating the
+        real ticket-to-load link. This page may only repair the missing
+        backlink on the opposite document after an explicit relationship
+        already exists.
+      */
+
+
+      async function syncExplicitLink(
+        load,
+        matchReason
+      ) {
+
+        if (
+          !load
+        ) {
+
+          return false;
+
+        }
+
+
+        const existingLoadTicketId =
+          clean(
+            load.grainTicketId ||
+            load.ticketId
+          );
+
+
+        /
+ ${shrink.toFixed(2)} Shrink = ${net.toFixed(2)} Net Bushels.`;
+
+
+  return true;
+
+}
+
+
+function currentReviewReasons() {
+
+  updateSelectedReferences();
+
+
+  const reasons =
+    [];
+
+
+  if (
+    !state.selectedLocation
+  ) {
+
+    reasons.push(
+      "delivery_location_not_matched"
+    );
+
+  }
+
+
+  /*
+    Sold Under rules:
+
+    - no selection = review
+    - Unknown = review
+    - real linked customer = resolved
+  */
+  if (
+    !state.selectedCustomer
+  ) {
+
+    reasons.push(
+      "customer_not_matched"
+    );
+
+  }
+  else if (
+    state.selectedCustomer.unknown ===
+      true
+  ) {
+
+    reasons.push(
+      "sold_under_requires_review"
+    );
+
+  }
+
+
+  if (
+    !clean(
+      elements.crop.value
+    )
+  ) {
+
+    reasons.push(
+      "crop_not_matched"
+    );
+
+  }
+
+
+  if (
+    !state.selectedSource
+  ) {
+
+    reasons.push(
+      "grain_source_not_assigned"
+    );
+
+  }
+  else if (
+    clean(
+      elements.crop.value
+    ) &&
+    clean(
+      state.selectedSource.crop
+    ) &&
+    normalize(
+      elements.crop.value
+    ) !==
+      normalize(
+        state.selectedSource.crop
+      )
+  ) {
+
+    reasons.push(
+      "grain_source_crop_mismatch"
+    );
+
+  }
+
+
+  if (
+    !state.selectedContract
+  ) {
+
+    reasons.push(
+      "hauling_job_not_assigned"
+    );
+
+  }
+
+
+  /*
+    If a REAL Sold Under customer is selected,
+    confirm that customer still has at least one
+    OPEN contract linked to the selected hauling job.
+  */
+  if (
+    state.selectedContract &&
+    state.selectedCustomer &&
+    state.selectedCustomer.unknown !==
+      true
+  ) {
+
+    const validSoldUnder =
+      state.contracts.some(
+        contract =>
+          contractIsOpen(
+            contract
+          ) &&
+          clean(
+            contract?.haulingJobId
+          ) ===
+            clean(
+              state.selectedContract.id
+            ) &&
+          contractCustomerId(
+            contract
+          ) ===
+            clean(
+              state.selectedCustomer.id
+            )
+      );
+
+
+    if (
+      !validSoldUnder &&
+      !haulingJobHasUnallocatedContractCapacity(
+        state.selectedContract
+      )
+    ) {
+
+      reasons.push(
+        "sold_under_requires_review"
+      );
+
+    }
+
+  }
+
+
+  if (
+    !clean(
+      elements.ticketNumber.value
+    )
+  ) {
+
+    reasons.push(
+      "ticket_number_missing"
+    );
+
+  }
+
+
+  if (
+    !clean(
+      elements.ticketDate.value
+    )
+  ) {
+
+    reasons.push(
+      "ticket_date_missing"
+    );
+
+  }
+
+
+  if (
+    !validateWeights()
+  ) {
+
+    reasons.push(
+      "ticket_weights_invalid"
+    );
+
+  }
+
+
+  if (
+    !validateBushels()
+  ) {
+
+    reasons.push(
+      "ticket_bushels_invalid"
+    );
+
+  }
+
+
+  return Array.from(
+    new Set(
+      reasons
+    )
+  );
+
+}
+
+
+    function updateReviewUI() {
+
+      if (
+        !state.ticket
+      ) {
+
+        return;
+
+      }
+
+
+      const reasons =
+        currentReviewReasons();
+
+
+      const verified =
+        reasons.length ===
+        0;
+
+
+      elements.statusPill.className =
+        verified
+          ? "status-pill good"
+          : "status-pill review";
+
+
+      elements.statusPill.textContent =
+        verified
+          ? "Verified"
+          : "Needs Review";
+
+
+      elements.reviewList.innerHTML =
+        "";
+
+
+      if (
+        verified
+      ) {
+
+        elements.reviewBox.classList.remove(
+          "show"
+        );
+
+
+        elements.saveBtn.textContent =
+          state.saving
+            ? "Saving…"
+            : "Save & Verify Ticket";
+
+
+        return;
+
+      }
+
+
+      elements.reviewBox.classList.add(
+        "show"
+      );
+
+
+      reasons.forEach(
+        reason => {
+
+          const item =
+            document.createElement(
+              "li"
+            );
+
+
+          item.textContent =
+            reviewLabel(
+              reason
+            );
+
+
+          elements.reviewList.appendChild(
+            item
+          );
+
+        }
+      );
+
+
+      elements.saveBtn.textContent =
+        state.saving
+          ? "Saving…"
+          : "Save Ticket";
+
+    }
+
+
+
+    // ==========================================================
+    // CURRENT DROPDOWN VALUES
+    // ==========================================================
+
+function updateSelectedReferences() {
+
+  const customerValue =
+    clean(
+      elements.customerSelect.value
+    );
+
+
+  if (
+    customerValue ===
+      "__unknown__"
+  ) {
+
+    state.selectedCustomer = {
+      id: null,
+      name: "Unknown",
+      unknown: true
+    };
+
+  }
+  else {
+
+    state.selectedCustomer =
+      state.customers.find(
+        customer =>
+          customer.id ===
+          customerValue
+      ) ||
+      null;
+
+  }
+
+
+  state.selectedLocation =
+    state.locations.find(
+      location =>
+        location.id ===
+        elements.locationSelect.value
+    ) ||
+    null;
+
+
+  const buyerId =
+    clean(
+      state
+==========================================================
+
+    async function saveTicket(
+      event
+    ) {
+
+      event.preventDefault();
+
+
+      if (
+        state.saving
+      ) {
+
+        return;
+
+      }
+
+
+      clearMessage();
+
+
+      updateSelectedReferences();
+
+
+      const reviewReasons =
+        currentReviewReasons();
+
+
+      const verified =
+        reviewReasons.length ===
+        0;
+
+
+const selectedCustomer =
+  state.selectedCustomer;
+
+
+const customerIsUnknown =
+  selectedCustomer?.unknown ===
+    true;
+
+
+      const selectedSource =
+        state.selectedSource;
+
+
+      const selectedLocation =
+        state.selectedLocation;
+
+
+      const selectedBuyer =
+        state.selectedBuyer ||
+        (
+          selectedLocation?.buyerId
+            ? {
+                id:
+                  selectedLocation.buyerId,
+
+                name:
+                  selectedLocation.buyerName
+              }
+            : null
+        );
+
+
+      /*
+        The page picker is a HAULING JOB picker, while the Contracts
+        page posts grain against individual grain_contracts records.
+
+        When Hauling Job + Sold Under + Crop identify exactly one open
+        contract, automatically post the whole ticket to that contract.
+        If there is not exactly one match, leave contract allocation
+        unresolved rather than guessing.
+      */
+      const eligibleGrainContracts =
+        (
+          !customerIsUnknown &&
+          state.selectedContract &&
+          selectedCustomer?.id
+        )
+          ? state.contracts.filter(
+              contract =>
+                contractIsOpen(
+                  contract
+                ) &&
+                clean(
+                  contract?.haulingJobId
+                ) ===
+                  clean(
+                    state.selectedContract.id
+                  ) &&
+                contractCustomerId(
+                  contract
+                ) ===
+                  clean(
+                    selectedCustomer.id
+                  ) &&
+                (
+                  !contractCrop(
+                    contract
+                  ) ||
+                  contractCrop(
+                    contract
+                  ) ===
+                    normalize(
+                      elements.crop.value
+                    )
+                )
+            )
+          : [];
+
+
+      const selectedGrainContract =
+        eligibleGrainContracts.length ===
+          1
+          ? eligibleGrainContracts[0]
+          : null;
+
+
+      const selectedGrainContractNumber =
+        clean(
+          selectedGrainContract?.contractNumber ||
+          selectedGrainContract?.number
+        ) ||
+        null;
+
+
+      const ticketNetBushels =
+        numberOrNull(
+          elements.netBushels.value
+        ) ||
+        0;
+
+
+      state.saving =
+        true;
+
+
+      elements.saveBtn.disabled =
+        true;
+
+
+      elements.saveBtn.textContent =
+        "Saving…";
+
+
+      let bulkSoldUnderUpdated =
+        0;
+
+
+      try {
+
+        const matchingHaulingJobIds =
+          state.selectedContract
+            ? [
+                state.selectedContract.id
+              ]
+            : [];
+
+
+        const payload = {
+
+          buyerId:
+            selectedBuyer?.id ||
+            null,
+
+          buyerName:
+            selectedBuyer?.name ||
+            selectedLocation?.buyerName ||
+            null,
+
+
+          deliveryLocationId:
+            selectedLocation?.id ||
+            null,
+
+          deliveryLocationName:
+            selectedLocation?.locationName ||
+            null,
+
+          deliveryStreet:
+            selectedLocation?.street ||
+            null,
+
+          deliveryCity:
+            selectedLocation?.city ||
+            null,
+
+          deliveryState:
+            selectedLocation?.state ||
+            null,
+
+          deliveryZip:
+            selectedLocation?.zip ||
+            null,
+
+
+customerId:
+  customerIsUnknown
+    ? null
+    : (
+        selectedCustomer?.id ||
+        null
+      ),
+
+customerName:
+  customerIsUnknown
+    ? "Unknown"
+    : (
+        selectedCustomer?.name ||
+        null
+      ),
+
+
+          ticketNumber:
+            clean(
+              elements.ticketNumber.value
+            ) ||
+            null,
+
+          ticketDate:
+            clean(
+              elements.ticketDate.value
+            ) ||
+            null,
+
+          crop:
+            clean(
+              elements.crop.value
+            ) ||
+            null,
+
+
+          grossWeight:
+            numberOrNull(
+              elements.grossWeight.value
+            ),
+
+          tareWeight:
+            numberOrNull(
+              elements.tareWeight.value
+            ),
+
+          netWeight:
+            numberOrNull(
+              elements.netWeight.value
+            ),
+
+
+          testWeight:
+            n
+t allocation
+        unresolved rather than guessing.
+      */
+      const eligibleGrainContracts =
+        (
+          !customerIsUnknown &&
+          state.selectedContract &&
+          selectedCustomer?.id
+        )
+          ? state.contracts.filter(
+              contract =>
+                contractIsOpen(
+                  contract
+                ) &&
+                clean(
+                  contract?.haulingJobId
+                ) ===
+                  clean(
+                    state.selectedContract.id
+                  ) &&
+                contractCustomerId(
+                  contract
+                ) ===
+                  clean(
+                    selectedCustomer.id
+                  ) &&
+                (
+                  !contractCrop(
+                    contract
+                  ) ||
+                  contractCrop(
+                    contract
+                  ) ===
+                    normalize(
+                      elements.crop.value
+                    )
+                )
+            )
+          : [];
+
+
+      const selectedGrainContract =
+        eligibleGrainContracts.length ===
+          1
+          ? eligibleGrainContracts[0]
+          : null;
+
+
+      const selectedGrainContractNumber =
+        clean(
+          selectedGrainContract?.contractNumber ||
+          selectedGrainContract?.number
+        ) ||
+        null;
+
+
+      const ticketNetBushels =
+        numberOrNull(
+          elements.netBushels.value
+        ) ||
+        0;
+
+
+      state.saving =
+        true;
+
+
+      elements.saveBtn.disabled =
+        true;
+
+
+      elements.saveBtn.textContent =
+        "Saving…";
+
+
+      let bulkSoldUnderUpdated =
+        0;
+
+
+      try {
+
+        const matchingHaulingJobIds =
+          state.selectedContract
+            ? [
+                state.selectedContract.id
+              ]
+            : [];
+
+
+        const payload = {
+
+          buyerId:
+            selectedBuyer?.id ||
+            null,
+
+          buyerName:
+            selectedBuyer?.name ||
+            selectedLocation?.buyerName ||
+            null,
+
+
+          deliveryLocationId:
+            selectedLocation?.id ||
+            null,
+
+          deliveryLocationName:
+            selectedLocation?.locationName ||
+            null,
+
+          deliveryStreet:
+            selectedLocation?.street ||
+            null,
+
+          deliveryCity:
+            selectedLocation?.city ||
+            null,
+
+          deliveryState:
+            selectedLocation?.state ||
+            null,
+
+          deliveryZip:
+            selectedLocation?.zip ||
+            null,
+
+
+customerId:
+  customerIsUnknown
+    ? null
+    : (
+        selectedCustomer?.id ||
+        null
+      ),
+
+customerName:
+  customerIsUnknown
+    ? "Unknown"
+    : (
+        selectedCustomer?.name ||
+        null
+      ),
+
+
+          ticketNumber:
+            clean(
+              elements.ticketNumber.value
+            ) ||
+            null,
+
+          ticketDate:
+            clean(
+              elements.ticketDate.value
+            ) ||
+            null,
+
+          crop:
+            clean(
+              elements.crop.value
+            ) ||
+            null,
+
+
+          grossWeight:
+            numberOrNull(
+              elements.grossWeight.value
+            ),
+
+          tareWeight:
+            numberOrNull(
+              elements.tareWeight.value
+            ),
+
+          netWeight:
+            numberOrNull(
+              elements.netWeight.value
+            ),
+
+
+          testWeight:
+            numberOrNull(
+              elements.testWeight.value
+            ),
+
+          moisture:
+            numberOrNull(
+              elements.moisture.value
+            ),
+
+          damage:
+            numberOrNull(
+              elements.damage.value
+            ),
+
+          foreignMaterial:
+            numberOrNull(
+              elements.foreignMaterial.value
+            ),
+
+
+          grossBushels:
+            numberOrNull(
+              elements.grossBushels.value
+            ),
+
+          shrinkBushels:
+            numberOrNull(
+              elements.shrinkBushels.value
+            ) ??
+            0,
+
+          netBushels:
+            numberOrNull(
+              elements.netBushels.value
+            ),
+
+
+          grainSourceType:
+            selectedSource?.type ||
+            null,
+
+          grainSourceScope:
+            selectedSource?.sourceScope ||
+            null,
+
+          grainSourceValue:
+            selectedSource?.value ||
+            null,
+
+          grainSourceId:
+            selectedSource?.id ||
+            null,
+
+          grainSourceName:
+            selectedSource?.label ||
+            null,
+
+          grainSourceSiteId:
+            selectedSource?.siteId ||
+            null,
+
+          grainSourceSiteName:
+            selectedSource?.siteName ||
+        
+
+===== deliveryLocationId: =====
+
+              contractIsOpen(
+                  contract
+                ) &&
+                clean(
+                  contract?.haulingJobId
+                ) ===
+                  clean(
+                    state.selectedContract.id
+                  ) &&
+                contractCustomerId(
+                  contract
+                ) ===
+                  clean(
+                    selectedCustomer.id
+                  ) &&
+                (
+                  !contractCrop(
+                    contract
+                  ) ||
+                  contractCrop(
+                    contract
+                  ) ===
+                    normalize(
+                      elements.crop.value
+                    )
+                )
+            )
+          : [];
+
+
+      const selectedGrainContract =
+        eligibleGrainContracts.length ===
+          1
+          ? eligibleGrainContracts[0]
+          : null;
+
+
+      const selectedGrainContractNumber =
+        clean(
+          selectedGrainContract?.contractNumber ||
+          selectedGrainContract?.number
+        ) ||
+        null;
+
+
+      const ticketNetBushels =
+        numberOrNull(
+          elements.netBushels.value
+        ) ||
+        0;
+
+
+      state.saving =
+        true;
+
+
+      elements.saveBtn.disabled =
+        true;
+
+
+      elements.saveBtn.textContent =
+        "Saving…";
+
+
+      let bulkSoldUnderUpdated =
+        0;
+
+
+      try {
+
+        const matchingHaulingJobIds =
+          state.selectedContract
+            ? [
+                state.selectedContract.id
+              ]
+            : [];
+
+
+        const payload = {
+
+          buyerId:
+            selectedBuyer?.id ||
+            null,
+
+          buyerName:
+            selectedBuyer?.name ||
+            selectedLocation?.buyerName ||
+            null,
+
+
+          deliveryLocationId:
+            selectedLocation?.id ||
+            null,
+
+          deliveryLocationName:
+            selectedLocation?.locationName ||
+            null,
+
+          deliveryStreet:
+            selectedLocation?.street ||
+            null,
+
+          deliveryCity:
+            selectedLocation?.city ||
+            null,
+
+          deliveryState:
+            selectedLocation?.state ||
+            null,
+
+          deliveryZip:
+            selectedLocation?.zip ||
+            null,
+
+
+customerId:
+  customerIsUnknown
+    ? null
+    : (
+        selectedCustomer?.id ||
+        null
+      ),
+
+customerName:
+  customerIsUnknown
+    ? "Unknown"
+    : (
+        selectedCustomer?.name ||
+        null
+      ),
+
+
+          ticketNumber:
+            clean(
+              elements.ticketNumber.value
+            ) ||
+            null,
+
+          ticketDate:
+            clean(
+              elements.ticketDate.value
+            ) ||
+            null,
+
+          crop:
+            clean(
+              elements.crop.value
+            ) ||
+            null,
+
+
+          grossWeight:
+            numberOrNull(
+              elements.grossWeight.value
+            ),
+
+          tareWeight:
+            numberOrNull(
+              elements.tareWeight.value
+            ),
+
+          netWeight:
+            numberOrNull(
+              elements.netWeight.value
+            ),
+
+
+          testWeight:
+            numberOrNull(
+              elements.testWeight.value
+            ),
+
+          moisture:
+            numberOrNull(
+              elements.moisture.value
+            ),
+
+          damage:
+            numberOrNull(
+              elements.damage.value
+            ),
+
+          foreignMaterial:
+            numberOrNull(
+              elements.foreignMaterial.value
+            ),
+
+
+          grossBushels:
+            numberOrNull(
+              elements.grossBushels.value
+            ),
+
+          shrinkBushels:
+            numberOrNull(
+              elements.shrinkBushels.value
+            ) ??
+            0,
+
+          netBushels:
+            numberOrNull(
+              elements.netBushels.value
+            ),
+
+
+          grainSourceType:
+            selectedSource?.type ||
+            null,
+
+          grainSourceScope:
+            selectedSource?.sourceScope ||
+            null,
+
+          grainSourceValue:
+            selectedSource?.value ||
+            null,
+
+          grainSourceId:
+            selectedSource?.id ||
+            null,
+
+          grainSourceName:
+            selectedSource?.label ||
+            null,
+
+          grainSourceSiteId:
+            selectedSource?.siteId ||
+            null,
+
+          grainSourceSiteName:
+            selectedSource?.siteName ||
+            null,
+
+          grainSourceBinNumber:
+            selectedSource?.binNumber ??
+            null,
+
+          grainSourceBinIndex:
+            selectedSource?.binIndex ??
+            null,
+
+          grainSourceFieldId:
+            selectedSource?.fieldId ||
+            null,
+
+  
+
+===== buyerId: =====
+
+                "active"
+              ) ===
+                "active" &&
+              clean(
+                field?.name
+              )
+          );
+
+
+      state.buyers =
+        buyerSnapshot.docs
+          .map(
+            snapshot => ({
+              id:
+                snapshot.id,
+
+              name:
+                clean(
+                  snapshot.data()?.name
+                )
+            })
+          )
+          .filter(
+            buyer =>
+              buyer.name
+          )
+          .sort(
+            (
+              a,
+              b
+            ) =>
+              a.name.localeCompare(
+                b.name
+              )
+          );
+
+
+      const buyerById =
+        new Map(
+          state.buyers.map(
+            buyer => [
+              buyer.id,
+              buyer
+            ]
+          )
+        );
+
+
+      state.customers =
+        customerSnapshot.docs
+          .map(
+            snapshot => ({
+              id:
+                snapshot.id,
+
+              name:
+                clean(
+                  snapshot.data()?.name
+                )
+            })
+          )
+          .filter(
+            customer =>
+              customer.name
+          )
+          .sort(
+            (
+              a,
+              b
+            ) =>
+              a.name.localeCompare(
+                b.name
+              )
+          );
+
+
+      state.locations =
+        locationSnapshot.docs
+          .map(
+            snapshot => {
+
+              const data =
+                snapshot.data() ||
+                {};
+
+
+              const buyer =
+                buyerById.get(
+                  clean(
+                    data.buyerId
+                  )
+                );
+
+
+              return {
+                id:
+                  snapshot.id,
+
+                buyerId:
+                  clean(
+                    data.buyerId
+                  ),
+
+                buyerName:
+                  clean(
+                    data.buyerName
+                  ) ||
+                  clean(
+                    buyer?.name
+                  ),
+
+                locationName:
+                  clean(
+                    data.locationName
+                  ),
+
+                street:
+                  clean(
+                    data.street
+                  ),
+
+                city:
+                  clean(
+                    data.city
+                  ),
+
+                state:
+                  clean(
+                    data.state
+                  ),
+
+                zip:
+                  clean(
+                    data.zip
+                  )
+              };
+
+            }
+          )
+          .filter(
+            location =>
+              location.locationName
+          )
+          .sort(
+            (
+              a,
+              b
+            ) =>
+              `${a.buyerName} ${a.locationName}`
+                .localeCompare(
+                  `${b.buyerName} ${b.locationName}`,
+                  undefined,
+                  {
+                    numeric:
+                      true,
+
+                    sensitivity:
+                      "base"
+                  }
+                )
+          );
+
+
+state.haulingJobs =
+  haulingJobSnapshot.docs
+    .map(
+      snapshot => ({
+        id:
+          snapshot.id,
+
+        ...snapshot.data()
+      })
+    );
+
+
+state.contracts =
+  contractSnapshot.docs
+    .map(
+      snapshot => ({
+        id:
+          snapshot.id,
+
+        ...snapshot.data()
+      })
+    );
+
+
+state.tickets =
+  ticketSnapshot.docs
+    .map(
+      snapshot => ({
+        id:
+          snapshot.id,
+
+        ...snapshot.data()
+      })
+    );
+
+
+      state.binSources =
+        [];
+
+
+      binSiteSnapshot.docs
+        .forEach(
+          snapshot => {
+
+            const data =
+              snapshot.data() ||
+              {};
+
+
+            const siteName =
+              clean(
+                data.name
+              ) ||
+              `Bin Site ${snapshot.id.slice(
+                0,
+                6
+              )}`;
+
+
+            const fieldId =
+              clean(
+                data.fieldId ||
+                data.farmFieldId ||
+                data.field?.id
+              );
+
+
+            const fieldName =
+              clean(
+                data.fieldName ||
+                data.farmFieldName ||
+                data.field?.name
+              );
+
+
+            const bins =
+              Array.isArray(
+                data.bins
+              )
+                ? data.bins
+                : [];
+
+
+            bins.forEach(
+              (
+                bin,
+                index
+              ) => {
+
+                const onHand =
+                  Number(
+                    bin?.onHand ||
+                    0
+                  );
+
+
+                if (
+                  !Number.isFinite
+acts =
+        (
+          !customerIsUnknown &&
+          state.selectedContract &&
+          selectedCustomer?.id
+        )
+          ? state.contracts.filter(
+              contract =>
+                contractIsOpen(
+                  contract
+                ) &&
+                clean(
+                  contract?.haulingJobId
+                ) ===
+                  clean(
+                    state.selectedContract.id
+                  ) &&
+                contractCustomerId(
+                  contract
+                ) ===
+                  clean(
+                    selectedCustomer.id
+                  ) &&
+                (
+                  !contractCrop(
+                    contract
+                  ) ||
+                  contractCrop(
+                    contract
+                  ) ===
+                    normalize(
+                      elements.crop.value
+                    )
+                )
+            )
+          : [];
+
+
+      const selectedGrainContract =
+        eligibleGrainContracts.length ===
+          1
+          ? eligibleGrainContracts[0]
+          : null;
+
+
+      const selectedGrainContractNumber =
+        clean(
+          selectedGrainContract?.contractNumber ||
+          selectedGrainContract?.number
+        ) ||
+        null;
+
+
+      const ticketNetBushels =
+        numberOrNull(
+          elements.netBushels.value
+        ) ||
+        0;
+
+
+      state.saving =
+        true;
+
+
+      elements.saveBtn.disabled =
+        true;
+
+
+      elements.saveBtn.textContent =
+        "Saving…";
+
+
+      let bulkSoldUnderUpdated =
+        0;
+
+
+      try {
+
+        const matchingHaulingJobIds =
+          state.selectedContract
+            ? [
+                state.selectedContract.id
+              ]
+            : [];
+
+
+        const payload = {
+
+          buyerId:
+            selectedBuyer?.id ||
+            null,
+
+          buyerName:
+            selectedBuyer?.name ||
+            selectedLocation?.buyerName ||
+            null,
+
+
+          deliveryLocationId:
+            selectedLocation?.id ||
+            null,
+
+          deliveryLocationName:
+            selectedLocation?.locationName ||
+            null,
+
+          deliveryStreet:
+            selectedLocation?.street ||
+            null,
+
+          deliveryCity:
+            selectedLocation?.city ||
+            null,
+
+          deliveryState:
+            selectedLocation?.state ||
+            null,
+
+          deliveryZip:
+            selectedLocation?.zip ||
+            null,
+
+
+customerId:
+  customerIsUnknown
+    ? null
+    : (
+        selectedCustomer?.id ||
+        null
+      ),
+
+customerName:
+  customerIsUnknown
+    ? "Unknown"
+    : (
+        selectedCustomer?.name ||
+        null
+      ),
+
+
+          ticketNumber:
+            clean(
+              elements.ticketNumber.value
+            ) ||
+            null,
+
+          ticketDate:
+            clean(
+              elements.ticketDate.value
+            ) ||
+            null,
+
+          crop:
+            clean(
+              elements.crop.value
+            ) ||
+            null,
+
+
+          grossWeight:
+            numberOrNull(
+              elements.grossWeight.value
+            ),
+
+          tareWeight:
+            numberOrNull(
+              elements.tareWeight.value
+            ),
+
+          netWeight:
+            numberOrNull(
+              elements.netWeight.value
+            ),
+
+
+          testWeight:
+            numberOrNull(
+              elements.testWeight.value
+            ),
+
+          moisture:
+            numberOrNull(
+              elements.moisture.value
+            ),
+
+          damage:
+            numberOrNull(
+              elements.damage.value
+            ),
+
+          foreignMaterial:
+            numberOrNull(
+              elements.foreignMaterial.value
+            ),
+
+
+          grossBushels:
+            numberOrNull(
+              elements.grossBushels.value
+            ),
+
+          shrinkBushels:
+            numberOrNull(
+              elements.shrinkBushels.value
+            ) ??
+            0,
+
+          netBushels:
+            numberOrNull(
+              elements.netBushels.value
+            ),
+
+
+          grainSourceType:
+            selectedSource?.type ||
+            null,
+
+          grainSourceScope:
+            selectedSource?.sourceScope ||
+            null,
+
+          grainSourceValue:
+            selectedSource?.value ||
+            null,
+
+          grainSourceId:
+            selectedSource?.id ||
+            null,
+
+          grainSourceName:
+            selectedSource?.label ||
+            null,
+
+          grainSourceSiteId:
+            selectedSource?.siteId ||
+            null,
+
+          grainSourceSiteName:
+            selectedSource?.siteName ||
+            null,
+
+          grainSourceBinNumber:
+            selectedSource?.binNumber ??
+         
+r:
+  clean(
+    state.loadout?.loadNumber
+  ) ||
+  null,
+
+
+reviewedAt:
+  serverTimestamp(),
+
+          reviewedByUid:
+            state.user?.uid ||
+            null,
+
+          reviewedByName:
+            state.user?.displayName ||
+            state.user?.email ||
+            "FarmVista User",
+
+          reviewedByEmail:
+            state.user?.email ||
+            null,
+
+
+          updatedAt:
+            serverTimestamp()
+
+        };
+
+
+if (
+  verified
+) {
+
+  await saveVerifiedTicketWithInventory(
+    payload,
+    selectedSource
+  );
+
+}
+else {
+
+  /*
+    A ticket may be saved while under review,
+    but physical grain does not leave inventory
+    until the ticket is completely verified.
+  */
+  await updateDoc(
+    doc(
+      db,
+      "grain_tickets",
+      ticketId
+    ),
+    payload
+  );
+
+}
+
+
+        /*
+          If this ticket really does belong to an existing FarmVista
+          load-out, keep the shared load-detail fields synchronized.
+
+          IMPORTANT:
+          No grain_loadouts document is created for an after-the-fact
+          ticket that never had a FarmVista dispatch load.
+        */
+
+        if (
+          state.loadout?.id
+        ) {
+
+const loadPatch = {
+
+  /*
+    This is the permanent Grain Ticket ↔ Load-Out relationship.
+    Once grainTicketId exists, FarmVista can treat the dispatch
+    as completed/linked instead of still waiting In Transit.
+  */
+
+  grainTicketId:
+    ticketId,
+
+  elevatorTicketNumber:
+    clean(
+      elements.ticketNumber.value
+    ) ||
+    null,
+
+  linkedDate:
+    clean(
+      elements.ticketDate.value
+    ) ||
+    null,
+
+  ticketLinkedAt:
+    serverTimestamp(),
+
+
+  destinationId:
+    selectedLocation?.id ||
+    null,
+
+            destinationName:
+              selectedLocation?.locationName ||
+              null,
+
+            buyerId:
+              selectedBuyer?.id ||
+              null,
+
+            buyerName:
+              selectedBuyer?.name ||
+              selectedLocation?.buyerName ||
+              null,
+
+            deliveryLocationName:
+              selectedLocation?.locationName ||
+              null,
+
+            deliveryStreet:
+              selectedLocation?.street ||
+              null,
+
+            deliveryCity:
+              selectedLocation?.city ||
+              null,
+
+            deliveryState:
+              selectedLocation?.state ||
+              null,
+
+            deliveryZip:
+              selectedLocation?.zip ||
+              null,
+
+customerId:
+  customerIsUnknown
+    ? null
+    : (
+        selectedCustomer?.id ||
+        null
+      ),
+
+customerName:
+  customerIsUnknown
+    ? "Unknown"
+    : (
+        selectedCustomer?.name ||
+        null
+      ),
+
+            crop:
+              clean(
+                elements.crop.value
+              ) ||
+              null,
+
+            grainSourceType:
+              selectedSource?.type ||
+              null,
+
+            grainSourceScope:
+              selectedSource?.sourceScope ||
+              null,
+
+            grainSourceValue:
+              selectedSource?.value ||
+              null,
+
+            grainSourceId:
+              selectedSource?.id ||
+              null,
+
+            grainSourceName:
+              selectedSource?.label ||
+              null,
+
+            grainSourceSiteId:
+              selectedSource?.siteId ||
+              null,
+
+            grainSourceSiteName:
+              selectedSource?.siteName ||
+              null,
+
+            grainSourceBinNumber:
+              selectedSource?.binNumber ??
+              null,
+
+            grainSourceBinIndex:
+              selectedSource?.binIndex ??
+              null,
+
+            grainSourceFieldId:
+              selectedSource?.fieldId ||
+              null,
+
+            grainSourceFieldName:
+              selectedSource?.fieldName ||
+              null,
+
+            fieldId:
+              selectedSource?.fieldId ||
+              null,
+
+            fieldName:
+              selectedSource?.fieldName ||
+              null,
+
+            sourceFieldId:
+              selectedSource?.fieldId ||
+              null,
+
+            sourceFieldName:
+              selectedSource?.fieldName ||
+              null,
+
+            grainSourceCropYear:
+              selectedSource?.cropYear ||
+              null,
+
+            haulingJobId:
+              state.selectedContract?.id ||
+              null,
+
+            haulingJobName:
+              state.selectedContract
+                ? contractLabel(
+                    state.selectedContract
+                  )
+                : null,
+
+            haulingJobLabel:
+              state.selectedContract
+                ? contractLabel(
+                    state.selectedContract
+                  )
+                : null,
+
+
+            updatedAt:
+              serverTimestamp()
+
+          };
+
+
+          awa
+
+===== customerId: =====
+
+     ) ||
+              null,
+
+            grainTicketId:
+              ticketId,
+
+            ticketNumber:
+              payload.ticketNumber ||
+              null,
+
+            createdAt:
+              serverTimestamp(),
+
+            updatedAt:
+              serverTimestamp()
+
+          }
+        );
+
+
+        transaction.update(
+          ticketRef,
+          {
+
+            ...payload,
+
+            inventoryPosted:
+              true,
+
+            inventoryPostedType:
+              "grain_bag",
+
+            inventoryPostedBushels:
+              ticketBushels,
+
+            inventoryPostedFeet:
+              feetPicked,
+
+            inventoryMovementId:
+              pickupRef.id,
+
+            inventoryPostedAt:
+              serverTimestamp()
+
+          }
+        );
+
+
+        return;
+
+      }
+
+
+      throw new Error(
+        "The selected grain source type is not supported."
+      );
+
+    }
+  );
+
+}
+
+    async function syncSoldUnderToHaulingJob(
+      job,
+      selectedCustomer,
+      sourceTicketId = ticketId
+    ) {
+
+      if (
+        !job?.id ||
+        !selectedCustomer?.id ||
+        selectedCustomer?.unknown === true
+      ) {
+        return false;
+      }
+
+      const linkedOpenContracts =
+        state.contracts.filter(
+          contract =>
+            contractIsOpen(contract) &&
+            clean(contract?.haulingJobId) === clean(job.id)
+        );
+
+      const linkedCustomerIds =
+        new Set(
+          linkedOpenContracts
+            .map(contractCustomerId)
+            .filter(Boolean)
+        );
+
+      /* Do not override a job that has contracts for a different customer. */
+      if (
+        linkedCustomerIds.size > 0 &&
+        !linkedCustomerIds.has(clean(selectedCustomer.id))
+      ) {
+        return false;
+      }
+
+      const patch = {
+        customerId: selectedCustomer.id,
+        grainCustomerId: selectedCustomer.id,
+        customerName: selectedCustomer.name,
+        soldUnderSource: "grain_ticket_review",
+        soldUnderLearnedFromTicketId: sourceTicketId,
+        soldUnderLearnedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+
+      await updateDoc(
+        doc(db, "grain_hauling_jobs", job.id),
+        patch
+      );
+
+      Object.assign(job, patch);
+      return true;
+    }
+
+
+    function matchingHaulingJobForReviewTicket(ticket) {
+      const existingId = clean(ticket?.haulingJobId);
+      if (existingId) {
+        const existing =
+          state.haulingJobs.find(job => clean(job.id) === existingId) || null;
+        if (existing) return existing;
+      }
+
+      const crop = normalize(ticket?.crop);
+      const locationId = clean(
+        ticket?.deliveryLocationId ||
+        ticket?.destinationId
+      );
+      const ticketDate = clean(ticket?.ticketDate);
+
+      const matches = state.haulingJobs.filter(job => {
+        if (job?.active === false || job?.voided === true) return false;
+
+        const status = normalize(job?.status);
+        if (
+          status.includes("void") ||
+          status.includes("closed") ||
+          status.includes("cancel") ||
+          status.includes("complete")
+        ) return false;
+
+        if (
+          crop &&
+          normalize(job?.crop || job?.commodity) !== crop
+        ) return false;
+
+        const jobLocationId = clean(
+          job?.deliveryLocationId ||
+          job?.locationId ||
+          job?.destinationId
+        );
+        if (locationId && jobLocationId && jobLocationId !== locationId) return false;
+
+        const start = clean(job?.deliveryStartDate || job?.deliveryStart);
+        const end = clean(job?.deliveryEndDate || job?.deliveryEnd);
+        if (ticketDate && start && ticketDate < start) return false;
+        if (ticketDate && end && ticketDate > end) return false;
+        return true;
+      });
+
+      return matches.length === 1 ? matches[0] : null;
+    }
+
+
+    // ==========================================================
+    // BULK SOLD UNDER CORRECTION FOR REVIEW TICKETS
+    // ==========================================================
+
+    function normalizedSoldUnderOcr(
+      value
+    ) {
+
+      return clean(
+        value
+      )
+        .toLowerCase()
+        .replace(
+          /[^a-z0-9]+/g,
+          ""
+        );
+
+    }
+
+
+    function soldUnderOcrEvidence(
+      ticket
+    ) {
+
+      const storedCustomerId =
+        clean(
+          ticket?.grainCustomerId ||
+          ticket?.customerId
+        );
+
+      const hasResolvedCustomer =
+        Boolean(
+          storedCustomerId &&
+          state.customers.some(
+            customer =>
+              clean(customer?.id) ===
+              storedCustomerId
+          )
+        );
+
+      const unresolvedStoredCustomer =
+        !hasResolvedCustomer
+          ? (
+              ticket?.customerAccount ||
+              ticket?.custom
+      return false;
+            }
+
+            const candidateStatus =
+              normalize(
+                ticket?.validationStatus ||
+                ticket?.status ||
+                ""
+              );
+
+            const candidateReasons =
+              Array.isArray(ticket?.reviewReasons)
+                ? ticket.reviewReasons
+                : [];
+
+            const stillNeedsReview =
+              candidateStatus === "needs_review" ||
+              candidateStatus === "review" ||
+              candidateStatus === "needs review" ||
+              candidateReasons.length > 0;
+
+            return (
+              stillNeedsReview &&
+              sameSoldUnderOcrEvidence(
+                state.ticket,
+                ticket
+              )
+            );
+          }
+        );
+
+
+      let updatedCount =
+        0;
+
+
+      for (
+        const ticket of
+        matches
+      ) {
+
+        const existingReasons =
+          Array.isArray(
+            ticket.reviewReasons
+          )
+            ? ticket.reviewReasons
+            : [];
+
+
+        const matchingJob =
+          matchingHaulingJobForReviewTicket(ticket);
+
+        const reviewReasons =
+          existingReasons.filter(reason => {
+            const key = String(reason || "");
+            if (customerReviewReasons.has(key)) return false;
+            if (matchingJob && key === "hauling_job_not_assigned") return false;
+            return true;
+          });
+
+
+        try {
+
+          if (matchingJob) {
+            await syncSoldUnderToHaulingJob(
+              matchingJob,
+              selectedCustomer,
+              ticketId
+            );
+          }
+
+          await updateDoc(
+            doc(
+              db,
+              "grain_tickets",
+              ticket.id
+            ),
+            {
+              customerId:
+                selectedCustomer.id,
+
+              customerName:
+                selectedCustomer.name,
+
+              haulingJobId:
+                matchingJob?.id ||
+                ticket?.haulingJobId ||
+                null,
+
+              haulingJobName:
+                matchingJob
+                  ? contractLabel(matchingJob)
+                  : (ticket?.haulingJobName || null),
+
+              haulingJobMatched:
+                Boolean(matchingJob || ticket?.haulingJobId),
+
+              matchingHaulingJobIds:
+                matchingJob
+                  ? [matchingJob.id]
+                  : (
+                      Array.isArray(ticket?.matchingHaulingJobIds)
+                        ? ticket.matchingHaulingJobIds
+                        : []
+                    ),
+
+              reviewReasons,
+
+              soldUnderBulkCorrectedFromTicketId:
+                ticketId,
+
+              soldUnderBulkCorrectionSource:
+                sourceEvidence.account
+                  ? "exact_ocr_customer_account"
+                  : "exact_ocr_customer_text",
+
+              soldUnderBulkCorrectedAt:
+                serverTimestamp(),
+
+              soldUnderBulkCorrectedByUid:
+                state.user?.uid ||
+                null,
+
+              soldUnderBulkCorrectedByName:
+                state.user?.displayName ||
+                state.user?.email ||
+                "FarmVista User",
+
+              updatedAt:
+                serverTimestamp()
+            }
+          );
+
+
+          ticket.customerId =
+            selectedCustomer.id;
+
+          ticket.customerName =
+            selectedCustomer.name;
+
+          if (matchingJob) {
+            ticket.haulingJobId = matchingJob.id;
+            ticket.haulingJobName = contractLabel(matchingJob);
+            ticket.haulingJobMatched = true;
+            ticket.matchingHaulingJobIds = [matchingJob.id];
+          }
+
+          ticket.reviewReasons =
+            reviewReasons;
+
+          updatedCount++;
+
+        }
+        catch (
+          error
+        ) {
+
+          console.warn(
+            "[Grain Ticket Detail] Matching Sold Under review ticket could not be updated:",
+            {
+              ticketId:
+                ticket.id,
+              error
+            }
+          );
+
+        }
+
+      }
+
+
+      return updatedCount;
+
+    }
+
+
+    // ==========================================================
+    // SAVE / APPROVE
+    // ==========================================================
+
+    async function saveTicket(
+      event
+    ) {
+
+      event.preventDefault();
+
+
+      if (
+        state.saving
+      ) {
+
+        return;
+
+      }
+
+
+      clearMessage();
+
+
+      updateSelectedReferences();
+
+
+      const reviewReasons =
+        currentReviewReasons();
+
+
+      const verified =
+        reviewReasons.length ===
+        0;
+
+
+const selectedCustomer =
+  state.selectedCustomer;
+
+
+const customerIsUnknown =
+  selectedCustomer?.unknown ===
+    true;
+
+
+      const selectedSource =
+        state
+ contract
+                  ) ||
+                  contractCrop(
+                    contract
+                  ) ===
+                    normalize(
+                      elements.crop.value
+                    )
+                )
+            )
+          : [];
+
+
+      const selectedGrainContract =
+        eligibleGrainContracts.length ===
+          1
+          ? eligibleGrainContracts[0]
+          : null;
+
+
+      const selectedGrainContractNumber =
+        clean(
+          selectedGrainContract?.contractNumber ||
+          selectedGrainContract?.number
+        ) ||
+        null;
+
+
+      const ticketNetBushels =
+        numberOrNull(
+          elements.netBushels.value
+        ) ||
+        0;
+
+
+      state.saving =
+        true;
+
+
+      elements.saveBtn.disabled =
+        true;
+
+
+      elements.saveBtn.textContent =
+        "Saving…";
+
+
+      let bulkSoldUnderUpdated =
+        0;
+
+
+      try {
+
+        const matchingHaulingJobIds =
+          state.selectedContract
+            ? [
+                state.selectedContract.id
+              ]
+            : [];
+
+
+        const payload = {
+
+          buyerId:
+            selectedBuyer?.id ||
+            null,
+
+          buyerName:
+            selectedBuyer?.name ||
+            selectedLocation?.buyerName ||
+            null,
+
+
+          deliveryLocationId:
+            selectedLocation?.id ||
+            null,
+
+          deliveryLocationName:
+            selectedLocation?.locationName ||
+            null,
+
+          deliveryStreet:
+            selectedLocation?.street ||
+            null,
+
+          deliveryCity:
+            selectedLocation?.city ||
+            null,
+
+          deliveryState:
+            selectedLocation?.state ||
+            null,
+
+          deliveryZip:
+            selectedLocation?.zip ||
+            null,
+
+
+customerId:
+  customerIsUnknown
+    ? null
+    : (
+        selectedCustomer?.id ||
+        null
+      ),
+
+customerName:
+  customerIsUnknown
+    ? "Unknown"
+    : (
+        selectedCustomer?.name ||
+        null
+      ),
+
+
+          ticketNumber:
+            clean(
+              elements.ticketNumber.value
+            ) ||
+            null,
+
+          ticketDate:
+            clean(
+              elements.ticketDate.value
+            ) ||
+            null,
+
+          crop:
+            clean(
+              elements.crop.value
+            ) ||
+            null,
+
+
+          grossWeight:
+            numberOrNull(
+              elements.grossWeight.value
+            ),
+
+          tareWeight:
+            numberOrNull(
+              elements.tareWeight.value
+            ),
+
+          netWeight:
+            numberOrNull(
+              elements.netWeight.value
+            ),
+
+
+          testWeight:
+            numberOrNull(
+              elements.testWeight.value
+            ),
+
+          moisture:
+            numberOrNull(
+              elements.moisture.value
+            ),
+
+          damage:
+            numberOrNull(
+              elements.damage.value
+            ),
+
+          foreignMaterial:
+            numberOrNull(
+              elements.foreignMaterial.value
+            ),
+
+
+          grossBushels:
+            numberOrNull(
+              elements.grossBushels.value
+            ),
+
+          shrinkBushels:
+            numberOrNull(
+              elements.shrinkBushels.value
+            ) ??
+            0,
+
+          netBushels:
+            numberOrNull(
+              elements.netBushels.value
+            ),
+
+
+          grainSourceType:
+            selectedSource?.type ||
+            null,
+
+          grainSourceScope:
+            selectedSource?.sourceScope ||
+            null,
+
+          grainSourceValue:
+            selectedSource?.value ||
+            null,
+
+          grainSourceId:
+            selectedSource?.id ||
+            null,
+
+          grainSourceName:
+            selectedSource?.label ||
+            null,
+
+          grainSourceSiteId:
+            selectedSource?.siteId ||
+            null,
+
+          grainSourceSiteName:
+            selectedSource?.siteName ||
+            null,
+
+          grainSourceBinNumber:
+            selectedSource?.binNumber ??
+            null,
+
+          grainSourceBinIndex:
+            selectedSource?.binIndex ??
+            null,
+
+          grainSourceFieldId:
+            selectedSource?.fieldId ||
+            null,
+
+          grainSourceFieldName:
+            selectedSource?.fieldName ||
+            null,
+
+          /*
+            fieldId / fieldName are legacy compatibility fields still read by
+            older FarmVista reports. They MUST be cleared when a ticket is
+            changed from a Field to generic Active Harvest.
+          */
+          fieldId:
+            selectedSource?.fieldId ||
+            null,
+
+          fieldName:
+            selectedSource?.fieldName ||
+            null,
+
+          sour
+tory
+    until the ticket is completely verified.
+  */
+  await updateDoc(
+    doc(
+      db,
+      "grain_tickets",
+      ticketId
+    ),
+    payload
+  );
+
+}
+
+
+        /*
+          If this ticket really does belong to an existing FarmVista
+          load-out, keep the shared load-detail fields synchronized.
+
+          IMPORTANT:
+          No grain_loadouts document is created for an after-the-fact
+          ticket that never had a FarmVista dispatch load.
+        */
+
+        if (
+          state.loadout?.id
+        ) {
+
+const loadPatch = {
+
+  /*
+    This is the permanent Grain Ticket ↔ Load-Out relationship.
+    Once grainTicketId exists, FarmVista can treat the dispatch
+    as completed/linked instead of still waiting In Transit.
+  */
+
+  grainTicketId:
+    ticketId,
+
+  elevatorTicketNumber:
+    clean(
+      elements.ticketNumber.value
+    ) ||
+    null,
+
+  linkedDate:
+    clean(
+      elements.ticketDate.value
+    ) ||
+    null,
+
+  ticketLinkedAt:
+    serverTimestamp(),
+
+
+  destinationId:
+    selectedLocation?.id ||
+    null,
+
+            destinationName:
+              selectedLocation?.locationName ||
+              null,
+
+            buyerId:
+              selectedBuyer?.id ||
+              null,
+
+            buyerName:
+              selectedBuyer?.name ||
+              selectedLocation?.buyerName ||
+              null,
+
+            deliveryLocationName:
+              selectedLocation?.locationName ||
+              null,
+
+            deliveryStreet:
+              selectedLocation?.street ||
+              null,
+
+            deliveryCity:
+              selectedLocation?.city ||
+              null,
+
+            deliveryState:
+              selectedLocation?.state ||
+              null,
+
+            deliveryZip:
+              selectedLocation?.zip ||
+              null,
+
+customerId:
+  customerIsUnknown
+    ? null
+    : (
+        selectedCustomer?.id ||
+        null
+      ),
+
+customerName:
+  customerIsUnknown
+    ? "Unknown"
+    : (
+        selectedCustomer?.name ||
+        null
+      ),
+
+            crop:
+              clean(
+                elements.crop.value
+              ) ||
+              null,
+
+            grainSourceType:
+              selectedSource?.type ||
+              null,
+
+            grainSourceScope:
+              selectedSource?.sourceScope ||
+              null,
+
+            grainSourceValue:
+              selectedSource?.value ||
+              null,
+
+            grainSourceId:
+              selectedSource?.id ||
+              null,
+
+            grainSourceName:
+              selectedSource?.label ||
+              null,
+
+            grainSourceSiteId:
+              selectedSource?.siteId ||
+              null,
+
+            grainSourceSiteName:
+              selectedSource?.siteName ||
+              null,
+
+            grainSourceBinNumber:
+              selectedSource?.binNumber ??
+              null,
+
+            grainSourceBinIndex:
+              selectedSource?.binIndex ??
+              null,
+
+            grainSourceFieldId:
+              selectedSource?.fieldId ||
+              null,
+
+            grainSourceFieldName:
+              selectedSource?.fieldName ||
+              null,
+
+            fieldId:
+              selectedSource?.fieldId ||
+              null,
+
+            fieldName:
+              selectedSource?.fieldName ||
+              null,
+
+            sourceFieldId:
+              selectedSource?.fieldId ||
+              null,
+
+            sourceFieldName:
+              selectedSource?.fieldName ||
+              null,
+
+            grainSourceCropYear:
+              selectedSource?.cropYear ||
+              null,
+
+            haulingJobId:
+              state.selectedContract?.id ||
+              null,
+
+            haulingJobName:
+              state.selectedContract
+                ? contractLabel(
+                    state.selectedContract
+                  )
+                : null,
+
+            haulingJobLabel:
+              state.selectedContract
+                ? contractLabel(
+                    state.selectedContract
+                  )
+                : null,
+
+
+            updatedAt:
+              serverTimestamp()
+
+          };
+
+
+          await updateDoc(
+            doc(
+              db,
+              "grain_loadouts",
+              state.loadout.id
+            ),
+            loadPatch
+          );
+
+
+          Object.assign(
+            state.loadout,
+            loadPatch
+          );
+
+        }
+
+
+        if (
+          state.selectedContract &&
+          state.selectedCustomer &&
+          state.selectedCustomer.unknown !== true &&
+          state.selectedCustomer.id
+        ) {
+          await syncSoldUnderToHaulingJob(
+            state.selectedContract,
+            state.selectedCustomer,
+            ticketId
+          );
+        }
+
+
+        /*
+          Apply an offic
+
+===== contractId: =====
+
+       grainSourceId:
+            selectedSource?.id ||
+            null,
+
+          grainSourceName:
+            selectedSource?.label ||
+            null,
+
+          grainSourceSiteId:
+            selectedSource?.siteId ||
+            null,
+
+          grainSourceSiteName:
+            selectedSource?.siteName ||
+            null,
+
+          grainSourceBinNumber:
+            selectedSource?.binNumber ??
+            null,
+
+          grainSourceBinIndex:
+            selectedSource?.binIndex ??
+            null,
+
+          grainSourceFieldId:
+            selectedSource?.fieldId ||
+            null,
+
+          grainSourceFieldName:
+            selectedSource?.fieldName ||
+            null,
+
+          /*
+            fieldId / fieldName are legacy compatibility fields still read by
+            older FarmVista reports. They MUST be cleared when a ticket is
+            changed from a Field to generic Active Harvest.
+          */
+          fieldId:
+            selectedSource?.fieldId ||
+            null,
+
+          fieldName:
+            selectedSource?.fieldName ||
+            null,
+
+          sourceFieldId:
+            selectedSource?.fieldId ||
+            null,
+
+          sourceFieldName:
+            selectedSource?.fieldName ||
+            null,
+
+          grainSourceCropYear:
+            selectedSource?.cropYear ||
+            null,
+
+
+          validationStatus:
+            verified
+              ? "verified"
+              : "needs_review",
+
+          haulingJobMatched:
+            matchingHaulingJobIds.length >
+            0,
+
+          matchingHaulingJobIds,
+
+          /*
+            Grain contract allocation.
+            A uniquely resolved contract is posted immediately so the
+            Contracts page includes this ticket in delivered bushels.
+          */
+          contractId:
+            selectedGrainContract?.id ||
+            null,
+
+          contractNumber:
+            selectedGrainContractNumber,
+
+          contractAllocations:
+            selectedGrainContract
+              ? [
+                  {
+                    contractId:
+                      selectedGrainContract.id,
+
+                    contractNumber:
+                      selectedGrainContractNumber,
+
+                    bushels:
+                      ticketNetBushels
+                  }
+                ]
+              : [],
+
+          allocationModelVersion:
+            2,
+
+          spotBushels:
+            0,
+
+          unassignedBushels:
+            selectedGrainContract
+              ? 0
+              : ticketNetBushels,
+
+          reconciliationStatus:
+            selectedGrainContract
+              ? "reconciled"
+              : "needs_contract",
+
+          haulingJobId:
+            state.selectedContract?.id ||
+            null,
+
+          haulingJobName:
+            state.selectedContract
+              ? contractLabel(
+                  state.selectedContract
+                )
+              : null,
+
+reviewReasons,
+
+
+/*
+  If a FarmVista dispatch load was manually selected,
+  permanently link this ticket back to that load.
+*/
+loadoutId:
+  state.loadout?.id ||
+  null,
+
+loadNumber:
+  clean(
+    state.loadout?.loadNumber
+  ) ||
+  null,
+
+
+reviewedAt:
+  serverTimestamp(),
+
+          reviewedByUid:
+            state.user?.uid ||
+            null,
+
+          reviewedByName:
+            state.user?.displayName ||
+            state.user?.email ||
+            "FarmVista User",
+
+          reviewedByEmail:
+            state.user?.email ||
+            null,
+
+
+          updatedAt:
+            serverTimestamp()
+
+        };
+
+
+if (
+  verified
+) {
+
+  await saveVerifiedTicketWithInventory(
+    payload,
+    selectedSource
+  );
+
+}
+else {
+
+  /*
+    A ticket may be saved while under review,
+    but physical grain does not leave inventory
+    until the ticket is completely verified.
+  */
+  await updateDoc(
+    doc(
+      db,
+      "grain_tickets",
+      ticketId
+    ),
+    payload
+  );
+
+}
+
+
+        /*
+          If this ticket really does belong to an existing FarmVista
+          load-out, keep the shared load-detail fields synchronized.
+
+          IMPORTANT:
+          No grain_loadouts document is created for an after-the-fact
+          ticket that never had a FarmVista dispatch load.
+        */
+
+        if (
+          state.loadout?.id
+        ) {
+
+const loadPatch = {
+
+  /*
+    This is the permanent Grain Ticket ↔ Load-Out relationship.
+    Once grainTicketId exists, FarmVista can treat the dispatch
+    as completed/linked instead of still waiting In Transit.
+  */
+
+  grainTicketId:
+    ticketId,
+
+  elevatorTicketNumber:
+    clean(
+      elements.ticketNumber.value
+    ) ||
+    null,
+
+  linkedDate:
+    clean(
+      elements.ticketDate.value
+    ) ||
+    null,
+
+  ticketLinkedAt:
+    serverTimestamp(),
+
+
+  destinationId:
+    selectedLocation?.id ||
+    null,
+ceSiteName:
+            selectedSource?.siteName ||
+            null,
+
+          grainSourceBinNumber:
+            selectedSource?.binNumber ??
+            null,
+
+          grainSourceBinIndex:
+            selectedSource?.binIndex ??
+            null,
+
+          grainSourceFieldId:
+            selectedSource?.fieldId ||
+            null,
+
+          grainSourceFieldName:
+            selectedSource?.fieldName ||
+            null,
+
+          /*
+            fieldId / fieldName are legacy compatibility fields still read by
+            older FarmVista reports. They MUST be cleared when a ticket is
+            changed from a Field to generic Active Harvest.
+          */
+          fieldId:
+            selectedSource?.fieldId ||
+            null,
+
+          fieldName:
+            selectedSource?.fieldName ||
+            null,
+
+          sourceFieldId:
+            selectedSource?.fieldId ||
+            null,
+
+          sourceFieldName:
+            selectedSource?.fieldName ||
+            null,
+
+          grainSourceCropYear:
+            selectedSource?.cropYear ||
+            null,
+
+
+          validationStatus:
+            verified
+              ? "verified"
+              : "needs_review",
+
+          haulingJobMatched:
+            matchingHaulingJobIds.length >
+            0,
+
+          matchingHaulingJobIds,
+
+          /*
+            Grain contract allocation.
+            A uniquely resolved contract is posted immediately so the
+            Contracts page includes this ticket in delivered bushels.
+          */
+          contractId:
+            selectedGrainContract?.id ||
+            null,
+
+          contractNumber:
+            selectedGrainContractNumber,
+
+          contractAllocations:
+            selectedGrainContract
+              ? [
+                  {
+                    contractId:
+                      selectedGrainContract.id,
+
+                    contractNumber:
+                      selectedGrainContractNumber,
+
+                    bushels:
+                      ticketNetBushels
+                  }
+                ]
+              : [],
+
+          allocationModelVersion:
+            2,
+
+          spotBushels:
+            0,
+
+          unassignedBushels:
+            selectedGrainContract
+              ? 0
+              : ticketNetBushels,
+
+          reconciliationStatus:
+            selectedGrainContract
+              ? "reconciled"
+              : "needs_contract",
+
+          haulingJobId:
+            state.selectedContract?.id ||
+            null,
+
+          haulingJobName:
+            state.selectedContract
+              ? contractLabel(
+                  state.selectedContract
+                )
+              : null,
+
+reviewReasons,
+
+
+/*
+  If a FarmVista dispatch load was manually selected,
+  permanently link this ticket back to that load.
+*/
+loadoutId:
+  state.loadout?.id ||
+  null,
+
+loadNumber:
+  clean(
+    state.loadout?.loadNumber
+  ) ||
+  null,
+
+
+reviewedAt:
+  serverTimestamp(),
+
+          reviewedByUid:
+            state.user?.uid ||
+            null,
+
+          reviewedByName:
+            state.user?.displayName ||
+            state.user?.email ||
+            "FarmVista User",
+
+          reviewedByEmail:
+            state.user?.email ||
+            null,
+
+
+          updatedAt:
+            serverTimestamp()
+
+        };
+
+
+if (
+  verified
+) {
+
+  await saveVerifiedTicketWithInventory(
+    payload,
+    selectedSource
+  );
+
+}
+else {
+
+  /*
+    A ticket may be saved while under review,
+    but physical grain does not leave inventory
+    until the ticket is completely verified.
+  */
+  await updateDoc(
+    doc(
+      db,
+      "grain_tickets",
+      ticketId
+    ),
+    payload
+  );
+
+}
+
+
+        /*
+          If this ticket really does belong to an existing FarmVista
+          load-out, keep the shared load-detail fields synchronized.
+
+          IMPORTANT:
+          No grain_loadouts document is created for an after-the-fact
+          ticket that never had a FarmVista dispatch load.
+        */
+
+        if (
+          state.loadout?.id
+        ) {
+
+const loadPatch = {
+
+  /*
+    This is the permanent Grain Ticket ↔ Load-Out relationship.
+    Once grainTicketId exists, FarmVista can treat the dispatch
+    as completed/linked instead of still waiting In Transit.
+  */
+
+  grainTicketId:
+    ticketId,
+
+  elevatorTicketNumber:
+    clean(
+      elements.ticketNumber.value
+    ) ||
+    null,
+
+  linkedDate:
+    clean(
+      elements.ticketDate.value
+    ) ||
+    null,
+
+  ticketLinkedAt:
+    serverTimestamp(),
+
+
+  destinationId:
+    selectedLocation?.id ||
+    null,
+
+            destinationName:
+              selectedLocation?.locationName ||
+              null,
+
+            buyerId:
+              selectedBuyer?.id ||
+              null,
+
+            buyerName:
+              selectedBuyer?.name ||
+              selectedLoca
+
+===== haulingJobId: =====
+
+atus ||
+                ticket?.status ||
+                ""
+              );
+
+            const candidateReasons =
+              Array.isArray(ticket?.reviewReasons)
+                ? ticket.reviewReasons
+                : [];
+
+            const stillNeedsReview =
+              candidateStatus === "needs_review" ||
+              candidateStatus === "review" ||
+              candidateStatus === "needs review" ||
+              candidateReasons.length > 0;
+
+            return (
+              stillNeedsReview &&
+              sameSoldUnderOcrEvidence(
+                state.ticket,
+                ticket
+              )
+            );
+          }
+        );
+
+
+      let updatedCount =
+        0;
+
+
+      for (
+        const ticket of
+        matches
+      ) {
+
+        const existingReasons =
+          Array.isArray(
+            ticket.reviewReasons
+          )
+            ? ticket.reviewReasons
+            : [];
+
+
+        const matchingJob =
+          matchingHaulingJobForReviewTicket(ticket);
+
+        const reviewReasons =
+          existingReasons.filter(reason => {
+            const key = String(reason || "");
+            if (customerReviewReasons.has(key)) return false;
+            if (matchingJob && key === "hauling_job_not_assigned") return false;
+            return true;
+          });
+
+
+        try {
+
+          if (matchingJob) {
+            await syncSoldUnderToHaulingJob(
+              matchingJob,
+              selectedCustomer,
+              ticketId
+            );
+          }
+
+          await updateDoc(
+            doc(
+              db,
+              "grain_tickets",
+              ticket.id
+            ),
+            {
+              customerId:
+                selectedCustomer.id,
+
+              customerName:
+                selectedCustomer.name,
+
+              haulingJobId:
+                matchingJob?.id ||
+                ticket?.haulingJobId ||
+                null,
+
+              haulingJobName:
+                matchingJob
+                  ? contractLabel(matchingJob)
+                  : (ticket?.haulingJobName || null),
+
+              haulingJobMatched:
+                Boolean(matchingJob || ticket?.haulingJobId),
+
+              matchingHaulingJobIds:
+                matchingJob
+                  ? [matchingJob.id]
+                  : (
+                      Array.isArray(ticket?.matchingHaulingJobIds)
+                        ? ticket.matchingHaulingJobIds
+                        : []
+                    ),
+
+              reviewReasons,
+
+              soldUnderBulkCorrectedFromTicketId:
+                ticketId,
+
+              soldUnderBulkCorrectionSource:
+                sourceEvidence.account
+                  ? "exact_ocr_customer_account"
+                  : "exact_ocr_customer_text",
+
+              soldUnderBulkCorrectedAt:
+                serverTimestamp(),
+
+              soldUnderBulkCorrectedByUid:
+                state.user?.uid ||
+                null,
+
+              soldUnderBulkCorrectedByName:
+                state.user?.displayName ||
+                state.user?.email ||
+                "FarmVista User",
+
+              updatedAt:
+                serverTimestamp()
+            }
+          );
+
+
+          ticket.customerId =
+            selectedCustomer.id;
+
+          ticket.customerName =
+            selectedCustomer.name;
+
+          if (matchingJob) {
+            ticket.haulingJobId = matchingJob.id;
+            ticket.haulingJobName = contractLabel(matchingJob);
+            ticket.haulingJobMatched = true;
+            ticket.matchingHaulingJobIds = [matchingJob.id];
+          }
+
+          ticket.reviewReasons =
+            reviewReasons;
+
+          updatedCount++;
+
+        }
+        catch (
+          error
+        ) {
+
+          console.warn(
+            "[Grain Ticket Detail] Matching Sold Under review ticket could not be updated:",
+            {
+              ticketId:
+                ticket.id,
+              error
+            }
+          );
+
+        }
+
+      }
+
+
+      return updatedCount;
+
+    }
+
+
+    // ==========================================================
+    // SAVE / APPROVE
+    // ==========================================================
+
+    async function saveTicket(
+      event
+    ) {
+
+      event.preventDefault();
+
+
+      if (
+        state.saving
+      ) {
+
+        return;
+
+      }
+
+
+      clearMessage();
+
+
+      updateSelectedReferences();
+
+
+      const reviewReasons =
+        currentReviewReasons();
+
+
+      const verified =
+        reviewReasons.length ===
+        0;
+
+
+const selectedCustomer =
+  state.selectedCustomer;
+
+
+const customerIsUnknown =
+  selectedCustomer?.unknown ===
+    true;
+
+
+      const selectedSource =
+        state.selectedSource;
+
+
+      const selectedLocation =
+        state.selectedLocation;
+
+
+      const selectedBuyer =
+        state.select
+om a Field to generic Active Harvest.
+          */
+          fieldId:
+            selectedSource?.fieldId ||
+            null,
+
+          fieldName:
+            selectedSource?.fieldName ||
+            null,
+
+          sourceFieldId:
+            selectedSource?.fieldId ||
+            null,
+
+          sourceFieldName:
+            selectedSource?.fieldName ||
+            null,
+
+          grainSourceCropYear:
+            selectedSource?.cropYear ||
+            null,
+
+
+          validationStatus:
+            verified
+              ? "verified"
+              : "needs_review",
+
+          haulingJobMatched:
+            matchingHaulingJobIds.length >
+            0,
+
+          matchingHaulingJobIds,
+
+          /*
+            Grain contract allocation.
+            A uniquely resolved contract is posted immediately so the
+            Contracts page includes this ticket in delivered bushels.
+          */
+          contractId:
+            selectedGrainContract?.id ||
+            null,
+
+          contractNumber:
+            selectedGrainContractNumber,
+
+          contractAllocations:
+            selectedGrainContract
+              ? [
+                  {
+                    contractId:
+                      selectedGrainContract.id,
+
+                    contractNumber:
+                      selectedGrainContractNumber,
+
+                    bushels:
+                      ticketNetBushels
+                  }
+                ]
+              : [],
+
+          allocationModelVersion:
+            2,
+
+          spotBushels:
+            0,
+
+          unassignedBushels:
+            selectedGrainContract
+              ? 0
+              : ticketNetBushels,
+
+          reconciliationStatus:
+            selectedGrainContract
+              ? "reconciled"
+              : "needs_contract",
+
+          haulingJobId:
+            state.selectedContract?.id ||
+            null,
+
+          haulingJobName:
+            state.selectedContract
+              ? contractLabel(
+                  state.selectedContract
+                )
+              : null,
+
+reviewReasons,
+
+
+/*
+  If a FarmVista dispatch load was manually selected,
+  permanently link this ticket back to that load.
+*/
+loadoutId:
+  state.loadout?.id ||
+  null,
+
+loadNumber:
+  clean(
+    state.loadout?.loadNumber
+  ) ||
+  null,
+
+
+reviewedAt:
+  serverTimestamp(),
+
+          reviewedByUid:
+            state.user?.uid ||
+            null,
+
+          reviewedByName:
+            state.user?.displayName ||
+            state.user?.email ||
+            "FarmVista User",
+
+          reviewedByEmail:
+            state.user?.email ||
+            null,
+
+
+          updatedAt:
+            serverTimestamp()
+
+        };
+
+
+if (
+  verified
+) {
+
+  await saveVerifiedTicketWithInventory(
+    payload,
+    selectedSource
+  );
+
+}
+else {
+
+  /*
+    A ticket may be saved while under review,
+    but physical grain does not leave inventory
+    until the ticket is completely verified.
+  */
+  await updateDoc(
+    doc(
+      db,
+      "grain_tickets",
+      ticketId
+    ),
+    payload
+  );
+
+}
+
+
+        /*
+          If this ticket really does belong to an existing FarmVista
+          load-out, keep the shared load-detail fields synchronized.
+
+          IMPORTANT:
+          No grain_loadouts document is created for an after-the-fact
+          ticket that never had a FarmVista dispatch load.
+        */
+
+        if (
+          state.loadout?.id
+        ) {
+
+const loadPatch = {
+
+  /*
+    This is the permanent Grain Ticket ↔ Load-Out relationship.
+    Once grainTicketId exists, FarmVista can treat the dispatch
+    as completed/linked instead of still waiting In Transit.
+  */
+
+  grainTicketId:
+    ticketId,
+
+  elevatorTicketNumber:
+    clean(
+      elements.ticketNumber.value
+    ) ||
+    null,
+
+  linkedDate:
+    clean(
+      elements.ticketDate.value
+    ) ||
+    null,
+
+  ticketLinkedAt:
+    serverTimestamp(),
+
+
+  destinationId:
+    selectedLocation?.id ||
+    null,
+
+            destinationName:
+              selectedLocation?.locationName ||
+              null,
+
+            buyerId:
+              selectedBuyer?.id ||
+              null,
+
+            buyerName:
+              selectedBuyer?.name ||
+              selectedLocation?.buyerName ||
+              null,
+
+            deliveryLocationName:
+              selectedLocation?.locationName ||
+              null,
+
+            deliveryStreet:
+              selectedLocation?.street ||
+              null,
+
+            deliveryCity:
+              selectedLocation?.city ||
+              null,
+
+            deliveryState:
+              selectedLocation?.state ||
+              null,
+
+            deliveryZip:
+              selectedLocation?.zip ||
+              null,
+
+customerId:
+  customerIsUnknown
+    ? null
+    : (
+        selectedCustomer?.id ||
+        null
+      ),
+
+customerName:
+  cust
+tomerIsUnknown
+    ? null
+    : (
+        selectedCustomer?.id ||
+        null
+      ),
+
+customerName:
+  customerIsUnknown
+    ? "Unknown"
+    : (
+        selectedCustomer?.name ||
+        null
+      ),
+
+            crop:
+              clean(
+                elements.crop.value
+              ) ||
+              null,
+
+            grainSourceType:
+              selectedSource?.type ||
+              null,
+
+            grainSourceScope:
+              selectedSource?.sourceScope ||
+              null,
+
+            grainSourceValue:
+              selectedSource?.value ||
+              null,
+
+            grainSourceId:
+              selectedSource?.id ||
+              null,
+
+            grainSourceName:
+              selectedSource?.label ||
+              null,
+
+            grainSourceSiteId:
+              selectedSource?.siteId ||
+              null,
+
+            grainSourceSiteName:
+              selectedSource?.siteName ||
+              null,
+
+            grainSourceBinNumber:
+              selectedSource?.binNumber ??
+              null,
+
+            grainSourceBinIndex:
+              selectedSource?.binIndex ??
+              null,
+
+            grainSourceFieldId:
+              selectedSource?.fieldId ||
+              null,
+
+            grainSourceFieldName:
+              selectedSource?.fieldName ||
+              null,
+
+            fieldId:
+              selectedSource?.fieldId ||
+              null,
+
+            fieldName:
+              selectedSource?.fieldName ||
+              null,
+
+            sourceFieldId:
+              selectedSource?.fieldId ||
+              null,
+
+            sourceFieldName:
+              selectedSource?.fieldName ||
+              null,
+
+            grainSourceCropYear:
+              selectedSource?.cropYear ||
+              null,
+
+            haulingJobId:
+              state.selectedContract?.id ||
+              null,
+
+            haulingJobName:
+              state.selectedContract
+                ? contractLabel(
+                    state.selectedContract
+                  )
+                : null,
+
+            haulingJobLabel:
+              state.selectedContract
+                ? contractLabel(
+                    state.selectedContract
+                  )
+                : null,
+
+
+            updatedAt:
+              serverTimestamp()
+
+          };
+
+
+          await updateDoc(
+            doc(
+              db,
+              "grain_loadouts",
+              state.loadout.id
+            ),
+            loadPatch
+          );
+
+
+          Object.assign(
+            state.loadout,
+            loadPatch
+          );
+
+        }
+
+
+        if (
+          state.selectedContract &&
+          state.selectedCustomer &&
+          state.selectedCustomer.unknown !== true &&
+          state.selectedCustomer.id
+        ) {
+          await syncSoldUnderToHaulingJob(
+            state.selectedContract,
+            state.selectedCustomer,
+            ticketId
+          );
+        }
+
+
+        /*
+          Apply an office Sold Under correction to every OTHER ticket
+          still under review with the same exact OCR customer identity.
+        */
+        if (
+          state.selectedCustomer &&
+          state.selectedCustomer.unknown !==
+            true &&
+          state.selectedCustomer.id
+        ) {
+
+          bulkSoldUnderUpdated =
+            await bulkUpdateMatchingReviewSoldUnder(
+              state.selectedCustomer
+            );
+
+        }
+
+
+        /*
+          Teach FarmVista the OCR wording only for selections that
+          were actually resolved.
+        */
+
+        await Promise.all([
+
+state.selectedCustomer &&
+state.selectedCustomer.unknown !==
+  true &&
+state.selectedCustomer.id
+  ? Promise.all([
+      saveAlias(
+        "customer",
+        state.selectedCustomer.id,
+        state.selectedCustomer.name
+      ),
+      clean(
+        state.ticket?.ocrCustomerAccountText ||
+        state.ticket?.customerAccountText
+      )
+        ? saveAlias(
+            "customer",
+            state.selectedCustomer.id,
+            state.selectedCustomer.name,
+            state.ticket?.ocrCustomerAccountText ||
+            state.ticket?.customerAccountText
+          )
+        : Promise.resolve()
+    ])
+  : Promise.resolve(),
+
+          selectedBuyer
+            ? saveAlias(
+                "buyer",
+                selectedBuyer.id,
+                selectedBuyer.name
+              )
+            : Promise.resolve(),
+
+          selectedLocation
+            ? saveAlias(
+                "delivery_location",
+                selectedLocation.id,
+                selectedLocation.locationName
+              )
+            : Promise.resolve()
+
+        ]);
+
+
+        Object.assign(
+          state.ticket,
+          payload
+        );
+
+
+        updateReviewUI();
+
+
+        const bulkMessage =
+          bulkSoldUnde
