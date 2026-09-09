@@ -1,0 +1,41 @@
+name: FarmVista spot load support
+on:
+  push:
+    paths:
+      - '.github/workflows/fv-spot-load-fix.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Apply Spot Load patch
+        run: python3 .github/scripts/fv_spot_load_patch.py
+      - name: Validate ticket detail JavaScript
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, subprocess, tempfile
+          text=Path('pages/grain/grain-ticket-detail.html').read_text()
+          scripts=re.findall(r'<script\b[^>]*>([\s\S]*?)</script>', text, re.I)
+          for i,script in enumerate(scripts):
+            if not script.strip(): continue
+            f=Path(tempfile.gettempdir())/f'fv-ticket-detail-{i}.mjs'
+            f.write_text(script)
+            subprocess.run(['node','--check',str(f)],check=True)
+          subprocess.run(['node','--check','js/version.js'],check=True)
+          PY
+          grep -q 'Spot Load — No Hauling Job' pages/grain/grain-ticket-detail.html
+          grep -q 'number:  "09.09.04"' js/version.js
+      - name: Commit feature
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pages/grain/grain-ticket-detail.html js/version.js
+          git commit -m 'Support grain ticket spot loads without hauling jobs [skip auto-version]'
+          git pull --rebase origin main
+          git push origin main
