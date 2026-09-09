@@ -1283,6 +1283,10 @@ async function syncContractTotalsForIds(
 function getContractStatus(
   contract
 ) {
+  if (contract?.manualClosed === true) {
+    return "complete";
+  }
+
   if (
     contract?.voided
   ) {
@@ -9832,6 +9836,9 @@ function rebuildEditStaticSelect(
 function openEditModal(
   contractId
 ) {
+  const fvEditForm = $("edit-contract-form");
+  if (fvEditForm) fvEditForm.dataset.fvContractId = clean(contractId);
+
   const contract =
     state.contracts.find(
       item =>

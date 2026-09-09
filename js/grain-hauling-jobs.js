@@ -505,6 +505,10 @@ function jobName(
 function jobStatus(
   job
 ) {
+  if (job?.manualClosed === true) {
+    return "closed";
+  }
+
 
   const raw =
     norm(
