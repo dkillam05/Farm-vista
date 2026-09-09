@@ -985,8 +985,9 @@ function contractsForJob(
 }
 
 /*
-  Sold Under belongs to the contracts linked to a hauling job,
-  not to the hauling job itself.
+  Sold Under may be learned directly on a hauling job from a reviewed
+  elevator ticket before any grain contract exists. Linked contracts remain
+  additional authoritative Sold Under sources.
 
   Unknown is ALWAYS available.
 
@@ -1020,6 +1021,34 @@ function jobSoldUnderOptions(
 
   const seen =
     new Set();
+
+
+  const job =
+    state.jobs.find(
+      item => clean(item.id) === clean(jobId)
+    ) || null;
+
+  const storedCustomerId =
+    jobCustomerId(job);
+
+  const storedCustomerName =
+    clean(
+      job?.customerName ||
+      matchingCustomer(storedCustomerId)?.name
+    );
+
+  if (storedCustomerId || storedCustomerName) {
+    const key = storedCustomerId
+      ? `id:${storedCustomerId}`
+      : `name:${norm(storedCustomerName)}`;
+
+    seen.add(key);
+    options.push({
+      id: storedCustomerId,
+      name: storedCustomerName || "Unknown",
+      unknown: false
+    });
+  }
 
 
   contractsForJob(

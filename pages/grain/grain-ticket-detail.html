@@ -957,7 +957,7 @@
               </h2>
 
               <p class="card-sub">
-                Use the same FarmVista flow as Assign Load: Hauling Job → Grain Source. The hauling job fills Crop and Destination. Sold Under comes from contracts linked to the hauling job.
+                Use the same FarmVista flow as Assign Load: Hauling Job → Grain Source. The hauling job fills Crop and Destination. Sold Under can come from the hauling job or linked contracts. A reviewed ticket can teach the hauling job its Sold Under before a contract exists.
               </p>
 
               <div
@@ -8745,27 +8745,41 @@ function renderContractOptions() {
 
 
           /*
-            When Sold Under is known, keep only hauling jobs with an
-            OPEN linked contract for that customer/crop. Unknown does
-            not force a contract match.
+            Sold Under may be learned from a reviewed grain ticket before a
+            grain contract exists. Do not remove an otherwise-valid hauling
+            job simply because the selected customer has no linked contract.
           */
           if (
             selectedCustomerId &&
             selectedCustomerId !== "__unknown__"
           ) {
-            const customerCompatible =
-              state.contracts.some(
+            const storedJobCustomerId =
+              clean(
+                job?.customerId ||
+                job?.grainCustomerId
+              );
+
+            const linkedContracts =
+              state.contracts.filter(
                 contract =>
                   contractIsOpen(contract) &&
                   clean(contract?.haulingJobId) ===
-                    clean(job.id) &&
-                  contractCustomerId(contract) ===
-                    selectedCustomerId &&
+                    clean(job.id)
+              );
+
+            const customerCompatible =
+              storedJobCustomerId === selectedCustomerId ||
+              linkedContracts.some(
+                contract =>
+                  contractCustomerId(contract) === selectedCustomerId &&
                   (
                     !selectedCrop ||
-                    contractCrop(contract) ===
-                      selectedCrop
+                    contractCrop(contract) === selectedCrop
                   )
+              ) ||
+              (
+                !storedJobCustomerId &&
+                linkedContracts.length === 0
               );
 
             if (!customerCompatible) {
@@ -9124,6 +9138,24 @@ function applySelectedHaulingJob() {
     );
 
 
+  const storedJobCustomerId =
+    clean(
+      job?.customerId ||
+      job?.grainCustomerId
+    );
+
+
+  if (
+    storedJobCustomerId
+  ) {
+
+    eligibleCustomerIds.add(
+      storedJobCustomerId
+    );
+
+  }
+
+
   if (
     currentCustomerId ===
       "__unknown__"
@@ -9138,8 +9170,11 @@ function applySelectedHaulingJob() {
   }
   else if (
     currentCustomerId &&
-    eligibleCustomerIds.has(
-      currentCustomerId
+    (
+      eligibleCustomerIds.size === 0 ||
+      eligibleCustomerIds.has(
+        currentCustomerId
+      )
     )
   ) {
 
@@ -9284,6 +9319,24 @@ function autoMatchCustomer() {
     );
 
 
+  const storedJobCustomerId =
+    clean(
+      haulingJob?.customerId ||
+      haulingJob?.grainCustomerId
+    );
+
+
+  if (
+    storedJobCustomerId
+  ) {
+
+    eligibleCustomerIds.add(
+      storedJobCustomerId
+    );
+
+  }
+
+
   const eligibleCustomers =
     state.customers.filter(
       customer =>
@@ -9309,15 +9362,22 @@ function autoMatchCustomer() {
   ) {
 
     const saved =
-      eligibleCustomers.find(
+      state.customers.find(
         customer =>
           customer.id ===
           savedCustomerId
-      );
+      ) ||
+      null;
 
 
     if (
-      saved
+      saved &&
+      (
+        eligibleCustomerIds.size === 0 ||
+        eligibleCustomerIds.has(
+          savedCustomerId
+        )
+      )
     ) {
 
       return saved;
@@ -11018,10 +11078,12 @@ function updateSelectedReferences() {
     async function saveAlias(
       type,
       targetId,
-      targetName
+      targetName,
+      ocrTextOverride = ""
     ) {
 
       const ocrText =
+        clean(ocrTextOverride) ||
         aliasValueForType(
           type
         );
@@ -12629,6 +12691,111 @@ async function saveVerifiedTicketWithInventory(
 
 }
 
+    async function syncSoldUnderToHaulingJob(
+      job,
+      selectedCustomer,
+      sourceTicketId = ticketId
+    ) {
+
+      if (
+        !job?.id ||
+        !selectedCustomer?.id ||
+        selectedCustomer?.unknown === true
+      ) {
+        return false;
+      }
+
+      const linkedOpenContracts =
+        state.contracts.filter(
+          contract =>
+            contractIsOpen(contract) &&
+            clean(contract?.haulingJobId) === clean(job.id)
+        );
+
+      const linkedCustomerIds =
+        new Set(
+          linkedOpenContracts
+            .map(contractCustomerId)
+            .filter(Boolean)
+        );
+
+      /* Do not override a job that has contracts for a different customer. */
+      if (
+        linkedCustomerIds.size > 0 &&
+        !linkedCustomerIds.has(clean(selectedCustomer.id))
+      ) {
+        return false;
+      }
+
+      const patch = {
+        customerId: selectedCustomer.id,
+        grainCustomerId: selectedCustomer.id,
+        customerName: selectedCustomer.name,
+        soldUnderSource: "grain_ticket_review",
+        soldUnderLearnedFromTicketId: sourceTicketId,
+        soldUnderLearnedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+
+      await updateDoc(
+        doc(db, "grain_hauling_jobs", job.id),
+        patch
+      );
+
+      Object.assign(job, patch);
+      return true;
+    }
+
+
+    function matchingHaulingJobForReviewTicket(ticket) {
+      const existingId = clean(ticket?.haulingJobId);
+      if (existingId) {
+        const existing =
+          state.haulingJobs.find(job => clean(job.id) === existingId) || null;
+        if (existing) return existing;
+      }
+
+      const crop = normalize(ticket?.crop);
+      const locationId = clean(
+        ticket?.deliveryLocationId ||
+        ticket?.destinationId
+      );
+      const ticketDate = clean(ticket?.ticketDate);
+
+      const matches = state.haulingJobs.filter(job => {
+        if (job?.active === false || job?.voided === true) return false;
+
+        const status = normalize(job?.status);
+        if (
+          status.includes("void") ||
+          status.includes("closed") ||
+          status.includes("cancel") ||
+          status.includes("complete")
+        ) return false;
+
+        if (
+          crop &&
+          normalize(job?.crop || job?.commodity) !== crop
+        ) return false;
+
+        const jobLocationId = clean(
+          job?.deliveryLocationId ||
+          job?.locationId ||
+          job?.destinationId
+        );
+        if (locationId && jobLocationId && jobLocationId !== locationId) return false;
+
+        const start = clean(job?.deliveryStartDate || job?.deliveryStart);
+        const end = clean(job?.deliveryEndDate || job?.deliveryEnd);
+        if (ticketDate && start && ticketDate < start) return false;
+        if (ticketDate && end && ticketDate > end) return false;
+        return true;
+      });
+
+      return matches.length === 1 ? matches[0] : null;
+    }
+
+
     // ==========================================================
     // BULK SOLD UNDER CORRECTION FOR REVIEW TICKETS
     // ==========================================================
@@ -12748,7 +12915,8 @@ async function saveVerifiedTicketWithInventory(
           "customer_not_matched",
           "customer_not_selected",
           "sold_under_unknown",
-          "sold_under_driver_skipped"
+          "sold_under_driver_skipped",
+          "sold_under_requires_review"
         ]);
 
 
@@ -12791,19 +12959,27 @@ async function saveVerifiedTicketWithInventory(
             : [];
 
 
+        const matchingJob =
+          matchingHaulingJobForReviewTicket(ticket);
+
         const reviewReasons =
-          existingReasons.filter(
-            reason =>
-              !customerReviewReasons.has(
-                String(
-                  reason ||
-                  ""
-                )
-              )
-          );
+          existingReasons.filter(reason => {
+            const key = String(reason || "");
+            if (customerReviewReasons.has(key)) return false;
+            if (matchingJob && key === "hauling_job_not_assigned") return false;
+            return true;
+          });
 
 
         try {
+
+          if (matchingJob) {
+            await syncSoldUnderToHaulingJob(
+              matchingJob,
+              selectedCustomer,
+              ticketId
+            );
+          }
 
           await updateDoc(
             doc(
@@ -12817,6 +12993,28 @@ async function saveVerifiedTicketWithInventory(
 
               customerName:
                 selectedCustomer.name,
+
+              haulingJobId:
+                matchingJob?.id ||
+                ticket?.haulingJobId ||
+                null,
+
+              haulingJobName:
+                matchingJob
+                  ? contractLabel(matchingJob)
+                  : (ticket?.haulingJobName || null),
+
+              haulingJobMatched:
+                Boolean(matchingJob || ticket?.haulingJobId),
+
+              matchingHaulingJobIds:
+                matchingJob
+                  ? [matchingJob.id]
+                  : (
+                      Array.isArray(ticket?.matchingHaulingJobIds)
+                        ? ticket.matchingHaulingJobIds
+                        : []
+                    ),
 
               reviewReasons,
 
@@ -12851,6 +13049,13 @@ async function saveVerifiedTicketWithInventory(
 
           ticket.customerName =
             selectedCustomer.name;
+
+          if (matchingJob) {
+            ticket.haulingJobId = matchingJob.id;
+            ticket.haulingJobName = contractLabel(matchingJob);
+            ticket.haulingJobMatched = true;
+            ticket.matchingHaulingJobIds = [matchingJob.id];
+          }
 
           ticket.reviewReasons =
             reviewReasons;
@@ -13582,6 +13787,20 @@ customerName:
         }
 
 
+        if (
+          state.selectedContract &&
+          state.selectedCustomer &&
+          state.selectedCustomer.unknown !== true &&
+          state.selectedCustomer.id
+        ) {
+          await syncSoldUnderToHaulingJob(
+            state.selectedContract,
+            state.selectedCustomer,
+            ticketId
+          );
+        }
+
+
         /*
           Apply an office Sold Under correction to every OTHER ticket
           still under review with the same exact OCR customer identity.
@@ -13612,11 +13831,25 @@ state.selectedCustomer &&
 state.selectedCustomer.unknown !==
   true &&
 state.selectedCustomer.id
-  ? saveAlias(
-      "customer",
-      state.selectedCustomer.id,
-      state.selectedCustomer.name
-    )
+  ? Promise.all([
+      saveAlias(
+        "customer",
+        state.selectedCustomer.id,
+        state.selectedCustomer.name
+      ),
+      clean(
+        state.ticket?.ocrCustomerAccountText ||
+        state.ticket?.customerAccountText
+      )
+        ? saveAlias(
+            "customer",
+            state.selectedCustomer.id,
+            state.selectedCustomer.name,
+            state.ticket?.ocrCustomerAccountText ||
+            state.ticket?.customerAccountText
+          )
+        : Promise.resolve()
+    ])
   : Promise.resolve(),
 
           selectedBuyer
