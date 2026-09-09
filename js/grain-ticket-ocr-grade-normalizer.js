@@ -1,5 +1,5 @@
 /* FarmVista grain ticket OCR grade normalizer
-   Rev 2026-09-09 — Scoular layout + customer support
+   Rev 2026-09-09b — Scoular split-column grade recovery
 
    Re-associates explicit grade labels with the numeric value OCR already read.
    This is deliberately conservative: FarmVista never invents an unlabeled
@@ -147,23 +147,32 @@ function scoularGradeBlock(rawText) {
   if (!text || !/\bscoular\b/i.test(text)) return null;
 
   /*
-    Scoular's scale-ticket OCR commonly returns the four grade numbers in their
-    visual column order while the labels are read on separate lines. Example:
+    Scoular's printed grade table is a visual two-column block:
 
-      59.8
-      Field #
-      14.5
+      Test Weight                 60.4
+      Moisture                    14.5
+      Damaged Kernels (total)      2.2
+      Broken Corn & Foreign Mat    1.0
+
+    Google OCR does not always preserve those rows. It may return all labels
+    first and the values later, and it may even place the final FM value just
+    AFTER the words "GROSS LBS". Example seen 09/09/2026:
+
+      60.4
       Test Weight
-      Voisture
+      Moisture
       Damaged Kernels (total)
       Broken Corn & Foreign Mat
-      1.9
+      14.5
+      2.2
+      GROSS LBS:
+      10:15:40
       1.0
+      82,960 LBS
 
-    On the printed ticket those values are TW, Moisture, Damage and FM.
-    Restrict the recovery to the grade section only, bounded by the grade/hauler
-    area and GROSS LBS, so weights, dates, ticket numbers and bushels cannot be
-    mistaken for grade values.
+    Therefore do NOT stop the Scoular grade recovery at GROSS LBS. Continue
+    through the weight heading area and stop before NET LBS / bushels. Times
+    and whole-pound weights cannot match the decimal-only grade extractor.
   */
   const upper = text.toUpperCase();
   let start = upper.indexOf('GRADE:');
@@ -171,8 +180,10 @@ function scoularGradeBlock(rawText) {
   if (start < 0) start = upper.indexOf('TEST WEIGHT');
   if (start < 0) return null;
 
-  let end = upper.indexOf('GROSS LBS', start);
-  if (end < 0) end = upper.indexOf('GROSS WEIGHT', start);
+  let end = upper.indexOf('NET LBS', start);
+  if (end < 0) end = upper.indexOf('NET L.BS', start);
+  if (end < 0) end = upper.indexOf('GROSS BUSHELS', start);
+  if (end < 0) end = upper.indexOf('NET BUSHELS', start);
   if (end < 0) return null;
 
   const section = text.slice(start, end);
@@ -195,8 +206,13 @@ function scoularGradeBlock(rawText) {
 
   if (decimals.length < 4) return null;
 
-  const values = decimals.slice(0, 4);
-  const [testWeight, moisture, damage, foreignMaterial] = values;
+  /*
+    The first four decimal grade values in Scoular's grade/weight-header region
+    are TW, Moisture, Damage, FM in printed column order. Never substitute a
+    structured OCR value here: that is exactly how 14.5 moisture previously
+    leaked into FM and caused a false severe alert.
+  */
+  const [testWeight, moisture, damage, foreignMaterial] = decimals.slice(0, 4);
 
   if (
     !inRange('testWeight', testWeight) ||
@@ -213,7 +229,7 @@ function scoularGradeBlock(rawText) {
     damage,
     foreignMaterial,
     evidence: section,
-    source: 'scoular_grade_column_order'
+    source: 'scoular_grade_column_order_v2'
   };
 }
 
@@ -300,7 +316,7 @@ export function normalizeGrainTicketGrades(result) {
 
       if (
         chosen.source === 'raw_label_value' ||
-        chosen.source === 'scoular_grade_column_order'
+        chosen.source === 'scoular_grade_column_order_v2'
       ) {
         result.fields[field] = chosen.value;
       }
@@ -312,7 +328,7 @@ export function normalizeGrainTicketGrades(result) {
   }
 
   result.grainTicket.gradeParser = {
-    version: 'farmvista-grade-v3',
+    version: 'farmvista-grade-v4',
     elevatorFamily: family,
     fields: audit,
     customer: scoularCustomer
