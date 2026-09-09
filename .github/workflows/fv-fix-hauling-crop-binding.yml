@@ -1,0 +1,63 @@
+name: FarmVista hauling crop binding fix
+on:
+  push:
+    paths:
+      - '.github/workflows/fv-fix-hauling-crop-binding.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Patch hauling job crop binding
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('js/grain-hauling-jobs.js')
+          t=p.read_text()
+
+          old='''function jobCrop(\n  job\n) {\n\n  const raw =\n    clean(\n      job?.crop ||\n      job?.commodity\n    );'''
+          new='''function jobCrop(\n  job\n) {\n\n  const raw =\n    clean(\n      job?.crop ||\n      job?.commodity ||\n      job?.cropName ||\n      job?.cropType\n    );'''
+          if old not in t:
+              raise SystemExit('jobCrop marker not found')
+          t=t.replace(old,new,1)
+
+          marker='''function setJobModalMode(\n  job =\n    null\n) {'''
+          helper='''function setJobCropSelectValue(job) {\n\n  const select =\n    $(\n      "hauling-job-crop"\n    );\n\n\n  if (\n    !select\n  ) {\n\n    return;\n\n  }\n\n\n  const desired =\n    jobCrop(\n      job\n    );\n\n\n  const desiredKey =\n    norm(\n      desired\n    )\n      .replace(\n        /[^a-z]/g,\n        ""\n      );\n\n\n  const match =\n    [\n      ...select.options\n    ].find(\n      option => {\n\n        const optionKey =\n          norm(\n            option.value ||\n            option.textContent\n          )\n            .replace(\n              /[^a-z]/g,\n              ""\n            );\n\n\n        if (\n          optionKey === desiredKey\n        ) {\n\n          return true;\n\n        }\n\n\n        if (\n          desiredKey === "corn" ||\n          desiredKey === "yellowcorn"\n        ) {\n\n          return optionKey === "corn";\n\n        }\n\n\n        if (\n          [\n            "soy",\n            "soybean",\n            "soybeans",\n            "bean",\n            "beans"\n          ].includes(\n            desiredKey\n          )\n        ) {\n\n          return optionKey === "soybeans";\n\n        }\n\n\n        return false;\n\n      }\n    );\n\n\n  select.value =\n    match?.value ||\n    "";\n\n}\n\n\n'''+marker
+          if marker not in t:
+              raise SystemExit('setJobModalMode marker not found')
+          t=t.replace(marker,helper,1)
+
+          old='''  if (\n    $(\n      "hauling-job-crop"\n    )\n  ) {\n\n    $(\n      "hauling-job-crop"\n    )\n      .value =\n        jobCrop(\n          job\n        );\n\n  }'''
+          new='''  setJobCropSelectValue(\n    job\n  );'''
+          if old not in t:
+              raise SystemExit('openEdit crop marker not found')
+          t=t.replace(old,new,1)
+
+          old='''    crop,\n\n    startingBushels,'''
+          new='''    crop,\n\n    // Keep both current and legacy crop fields synchronized so every\n    // FarmVista hauling-job surface reads the same saved crop.\n    commodity:\n      crop,\n\n    startingBushels,'''
+          if old not in t:
+              raise SystemExit('payload crop marker not found')
+          t=t.replace(old,new,1)
+
+          p.write_text(t)
+          PY
+      - name: Commit fix
+        shell: bash
+        run: |
+          rm -f .github/workflows/fv-fix-hauling-crop-binding.yml
+          git config user.name "FarmVista Automation"
+          git config user.email "farmvista-automation@users.noreply.github.com"
+          git add js/grain-hauling-jobs.js .github/workflows/fv-fix-hauling-crop-binding.yml
+          git commit -m "Fix hauling job crop binding [skip auto-version]"
+          for i in 1 2 3 4 5; do
+            git pull --rebase origin main
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 3
+          done
+          exit 1
