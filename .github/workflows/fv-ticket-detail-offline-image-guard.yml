@@ -1,0 +1,129 @@
+name: FarmVista ticket detail offline image guard
+on:
+  push:
+    paths:
+      - '.github/workflows/fv-ticket-detail-offline-image-guard.yml'
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch ticket detail recovery and image guard
+        shell: python
+        run: |
+          from pathlib import Path
+
+          # 1) Hide the download/share row until the image element has a real URL.
+          p = Path('js/grain-ticket-image-download.js')
+          s = p.read_text()
+
+          old = """  function refreshPreparation(image,button){if(!image||!button)return;const url=clean(image.currentSrc||image.src);const state=prepared.get(image);if(url&&state?.url!==url)prepareForShare(image,button);}\n"""
+          new = """  function refreshPreparation(image,button){if(!image||!button)return;const url=clean(image.currentSrc||image.getAttribute('src')||image.src);const row=button.closest('.fv-ticket-download-row');if(row)row.hidden=!url;if(!url)return;const state=prepared.get(image);if(state?.url!==url)prepareForShare(image,button);}\n"""
+          assert old in s, 'refreshPreparation marker not found'
+          s = s.replace(old, new, 1)
+
+          # Also hide a freshly-created row immediately when there is no src yet.
+          old = """  function makeRow(image,key){const row=document.createElement('div');row.className='fv-ticket-download-row';row.dataset.fvTicketDownloadRow=key;row.appendChild(makeButton(image,key));return row;}\n"""
+          new = """  function makeRow(image,key){const row=document.createElement('div');row.className='fv-ticket-download-row';row.dataset.fvTicketDownloadRow=key;row.hidden=!clean(image?.currentSrc||image?.getAttribute('src')||image?.src);row.appendChild(makeButton(image,key));return row;}\n"""
+          assert old in s, 'makeRow marker not found'
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          # 2) Add a small recovery helper for the ticket detail page.
+          recovery = r'''/* FarmVista — Grain Ticket Detail transient Firestore offline recovery
+             One automatic retry only; prevents reload loops.
+          */
+          (() => {
+            'use strict';
+            if (window.__FV_TICKET_DETAIL_OFFLINE_RECOVERY_20260909) return;
+            window.__FV_TICKET_DETAIL_OFFLINE_RECOVERY_20260909 = true;
+
+            const OFFLINE_TEXT = 'failed to get document because the client is offline';
+            const key = `fv:ticket-detail-offline-retry:${location.pathname}${location.search}`;
+            let scheduled = false;
+
+            function hasOfflineFailure(){
+              return String(document.body?.innerText || '').toLowerCase().includes(OFFLINE_TEXT);
+            }
+
+            function retryOnce(){
+              if (scheduled || !hasOfflineFailure()) return;
+              if (sessionStorage.getItem(key) === '1') return;
+              scheduled = true;
+
+              const perform = () => {
+                if (sessionStorage.getItem(key) === '1') return;
+                sessionStorage.setItem(key, '1');
+                location.reload();
+              };
+
+              if (navigator.onLine) {
+                setTimeout(perform, 1800);
+              } else {
+                window.addEventListener('online', () => setTimeout(perform, 500), {once:true});
+              }
+            }
+
+            function clearGuardWhenHealthy(){
+              const image = document.getElementById('ticketImage');
+              const ticketNumber = document.getElementById('ticketNumber');
+              const hasImage = Boolean(image?.currentSrc || image?.getAttribute('src'));
+              const hasTicket = Boolean(String(ticketNumber?.value || '').trim());
+              if ((hasImage || hasTicket) && !hasOfflineFailure()) {
+                sessionStorage.removeItem(key);
+              }
+            }
+
+            const observe = () => {
+              retryOnce();
+              clearGuardWhenHealthy();
+            };
+
+            if (document.readyState === 'loading') {
+              document.addEventListener('DOMContentLoaded', observe, {once:true});
+            } else {
+              observe();
+            }
+
+            new MutationObserver(observe).observe(document.documentElement, {
+              childList:true,
+              subtree:true,
+              characterData:true,
+              attributes:true,
+              attributeFilter:['src','value','class']
+            });
+
+            window.addEventListener('online', observe, {passive:true});
+          })();
+          '''
+          Path('js/grain-ticket-detail-offline-recovery.js').write_text(recovery)
+
+          # 3) Hook recovery into ticket detail and bump the image helper cache key on all 3 pages.
+          detail = Path('pages/grain/grain-ticket-detail.html')
+          s = detail.read_text()
+          if 'grain-ticket-detail-offline-recovery.js' not in s:
+            anchor = '<script src="/js/grain-ticket-image-download.js?v=20260909-3"></script>'
+            assert anchor in s, 'ticket detail image helper v3 hook not found'
+            s = s.replace(anchor, '<script src="/js/grain-ticket-detail-offline-recovery.js?v=20260909-1"></script>\n  <script src="/js/grain-ticket-image-download.js?v=20260909-4"></script>', 1)
+          else:
+            s = s.replace('/js/grain-ticket-image-download.js?v=20260909-3', '/js/grain-ticket-image-download.js?v=20260909-4')
+          detail.write_text(s)
+
+          for name in ['pages/grain/index.html','pages/reports/report-grain-contracts.html']:
+            p = Path(name)
+            s = p.read_text()
+            assert '/js/grain-ticket-image-download.js?v=20260909-3' in s, f'v3 helper hook not found in {name}'
+            p.write_text(s.replace('/js/grain-ticket-image-download.js?v=20260909-3','/js/grain-ticket-image-download.js?v=20260909-4'))
+
+      - name: Commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add js/grain-ticket-image-download.js js/grain-ticket-detail-offline-recovery.js pages/grain/grain-ticket-detail.html pages/grain/index.html pages/reports/report-grain-contracts.html
+          git commit -m 'Recover ticket detail from transient offline reads [skip auto-version]'
+          git pull --rebase origin main
+          git push
