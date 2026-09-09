@@ -1,12 +1,12 @@
 /* FarmVista — saved grain ticket image download/share
-   Rev 2026-09-09c
+   Rev 2026-09-09d
    Uniform support for Ticket Detail, Grain Inventory drill-down,
    and Grain Contract Report ticket popup.
 */
 (() => {
   'use strict';
-  if (window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260909C) return;
-  window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260909C = true;
+  if (window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260909D) return;
+  window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260909D = true;
 
   const style = document.createElement('style');
   style.id = 'fv-ticket-image-download-style';
@@ -70,35 +70,63 @@
     state.promise=buildFile(image).then(file=>{state.file=file;state.error=null;setReady(button);return file;}).catch(error=>{state.error=error;console.warn('[FarmVista] Ticket image prefetch unavailable; will retry on tap:',error);setReady(button);return null;});
   }
 
+  function shareUrlDirect(url){
+    if(!url || !navigator.share) return false;
+    navigator.share({title:'Grain Ticket Image',url}).catch(error=>{
+      if(error?.name==='AbortError') return;
+      console.warn('[FarmVista] Native ticket-image URL share failed:',error);
+      alert('The iPhone share sheet could not open. Please try again.');
+    });
+    return true;
+  }
+
   async function shareMobile(image,button){
+    const url=clean(image?.currentSrc||image?.getAttribute('src')||image?.src);
     let state=prepared.get(image);
     let file=state?.file;
+
+    // If prefetch already proved Firebase will not expose image bytes,
+    // share the saved image URL directly from this user tap. This keeps
+    // Safari on FarmVista and opens the native share sheet immediately.
+    if(!file && state?.error && url){
+      shareUrlDirect(url);
+      return;
+    }
+
     if(!file){
       const old=button.textContent;
       button.disabled=true;
       button.textContent='Preparing…';
       try{
         file=await buildFile(image);
-        state={url:clean(image.currentSrc||image.src),file,promise:Promise.resolve(file),error:null};
+        state={url,file,promise:Promise.resolve(file),error:null};
         prepared.set(image,state);
       }catch(error){
-        console.warn('[FarmVista] Ticket image share preparation failed:',error);
-        alert('FarmVista could not prepare this ticket image for sharing. Please try again.');
+        console.warn('[FarmVista] Ticket image file share unavailable; using URL share:',error);
+        if(url){
+          shareUrlDirect(url);
+          return;
+        }
+        alert('FarmVista could not access this ticket image. Please try again.');
         return;
       }finally{
         button.disabled=false;
         button.textContent=old;
       }
     }
+
     if(navigator.canShare&&!navigator.canShare({files:[file]})){
-      alert('This device cannot share the saved ticket image as a file.');
+      if(url){shareUrlDirect(url);return;}
+      alert('This device cannot share the saved ticket image.');
       return;
     }
+
     try{
       await navigator.share({files:[file],title:'Grain Ticket Image'});
     }catch(error){
       if(error?.name==='AbortError') return;
-      console.warn('[FarmVista] Native ticket-image share failed:',error);
+      console.warn('[FarmVista] Native ticket-image file share failed; trying URL share:',error);
+      if(url){shareUrlDirect(url);return;}
       alert('The iPhone share sheet could not open. Please try again.');
     }
   }
