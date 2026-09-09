@@ -1,0 +1,67 @@
+name: FarmVista hauling crop force binding
+on:
+  push:
+    paths: ['.github/workflows/fv-hauling-crop-force-bind.yml']
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Patch hauling crop binding and cache bust
+        shell: python
+        run: |
+          from pathlib import Path
+
+          js = Path('js/grain-hauling-jobs.js')
+          s = js.read_text()
+
+          marker = '''function jobStartingBushels(\n  job\n) {'''
+          helper = '''function setJobCropControl(\n  job\n) {\n\n  const select =\n    $(\n      "hauling-job-crop"\n    );\n\n\n  if (\n    !select\n  ) {\n\n    return;\n\n  }\n\n\n  const wanted =\n    jobCrop(\n      job\n    );\n\n\n  const wantedKey =\n    norm(\n      wanted\n    )\n      .replace(\n        /[^a-z]/g,\n        ""\n      );\n\n\n  const option =\n    Array.from(\n      select.options\n    ).find(\n      item => {\n\n        const valueKey =\n          norm(\n            item.value\n          )\n            .replace(\n              /[^a-z]/g,\n              ""\n            );\n\n\n        const textKey =\n          norm(\n            item.textContent\n          )\n            .replace(\n              /[^a-z]/g,\n              ""\n            );\n\n\n        if (\n          wantedKey === "corn" ||\n          wantedKey === "yellowcorn"\n        ) {\n\n          return (\n            valueKey === "corn" ||\n            textKey === "corn"\n          );\n\n        }\n\n\n        if (\n          [\n            "soy",\n            "soybean",\n            "soybeans",\n            "bean",\n            "beans"\n          ].includes(\n            wantedKey\n          )\n        ) {\n\n          return (\n            [\n              "soy",\n              "soybean",\n              "soybeans",\n              "bean",\n              "beans"\n            ].includes(\n              valueKey\n            ) ||\n            [\n              "soy",\n              "soybean",\n              "soybeans",\n              "bean",\n              "beans"\n            ].includes(\n              textKey\n            )\n          );\n\n        }\n\n\n        return (\n          valueKey === wantedKey ||\n          textKey === wantedKey\n        );\n\n      }\n    );\n\n\n  Array.from(\n    select.options\n  ).forEach(\n    item => {\n      item.selected =\n        item === option;\n    }\n  );\n\n\n  if (\n    option\n  ) {\n\n    select.value =\n      option.value;\n\n    select.dataset.fvJobCrop =\n      option.value;\n\n  }\n  else {\n\n    select.value =\n      "";\n\n    select.dataset.fvJobCrop =\n      wanted;\n\n    console.warn(\n      "[Hauling Jobs] Could not bind saved crop to edit dropdown:",\n      wanted,\n      Array.from(select.options).map(item => item.value)\n    );\n\n  }\n\n}\n\n\n'''
+          if 'function setJobCropControl(' not in s:
+              assert marker in s, 'jobStartingBushels marker not found'
+              s = s.replace(marker, helper + marker, 1)
+
+          old = '''  if (\n    $(\n      "hauling-job-crop"\n    )\n  ) {\n\n    $(\n      "hauling-job-crop"\n    )\n      .value =\n        jobCrop(\n          job\n        );\n\n  }'''
+          new = '''  setJobCropControl(\n    job\n  );'''
+          if old in s:
+              s = s.replace(old, new, 1)
+          elif '  setJobCropControl(\n    job\n  );' not in s:
+              raise SystemExit('openEditJob crop assignment marker not found')
+
+          old_open = '''  $(\n    "hauling-job-modal"\n  )\n    ?.classList\n    .add(\n      "open"\n    );\n\n\n  document.body.style\n    .overflow =\n      "hidden";\n\n}\n\n\nfunction closeJobModal()'''
+          new_open = '''  $(\n    "hauling-job-modal"\n  )\n    ?.classList\n    .add(\n      "open"\n    );\n\n\n  /* Re-assert the saved crop after the modal opens. Other hauling-job\n     compatibility code refreshes select controls asynchronously on open;\n     this guarantees the edit form always shows the crop belonging to\n     the row that was tapped, never a prior/default selection. */\n  requestAnimationFrame(\n    () =>\n      setJobCropControl(\n        job\n      )\n  );\n\n  setTimeout(\n    () =>\n      setJobCropControl(\n        job\n      ),\n    900\n  );\n\n\n  document.body.style\n    .overflow =\n      "hidden";\n\n}\n\n\nfunction closeJobModal()'''
+          if old_open in s:
+              s = s.replace(old_open, new_open, 1)
+          elif 'setTimeout(\n    () =>\n      setJobCropControl(' not in s:
+              raise SystemExit('open modal marker not found')
+
+          js.write_text(s)
+
+          html = Path('pages/grain/grain-contracts.html')
+          h = html.read_text()
+          import re
+          h2, count = re.subn(r'<script type="module" src="/js/grain-hauling-jobs\.js(?:\?v=[^"]*)?"></script>', '<script type="module" src="/js/grain-hauling-jobs.js?v=20260909-1128"></script>', h, count=1)
+          if count != 1:
+              raise SystemExit('grain-hauling-jobs script tag not found')
+          html.write_text(h2)
+
+      - name: Validate JavaScript
+        run: node --check js/grain-hauling-jobs.js
+      - name: Commit fix
+        run: |
+          rm -f .github/workflows/fv-hauling-crop-force-bind.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add js/grain-hauling-jobs.js pages/grain/grain-contracts.html .github/workflows/fv-hauling-crop-force-bind.yml
+          git commit -m 'Force correct hauling job crop into edit form [skip auto-version]'
+          for i in 1 2 3 4 5; do
+            git pull --rebase origin main
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 3
+          done
+          exit 1
