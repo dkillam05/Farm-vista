@@ -156,7 +156,10 @@
     try {
       select.disabled = true;
       select.setAttribute('aria-busy', 'true');
-      requestCoreHaulingRefresh();
+      // Do not trigger the core hauling refresh while the edit modal is opening.
+      // That refresh re-renders the hauling workspace during the same tap and can
+      // lock iOS/PWA interaction behind the modal. The modal already has the
+      // current selected buyer; only refresh the buyer options here.
       const buyers = await loadLiveBuyers();
       await delay(700);
 
