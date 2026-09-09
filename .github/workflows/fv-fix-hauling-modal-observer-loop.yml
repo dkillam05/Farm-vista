@@ -1,0 +1,119 @@
+name: FarmVista hauling modal observer loop fix
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fv-fix-hauling-modal-observer-loop.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch hauling modal observer loop
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('js/grain-hauling-jobs-sold-under-display.js')
+          text = path.read_text()
+
+          old = '''  function putAddLocationAtTop(select) {
+    if (!select) return;
+    Array.from(select.options)
+      .filter(option => option.value === ADD_LOCATION_VALUE)
+      .forEach(option => option.remove());
+
+    const buyerId = clean(document.getElementById(BUYER_SELECT_ID)?.value);
+    if (!buyerId || buyerId === ADD_BUYER_VALUE) return;
+
+    const addOption = makeAddOption(ADD_LOCATION_VALUE, '+ Add New Location');
+    if (select.options.length > 0) {
+      select.insertBefore(addOption, select.options[1] || null);
+    } else {
+      select.appendChild(addOption);
+    }
+  }
+'''
+
+          new = '''  function putAddLocationAtTop(select) {
+    if (!select) return;
+
+    const buyerId = clean(document.getElementById(BUYER_SELECT_ID)?.value);
+    const existing = Array.from(select.options)
+      .filter(option => option.value === ADD_LOCATION_VALUE);
+
+    if (!buyerId || buyerId === ADD_BUYER_VALUE) {
+      existing.forEach(option => option.remove());
+      return;
+    }
+
+    /*
+      IMPORTANT: this function is called by a MutationObserver watching this
+      same select. If the Add New option is already correct, do nothing.
+      Removing/reinserting it on every observer callback creates a self-triggering
+      mutation loop that can freeze the Grain Contracts page on iPhone/PWA when
+      the hauling-job modal opens.
+    */
+    if (
+      existing.length === 1 &&
+      select.options[1] === existing[0] &&
+      existing[0].textContent === '+ Add New Location'
+    ) {
+      return;
+    }
+
+    existing.forEach(option => option.remove());
+    const addOption = makeAddOption(ADD_LOCATION_VALUE, '+ Add New Location');
+    if (select.options.length > 0) {
+      select.insertBefore(addOption, select.options[1] || null);
+    } else {
+      select.appendChild(addOption);
+    }
+  }
+'''
+
+          if old not in text:
+              raise SystemExit('putAddLocationAtTop marker not found')
+          text = text.replace(old, new, 1)
+
+          old2 = '''    if (locationObserver) locationObserver.disconnect();
+    locationObserver = new MutationObserver(() => putAddLocationAtTop(select));
+    locationObserver.observe(select, { childList: true });
+'''
+          new2 = '''    if (locationObserver) locationObserver.disconnect();
+    locationObserver = new MutationObserver(() => {
+      locationObserver.disconnect();
+      try {
+        putAddLocationAtTop(select);
+      } finally {
+        if (select.isConnected) {
+          locationObserver.observe(select, { childList: true });
+        }
+      }
+    });
+    locationObserver.observe(select, { childList: true });
+'''
+          if old2 not in text:
+              raise SystemExit('location observer marker not found')
+          text = text.replace(old2, new2, 1)
+          path.write_text(text)
+          PY
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          rm -f .github/workflows/fv-fix-hauling-modal-observer-loop.yml
+          git config user.name "FarmVista Automation"
+          git config user.email "farmvista-automation@users.noreply.github.com"
+          git add js/grain-hauling-jobs-sold-under-display.js .github/workflows/fv-fix-hauling-modal-observer-loop.yml
+          git commit -m "Fix hauling job modal observer freeze [skip auto-version]"
+          git pull --rebase origin main
+          git push origin HEAD:main
