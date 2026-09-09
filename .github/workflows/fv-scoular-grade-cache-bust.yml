@@ -1,0 +1,42 @@
+name: FarmVista Scoular OCR cache bust
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fv-scoular-grade-cache-bust.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Update OCR normalizer cache key
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('pages/grain/grain-ticket-scan-core.html')
+          text = path.read_text()
+          old = '/js/grain-ticket-ocr-grade-normalizer.js?v=20260904-1'
+          new = '/js/grain-ticket-ocr-grade-normalizer.js?v=20260909-2'
+          if old not in text:
+              raise SystemExit('OCR normalizer import not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Remove one-time workflow and commit
+        shell: bash
+        run: |
+          rm -f .github/workflows/fv-scoular-grade-cache-bust.yml
+          git config user.name "FarmVista Automation"
+          git config user.email "farmvista-automation@users.noreply.github.com"
+          git add pages/grain/grain-ticket-scan-core.html .github/workflows/fv-scoular-grade-cache-bust.yml
+          git commit -m "Load corrected Scoular OCR grade normalizer [skip auto-version]"
+          git push origin HEAD:main
