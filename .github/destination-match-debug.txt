@@ -1,0 +1,11966 @@
+===== DETAIL autoMatchLocation =====
+
+function autoMatchLocation() {
+
+      if (
+        !state.selectedBuyer
+      ) {
+
+        return null;
+
+      }
+
+
+      const savedLocationId =
+        clean(
+          state.loadout?.destinationId ||
+          state.loadout?.deliveryLocationId ||
+          state.ticket.deliveryLocationId
+        );
+
+
+      if (
+        savedLocationId
+      ) {
+
+        const byId =
+          state.locations.find(
+            location =>
+              location.id ===
+                savedLocationId &&
+              location.buyerId ===
+                state.selectedBuyer.id
+          );
+
+
+        if (
+          byId
+        ) {
+
+          return byId;
+
+        }
+
+      }
+
+
+      const candidates =
+        state.locations.filter(
+          location =>
+            location.buyerId ===
+            state.selectedBuyer.id
+        );
+
+
+      const ocrStreet =
+        compactNormalize(
+          state.ticket.ocrDeliveryStreet ||
+          state.ticket.deliveryStreet
+        );
+
+
+      const ocrCity =
+        compactNormalize(
+          state.ticket.ocrDeliveryCity ||
+          state.ticket.deliveryCity
+        );
+
+
+      const ocrState =
+        compactNormalize(
+          state.ticket.ocrDeliveryState ||
+          state.ticket.deliveryState
+        );
+
+
+      const ocrZip =
+        compactNormalize(
+          state.ticket.ocrDeliveryZip ||
+          state.ticket.deliveryZip
+        );
+
+
+      if (
+        ocrStreet
+      ) {
+
+        const streetMatch =
+          candidates.find(
+            location =>
+              compactNormalize(
+                location.street
+              ) ===
+              ocrStreet
+          );
+
+
+        if (
+          streetMatch
+        ) {
+
+          return streetMatch;
+
+        }
+
+      }
+
+
+      const cityStateMatches =
+        candidates.filter(
+          location => {
+
+            const cityMatches =
+              !ocrCity ||
+              compactNormalize(
+                location.city
+              ) ===
+              ocrCity;
+
+
+            const stateMatches =
+              !ocrState ||
+              compactNormalize(
+                location.state
+              ) ===
+              ocrState;
+
+
+            const zipMatches =
+              !ocrZip ||
+              compactNormalize(
+                location.zip
+              ) ===
+              ocrZip;
+
+
+            return (
+              cityMatches &&
+              stateMatches &&
+              zipMatches
+            );
+
+          }
+        );
+
+
+      return cityStateMatches.length === 1
+        ? cityStateMatches[0]
+        : null;
+
+    }
+
+===== DETAIL autoMatchBuyer =====
+
+function autoMatchBuyer() {
+
+      const savedBuyerId =
+        clean(
+          state.loadout?.buyerId ||
+          state.ticket.buyerId
+        );
+
+
+      if (
+        savedBuyerId
+      ) {
+
+        const byId =
+          state.buyers.find(
+            buyer =>
+              buyer.id ===
+              savedBuyerId
+          );
+
+
+        if (
+          byId
+        ) {
+
+          return byId;
+
+        }
+
+      }
+
+
+      const source =
+        clean(
+          state.loadout?.buyerName ||
+          state.ticket.ocrElevatorName ||
+          state.ticket.buyerName
+        );
+
+
+      if (
+        !source
+      ) {
+
+        return null;
+
+      }
+
+
+      const sourceNorm =
+        compactNormalize(
+          source
+        );
+
+
+      return state.buyers.find(
+        buyer => {
+
+          const buyerNorm =
+            compactNormalize(
+              buyer.name
+            );
+
+
+          return (
+            buyerNorm ===
+              sourceNorm ||
+            buyerNorm.includes(
+              sourceNorm
+            ) ||
+            sourceNorm.includes(
+              buyerNorm
+            )
+          );
+
+        }
+      ) ||
+      null;
+
+    }
+
+===== DETAIL currentReviewReasons =====
+
+function currentReviewReasons() {
+
+  updateSelectedReferences();
+
+
+  const reasons =
+    [];
+
+
+  if (
+    !state.selectedLocation
+  ) {
+
+    reasons.push(
+      "delivery_location_not_matched"
+    );
+
+  }
+
+
+  /*
+    Sold Under rules:
+
+    - no selection = review
+    - Unknown = review
+    - real linked customer = resolved
+  */
+  if (
+    !state.selectedCustomer
+  ) {
+
+    reasons.push(
+      "customer_not_matched"
+    );
+
+  }
+  else if (
+    state.selectedCustomer.unknown ===
+      true
+  ) {
+
+    reasons.push(
+      "sold_under_requires_review"
+    );
+
+  }
+
+
+  if (
+    !clean(
+      elements.crop.value
+    )
+  ) {
+
+    reasons.push(
+      "crop_not_matched"
+    );
+
+  }
+
+
+  if (
+    !state.selectedSource
+  ) {
+
+    reasons.push(
+      "grain_source_not_assigned"
+    );
+
+  }
+  else if (
+    clean(
+      elements.crop.value
+    ) &&
+    clean(
+      state.selectedSource.crop
+    ) &&
+    normalize(
+      elements.crop.value
+    ) !==
+      normalize(
+        state.selectedSource.crop
+      )
+  ) {
+
+    reasons.push(
+      "grain_source_crop_mismatch"
+    );
+
+  }
+
+
+  if (
+    !state.selectedContract
+  ) {
+
+    reasons.push(
+      "hauling_job_not_assigned"
+    );
+
+  }
+
+
+  /*
+    If a REAL Sold Under customer is selected,
+    confirm that customer still has at least one
+    OPEN contract linked to the selected hauling job.
+  */
+  if (
+    state.selectedContract &&
+    state.selectedCustomer &&
+    state.selectedCustomer.unknown !==
+      true
+  ) {
+
+    const validSoldUnder =
+      state.contracts.some(
+        contract =>
+          contractIsOpen(
+            contract
+          ) &&
+          clean(
+            contract?.haulingJobId
+          ) ===
+            clean(
+              state.selectedContract.id
+            ) &&
+          contractCustomerId(
+            contract
+          ) ===
+            clean(
+              state.selectedCustomer.id
+            )
+      );
+
+
+    if (
+      !validSoldUnder &&
+      !haulingJobHasUnallocatedContractCapacity(
+        state.selectedContract
+      )
+    ) {
+
+      reasons.push(
+        "sold_under_requires_review"
+      );
+
+    }
+
+  }
+
+
+  if (
+    !clean(
+      elements.ticketNumber.value
+    )
+  ) {
+
+    reasons.push(
+      "ticket_number_missing"
+    );
+
+  }
+
+
+  if (
+    !clean(
+      elements.ticketDate.value
+    )
+  ) {
+
+    reasons.push(
+      "ticket_date_missing"
+    );
+
+  }
+
+
+  if (
+    !validateWeights()
+  ) {
+
+    reasons.push(
+      "ticket_weights_invalid"
+    );
+
+  }
+
+
+  if (
+    !validateBushels()
+  ) {
+
+    reasons.push(
+      "ticket_bushels_invalid"
+    );
+
+  }
+
+
+  return Array.from(
+    new Set(
+      reasons
+    )
+  );
+
+}
+
+===== SCAN findDeliveryLocationMatch =====
+
+function findDeliveryLocationMatch(
+  grainTicket
+) {
+
+  /*
+    DESTINATION MATCHING RULE:
+
+    Destination evidence must come primarily from the
+    TOP / HEADER of the scale ticket.
+
+    This keeps customer addresses and "Weigher" information
+    from contaminating destination matching.
+  */
+
+
+  const locationAliasText =
+    buildLocationAliasText(
+      grainTicket
+    );
+
+
+  const learnedLocation =
+    findLearnedAlias(
+      "delivery_location",
+      locationAliasText
+    );
+
+
+  if (
+    learnedLocation?.targetId
+  ) {
+
+    const location =
+      deliveryLocations.find(
+        item =>
+          item.id ===
+          learnedLocation.targetId
+      );
+
+
+    if (
+      location
+    ) {
+
+      return {
+        matched:
+          true,
+
+        matchType:
+          "learned_alias",
+
+        location
+      };
+
+    }
+
+  }
+
+
+  const normalized =
+    value =>
+      normalizeMatchText(
+        value
+      );
+
+
+  const elevatorText =
+    String(
+      grainTicket?.elevatorName ||
+      ""
+    ).trim();
+
+
+  const headerText =
+    getTicketHeaderText(
+      grainTicket
+    );
+
+
+  const normalizedElevator =
+    normalized(
+      elevatorText
+    );
+
+
+  const normalizedHeader =
+    normalized(
+      headerText
+    );
+
+
+  const headerCityState =
+    findCityStateInTicketHeader(
+      grainTicket
+    );
+
+
+  const ocrStreet =
+    normalizeStreetForMatch(
+      grainTicket?.deliveryStreet
+    );
+
+
+  const ocrCity =
+    normalized(
+      headerCityState.city ||
+      grainTicket?.deliveryCity
+    );
+
+
+  const ocrState =
+    normalized(
+      headerCityState.state ||
+      grainTicket?.deliveryState
+    );
+
+
+  const ocrZip =
+    normalizeZipForMatch(
+      headerCityState.zip ||
+      grainTicket?.deliveryZip
+    );
+
+
+  console.log(
+    "[Grain Ticket] Destination OCR clues:",
+    {
+      elevatorText,
+      headerText,
+      city:
+        grainTicket?.deliveryCity ||
+        headerCityState.city ||
+        null,
+
+      state:
+        grainTicket?.deliveryState ||
+        headerCityState.state ||
+        null,
+
+      zip:
+        grainTicket?.deliveryZip ||
+        headerCityState.zip ||
+        null
+    }
+  );
+
+
+  const scored =
+    deliveryLocations
+      .map(
+        location => {
+
+          const locationStreet =
+            normalizeStreetForMatch(
+              getLocationStreet(
+                location
+              )
+            );
+
+
+          const locationCity =
+            normalized(
+              getLocationCity(
+                location
+              )
+            );
+
+
+          const locationState =
+            normalized(
+              getLocationState(
+                location
+              )
+            );
+
+
+          const locationZip =
+            normalizeZipForMatch(
+              getLocationZip(
+                location
+              )
+            );
+
+
+          const locationName =
+            normalized(
+              getLocationName(
+                location
+              )
+            );
+
+
+          const buyerName =
+            normalized(
+              location.buyerName ||
+              ""
+            );
+
+
+          let score =
+            0;
+
+
+          const reasons =
+            [];
+
+
+          /*
+            Exact destination street.
+          */
+
+          if (
+            ocrStreet &&
+            locationStreet &&
+            ocrStreet ===
+              locationStreet
+          ) {
+
+            score +=
+              70;
+
+
+            reasons.push(
+              "street"
+            );
+
+          }
+
+
+          /*
+            ZIP.
+          */
+
+          if (
+            ocrZip &&
+            locationZip &&
+            ocrZip ===
+              locationZip
+          ) {
+
+            score +=
+              50;
+
+
+            reasons.push(
+              "zip"
+            );
+
+          }
+
+
+          /*
+            City and state from the ticket HEADER.
+          */
+
+          if (
+            ocrCity &&
+            locationCity &&
+            ocrCity ===
+              locationCity
+          ) {
+
+            score +=
+              45;
+
+
+            reasons.push(
+              "city"
+            );
+
+          }
+
+
+          if (
+            ocrState &&
+            locationState &&
+            ocrState ===
+              locationState
+          ) {
+
+            score +=
+              15;
+
+
+            reasons.push(
+              "state"
+            );
+
+          }
+
+
+          /*
+            FarmVista location name appears in the OCR elevator
+            name or header.
+
+            Example:
+
+              Cahokia Grain
+              Cahokia, IL
+          */
+
+          if (
+            locationName &&
+            (
+              normalizedElevator.includes(
+                locationName
+              ) ||
+              normalizedHeader.includes(
+                locationName
+              )
+            )
+          ) {
+
+            score +=
+              35;
+
+
+            reasons.push(
+              "location_name"
+            );
+
+          }
+
+
+          /*
+            Buyer/company appears in the HEADER.
+
+            We deliberately use only header text here rather
+            than the entire OCR document.
+          */
+
+          if (
+            buyerName &&
+            normalizedHeader.includes(
+              buyerName
+            )
+          ) {
+
+            score +=
+              35;
+
+
+            reasons.push(
+              "buyer"
+            );
+
+          }
+
+
+          /*
+            Partial location-name similarity.
+
+            This helps with names such as:
+
+              Cahokia Grain
+
+            versus an internal FarmVista location whose
+            descriptive name contains "Cahokia".
+          */
+
+          const nameSimilarity =
+            smartNameSimilarity(
+              elevatorText,
+              getLocationName(
+                location
+              )
+            );
+
+
+          if (
+            nameSimilarity >=
+            0.5
+          ) {
+
+            score +=
+              Math.round(
+                nameSimilarity *
+                30
+              );
+
+
+            reasons.push(
+              "name_similarity"
+            );
+
+          }
+
+
+          return {
+            location,
+            score,
+            reasons
+          };
+
+        }
+      )
+      .filter(
+        item =>
+          item.score >
+          0
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          b.score -
+          a.score
+      );
+
+
+  console.log(
+    "[Grain Ticket] Delivery location scoring:",
+    scored.map(
+      item => ({
+        id:
+          item.location.id,
+
+        buyer:
+          item.location.buyerName,
+
+        location:
+          getLocationName(
+            item.location
+          ),
+
+        city:
+          getLocationCity(
+            item.location
+          ),
+
+        state:
+          getLocationState(
+            item.location
+          ),
+
+        score:
+          item.score,
+
+        reasons:
+          item.reasons
+      })
+    )
+  );
+
+
+  if (
+    !scored.length
+  ) {
+
+    return {
+      matched:
+        false,
+
+      matchType:
+        null,
+
+      location:
+        null
+    };
+
+  }
+
+
+  const best =
+    scored[0];
+
+
+  const secondBest =
+    scored[1] ||
+    null;
+
+
+  const strongIdentityClues =
+    best.reasons.filter(
+      reason =>
+        [
+          "street",
+          "zip",
+          "city",
+          "location_name",
+          "buyer"
+        ].includes(
+          reason
+        )
+    ).length;
+
+
+  /*
+    Examples we WANT to accept:
+
+      Cahokia + IL + location-name clue
+      city + buyer
+      exact street + another clue
+      ZIP + another clue
+
+    We still require the winner to be clearly better than
+    another possible destination.
+  */
+
+  const meetsThreshold =
+    (
+      best.score >=
+        75 &&
+      strongIdentityClues >=
+        2
+    ) ||
+    (
+      best.score >=
+        95
+    );
+
+
+  const clearlyBetter =
+    !secondBest ||
+    (
+      best.score -
+      secondBest.score
+    ) >=
+      20;
+
+
+  if (
+    meetsThreshold &&
+    clearlyBetter
+  ) {
+
+    return {
+      matched:
+        true,
+
+      matchType:
+        "smart_location",
+
+      location:
+        best.location
+    };
+
+  }
+
+
+  /*
+    Unique exact street remains safe enough to accept.
+  */
+
+  if (
+    ocrStreet
+  ) {
+
+    const streetMatches =
+      deliveryLocations.filter(
+        location =>
+          normalizeStreetForMatch(
+            getLocationStreet(
+              location
+            )
+          ) ===
+            ocrStreet
+      );
+
+
+    if (
+      streetMatches.length ===
+      1
+    ) {
+
+      return {
+        matched:
+          true,
+
+        matchType:
+          "unique_street",
+
+        location:
+          streetMatches[0]
+      };
+
+    }
+
+  }
+
+
+  console.warn(
+    "[Grain Ticket] Delivery location not confidently matched:",
+    {
+      best:
+        best
+          ? {
+              id:
+                best.location.id,
+
+              name:
+                getLocationName(
+                  best.location
+                ),
+
+              score:
+                best.score,
+
+              reasons:
+                best.reasons
+            }
+          : null,
+
+      secondBest:
+        secondBest
+          ? {
+              id:
+                secondBest.location.id,
+
+              name:
+                getLocationName(
+                  secondBest.location
+                ),
+
+              score:
+                secondBest.score,
+
+              reasons:
+                secondBest.reasons
+            }
+          : null
+    }
+  );
+
+
+  return {
+    matched:
+      false,
+
+    matchType:
+      null,
+
+    location:
+      null
+  };
+
+}
+
+===== SCAN findBuyerMatch =====
+
+function findBuyerMatch(
+  grainTicket,
+  locationMatch
+) {
+
+  /*
+    First preference:
+    use the buyer tied to the matched delivery location.
+  */
+
+  if (
+    locationMatch?.location
+  ) {
+
+    const locationBuyerId =
+      String(
+        firstExistingValue(
+          locationMatch.location,
+          [
+            "buyerId",
+            "grainBuyerId"
+          ]
+        ) || ""
+      );
+
+
+    if (
+      locationBuyerId
+    ) {
+
+      const buyer =
+        buyers.find(
+          item =>
+            String(
+              item.id
+            ) ===
+            locationBuyerId
+        );
+
+
+      if (
+        buyer
+      ) {
+
+        return {
+          matched:
+            true,
+
+          matchType:
+            "location_buyer",
+
+          buyer
+        };
+
+      }
+
+    }
+
+  }
+
+
+/*
+  If location did not identify the buyer,
+  check a learned buyer alias next.
+*/
+
+const learnedBuyer =
+  findLearnedAlias(
+    "buyer",
+    grainTicket?.elevatorName
+  );
+
+
+if (
+  learnedBuyer?.targetId
+) {
+
+  const buyer =
+    buyers.find(
+      item =>
+        item.id ===
+        learnedBuyer.targetId
+    );
+
+
+  if (
+    buyer
+  ) {
+
+    return {
+      matched:
+        true,
+
+      matchType:
+        "learned_alias",
+
+      buyer
+    };
+
+  }
+
+}
+
+
+/*
+  Otherwise compare OCR elevator text to FarmVista buyer names.
+*/
+
+const ocrElevator =
+  normalizeMatchText(
+    grainTicket?.elevatorName
+  );
+
+
+  if (
+    ocrElevator
+  ) {
+
+    const buyer =
+      buyers.find(
+        item => {
+
+          const buyerName =
+            normalizeMatchText(
+              getBuyerName(
+                item
+              )
+            );
+
+
+          return (
+            buyerName ===
+              ocrElevator ||
+            buyerName.includes(
+              ocrElevator
+            ) ||
+            ocrElevator.includes(
+              buyerName
+            )
+          );
+
+        }
+      );
+
+
+    if (
+      buyer
+    ) {
+
+      return {
+        matched:
+          true,
+
+        matchType:
+          "elevator_name",
+
+        buyer
+      };
+
+    }
+
+  }
+
+
+  return {
+    matched:
+      false,
+
+    matchType:
+      null,
+
+    buyer:
+      null
+  };
+
+}
+
+===== SCAN findCityStateInTicketHeader =====
+
+function findCityStateInTicketHeader(
+  grainTicket
+) {
+
+  const lines =
+    getOcrLines(
+      grainTicket
+    )
+      .slice(
+        0,
+        8
+      );
+
+
+  for (
+    const line of
+    lines
+  ) {
+
+    const match =
+      line.match(
+        /^([A-Za-z][A-Za-z .'-]*?),?\s+([A-Z]{2})(?:\s+(\d{5}(?:-\d{4})?))?$/i
+      );
+
+
+    if (
+      !match
+    ) {
+
+      continue;
+
+    }
+
+
+    return {
+
+      city:
+        String(
+          match[1] ||
+          ""
+        ).trim(),
+
+      state:
+        String(
+          match[2] ||
+          ""
+        ).trim(),
+
+      zip:
+        String(
+          match[3] ||
+          ""
+        ).trim()
+
+    };
+
+  }
+
+
+  return {
+    city:
+      "",
+
+    state:
+      "",
+
+    zip:
+      ""
+  };
+
+}
+
+
+// ==========================================================
+// DESTINATION / DELIVERY LOCATION
+// ==========================================================
+
+function findDeliveryLocationMatch(
+  grainTicket
+) {
+
+  /*
+    DESTINATION MATCHING RULE:
+
+    Destination evidence must come primarily from the
+    TOP / HEADER of the scale ticket.
+
+    This keeps customer addresses and "Weigher" information
+    from contaminating destination matching.
+  */
+
+
+  const locationAliasText =
+    buildLocationAliasText(
+      grainTicket
+    );
+
+
+  const learnedLocation =
+    findLearnedAlias(
+      "delivery_location",
+      locationAliasText
+    );
+
+
+  if (
+    learnedLocation?.targetId
+  ) {
+
+    const location =
+      deliveryLocations.find(
+        item =>
+          item.id ===
+          learnedLocation.targetId
+      );
+
+
+    if (
+      location
+    ) {
+
+      return {
+        matched:
+          true,
+
+        matchType:
+          "learned_alias",
+
+        location
+      };
+
+    }
+
+  }
+
+
+  const normalized =
+    value =>
+      normalizeMatchText(
+        value
+      );
+
+
+  const elevatorText =
+    String(
+      grainTicket?.elevatorName ||
+      ""
+    ).trim();
+
+
+  const headerText =
+    getTicketHeaderText(
+      grainTicket
+    );
+
+
+  const normalizedElevator =
+    normalized(
+      elevatorText
+    );
+
+
+  const normalizedHeader =
+    normalized(
+      headerText
+    );
+
+
+  const headerCityState =
+    findCityStateInTicketHeader(
+      grainTicket
+    );
+
+
+  const ocrStreet =
+    normalizeStreetForMatch(
+      grainTicket?.deliveryStreet
+    );
+
+
+  const ocrCity =
+    normalized(
+      headerCityState.city ||
+      grainTicket?.deliveryCity
+    );
+
+
+  const ocrState =
+    normalized(
+      headerCityState.state ||
+      grainTicket?.deliveryState
+    );
+
+
+  const ocrZip =
+    normalizeZipForMatch(
+      headerCityState.zip ||
+      grainTicket?.deliveryZip
+    );
+
+
+  console.log(
+    "[Grain Ticket] Destination OCR clues:",
+    {
+      elevatorText,
+      headerText,
+      city:
+        grainTicket?.deliveryCity ||
+        headerCityState.city ||
+        null,
+
+      state:
+        grainTicket?.deliveryState ||
+        headerCityState.state ||
+        null,
+
+      zip:
+        grainTicket?.deliveryZip ||
+        headerCityState.zip ||
+        null
+    }
+  );
+
+
+  const scored =
+    deliveryLocations
+      .map(
+        location => {
+
+          const locationStreet =
+            normalizeStreetForMatch(
+              getLocationStreet(
+                location
+              )
+            );
+
+
+          const locationCity =
+            normalized(
+              getLocationCity(
+                location
+              )
+            );
+
+
+          const locationState =
+            normalized(
+              getLocationState(
+                location
+              )
+            );
+
+
+          const locationZip =
+            normalizeZipForMatch(
+              getLocationZip(
+                location
+              )
+            );
+
+
+          const locationName =
+            normalized(
+              getLocationName(
+                location
+              )
+            );
+
+
+          const buyerName =
+            normalized(
+              location.buyerName ||
+              ""
+            );
+
+
+          let score =
+            0;
+
+
+          const reasons =
+            [];
+
+
+          /*
+            Exact destination street.
+          */
+
+          if (
+            ocrStreet &&
+            locationStreet &&
+            ocrStreet ===
+              locationStreet
+          ) {
+
+            score +=
+              70;
+
+
+            reasons.push(
+              "street"
+            );
+
+          }
+
+
+          /*
+            ZIP.
+          */
+
+          if (
+            ocrZip &&
+            locationZip &&
+            ocrZip ===
+              locationZip
+          ) {
+
+            score +=
+              50;
+
+
+            reasons.push(
+              "zip"
+            );
+
+          }
+
+
+          /*
+            City and state from the ticket HEADER.
+          */
+
+          if (
+            ocrCity &&
+            locationCity &&
+            ocrCity ===
+              locationCity
+          ) {
+
+            score +=
+              45;
+
+
+            reasons.push(
+              "city"
+            );
+
+          }
+
+
+          if (
+            ocrState &&
+            locationState &&
+            ocrState ===
+              locationState
+          ) {
+
+            score +=
+              15;
+
+
+            reasons.push(
+              "state"
+            );
+
+          }
+
+
+          /*
+            FarmVista location name appears in the OCR elevator
+            name or header.
+
+            Example:
+
+              Cahokia Grain
+              Cahokia, IL
+          */
+
+          if (
+            locationName &&
+            (
+              normalizedElevator.includes(
+                locationName
+              ) ||
+              normalizedHeader.includes(
+                locationName
+              )
+            )
+          ) {
+
+            score +=
+              35;
+
+
+            reasons.push(
+              "location_name"
+            );
+
+          }
+
+
+          /*
+            Buyer/company appears in the HEADER.
+
+            We deliberately use only header text here rather
+            than the entire OCR document.
+          */
+
+          if (
+            buyerName &&
+            normalizedHeader.includes(
+              buyerName
+            )
+          ) {
+
+            score +=
+              35;
+
+
+            reasons.push(
+              "buyer"
+            );
+
+          }
+
+
+          /*
+            Partial location-name similarity.
+
+            This helps with names such as:
+
+              Cahokia Grain
+
+            versus an internal FarmVista location whose
+            descriptive name contains "Cahokia".
+          */
+
+          const nameSimilarity =
+            smartNameSimilarity(
+              elevatorText,
+              getLocationName(
+                location
+              )
+            );
+
+
+          if (
+            nameSimilarity >=
+            0.5
+          ) {
+
+            score +=
+              Math.round(
+                nameSimilarity *
+                30
+              );
+
+
+            reasons.push(
+              "name_similarity"
+            );
+
+          }
+
+
+          return {
+            location,
+            score,
+            reasons
+          };
+
+        }
+      )
+      .filter(
+        item =>
+          item.score >
+          0
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          b.score -
+          a.score
+      );
+
+
+  console.log(
+    "[Grain Ticket] Delivery location scoring:",
+    scored.map(
+      item => ({
+        id:
+          item.location.id,
+
+        buyer:
+          item.location.buyerName,
+
+        location:
+          getLocationName(
+            item.location
+          ),
+
+        city:
+          getLocationCity(
+            item.location
+          ),
+
+        state:
+          getLocationState(
+            item.location
+          ),
+
+        score:
+          item.score,
+
+        reasons:
+          item.reasons
+      })
+    )
+  );
+
+
+  if (
+    !scored.length
+  ) {
+
+    return {
+      matched:
+        false,
+
+      matchType:
+        null,
+
+      location:
+        null
+    };
+
+  }
+
+
+  const best =
+    scored[0];
+
+
+  const secondBest =
+    scored[1] ||
+    null;
+
+
+  const strongIdentityClues =
+    best.reasons.filter(
+      reason =>
+        [
+          "street",
+          "zip",
+          "city",
+          "location_name",
+          "buyer"
+        ].includes(
+          reason
+        )
+    ).length;
+
+
+  /*
+    Examples we WANT to accept:
+
+      Cahokia + IL + location-name clue
+      city + buyer
+      exact street + another clue
+      ZIP + another clue
+
+    We still require the winner to be clearly better than
+    another possible destination.
+  */
+
+  const meetsThreshold =
+    (
+      best.score >=
+        75 &&
+      strongIdentityClues >=
+        2
+    ) ||
+    (
+      best.score >=
+        95
+    );
+
+
+  const clearlyBetter =
+    !secondBest ||
+    (
+      best.score -
+      secondBest.score
+    ) >=
+      20;
+
+
+  if (
+    meetsThreshold &&
+    clearlyBetter
+  ) {
+
+    return {
+      matched:
+        true,
+
+      matchType:
+        "smart_location",
+
+      location:
+        best.location
+    };
+
+  }
+
+
+  /*
+    Unique exact street remains safe enough to accept.
+  */
+
+  if (
+    ocrStreet
+  ) {
+
+    const streetMatches =
+      deliveryLocations.filter(
+        location =>
+          normalizeStreetForMatch(
+            getLocationStreet(
+              location
+            )
+          ) ===
+            ocrStreet
+      );
+
+
+    if (
+      streetMatches.length ===
+      1
+    ) {
+
+      return {
+        matched:
+          true,
+
+        matchType:
+          "unique_street",
+
+        location:
+          streetMatches[0]
+      };
+
+    }
+
+  }
+
+
+  console.warn(
+    "[Grain Ticket] Delivery location not confidently matched:",
+    {
+      best:
+        best
+          ? {
+              id:
+                best.location.id,
+
+              name:
+                getLocationName(
+                  best.location
+                ),
+
+              score:
+                best.score,
+
+              reasons:
+                best.reasons
+            }
+          : null,
+
+      secondBest:
+        secondBest
+          ? {
+              id:
+                secondBest.location.id,
+
+              name:
+                getLocationName(
+                  secondBest.location
+                ),
+
+              score:
+                secondBest.score,
+
+              reasons:
+                secondBest.reasons
+            }
+          : null
+    }
+  );
+
+
+  return {
+    matched:
+      false,
+
+    matchType:
+      null,
+
+    location:
+      null
+  };
+
+}
+
+
+// ==========================================================
+// CUSTOMER / SOLD UNDER
+// ==========================================================
+
+function getCustomerCandidateIds(
+  grainTicket,
+  locationMatch,
+  buyerMatch
+) {
+
+  const crop =
+    normalizeMatchText(
+      grainTicket?.crop
+    );
+
+
+  const locationId =
+    String(
+      locationMatch?.location?.id ||
+      ""
+    );
+
+
+  const buyerId =
+    String(
+      buyerMatch?.buyer?.id ||
+      locationMatch?.location?.buyerId ||
+      ""
+    );
+
+
+  const ids =
+    new Set();
+
+
+  /*
+    IMPORTANT:
+
+    We are NOT assigning a contract here.
+
+    Contracts are only being used to determine which FarmVista
+    customers are realistically capable of being "Sold Under"
+    for this crop / destination / buyer.
+  */
+
+  for (
+    const contract of
+    contracts
+  ) {
+
+    if (
+      contract?.voided ===
+      true
+    ) {
+
+      continue;
+
+    }
+
+
+    const contractCrop =
+      normalizeMatchText(
+        firstExistingValue(
+          contract,
+          [
+            "crop",
+            "commodity"
+          ]
+        )
+      );
+
+
+    if (
+      crop &&
+      contractCrop &&
+      crop !==
+        contractCrop
+    ) {
+
+      continue;
+
+    }
+
+
+    const contractLocationId =
+      String(
+        firstExistingValue(
+          contract,
+          [
+            "deliveryLocationId",
+            "locationId"
+          ]
+        ) || ""
+      );
+
+
+    const contractBuyerId =
+      String(
+        firstExistingValue(
+          contract,
+          [
+            "buyerId",
+            "grainBuyerId"
+          ]
+        ) || ""
+      );
+
+
+    /*
+      If the contract has a specific location, respect it.
+
+      If older contracts only contain buyerId, they may still
+      be useful as candidates.
+    */
+
+    if (
+      locationId &&
+      contractLocationId &&
+      contractLocationId !==
+        locationId
+    ) {
+
+      continue;
+
+    }
+
+
+    if (
+      buyerId &&
+      contractBuyerId &&
+      contractBuyerId !==
+        buyerId
+    ) {
+
+      continue;
+
+    }
+
+
+    const customerId =
+      String(
+        firstExistingValue(
+          contract,
+          [
+            "customerId",
+            "grainCustomerId"
+          ]
+        ) || ""
+      );
+
+
+    if (
+      customerId
+    ) {
+
+      ids.add(
+        customerId
+      );
+
+    }
+
+  }
+
+
+  return ids;
+
+}
+
+
+function findCustomerBlockClues(
+  grainTicket
+) {
+
+  const lines =
+    getOcrLines(
+      grainTicket
+    );
+
+
+  const result = {
+    account:
+      String(
+        grainTicket?.customerAccountText ||
+        ""
+      ).trim(),
+
+    name:
+      String(
+        grainTicket?.customerText ||
+        ""
+      ).trim(),
+
+    nearbyText:
+      ""
+  };
+
+
+  /*
+    Find the part of the OCR document around:
+
+      Cust ID
+      Customer
+      Customer ID
+      Account
+
+    Then use only a small nearby block. This avoids accidentally
+    treating Weight/Bu., Weigher, or other distant labels as the
+    customer.
+  */
+
+  let anchorIndex =
+    -1;
+
+
+  for (
+    let i = 0;
+    i < lines.length;
+    i++
+  ) {
+
+    const normalizedLine =
+      normalizeAliasText(
+        lines[i]
+      );
+
+
+    if (
+      normalizedLine ===
+        "cust id" ||
+      normalizedLine ===
+        "customer id" ||
+      normalizedLine ===
+        "customer" ||
+      normalizedLine ===
+        "account" ||
+      normalizedLine ===
+        "account id"
+    ) {
+
+      anchorIndex =
+        i;
+
+      break;
+
+    }
+
+  }
+
+
+  if (
+    anchorIndex >=
+    0
+  ) {
+
+    result.nearbyText =
+      lines
+        .slice(
+          anchorIndex,
+          Math.min(
+            lines.length,
+            anchorIndex + 7
+          )
+        )
+        .join(
+          " "
+        );
+
+  }
+
+
+  return result;
+
+}
+
+
+function findCustomerMatch(
+  grainTicket,
+  locationMatch,
+  buyerMatch
+) {
+
+  const clues =
+    findCustomerBlockClues(
+      grainTicket
+    );
+
+
+  const ocrName =
+    String(
+      clues.name ||
+      ""
+    ).trim();
+
+
+  const ocrAccount =
+    String(
+      clues.account ||
+      ""
+    ).trim();
+
+
+  /*
+    Build the SAFE candidate list first.
+
+    If destination/buyer/crop tells us that only a few
+    FarmVista customers are possible, do not compare against
+    every customer in the database.
+  */
+
+  const candidateIds =
+    getCustomerCandidateIds(
+      grainTicket,
+      locationMatch,
+      buyerMatch
+    );
+
+
+  let candidates =
+    customers;
+
+
+  if (
+    candidateIds.size
+  ) {
+
+    candidates =
+      customers.filter(
+        customer =>
+          candidateIds.has(
+            String(
+              customer.id
+            )
+          )
+      );
+
+  }
+
+
+  console.log(
+    "[Grain Ticket] Customer candidate scope:",
+    {
+      candidateCount:
+        candidates.length,
+
+      narrowedByContracts:
+        candidateIds.size >
+        0,
+
+      candidates:
+        candidates.map(
+          customer => ({
+            id:
+              customer.id,
+
+            name:
+              getCustomerName(
+                customer
+              )
+          })
+        )
+    }
+  );
+
+
+  /*
+    Learned customer aliases are still supported, but only
+    when the learned target is also valid for this destination
+    context.
+  */
+
+  if (
+    ocrName
+  ) {
+
+    const alias =
+      findLearnedAlias(
+        "customer",
+        ocrName
+      );
+
+
+    if (
+      alias?.targetId
+    ) {
+
+      const customer =
+        candidates.find(
+          item =>
+            item.id ===
+            alias.targetId
+        );
+
+
+      if (
+        customer
+      ) {
+
+        return {
+          matched:
+            true,
+
+          matchType:
+            "learned_alias",
+
+          customer
+        };
+
+      }
+
+    }
+
+  }
+
+
+  /*
+    RAW TICKET CUSTOMER-NAME FALLBACK
+
+    Some ADM tickets put the vendor/account number immediately before
+    the Sold Under name. If the structured customer field is imperfect
+    but one FarmVista candidate's meaningful name appears verbatim in
+    the OCR document, that is strong evidence.
+
+    Require exactly one candidate so we never guess between two names.
+  */
+
+  const rawCustomerText =
+    normalizeMatchText(
+      grainTicket?.rawText ||
+      ""
+    );
+
+
+  if (
+    rawCustomerText
+  ) {
+
+    const rawNameMatches =
+      candidates.filter(
+        customer => {
+
+          const nameWords =
+            normalizeSmartWords(
+              getCustomerName(
+                customer
+              )
+            );
+
+
+          if (
+            nameWords.length <
+              2
+          ) {
+
+            return false;
+
+          }
+
+
+          const normalizedName =
+            nameWords.join(
+              " "
+            );
+
+
+          return rawCustomerText.includes(
+            normalizedName
+          );
+
+        }
+      );
+
+
+    if (
+      rawNameMatches.length ===
+        1
+    ) {
+
+      return {
+        matched:
+          true,
+
+        matchType:
+          "raw_ticket_customer_name",
+
+        customer:
+          rawNameMatches[0]
+      };
+
+    }
+
+  }
+
+
+  /*
+    ACCOUNT NUMBER.
+
+    Strong when FarmVista actually stores the same account ID.
+  */
+
+  if (
+    ocrAccount
+  ) {
+
+    const accountNormalized =
+      normalizeMatchText(
+        ocrAccount
+      );
+
+
+    const accountMatches =
+      candidates.filter(
+        customer => {
+
+          const customerAccount =
+            normalizeMatchText(
+              getCustomerAccount(
+                customer
+              )
+            );
+
+
+          return (
+            customerAccount &&
+            customerAccount ===
+              accountNormalized
+          );
+
+        }
+      );
+
+
+    if (
+      accountMatches.length ===
+      1
+    ) {
+
+      return {
+        matched:
+          true,
+
+        matchType:
+          "account",
+
+        customer:
+          accountMatches[0]
+      };
+
+    }
+
+  }
+
+
+  /*
+    SCORE NAME + CUSTOMER BLOCK INFORMATION.
+
+    This handles:
+
+      OCR:
+        JOHN C DOWSON
+
+      FarmVista:
+        John C Dowson Inc.
+
+    without requiring a global alias.
+  */
+
+  const customerBlockNormalized =
+    normalizeMatchText(
+      clues.nearbyText
+    );
+
+
+  const scored =
+    candidates
+      .map(
+        customer => {
+
+          const customerName =
+            getCustomerName(
+              customer
+            );
+
+
+          const similarity =
+            smartNameSimilarity(
+              ocrName,
+              customerName
+            );
+
+
+          let score =
+            0;
+
+
+          const reasons =
+            [];
+
+
+          if (
+            ocrName &&
+            normalizeMatchText(
+              ocrName
+            ) ===
+              normalizeMatchText(
+                customerName
+              )
+          ) {
+
+            score +=
+              100;
+
+
+            reasons.push(
+              "exact_name"
+            );
+
+          }
+          else if (
+            similarity ===
+            1
+          ) {
+
+            /*
+              Same meaningful name words after removing things
+              such as Inc., LLC, Company, punctuation, etc.
+            */
+
+            score +=
+              90;
+
+
+            reasons.push(
+              "normalized_name"
+            );
+
+          }
+          else if (
+            similarity >=
+            0.75
+          ) {
+
+            score +=
+              70;
+
+
+            reasons.push(
+              "strong_name"
+            );
+
+          }
+          else if (
+            similarity >=
+            0.5
+          ) {
+
+            score +=
+              45;
+
+
+            reasons.push(
+              "partial_name"
+            );
+
+          }
+
+
+          /*
+            Address clues found near the Cust ID block can add
+            confidence, but cannot create a match by themselves.
+          */
+
+          const customerStreet =
+            normalizeStreetForMatch(
+              getCustomerStreet(
+                customer
+              )
+            );
+
+
+          const customerCity =
+            normalizeMatchText(
+              getCustomerCity(
+                customer
+              )
+            );
+
+
+          const customerState =
+            normalizeMatchText(
+              getCustomerState(
+                customer
+              )
+            );
+
+
+          const customerZip =
+            normalizeZipForMatch(
+              getCustomerZip(
+                customer
+              )
+            );
+
+
+          if (
+            customerStreet &&
+            customerBlockNormalized.includes(
+              customerStreet
+            )
+          ) {
+
+            score +=
+              25;
+
+
+            reasons.push(
+              "customer_street"
+            );
+
+          }
+
+
+          if (
+            customerCity &&
+            customerBlockNormalized.includes(
+              customerCity
+            )
+          ) {
+
+            score +=
+              15;
+
+
+            reasons.push(
+              "customer_city"
+            );
+
+          }
+
+
+          if (
+            customerState &&
+            customerBlockNormalized.includes(
+              customerState
+            )
+          ) {
+
+            score +=
+              5;
+
+
+            reasons.push(
+              "customer_state"
+            );
+
+          }
+
+
+          if (
+            customerZip &&
+            customerBlockNormalized.includes(
+              customerZip
+            )
+          ) {
+
+            score +=
+              15;
+
+
+            reasons.push(
+              "customer_zip"
+            );
+
+          }
+
+
+          return {
+            customer,
+            score,
+            similarity,
+            reasons
+          };
+
+        }
+      )
+      .filter(
+        item =>
+          item.score >
+          0
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          b.score -
+          a.score
+      );
+
+
+  console.log(
+    "[Grain Ticket] Customer scoring:",
+    scored.map(
+      item => ({
+        id:
+          item.customer.id,
+
+        name:
+          getCustomerName(
+            item.customer
+          ),
+
+        score:
+          item.score,
+
+        similarity:
+          item.similarity,
+
+        reasons:
+          item.reasons
+      })
+    )
+  );
+
+
+  if (
+    scored.length
+  ) {
+
+    const best =
+      scored[0];
+
+
+    const secondBest =
+      scored[1] ||
+      null;
+
+
+    const clearlyBetter =
+      !secondBest ||
+      (
+        best.score -
+        secondBest.score
+      ) >=
+        20;
+
+
+    /*
+      A strong name match is required.
+
+      Address/city information only supports the identity;
+      it cannot independently choose a customer.
+    */
+
+    const hasStrongName =
+      best.reasons.includes(
+        "exact_name"
+      ) ||
+      best.reasons.includes(
+        "normalized_name"
+      ) ||
+      best.reasons.includes(
+        "strong_name"
+      );
+
+
+    if (
+      hasStrongName &&
+      best.score >=
+        70 &&
+      clearlyBetter
+    ) {
+
+      return {
+        matched:
+          true,
+
+        matchType:
+          candidateIds.size
+            ? "context_customer"
+            : "smart_customer",
+
+        customer:
+          best.customer
+      };
+
+    }
+
+  }
+
+
+  /*
+    FINAL SAFE FALLBACK:
+
+    If destination/crop/buyer narrowed FarmVista to exactly
+    ONE possible customer AND OCR gave us a meaningful name,
+    allow a moderate name similarity.
+
+    We still do NOT blindly choose the only contract customer
+    when OCR customer text is garbage such as Weight/Bu.
+  */
+
+  if (
+    candidateIds.size &&
+    candidates.length ===
+      1 &&
+    ocrName &&
+    smartNameSimilarity(
+      ocrName,
+      getCustomerName(
+        candidates[0]
+      )
+    ) >=
+      0.5
+  ) {
+
+    return {
+      matched:
+        true,
+
+      matchType:
+        "unique_context_customer",
+
+      customer:
+        candidates[0]
+    };
+
+  }
+
+
+  return {
+    matched:
+      false,
+
+    matchType:
+      null,
+
+    customer:
+      null
+  };
+
+}
+
+
+function findBuyerMatch(
+  grainTicket,
+  locationMatch
+) {
+
+  /*
+    First preference:
+    use the buyer tied to the matched delivery location.
+  */
+
+  if (
+    locationMatch?.location
+  ) {
+
+    const locationBuyerId =
+      String(
+        firstExistingValue(
+          locationMatch.location,
+          [
+            "buyerId",
+            "grainBuyerId"
+          ]
+        ) || ""
+      );
+
+
+    if (
+      locationBuyerId
+    ) {
+
+      const buyer =
+        buyers.find(
+          item =>
+            String(
+              item.id
+            ) ===
+            locationBuyerId
+        );
+
+
+      if (
+        buyer
+      ) {
+
+        return {
+          matched:
+            true,
+
+          matchType:
+            "location_buyer",
+
+          buyer
+        };
+
+      }
+
+    }
+
+  }
+
+
+/*
+  If location did not identify the buyer,
+  check a learned buyer alias next.
+*/
+
+const learnedBuyer =
+  findLearnedAlias(
+    "buyer",
+    grainTicket?.elevatorName
+  );
+
+
+if (
+  learnedBuyer?.targetId
+) {
+
+  const buyer =
+    buyers.find(
+      item =>
+        item.id ===
+        learnedBuyer.targetId
+    );
+
+
+  if (
+    buyer
+  ) {
+
+    return {
+      matched:
+        true,
+
+      matchType:
+        "learned_alias",
+
+      buyer
+    };
+
+  }
+
+}
+
+
+/*
+  Otherwise compare OCR elevator text to FarmVista buyer names.
+*/
+
+const ocrElevator =
+  normalizeMatchText(
+    grainTicket?.elevatorName
+  );
+
+
+  if (
+    ocrElevator
+  ) {
+
+    const buyer =
+      buyers.find(
+        item => {
+
+          const buyerName =
+            normalizeMatchText(
+              getBuyerName(
+                item
+              )
+            );
+
+
+          return (
+            buyerName ===
+              ocrElevator ||
+            buyerName.includes(
+              ocrElevator
+            ) ||
+            ocrElevator.includes(
+              buyerName
+            )
+          );
+
+        }
+      );
+
+
+    if (
+      buyer
+    ) {
+
+      return {
+        matched:
+          true,
+
+        matchType:
+          "elevator_name",
+
+        buyer
+      };
+
+    }
+
+  }
+
+
+  return {
+    matched:
+      false,
+
+    matchType:
+      null,
+
+    buyer:
+      null
+  };
+
+}
+
+
+function findContractMatches(
+  grainTicket,
+  customerMatch
+) {
+
+  if (
+    !customerMatch?.customer ||
+    !grainTicket?.crop
+  ) {
+
+    return [];
+
+  }
+
+
+  const customerId =
+    String(
+      customerMatch.customer.id
+    );
+
+
+  const crop =
+    normalizeMatchText(
+      grainTicket.crop
+    );
+
+
+  return contracts.filter(
+    contract => {
+
+      const contractCustomerId =
+        String(
+          firstExistingValue(
+            contract,
+            [
+              "customerId",
+              "grainCustomerId"
+            ]
+          ) || ""
+        );
+
+
+      const contractCrop =
+        normalizeMatchText(
+          firstExistingValue(
+            contract,
+            [
+              "crop",
+              "commodity"
+            ]
+          )
+        );
+
+
+      return (
+        contractCustomerId ===
+          customerId &&
+        contractCrop ===
+          crop
+      );
+
+    }
+  );
+
+}
+
+
+function matchScannedTicket(
+  grainTicket
+) {
+
+  /*
+    MATCH IN DEPENDENCY ORDER.
+
+    1. Destination / delivery location
+    2. Buyer tied to that destination
+    3. Customer / Sold Under narrowed by
+       destination + buyer + crop + contracts
+
+    This is intentionally different from the old logic,
+    where all three identities were guessed independently.
+  */
+
+
+  const locationMatch =
+    findDeliveryLocationMatch(
+      grainTicket
+    );
+
+
+  const buyerMatch =
+    findBuyerMatch(
+      grainTicket,
+      locationMatch
+    );
+
+
+  const customerMatch =
+    findCustomerMatch(
+      grainTicket,
+      locationMatch,
+      buyerMatch
+    );
+
+
+  /*
+    CONTRACTS ARE NOT ASSIGNED DURING SCANNING.
+
+    Contracts are used above only as matching evidence
+    to narrow the possible customer / Sold Under choices.
+
+    Actual contract assignment still happens later during
+    grain-ticket reconciliation.
+  */
+
+  const contractMatches =
+    [];
+
+
+  const reviewReasons =
+    [];
+
+
+  if (
+    !locationMatch.matched
+  ) {
+
+    reviewReasons.push(
+      "delivery_location_not_matched"
+    );
+
+  }
+
+
+  if (
+    !buyerMatch.matched
+  ) {
+
+    reviewReasons.push(
+      "buyer_not_matched"
+    );
+
+  }
+
+
+  if (
+    !customerMatch.matched
+  ) {
+
+    reviewReasons.push(
+      "customer_not_matched"
+    );
+
+  }
+
+
+  const validationStatus =
+    reviewReasons.length
+      ? "needs_review"
+      : "verified";
+
+
+  const result = {
+
+    locationMatch,
+
+    buyerMatch,
+
+    customerMatch,
+
+    contractMatches,
+
+    validationStatus,
+
+    reviewReasons
+
+  };
+
+
+  console.log(
+    "[Grain Ticket] FarmVista hierarchical matching:",
+    {
+      destination: {
+        matched:
+          locationMatch.matched,
+
+        matchType:
+          locationMatch.matchType,
+
+        id:
+          locationMatch.location?.id ||
+          null,
+
+        name:
+          locationMatch.location
+            ? getLocationName(
+                locationMatch.location
+              )
+            : null
+      },
+
+      buyer: {
+        matched:
+          buyerMatch.matched,
+
+        matchType:
+          buyerMatch.matchType,
+
+        id:
+          buyerMatch.buyer?.id ||
+          null,
+
+        name:
+          buyerMatch.buyer
+            ? getBuyerName(
+                buyerMatch.buyer
+              )
+            : null
+      },
+
+      customer: {
+        matched:
+          customerMatch.matched,
+
+        matchType:
+          customerMatch.matchType,
+
+        id:
+          customerMatch.customer?.id ||
+          null,
+
+        name:
+          customerMatch.customer
+            ? getCustomerName(
+                customerMatch.customer
+              )
+            : null
+      },
+
+      crop:
+        grainTicket?.crop ||
+        null,
+
+      validationStatus,
+
+      reviewReasons
+
+    }
+  );
+
+
+  return result;
+
+}
+
+// ==========================================================
+// DRIVER ASSIST
+// ==========================================================
+
+const DRIVER_ASSIST_BACK =
+  "__driver_assist_back__";
+
+
+function syncDriverAssistFooter(
+  allowBack,
+  allowSkip
+) {
+
+  if (
+    assistBackBtn
+  ) {
+
+    assistBackBtn.style.display =
+      allowBack
+        ? ""
+        : "none";
+
+  }
+
+
+  if (
+    assistSkipBtn
+  ) {
+
+    assistSkipBtn.style.display =
+      allowSkip
+        ? ""
+        : "none";
+
+  }
+
+
+  if (
+    assistFootActions
+  ) {
+
+    const visibleCount =
+      Number(
+        !!allowBack
+      ) +
+      Number(
+        !!allowSkip
+      );
+
+
+    assistFootActions.classList.toggle(
+      "single",
+      visibleCount <= 1
+    );
+
+  }
+
+}
+
+
+function closeDriverAssist(
+  value
+) {
+
+  assistScreen.classList.remove(
+    "show"
+  );
+
+
+  assistBody.innerHTML =
+    "";
+
+
+  const resolve =
+    currentAssistResolver;
+
+
+  currentAssistResolver =
+    null;
+
+
+  if (
+    resolve
+  ) {
+
+    resolve(
+      value
+    );
+
+  }
+
+}
+
+
+function askDriverButtons({
+  step = "Driver Assist",
+  title,
+  text = "",
+  choices = [],
+  allowSkip = true,
+  allowBack = false
+}) {
+
+  return new Promise(
+    resolve => {
+
+      currentAssistResolver =
+        resolve;
+
+
+      assistStep.textContent =
+        step;
+
+
+      assistTitle.textContent =
+        title;
+
+
+      assistText.textContent =
+        text;
+
+
+      assistBody.innerHTML =
+        "";
+
+
+      syncDriverAssistFooter(
+        allowBack,
+        allowSkip
+      );
+
+
+      const list =
+        document.createElement(
+          "div"
+        );
+
+
+      list.className =
+        "assist-button-list";
+
+
+      choices.forEach(
+        choice => {
+
+          const button =
+            document.createElement(
+              "button"
+            );
+
+
+          button.type =
+            "button";
+
+
+          button.className =
+            "assist-choice big";
+
+
+          button.textContent =
+            choice.label;
+
+
+          button.addEventListener(
+            "click",
+            () =>
+              closeDriverAssist(
+                choice.value
+              )
+          );
+
+
+          list.appendChild(
+            button
+          );
+
+        }
+      );
+
+
+      if (
+        !choices.length
+      ) {
+
+        const empty =
+          document.createElement(
+            "div"
+          );
+
+
+        empty.className =
+          "assist-empty";
+
+
+        empty.textContent =
+          "No matching options are currently available.";
+
+
+        list.appendChild(
+          empty
+        );
+
+      }
+
+
+      assistBody.appendChild(
+        list
+      );
+
+
+      assistScreen.classList.add(
+        "show"
+      );
+
+    }
+  );
+
+}
+
+
+function askDriverSearchList({
+  step = "Driver Assist",
+  title,
+  text = "",
+  placeholder = "Search…",
+  items = [],
+  groups = null,
+  allowSkip = true,
+  allowBack = false
+}) {
+
+  return new Promise(
+    resolve => {
+
+      currentAssistResolver =
+        resolve;
+
+
+      assistStep.textContent =
+        step;
+
+
+      assistTitle.textContent =
+        title;
+
+
+      assistText.textContent =
+        text;
+
+
+      syncDriverAssistFooter(
+        allowBack,
+        allowSkip
+      );
+
+
+      assistBody.innerHTML =
+        "";
+
+
+      /*
+        Grain Source uses the cleaner searchable-dropdown UI.
+
+        Destination/customer/etc. keep the existing search-list
+        behavior so this change stays limited to Fields,
+        Bin Sites and Grain Bag Sites.
+      */
+
+/*
+  Use the normal FarmVista searchable dropdown for every Driver Assist list.
+  Field and Grain Storage should look and behave like the dropdown the driver
+  already knows; touch safety is handled without changing the UI.
+*/
+const useDropdown =
+  true;
+
+
+      if (
+        useDropdown
+      ) {
+
+        const dropdown =
+          document.createElement(
+            "div"
+          );
+
+
+        dropdown.className =
+          "assist-dropdown";
+
+
+        const trigger =
+          document.createElement(
+            "button"
+          );
+
+
+        trigger.type =
+          "button";
+
+
+        trigger.className =
+          "assist-dropdown-trigger";
+
+
+        const triggerText =
+          document.createElement(
+            "span"
+          );
+
+
+        triggerText.className =
+          "assist-dropdown-placeholder";
+
+
+        triggerText.textContent =
+          "Select an option…";
+
+
+        trigger.appendChild(
+          triggerText
+        );
+
+
+        const menu =
+          document.createElement(
+            "div"
+          );
+
+
+        menu.className =
+          "assist-dropdown-menu";
+
+
+        const searchWrap =
+          document.createElement(
+            "div"
+          );
+
+
+        searchWrap.className =
+          "assist-dropdown-search";
+
+
+        const searchInput =
+          document.createElement(
+            "input"
+          );
+
+
+        searchInput.type =
+          "search";
+
+
+        searchInput.className =
+          "assist-search";
+
+
+        searchInput.placeholder =
+          placeholder;
+
+
+        searchInput.autocomplete =
+          "off";
+
+
+        searchWrap.appendChild(
+          searchInput
+        );
+
+
+        menu.appendChild(
+          searchWrap
+        );
+
+
+        const results =
+          document.createElement(
+            "div"
+          );
+
+
+        results.className =
+          "assist-dropdown-results";
+
+
+        menu.appendChild(
+          results
+        );
+
+
+        dropdown.appendChild(
+          trigger
+        );
+
+
+        dropdown.appendChild(
+          menu
+        );
+
+
+        assistBody.appendChild(
+          dropdown
+        );
+
+
+        const render =
+          () => {
+
+            results.innerHTML =
+              "";
+
+
+            const search =
+              normalizeAliasText(
+                searchInput.value
+              );
+
+
+            const filtered =
+              items.filter(
+                item =>
+                  !search ||
+                  normalizeAliasText(
+                    `${item.label} ${item.searchText || ""}`
+                  ).includes(
+                    search
+                  )
+              );
+
+
+            if (
+              !filtered.length
+            ) {
+
+              const empty =
+                document.createElement(
+                  "div"
+                );
+
+
+              empty.className =
+                "assist-empty";
+
+
+              empty.textContent =
+                "No matching options were found.";
+
+
+              results.appendChild(
+                empty
+              );
+
+
+              return;
+
+            }
+
+
+            const renderGroups =
+              groups ||
+              [
+                {
+                  title:
+                    "",
+
+                  test:
+                    () =>
+                      true
+                }
+              ];
+
+
+            renderGroups.forEach(
+              group => {
+
+                const groupItems =
+                  filtered.filter(
+                    group.test
+                  );
+
+
+                if (
+                  !groupItems.length
+                ) {
+
+                  return;
+
+                }
+
+
+                if (
+                  group.title
+                ) {
+
+                  const heading =
+                    document.createElement(
+                      "div"
+                    );
+
+
+                  heading.className =
+                    "assist-group";
+
+
+                  heading.textContent =
+                    group.title;
+
+
+                  results.appendChild(
+                    heading
+                  );
+
+                }
+
+
+                groupItems.forEach(
+                  item => {
+
+                    const option =
+                      document.createElement(
+                        "button"
+                      );
+
+
+                    option.type =
+                      "button";
+
+
+                    option.className =
+                      "assist-dropdown-option";
+
+
+                    option.textContent =
+                      item.label;
+
+
+                    option.addEventListener(
+                      "click",
+                      () => {
+
+                        triggerText.textContent =
+                          item.label;
+
+
+                        triggerText.className =
+                          "";
+
+
+                        dropdown.classList.remove(
+                          "open"
+                        );
+
+
+                        closeDriverAssist(
+                          item.value
+                        );
+
+                      }
+                    );
+
+
+                    results.appendChild(
+                      option
+                    );
+
+                  }
+                );
+
+              }
+            );
+
+          };
+
+
+        trigger.addEventListener(
+          "click",
+          () => {
+
+            const opening =
+              !dropdown.classList.contains(
+                "open"
+              );
+
+
+            dropdown.classList.toggle(
+              "open"
+            );
+
+
+            if (
+              opening
+            ) {
+
+              setTimeout(
+                () =>
+                  searchInput.focus(),
+                50
+              );
+
+            }
+
+          }
+        );
+
+
+        searchInput.addEventListener(
+          "input",
+          render
+        );
+
+
+        searchInput.addEventListener(
+          "click",
+          event =>
+            event.stopPropagation()
+        );
+
+
+        render();
+
+      }
+      else {
+
+        /*
+          Existing Driver Assist search UI for destinations,
+          customers and any other non-Grain-Source questions.
+        */
+
+        const searchWrap =
+          document.createElement(
+            "div"
+          );
+
+
+        searchWrap.className =
+          "assist-search-wrap";
+
+
+        const searchInput =
+          document.createElement(
+            "input"
+          );
+
+
+        searchInput.type =
+          "search";
+
+
+        searchInput.className =
+          "assist-search";
+
+
+        searchInput.placeholder =
+          placeholder;
+
+
+        searchInput.autocomplete =
+          "off";
+
+
+        searchWrap.appendChild(
+          searchInput
+        );
+
+
+        assistBody.appendChild(
+          searchWrap
+        );
+
+
+        const results =
+          document.createElement(
+            "div"
+          );
+
+
+        assistBody.appendChild(
+          results
+        );
+
+
+        const render =
+          () => {
+
+            results.innerHTML =
+              "";
+
+
+            const search =
+              normalizeAliasText(
+                searchInput.value
+              );
+
+
+            const filtered =
+              items.filter(
+                item =>
+                  !search ||
+                  normalizeAliasText(
+                    `${item.label} ${item.searchText || ""}`
+                  ).includes(
+                    search
+                  )
+              );
+
+
+            if (
+              !filtered.length
+            ) {
+
+              const empty =
+                document.createElement(
+                  "div"
+                );
+
+
+              empty.className =
+                "assist-empty";
+
+
+              empty.textContent =
+                "No matching options were found.";
+
+
+              results.appendChild(
+                empty
+              );
+
+
+              return;
+
+            }
+
+
+            const renderGroups =
+              groups ||
+              [
+                {
+                  title:
+                    "",
+
+                  test:
+                    () =>
+                      true
+                }
+              ];
+
+
+            renderGroups.forEach(
+              group => {
+
+                const groupItems =
+                  filtered.filter(
+                    group.test
+                  );
+
+
+                if (
+                  !groupItems.length
+                ) {
+
+                  return;
+
+                }
+
+
+                if (
+                  group.title
+                ) {
+
+                  const heading =
+                    document.createElement(
+                      "div"
+                    );
+
+
+                  heading.className =
+                    "assist-group";
+
+
+                  heading.textContent =
+                    group.title;
+
+
+                  results.appendChild(
+                    heading
+                  );
+
+                }
+
+
+                groupItems.forEach(
+                  item => {
+
+                    const button =
+                      document.createElement(
+                        "button"
+                      );
+
+
+                    button.type =
+                      "button";
+
+
+                    button.className =
+                      "assist-choice";
+
+
+                    button.textContent =
+                      item.label;
+
+
+                    button.addEventListener(
+                      "click",
+                      () =>
+                        closeDriverAssist(
+                          item.value
+                        )
+                    );
+
+
+                    results.appendChild(
+                      button
+                    );
+
+                  }
+                );
+
+              }
+            );
+
+          };
+
+
+        searchInput.addEventListener(
+          "input",
+          render
+        );
+
+
+        render();
+
+
+        setTimeout(
+          () =>
+            searchInput.focus(),
+          50
+        );
+
+      }
+
+
+      assistScreen.classList.add(
+        "show"
+      );
+
+    }
+  );
+
+}
+
+
+assistBackBtn?.addEventListener(
+  "click",
+  () =>
+    closeDriverAssist(
+      DRIVER_ASSIST_BACK
+    )
+);
+
+
+assistSkipBtn.addEventListener(
+  "click",
+  () =>
+    closeDriverAssist(
+      null
+    )
+);
+
+
+function contractIsAvailableForDriverAssist(
+  contract
+) {
+
+  if (
+    !contract ||
+    contract.voided ===
+      true
+  ) {
+
+    return false;
+
+  }
+
+
+  const status =
+    normalizeAliasText(
+      contract.status
+    );
+
+
+  if (
+    status ===
+      "completed" ||
+    status ===
+      "voided" ||
+    status ===
+      "closed"
+  ) {
+
+    return false;
+
+  }
+
+
+  const openBushels =
+    Number(
+      contract.openBushels
+    );
+
+
+  if (
+    Number.isFinite(
+      openBushels
+    )
+  ) {
+
+    return openBushels >
+      0;
+
+  }
+
+
+  const contractBushels =
+    Number(
+      contract.contractBushels
+    );
+
+
+  const deliveredBushels =
+    Number(
+      contract.deliveredBushels ||
+      0
+    );
+
+
+  if (
+    Number.isFinite(
+      contractBushels
+    )
+  ) {
+
+    return (
+      contractBushels -
+      (
+        Number.isFinite(
+          deliveredBushels
+        )
+          ? deliveredBushels
+          : 0
+      )
+    ) >
+      0;
+
+  }
+
+
+  return true;
+
+}
+
+
+function getDriverAssistCustomers(
+  grainTicket,
+  location,
+  buyer,
+  haulingJob =
+    null
+) {
+
+  if (
+    !grainTicket?.crop
+  ) {
+
+    return [];
+
+  }
+
+
+  const crop =
+    normalizeMatchText(
+      grainTicket.crop
+    );
+
+
+  const ids =
+    new Set();
+
+
+  /*
+    ============================================================
+    PREFERRED PATH:
+    A hauling job is already known.
+
+    In that case, Sold Under comes ONLY from OPEN contracts
+    linked to that exact hauling job.
+    ============================================================
+  */
+
+  if (
+    haulingJob?.id
+  ) {
+
+    contracts.forEach(
+      contract => {
+
+        if (
+          !contractIsAvailableForDriverAssist(
+            contract
+          )
+        ) {
+
+          return;
+
+        }
+
+
+        const contractHaulingJobId =
+          String(
+            contract?.haulingJobId ||
+            ""
+          ).trim();
+
+
+        if (
+          contractHaulingJobId !==
+            String(
+              haulingJob.id
+            ).trim()
+        ) {
+
+          return;
+
+        }
+
+
+        const contractCrop =
+          normalizeMatchText(
+            firstExistingValue(
+              contract,
+              [
+                "crop",
+                "commodity"
+              ]
+            )
+          );
+
+
+        if (
+          crop &&
+          contractCrop &&
+          crop !==
+            contractCrop
+        ) {
+
+          return;
+
+        }
+
+
+        const customerId =
+          String(
+            firstExistingValue(
+              contract,
+              [
+                "customerId",
+                "grainCustomerId"
+              ]
+            ) ||
+            ""
+          ).trim();
+
+
+        if (
+          customerId
+        ) {
+
+          ids.add(
+            customerId
+          );
+
+        }
+
+      }
+    );
+
+  }
+  else {
+
+    /*
+      ============================================================
+      FALLBACK PATH:
+      Hauling job is still unresolved.
+
+      Preserve the old safe narrowing by:
+        destination + buyer + crop
+
+      This prevents Driver Assist from becoming unusable when the
+      office hauling job could not be auto-assigned yet.
+      ============================================================
+    */
+
+    if (
+      !location
+    ) {
+
+      return [];
+
+    }
+
+
+    const locationId =
+      String(
+        location.id ||
+        ""
+      );
+
+
+    const buyerId =
+      String(
+        buyer?.id ||
+        location.buyerId ||
+        ""
+      );
+
+
+    contracts.forEach(
+      contract => {
+
+        if (
+          !contractIsAvailableForDriverAssist(
+            contract
+          )
+        ) {
+
+          return;
+
+        }
+
+
+        const contractCrop =
+          normalizeMatchText(
+            firstExistingValue(
+              contract,
+              [
+                "crop",
+                "commodity"
+              ]
+            )
+          );
+
+
+        if (
+          crop &&
+          contractCrop &&
+          crop !==
+            contractCrop
+        ) {
+
+          return;
+
+        }
+
+
+        const contractLocationId =
+          String(
+            firstExistingValue(
+              contract,
+              [
+                "deliveryLocationId",
+                "locationId"
+              ]
+            ) ||
+            ""
+          );
+
+
+        const contractBuyerId =
+          String(
+            firstExistingValue(
+              contract,
+              [
+                "buyerId",
+                "grainBuyerId"
+              ]
+            ) ||
+            ""
+          );
+
+
+        if (
+          locationId &&
+          contractLocationId &&
+          contractLocationId !==
+            locationId
+        ) {
+
+          return;
+
+        }
+
+
+        if (
+          buyerId &&
+          contractBuyerId &&
+          contractBuyerId !==
+            buyerId
+        ) {
+
+          return;
+
+        }
+
+
+        const customerId =
+          String(
+            firstExistingValue(
+              contract,
+              [
+                "customerId",
+                "grainCustomerId"
+              ]
+            ) ||
+            ""
+          );
+
+
+        if (
+          customerId
+        ) {
+
+          ids.add(
+            customerId
+          );
+
+        }
+
+      }
+    );
+
+  }
+
+
+  /*
+    Return unique FarmVista customers.
+  */
+
+  return customers
+    .filter(
+      customer =>
+        ids.has(
+          String(
+            customer.id
+          )
+        )
+    )
+    .sort(
+      (
+        a,
+        b
+      ) =>
+        getCustomerName(
+          a
+        ).localeCompare(
+          getCustomerName(
+            b
+          ),
+          undefined,
+          {
+            numeric:
+              true,
+
+            sensitivity:
+              "base"
+          }
+        )
+    );
+
+}
+
+
+function buildDriverAssistBinSiteChoices(
+  crop
+) {
+
+  const wantedCrop =
+    normalizeMatchText(
+      crop
+    );
+
+
+  const choices =
+    [];
+
+
+  binSites.forEach(
+    site => {
+
+      const status =
+        normalizeAliasText(
+          site.status ||
+          "active"
+        );
+
+
+      if (
+        status &&
+        status !==
+          "active"
+      ) {
+
+        return;
+
+      }
+
+
+      const siteName =
+        String(
+          site.name ||
+          `Bin Site ${String(site.id).slice(0,6)}`
+        ).trim();
+
+
+      const bins =
+        Array.isArray(
+          site.bins
+        )
+          ? site.bins
+          : [];
+
+
+      const matchingBins =
+        bins
+          .map(
+            (
+              bin,
+              index
+            ) => ({
+              bin,
+              index,
+              onHand:
+                Number(
+                  bin?.onHand ||
+                  0
+                ),
+              crop:
+                normalizeMatchText(
+                  bin?.lastCropType ||
+                  bin?.crop ||
+                  bin?.cropType
+                )
+            })
+          )
+          .filter(
+            item =>
+              Number.isFinite(
+                item.onHand
+              ) &&
+              item.onHand >
+                0 &&
+              item.crop &&
+              item.crop ===
+                wantedCrop
+          );
+
+
+      if (
+        !matchingBins.length
+      ) {
+
+        return;
+
+      }
+
+
+      /*
+        Driver only knows the SITE.
+
+        Use the first bin at that site that contains this crop.
+        This preserves the existing downstream inventory-posting
+        shape, which expects siteId + binIndex/binNumber.
+      */
+
+      const selectedBin =
+        matchingBins[0];
+
+
+      choices.push({
+        type:
+          "bin_site",
+
+        label:
+          siteName,
+
+        searchText:
+          `${siteName} ${crop}`,
+
+        value: {
+          type:
+            "bin",
+
+          sourceScope:
+            "site",
+
+          siteId:
+            site.id,
+
+          siteName,
+
+          binIndex:
+            selectedBin.index,
+
+          binNumber:
+            selectedBin.bin?.num ??
+            (
+              selectedBin.index +
+              1
+            ),
+
+          fieldId:
+            String(
+              site.fieldId ||
+              site.farmFieldId ||
+              site.field?.id ||
+              ""
+            ).trim() ||
+            null,
+
+          fieldName:
+            String(
+              site.fieldName ||
+              site.farmFieldName ||
+              site.field?.name ||
+              ""
+            ).trim() ||
+            null,
+
+          crop:
+            crop
+        }
+      });
+
+    }
+  );
+
+
+  return choices.sort(
+    (
+      a,
+      b
+    ) =>
+      a.label.localeCompare(
+        b.label,
+        undefined,
+        {
+          numeric:
+            true,
+
+          sensitivity:
+            "base"
+        }
+      )
+  );
+
+}
+
+
+function grainBagEventHasRemainingInventory(
+  event
+) {
+
+  const type =
+    normalizeAliasText(
+      event?.type
+    );
+
+
+  if (
+    type !==
+      "putdown" &&
+    type !==
+      "put down"
+  ) {
+
+    return false;
+
+  }
+
+
+  const status =
+    normalizeAliasText(
+      event?.status
+    );
+
+
+  if (
+    status ===
+      "pickedup" ||
+    status ===
+      "picked up"
+  ) {
+
+    return false;
+
+  }
+
+
+  const counts =
+    event?.counts ||
+    {};
+
+
+  const full =
+    Math.max(
+      0,
+      Number(
+        counts.full ||
+        0
+      ) ||
+      0
+    );
+
+
+  const partial =
+    Math.max(
+      0,
+      Number(
+        counts.partial ||
+        0
+      ) ||
+      0
+    );
+
+
+  const partialFeetValues =
+    Array.isArray(
+      event.partialFeet
+    )
+      ? event.partialFeet
+      : Array.isArray(
+          counts.partialFeet
+        )
+        ? counts.partialFeet
+        : [];
+
+
+  const partialFeet =
+    partialFeetValues.reduce(
+      (
+        total,
+        value
+      ) =>
+        total +
+        Math.max(
+          0,
+          Number(
+            value
+          ) ||
+          0
+        ),
+      0
+    );
+
+
+  return (
+    full >
+      0 ||
+    partial >
+      0 ||
+    partialFeet >
+      0
+  );
+
+}
+
+
+function buildDriverAssistBagSiteChoices(
+  crop
+) {
+
+  const wantedCrop =
+    normalizeMatchText(
+      crop
+    );
+
+
+  const grouped =
+    new Map();
+
+
+  grainBagEvents
+    .filter(
+      grainBagEventHasRemainingInventory
+    )
+    .filter(
+      event =>
+        normalizeMatchText(
+          event.cropType ||
+          event.crop
+        ) ===
+          wantedCrop
+    )
+    .forEach(
+      event => {
+
+        const fieldId =
+          String(
+            event.field?.id ||
+            ""
+          ).trim();
+
+
+        const fieldName =
+          String(
+            event.field?.name ||
+            ""
+          ).trim();
+
+
+        if (
+          !fieldName
+        ) {
+
+          return;
+
+        }
+
+
+        const key =
+          fieldId ||
+          normalizeAliasText(
+            fieldName
+          );
+
+
+        if (
+          !grouped.has(
+            key
+          )
+        ) {
+
+          grouped.set(
+            key,
+            {
+              fieldId:
+                fieldId ||
+                null,
+
+              fieldName,
+
+              events:
+                []
+            }
+          );
+
+        }
+
+
+        grouped.get(
+          key
+        ).events.push(
+          event
+        );
+
+      }
+    );
+
+
+  return Array.from(
+    grouped.values()
+  )
+    .map(
+      group => {
+
+        /*
+          Driver chooses the bag SITE only.
+          Use the first currently open putDown event at that site.
+        */
+
+        const selectedEvent =
+          group.events[0];
+
+
+        return {
+          type:
+            "grain_bag_site",
+
+          label:
+            group.fieldName,
+
+          searchText:
+            `${group.fieldName} ${crop}`,
+
+          value: {
+            type:
+              "grain_bag",
+
+            sourceScope:
+              "site",
+
+            id:
+              selectedEvent.id,
+
+            bagEventId:
+              selectedEvent.id,
+
+            fieldId:
+              group.fieldId,
+
+            fieldName:
+              group.fieldName,
+
+            siteName:
+              group.fieldName,
+
+            cropYear:
+              selectedEvent.cropYear ??
+              null,
+
+            crop:
+              crop
+          }
+        };
+
+      }
+    )
+    .sort(
+      (
+        a,
+        b
+      ) =>
+        a.label.localeCompare(
+          b.label,
+          undefined,
+          {
+            numeric:
+              true,
+
+            sensitivity:
+              "base"
+          }
+        )
+    );
+
+}
+
+
+function haulingJobIsActive(
+  job
+) {
+
+  if (
+    !job ||
+    job.active === false ||
+    job.isActive === false
+  ) {
+
+    return false;
+
+  }
+
+
+  const status =
+    normalizeAliasText(
+      job.status ||
+      "active"
+    );
+
+
+  if (
+    status.includes(
+      "closed"
+    ) ||
+    status.includes(
+      "complete"
+    ) ||
+    status.includes(
+      "cancel"
+    ) ||
+    status.includes(
+      "void"
+    )
+  ) {
+
+    return false;
+
+  }
+
+
+  const starting =
+    haulingJobStartingBushels(
+      job
+    );
+
+
+  if (
+    starting >
+      0 &&
+    haulingJobRemainingBushels(
+      job
+    ) <=
+      0.005
+  ) {
+
+    return false;
+
+  }
+
+
+  return true;
+
+}
+
+
+function haulingJobLocationId(
+  job
+) {
+
+  return String(
+    job?.deliveryLocationId ||
+    job?.locationId ||
+    job?.destinationId ||
+    ""
+  ).trim();
+
+}
+
+
+function haulingJobCustomerId(
+  job
+) {
+
+  return String(
+    job?.customerId ||
+    job?.grainCustomerId ||
+    ""
+  ).trim();
+
+}
+
+
+function haulingJobCrop(
+  job
+) {
+
+  return normalizeScannedCrop(
+    job?.crop ||
+    job?.commodity
+  );
+
+}
+
+
+function haulingJobStartingBushels(
+  job
+) {
+
+  const value =
+    Number(
+      job?.startingBushels ??
+      job?.jobBushels ??
+      job?.bushels ??
+      0
+    );
+
+
+  return Number.isFinite(
+    value
+  )
+    ? Math.max(
+        0,
+        value
+      )
+    : 0;
+
+}
+
+
+function haulingJobTicketedBushels(
+  job
+) {
+
+  const jobId =
+    String(
+      job?.id ||
+      ""
+    ).trim();
+
+
+  if (
+    !jobId
+  ) {
+
+    return 0;
+
+  }
+
+
+  return grainTickets
+    .filter(
+      ticket => {
+
+        const status =
+          normalizeAliasText(
+            ticket?.status ||
+            ""
+          );
+
+
+        const voided =
+          ticket?.voided ===
+            true ||
+          status.includes(
+            "void"
+          );
+
+
+        const ticketJobId =
+          String(
+            ticket?.haulingJobId ||
+            ticket?.grainHaulingJobId ||
+            ""
+          ).trim();
+
+
+        return (
+          !voided &&
+          ticketJobId ===
+            jobId
+        );
+
+      }
+    )
+    .reduce(
+      (
+        total,
+        ticket
+      ) => {
+
+        const bushels =
+          Number(
+            ticket?.netBushels ??
+            ticket?.netBu ??
+            ticket?.bushels ??
+            0
+          );
+
+
+        return total +
+          (
+            Number.isFinite(
+              bushels
+            )
+              ? bushels
+              : 0
+          );
+
+      },
+      0
+    );
+
+}
+
+
+function haulingJobRemainingBushels(
+  job
+) {
+
+  return Math.max(
+    0,
+    haulingJobStartingBushels(
+      job
+    ) -
+    haulingJobTicketedBushels(
+      job
+    )
+  );
+
+}
+
+
+function normalizedTicketDateISO(
+  value
+) {
+
+  const raw =
+    String(
+      value ||
+      ""
+    ).trim();
+
+
+  if (
+    !raw
+  ) {
+
+    return "";
+
+  }
+
+
+  if (
+    /^\d{4}-\d{2}-\d{2}$/.test(
+      raw
+    )
+  ) {
+
+    return raw;
+
+  }
+
+
+  const usMatch =
+    raw.match(
+      /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/
+    );
+
+
+  if (
+    usMatch
+  ) {
+
+    return [
+      usMatch[3],
+
+      String(
+        usMatch[1]
+      ).padStart(
+        2,
+        "0"
+      ),
+
+      String(
+        usMatch[2]
+      ).padStart(
+        2,
+        "0"
+      )
+    ].join(
+      "-"
+    );
+
+  }
+
+
+  const parsed =
+    new Date(
+      raw
+    );
+
+
+  if (
+    Number.isNaN(
+      parsed.getTime()
+    )
+  ) {
+
+    return "";
+
+  }
+
+
+  return [
+    parsed.getFullYear(),
+
+    String(
+      parsed.getMonth() +
+      1
+    ).padStart(
+      2,
+      "0"
+    ),
+
+    String(
+      parsed.getDate()
+    ).padStart(
+      2,
+      "0"
+    )
+  ].join(
+    "-"
+  );
+
+}
+
+
+function haulingJobMatchesTicketDate(
+  job,
+  ticketDate
+) {
+
+  const date =
+    normalizedTicketDateISO(
+      ticketDate
+    );
+
+
+  if (
+    !date
+  ) {
+
+    return true;
+
+  }
+
+
+  const start =
+    normalizedTicketDateISO(
+      job?.deliveryStartDate ||
+      job?.startDate
+    );
+
+
+  const end =
+    normalizedTicketDateISO(
+      job?.deliveryEndDate ||
+      job?.endDate
+    );
+
+
+  if (
+    start &&
+    date <
+      start
+  ) {
+
+    return false;
+
+  }
+
+
+  if (
+    end &&
+    date >
+      end
+  ) {
+
+    return false;
+
+  }
+
+
+  return true;
+
+}
+
+
+function matchingActiveHaulingJobsForTicket(
+  grainTicket,
+  customer = null,
+  locationOverride = null,
+  buyerOverride = null
+) {
+
+  const crop =
+    normalizeScannedCrop(
+      grainTicket?.crop
+    );
+
+  if (!crop) {
+    return [];
+  }
+
+  const locationMatch =
+    findDeliveryLocationMatch(
+      grainTicket
+    );
+
+  const matchedLocation =
+    locationOverride ||
+    (
+      locationMatch?.matched
+        ? locationMatch.location
+        : null
+    );
+
+  const matchedLocationId =
+    String(
+      matchedLocation?.id ||
+      ""
+    ).trim();
+
+  const matchedBuyerId =
+    String(
+      buyerOverride?.id ||
+      matchedLocation?.buyerId ||
+      ""
+    ).trim();
+
+  const customerId =
+    String(
+      customer?.id ||
+      ""
+    ).trim();
+
+  let matches =
+    haulingJobs
+      .filter(
+        haulingJobIsActive
+      )
+      .filter(
+        job =>
+          haulingJobCrop(job) === crop
+      )
+      .filter(
+        job =>
+          haulingJobMatchesTicketDate(
+            job,
+            grainTicket?.ticketDate
+          )
+      );
+
+  if (matchedLocationId) {
+    matches =
+      matches.filter(
+        job =>
+          haulingJobLocationId(job) ===
+            matchedLocationId
+      );
+  }
+
+  /*
+    Sold Under and Hauling Job work in both directions.
+    Once Sold Under is known, keep only jobs with an OPEN linked
+    contract for that customer and crop.
+  */
+  if (customerId) {
+    matches =
+      matches.filter(
+        job =>
+          contracts.some(
+            contract => {
+              if (!contractIsAvailableForDriverAssist(contract)) {
+                return false;
+              }
+
+              const contractJobId =
+                String(
+                  contract?.haulingJobId ||
+                  ""
+                ).trim();
+
+              const contractCustomerId =
+                String(
+                  firstExistingValue(
+                    contract,
+                    ["customerId", "grainCustomerId"]
+                  ) ||
+                  ""
+                ).trim();
+
+              const contractCrop =
+                normalizeScannedCrop(
+                  firstExistingValue(
+                    contract,
+                    ["crop", "commodity"]
+                  )
+                );
+
+              const contractLocationId =
+                String(
+                  firstExistingValue(
+                    contract,
+                    [
+                      "deliveryLocationId",
+                      "locationId",
+                      "destinationId"
+                    ]
+                  ) ||
+                  ""
+                ).trim();
+
+              const contractBuyerId =
+                String(
+                  firstExistingValue(
+                    contract,
+                    ["buyerId", "elevatorId"]
+                  ) ||
+                  ""
+                ).trim();
+
+              return (
+                contractJobId === String(job.id || "").trim() &&
+                contractCustomerId === customerId &&
+                (!contractCrop || contractCrop === crop) &&
+                (
+                  !matchedLocationId ||
+                  !contractLocationId ||
+                  contractLocationId === matchedLocationId
+                ) &&
+                (
+                  !matchedBuyerId ||
+                  !contractBuyerId ||
+                  contractBuyerId === matchedBuyerId
+                )
+              );
+            }
+          )
+      );
+  }
+
+  console.log(
+    "[Grain Ticket] Hauling job candidates:",
+    {
+      crop,
+      ticketDate: grainTicket?.ticketDate || null,
+      destinationId: matchedLocationId || null,
+      soldUnderId: customerId || null,
+      count: matches.length,
+      jobs: matches.map(
+        job => ({
+          id: job.id,
+          label: haulingJobDisplayLabel(job).label,
+          locationId: haulingJobLocationId(job)
+        })
+      )
+    }
+  );
+
+  return matches;
+}
+
+
+function automaticHaulingJobForTicket(
+  grainTicket,
+  customer = null,
+  locationOverride = null,
+  buyerOverride = null
+) {
+  const matches =
+    matchingActiveHaulingJobsForTicket(
+      grainTicket,
+      customer,
+      locationOverride,
+      buyerOverride
+    );
+
+  return matches.length === 1
+    ? matches[0]
+    : null;
+}
+
+
+function haulingJobDisplayLabel(
+  job
+) {
+
+  const location =
+    deliveryLocations.find(
+      item =>
+        item.id ===
+        haulingJobLocationId(
+          job
+        )
+    ) ||
+    null;
+
+
+  const buyerName =
+    String(
+      job?.buyerName ||
+      location?.buyerName ||
+      ""
+    ).trim();
+
+
+  const locationName =
+    String(
+      job?.deliveryLocationName ||
+      job?.locationName ||
+      job?.destinationName ||
+      location?.locationName ||
+      "Hauling Job"
+    ).trim();
+
+
+  const destination =
+    buyerName &&
+    !cleanCompare(
+      locationName
+    ).startsWith(
+      cleanCompare(
+        buyerName
+      )
+    )
+      ? `${buyerName} ${locationName}`
+      : locationName;
+
+
+  const start =
+    String(
+      job?.deliveryStartDate ||
+      job?.startDate ||
+      ""
+    ).trim();
+
+
+  const end =
+    String(
+      job?.deliveryEndDate ||
+      job?.endDate ||
+      ""
+    ).trim();
+
+
+  const dateText =
+    start || end
+      ? `${start || "?"} to ${end || "?"}`
+      : "";
+
+
+  return {
+    label:
+      `${destination} — ${haulingJobStartingBushels(job).toLocaleString("en-US")} bu`,
+
+    searchText:
+      `${destination} ${buyerName} ${haulingJobCrop(job) || ""} ${dateText}`,
+
+    detail:
+      `${dateText ? `${dateText} • ` : ""}Remaining ${haulingJobRemainingBushels(job).toLocaleString("en-US")} bu`
+  };
+
+}
+
+
+function activeHaulingJobChoices(
+  grainTicket =
+    null
+) {
+
+  const jobs =
+    grainTicket
+      ? matchingActiveHaulingJobsForTicket(
+          grainTicket
+        )
+      : haulingJobs.filter(
+          haulingJobIsActive
+        );
+
+
+  return jobs
+    .map(
+      job => {
+
+        const display =
+          haulingJobDisplayLabel(
+            job
+          );
+
+
+        return {
+          label:
+            `${display.label} • ${display.detail}`,
+
+          searchText:
+            display.searchText,
+
+          value:
+            job
+        };
+
+      }
+    )
+    .sort(
+      (
+        a,
+        b
+      ) =>
+        a.label.localeCompare(
+          b.label,
+          undefined,
+          {
+            numeric:
+              true,
+
+            sensitivity:
+              "base"
+          }
+        )
+    );
+
+}
+
+
+function rebuildMatchingAfterDriverAssist(
+  grainTicket,
+  haulingJob,
+  location,
+  buyer,
+  customer,
+  source,
+  previousMatching,
+  skippedReasons
+) {
+
+  const locationMatch =
+    location
+      ? {
+          matched:
+            true,
+
+          matchType:
+            previousMatching?.locationMatch?.location?.id ===
+              location.id
+              ? previousMatching.locationMatch.matchType
+              : "driver_selected",
+
+          location
+        }
+      : {
+          matched:
+            false,
+
+          matchType:
+            null,
+
+          location:
+            null
+        };
+
+
+  const buyerMatch =
+    buyer
+      ? {
+          matched:
+            true,
+
+          matchType:
+            previousMatching?.buyerMatch?.buyer?.id ===
+              buyer.id
+              ? previousMatching.buyerMatch.matchType
+              : "location_buyer",
+
+          buyer
+        }
+      : {
+          matched:
+            false,
+
+          matchType:
+            null,
+
+          buyer:
+            null
+        };
+
+
+  const customerMatch =
+    customer
+      ? {
+          matched:
+            true,
+
+          matchType:
+            previousMatching?.customerMatch?.customer?.id ===
+              customer.id
+              ? previousMatching.customerMatch.matchType
+              : "driver_selected",
+
+          customer
+        }
+      : {
+          matched:
+            false,
+
+          matchType:
+            null,
+
+          customer:
+            null
+        };
+
+
+  const reviewReasons =
+    [];
+
+
+  if (
+    !haulingJob
+  ) {
+
+    reviewReasons.push(
+      "hauling_job_not_assigned"
+    );
+
+  }
+
+
+  if (
+    !location
+  ) {
+
+    reviewReasons.push(
+      "delivery_location_not_matched"
+    );
+
+  }
+
+
+  if (
+    !buyer
+  ) {
+
+    reviewReasons.push(
+      "buyer_not_matched"
+    );
+
+  }
+
+
+  if (
+    !customer
+  ) {
+
+    reviewReasons.push(
+      "customer_not_matched"
+    );
+
+  }
+
+
+  if (
+    !source
+  ) {
+
+    reviewReasons.push(
+      "grain_source_not_assigned"
+    );
+
+  }
+
+
+  reviewReasons.push(
+    ...(
+      Array.isArray(
+        skippedReasons
+      )
+        ? skippedReasons
+        : []
+    )
+  );
+
+
+  const uniqueReviewReasons =
+    Array.from(
+      new Set(
+        reviewReasons
+      )
+    );
+
+
+  return {
+    ...previousMatching,
+
+    locationMatch,
+
+    buyerMatch,
+
+    customerMatch,
+
+    validationStatus:
+      uniqueReviewReasons.length
+        ? "needs_review"
+        : "verified",
+
+    reviewReasons:
+      uniqueReviewReasons,
+
+    grainSource:
+      source ||
+      null,
+
+    haulingJob:
+      haulingJob ||
+      null
+  };
+
+}
+
+
+async function askDriverForGrainSource(
+  crop
+) {
+
+  while (
+    crop
+  ) {
+
+    const sourceType =
+      await askDriverButtons({
+        step:
+          "Grain Source",
+
+        title:
+          `Where did this load of ${crop} come from?`,
+
+        text:
+          "Choose the source the driver knows. If you open the wrong section, use Back.",
+
+        choices: [
+          {
+            label:
+              "Active Field Harvest",
+
+            value:
+              "active_field_harvest"
+          },
+          {
+            label:
+              "Field",
+
+            value:
+              "field"
+          },
+          {
+            label:
+              "Grain Storage",
+
+            value:
+              "storage"
+          }
+        ],
+
+        allowSkip:
+          true,
+
+        allowBack:
+          false
+      });
+
+
+    if (
+      !sourceType
+    ) {
+
+      return null;
+
+    }
+
+
+    if (
+      sourceType ===
+        "active_field_harvest"
+    ) {
+
+      return {
+
+        type:
+          "active_field_harvest",
+
+        sourceScope:
+          "active_harvest",
+
+        id:
+          null,
+
+        siteId:
+          null,
+
+        siteName:
+          "Active Field Harvest",
+
+        fieldId:
+          null,
+
+        fieldName:
+          null,
+
+        crop,
+
+        bypassInventory:
+          true
+
+      };
+
+    }
+
+
+    if (
+      sourceType ===
+        "field"
+    ) {
+
+      const selectedField =
+        await askDriverSearchList({
+          step:
+            "Grain Source",
+
+          title:
+            `Which field did this ${crop} come from?`,
+
+          text:
+            "Choose the actual field this grain came from.",
+
+          placeholder:
+            "Search field name or number…",
+
+          items:
+            fields.map(
+              field => ({
+                label:
+                  String(
+                    field.name ||
+                    ""
+                  ).trim(),
+
+                searchText:
+                  `${field.name || ""} ${field.farmName || ""} ${field.farmId || ""}`,
+
+                value:
+                  field
+              })
+            ),
+
+          allowSkip:
+            false,
+
+          allowBack:
+            true
+        });
+
+
+      if (
+        selectedField ===
+          DRIVER_ASSIST_BACK
+      ) {
+
+        continue;
+
+      }
+
+
+      if (
+        !selectedField
+      ) {
+
+        return null;
+
+      }
+
+
+      /*
+        A selected field is part of Active Harvest, not a separate
+        inventory source type. Keep the field identity on the ticket
+        while using active_field_harvest so the Grain Inventory page
+        can roll the load into Active Harvest and still drill down by field.
+      */
+      return {
+        type:
+          "active_field_harvest",
+
+        sourceScope:
+          "field",
+
+        id:
+          selectedField.id,
+
+        fieldId:
+          selectedField.id,
+
+        fieldName:
+          String(
+            selectedField.name ||
+            ""
+          ).trim(),
+
+        siteName:
+          String(
+            selectedField.name ||
+            ""
+          ).trim(),
+
+        crop,
+
+        /*
+          A field is a tracking source only.
+          It must never block the scan because there is no
+          bin/bag inventory balance to deduct from.
+        */
+        bypassInventory:
+          true
+      };
+
+    }
+
+
+    if (
+      sourceType ===
+        "storage"
+    ) {
+
+      const binChoices =
+        buildDriverAssistBinSiteChoices(
+          crop
+        );
+
+
+      const bagChoices =
+        buildDriverAssistBagSiteChoices(
+          crop
+        );
+
+
+      const selectedStorage =
+        await askDriverSearchList({
+          step:
+            "Grain Source",
+
+          title:
+            `Which grain storage site did this ${crop} come from?`,
+
+          text:
+            "Only sites with this crop currently available are shown. Drivers choose the site, not an individual bin or bag.",
+
+          placeholder:
+            "Search grain storage site…",
+
+          items: [
+            ...binChoices,
+            ...bagChoices
+          ],
+
+          groups: [
+            {
+              title:
+                "Grain Bin Sites",
+
+              test:
+                item =>
+                  item.type ===
+                    "bin_site"
+            },
+            {
+              title:
+                "Grain Bag Sites",
+
+              test:
+                item =>
+                  item.type ===
+                    "grain_bag_site"
+            }
+          ],
+
+          allowSkip:
+            false,
+
+          allowBack:
+            true
+        });
+
+
+      if (
+        selectedStorage ===
+          DRIVER_ASSIST_BACK
+      ) {
+
+        continue;
+
+      }
+
+
+      if (
+        !selectedStorage
+      ) {
+
+        return null;
+
+      }
+
+
+      return selectedStorage;
+
+    }
+
+  }
+
+
+  return null;
+
+}
+
+
+async function runDriverAssistQuestions(
+  grainTicket,
+  ocrResult,
+  matching
+) {
+
+  if (isGuestScan) {
+    return matching;
+  }
+
+  const skippedReasons = [];
+
+  let source = null;
+  let haulingJob = null;
+  let location = matching?.locationMatch?.location || null;
+  let buyer = matching?.buyerMatch?.buyer || null;
+
+  /*
+    Sold Under is ticket truth and does not require a hauling job.
+    Keep a confident OCR customer match while the hauling job is unresolved.
+  */
+  let customer = matching?.customerMatch?.customer || null;
+
+  let crop =
+    normalizeScannedCrop(
+      grainTicket.crop
+    );
+
+  processingScreen.classList.remove("show");
+
+  /* ========================================================
+     GRAIN SOURCE
+  ======================================================== */
+  if (crop) {
+    source =
+      await askDriverForGrainSource(crop);
+
+    if (!source) {
+      skippedReasons.push("grain_source_not_selected");
+    }
+  }
+  else {
+    skippedReasons.push("grain_source_not_selected");
+  }
+
+  /* ========================================================
+     DESTINATION
+  ======================================================== */
+  while (!location) {
+    const selectedLocation =
+      await askDriverSearchList({
+        step: "Destination",
+        title: "Where was this load delivered?",
+        text: "FarmVista could not confidently match the destination from the scale ticket.",
+        placeholder: "Search elevator, location, or city…",
+        items:
+          deliveryLocations
+            .map(
+              item => ({
+                label:
+                  [
+                    item.buyerName,
+                    getLocationName(item),
+                    [
+                      getLocationCity(item),
+                      getLocationState(item)
+                    ]
+                      .filter(Boolean)
+                      .join(", ")
+                  ]
+                    .filter(Boolean)
+                    .join(" — "),
+                searchText:
+                  [
+                    item.buyerName,
+                    getLocationName(item),
+                    getLocationStreet(item),
+                    getLocationCity(item),
+                    getLocationState(item),
+                    getLocationZip(item)
+                  ]
+                    .filter(Boolean)
+                    .join(" "),
+                value: item
+              })
+            )
+            .sort(
+              (a, b) =>
+                a.label.localeCompare(
+                  b.label,
+                  undefined,
+                  {
+                    numeric: true,
+                    sensitivity: "base"
+                  }
+                )
+            ),
+        allowSkip: true,
+        allowBack: true
+      });
+
+    if (selectedLocation === DRIVER_ASSIST_BACK) {
+      if (crop) {
+        const correctedSource =
+          await askDriverForGrainSource(crop);
+
+        if (correctedSource) {
+          source = correctedSource;
+        }
+      }
+      continue;
+    }
+
+    if (!selectedLocation) {
+      skippedReasons.push("delivery_location_not_selected");
+      break;
+    }
+
+    location = selectedLocation;
+
+    buyer =
+      buyers.find(
+        item =>
+          String(item.id) ===
+            String(selectedLocation.buyerId || "")
+      ) ||
+      null;
+
+    const originalEvidence =
+      buildLocationAliasText(grainTicket);
+
+    ocrResult.manualCorrections = {
+      ...(ocrResult.manualCorrections || {}),
+      destination: {
+        originalValue: originalEvidence || null,
+        selectedId: selectedLocation.id,
+        selectedValue: getLocationName(selectedLocation),
+        source: "driver_selection",
+        learningEligible: Boolean(originalEvidence),
+        learningReason:
+          originalEvidence
+            ? "ocr_evidence_confirmed"
+            : "driver_supplied_missing_value"
+      }
+    };
+  }
+
+  if (location && !buyer) {
+    buyer =
+      buyers.find(
+        item =>
+          String(item.id) ===
+            String(location.buyerId || "")
+      ) ||
+      null;
+  }
+
+  /* ========================================================
+     SOLD UNDER — INDEPENDENT OF HAULING JOB
+  ======================================================== */
+  if (location && buyer && !customer) {
+    const refreshedCustomerMatch =
+      findCustomerMatch(
+        grainTicket,
+        {
+          matched: true,
+          matchType: "driver_or_ocr_destination",
+          location
+        },
+        {
+          matched: true,
+          matchType: "location_buyer",
+          buyer
+        }
+      );
+
+    customer =
+      refreshedCustomerMatch.customer || null;
+  }
+
+  const baseHaulingJobs =
+    matchingActiveHaulingJobsForTicket(
+      grainTicket,
+      null,
+      location,
+      buyer
+    );
+
+  const uniqueContextJob =
+    baseHaulingJobs.length === 1
+      ? baseHaulingJobs[0]
+      : null;
+
+  if (!customer && location && grainTicket?.crop) {
+    const eligibleCustomers =
+      getDriverAssistCustomers(
+        grainTicket,
+        location,
+        buyer,
+        uniqueContextJob
+      );
+
+    if (eligibleCustomers.length === 1) {
+      customer = eligibleCustomers[0];
+    }
+    else if (eligibleCustomers.length > 1) {
+      const selectedCustomer =
+        await askDriverSearchList({
+          step: "Sold Under",
+          title: "Who is this load sold under?",
+          text:
+            uniqueContextJob
+              ? "Choose the Sold Under customer from the open contracts linked to this hauling job."
+              : `Choose the Sold Under customer for this ${grainTicket.crop} delivery.`,
+          placeholder: "Search Sold Under…",
+          items: [
+            ...eligibleCustomers.map(
+              item => ({
+                label: getCustomerName(item),
+                searchText: getCustomerName(item),
+                value: item
+              })
+            ),
+            {
+              label: "Unknown / I'm not sure",
+              searchText: "unknown not sure don't know",
+              value: "__unknown_sold_under__"
+            }
+          ],
+          allowSkip: true,
+          allowBack: true
+        });
+
+      if (selectedCustomer === DRIVER_ASSIST_BACK) {
+        if (crop) {
+          const correctedSource =
+            await askDriverForGrainSource(crop);
+          if (correctedSource) {
+            source = correctedSource;
+          }
+        }
+      }
+      else if (
+        selectedCustomer === "__unknown_sold_under__"
+      ) {
+        customer = null;
+        skippedReasons.push("sold_under_unknown");
+
+        ocrResult.manualCorrections = {
+          ...(ocrResult.manualCorrections || {}),
+          customer: {
+            originalValue:
+              String(grainTicket.customerText || "").trim() || null,
+            selectedId: null,
+            selectedValue: "Unknown",
+            source: "driver_unknown",
+            learningEligible: false,
+            learningReason: "driver_could_not_identify_sold_under"
+          }
+        };
+      }
+      else if (selectedCustomer) {
+        customer = selectedCustomer;
+
+        const originalEvidence =
+          String(
+            grainTicket.customerText ||
+            ""
+          ).trim();
+
+        ocrResult.manualCorrections = {
+          ...(ocrResult.manualCorrections || {}),
+          customer: {
+            originalValue: originalEvidence || null,
+            selectedId: selectedCustomer.id,
+            selectedValue: getCustomerName(selectedCustomer),
+            source: "driver_selection",
+            learningEligible: Boolean(originalEvidence),
+            learningReason:
+              originalEvidence
+                ? "ocr_evidence_confirmed"
+                : "driver_supplied_missing_value"
+          }
+        };
+      }
+      else {
+        skippedReasons.push("sold_under_driver_skipped");
+      }
+    }
+  }
+
+  /* ========================================================
+     HAULING JOB — NARROWED BY SOLD UNDER WHEN KNOWN
+  ======================================================== */
+  haulingJob =
+    automaticHaulingJobForTicket(
+      grainTicket,
+      customer,
+      location,
+      buyer
+    );
+
+  if (haulingJob) {
+    const jobCrop = haulingJobCrop(haulingJob);
+    crop = jobCrop || crop;
+
+    if (crop) {
+      grainTicket.crop = crop;
+    }
+
+    ocrResult.driverContext = {
+      ...(ocrResult.driverContext || {}),
+      haulingJob: {
+        id: haulingJob.id,
+        name: haulingJobDisplayLabel(haulingJob).label,
+        source:
+          customer?.id
+            ? "automatic_crop_destination_sold_under_match"
+            : "automatic_crop_destination_match"
+      }
+    };
+  }
+  else {
+    skippedReasons.push("hauling_job_not_auto_assigned");
+  }
+
+  if (
+    !customer &&
+    !skippedReasons.includes("customer_not_selected")
+  ) {
+    skippedReasons.push("customer_not_selected");
+  }
+
+  if (source) {
+    ocrResult.driverContext = {
+      ...(ocrResult.driverContext || {}),
+      grainSource: {
+        ...source,
+        source: "driver_selection",
+        learningEligible: false,
+        learningReason: "operational_context_not_ocr_field"
+      }
+    };
+  }
+
+  showProcessing("Finishing grain ticket…");
+
+  return rebuildMatchingAfterDriverAssist(
+    grainTicket,
+    haulingJob,
+    location,
+    buyer,
+    customer,
+    source,
+    matching,
+    skippedReasons
+  );
+}
+
+
+// ==========================================================
+// SAVE SCANNED GRAIN TICKET
+// ==========================================================
+
+async function findDuplicateGrainTicket(
+  grainTicket,
+  matching
+) {
+
+  const ticketNumber =
+    String(
+      grainTicket?.ticketNumber ||
+      ""
+    ).trim();
+
+
+  if (
+    !ticketNumber
+  ) {
+
+    return null;
+
+  }
+
+
+  const buyer =
+    matching?.buyerMatch?.buyer ||
+    null;
+
+
+  const buyerId =
+    String(
+      buyer?.id ||
+      ""
+    ).trim();
+
+
+  /*
+    BEST CHECK:
+    Same FarmVista buyer/elevator ID
+    AND same ticket number.
+  */
+
+  if (
+    buyerId
+  ) {
+
+    const duplicateQuery =
+      query(
+        collection(
+          db,
+          TICKET_COLLECTION
+        ),
+        where(
+          "buyerId",
+          "==",
+          buyerId
+        ),
+        where(
+          "ticketNumber",
+          "==",
+          ticketNumber
+        )
+      );
+
+
+    const snapshot =
+      await getDocs(
+        duplicateQuery
+      );
+
+
+    if (
+      !snapshot.empty
+    ) {
+
+      return {
+        id:
+          snapshot.docs[0].id,
+
+        ...snapshot.docs[0].data()
+      };
+
+    }
+
+  }
+
+
+  /*
+    FALLBACK CHECK:
+
+    If FarmVista could not match the elevator to a buyer,
+    compare the OCR elevator wording and ticket number.
+
+    We load tickets with the same ticket number and then
+    normalize the elevator names in JavaScript so differences
+    in capitalization/punctuation do not matter.
+  */
+
+  const elevatorName =
+    normalizeMatchText(
+      grainTicket?.elevatorName
+    );
+
+
+  if (
+    !elevatorName
+  ) {
+
+    return null;
+
+  }
+
+
+  const ticketQuery =
+    query(
+      collection(
+        db,
+        TICKET_COLLECTION
+      ),
+      where(
+        "ticketNumber",
+        "==",
+        ticketNumber
+      )
+    );
+
+
+  const snapshot =
+    await getDocs(
+      ticketQuery
+    );
+
+
+  const duplicate =
+    snapshot.docs.find(
+      docSnapshot => {
+
+        const data =
+          docSnapshot.data() ||
+          {};
+
+
+        const existingElevator =
+          normalizeMatchText(
+            data.ocrElevatorName ||
+            data.buyerName ||
+            ""
+          );
+
+
+        return (
+          existingElevator &&
+          existingElevator ===
+            elevatorName
+        );
+
+      }
+    );
+
+
+  if (
+    !duplicate
+  ) {
+
+    return null;
+
+  }
+
+
+  return {
+    id:
+      duplicate.id,
+
+    ...duplicate.data()
+  };
+
+}
+
+
+function safeFilePart(
+  value
+) {
+
+  return String(
+    value ?? ""
+  )
+    .trim()
+    .replace(
+      /[^a-zA-Z0-9_-]+/g,
+      "-"
+    )
+    .replace(
+      /^-+|-+$/g,
+      ""
+    ) ||
+    "ticket";
+
+}
+
+
+async function uploadGrainTicketImage(
+  file,
+  grainTicket
+) {
+
+  if (
+    !file
+  ) {
+
+    throw new Error(
+      "The grain ticket image is missing."
+    );
+
+  }
+
+
+  const ticketNumber =
+    safeFilePart(
+      grainTicket?.ticketNumber
+    );
+
+
+  const ticketDate =
+    safeFilePart(
+      grainTicket?.ticketDate
+    );
+
+
+  const elevator =
+    safeFilePart(
+      grainTicket?.elevatorName ||
+      "elevator"
+    );
+
+
+  /*
+    IMPORTANT:
+
+    Do NOT use Date.now() in this filename.
+
+    The same elevator + date + ticket number always gets
+    the same Storage path.
+
+    That means a retry overwrites/reuses the same image
+    instead of creating ticket-123-111.jpg,
+    ticket-123-222.jpg, ticket-123-333.jpg, etc.
+  */
+
+  const imagePath =
+    [
+      "grain-tickets",
+      ticketDate,
+      `${elevator}-${ticketNumber}.jpg`
+    ]
+      .join(
+        "/"
+      );
+
+
+  const imageRef =
+    ref(
+      storage,
+      imagePath
+    );
+
+
+  await retryNetworkAction(
+    () =>
+      uploadBytes(
+        imageRef,
+        file,
+        {
+          contentType:
+            file.type ||
+            "image/jpeg",
+
+          customMetadata: {
+
+            ticketNumber:
+              String(
+                grainTicket?.ticketNumber ||
+                ""
+              ),
+
+            ticketDate:
+              String(
+                grainTicket?.ticketDate ||
+                ""
+              ),
+
+            crop:
+              String(
+                grainTicket?.crop ||
+                ""
+              )
+
+          }
+        }
+      ),
+
+    "Saving ticket image"
+  );
+
+
+  const imageUrl =
+    await retryNetworkAction(
+      () =>
+        getDownloadURL(
+          imageRef
+        ),
+
+      "Confirming ticket image"
+    );
+
+
+  console.log(
+    "[Grain Ticket] Image uploaded:",
+    imagePath
+  );
+
+
+  return {
+    imagePath,
+    imageUrl
+  };
+
+}
+
+
+// ==========================================================
+// OCR MEMORY
+// ==========================================================
+
+function buildOcrMemoryProfileKey(
+  grainTicket
+) {
+
+  /*
+    This groups similar tickets together later.
+
+    Examples:
+
+      green_plains | green plains grain company llc | madison | il
+
+      cahokia | cahokia grain | cahokia | il
+
+    The key is NOT used to make matching decisions yet.
+    It is simply stored so the future learning system has
+    an easy way to group thousands of tickets.
+  */
+
+  const parts =
+    [
+      grainTicket?.parserProfile,
+      grainTicket?.elevatorName,
+      grainTicket?.deliveryCity,
+      grainTicket?.deliveryState
+    ]
+      .map(
+        value =>
+          normalizeAliasText(
+            value
+          )
+      )
+      .filter(
+        Boolean
+      );
+
+
+  return parts.length
+    ? parts.join(
+        " | "
+      )
+    : "unknown";
+
+}
+
+
+async function saveOcrMemoryRecord({
+  savedTicketId,
+  grainTicket,
+  ocrResult,
+  matching,
+  image,
+  employee,
+  driverName
+}) {
+
+  if (
+    !savedTicketId ||
+    !grainTicket
+  ) {
+
+    return null;
+
+  }
+
+
+  const customer =
+    matching?.customerMatch
+      ?.customer ||
+    null;
+
+
+  const location =
+    matching?.locationMatch
+      ?.location ||
+    null;
+
+
+  const buyer =
+    matching?.buyerMatch
+      ?.buyer ||
+    null;
+
+
+  const manualCrop =
+    ocrResult
+      ?.manualCorrections
+      ?.crop ||
+    null;
+
+
+  const manualDestination =
+    ocrResult
+      ?.manualCorrections
+      ?.destination ||
+    null;
+
+
+  const manualCustomer =
+    ocrResult
+      ?.manualCorrections
+      ?.customer ||
+    null;
+
+
+  const driverGrainSource =
+    ocrResult
+      ?.driverContext
+      ?.grainSource ||
+    matching?.grainSource ||
+    null;
+
+
+  const rawText =
+    String(
+      grainTicket.rawText ||
+      ocrResult?.document?.text ||
+      ""
+    );
+
+
+  const profileKey =
+    buildOcrMemoryProfileKey(
+      grainTicket
+    );
+
+
+  /*
+    MEMORY RECORD DESIGN
+
+    We intentionally keep THREE separate versions of reality:
+
+      1. ocr
+         What fvOcr actually returned.
+
+      2. farmVistaMatch
+         What FarmVista matched that OCR to.
+
+      3. savedValues
+         What was ultimately written to grain_tickets.
+
+    Later, when the office corrects a ticket, we will add a
+    FOURTH section:
+
+      verifiedValues
+
+    That distinction is what prevents FarmVista from learning
+    its own mistakes.
+  */
+
+  const memoryPayload = {
+
+    // ----------------------------------------------------------
+    // MEMORY METADATA
+    // ----------------------------------------------------------
+
+    memoryVersion:
+      1,
+
+    memoryType:
+      "grain_ticket",
+
+    source:
+      "grain_ticket_scan",
+
+    status:
+      "observed",
+
+    /*
+      FALSE FOR NOW.
+
+      We do not let fvOcr learn from this record until a future
+      verification/correction workflow tells us the values are
+      actually trustworthy.
+    */
+
+    verified:
+      false,
+
+    eligibleForLearning:
+      false,
+
+
+    // ----------------------------------------------------------
+    // RELATION TO NORMAL GRAIN TICKET
+    // ----------------------------------------------------------
+
+    ticketId:
+      savedTicketId,
+
+    ticketNumber:
+      grainTicket.ticketNumber ||
+      null,
+
+    ticketDate:
+      grainTicket.ticketDate ||
+      null,
+
+    ticketImagePath:
+      image?.imagePath ||
+      null,
+
+    ticketImageUrl:
+      image?.imageUrl ||
+      null,
+
+
+    // ----------------------------------------------------------
+    // OCR PROFILE / ELEVATOR FAMILY
+    // ----------------------------------------------------------
+
+    parserProfile:
+      grainTicket.parserProfile ||
+      null,
+
+    profileKey:
+      profileKey,
+
+    elevatorFingerprint:
+      normalizeAliasText(
+        grainTicket.elevatorName
+      ) ||
+      null,
+
+    cityFingerprint:
+      normalizeAliasText(
+        grainTicket.deliveryCity
+      ) ||
+      null,
+
+    stateFingerprint:
+      normalizeAliasText(
+        grainTicket.deliveryState
+      ) ||
+      null,
+
+
+    // ----------------------------------------------------------
+    // RAW OCR RESULT
+    //
+    // This is what fvOcr actually thought it saw.
+    // ----------------------------------------------------------
+
+    ocr: {
+
+      elevatorName:
+        grainTicket.elevatorName ||
+        null,
+
+      deliveryStreet:
+        grainTicket.deliveryStreet ||
+        null,
+
+      deliveryCity:
+        grainTicket.deliveryCity ||
+        null,
+
+      deliveryState:
+        grainTicket.deliveryState ||
+        null,
+
+      deliveryZip:
+        grainTicket.deliveryZip ||
+        null,
+
+
+      customerText:
+        grainTicket.customerText ||
+        null,
+
+      customerAccountText:
+        grainTicket.customerAccountText ||
+        null,
+
+
+      ticketNumber:
+        grainTicket.ticketNumber ||
+        null,
+
+      ticketDate:
+        grainTicket.ticketDate ||
+        null,
+
+      crop:
+        manualCrop
+          ? manualCrop.originalValue ??
+            null
+          : grainTicket.crop ||
+            null,
+
+
+      grossWeight:
+        grainTicket.grossWeight ??
+        null,
+
+      tareWeight:
+        grainTicket.tareWeight ??
+        null,
+
+      netWeight:
+        grainTicket.netWeight ??
+        null,
+
+
+      testWeight:
+        grainTicket.testWeight ??
+        null,
+
+      moisture:
+        grainTicket.moisture ??
+        null,
+
+      damage:
+        grainTicket.damage ??
+        null,
+
+      foreignMaterial:
+        grainTicket.foreignMaterial ??
+        null,
+
+
+      grossBushels:
+        grainTicket.grossBushels ??
+        null,
+
+      shrinkBushels:
+        grainTicket.shrinkBushels ??
+        null,
+
+      netBushels:
+        grainTicket.netBushels ??
+        null,
+
+
+      vehicleId:
+        grainTicket.vehicleId ||
+        null,
+
+
+      scanValid:
+        ocrResult?.scanValid ===
+        true,
+
+      scanErrors:
+        Array.isArray(
+          ocrResult?.scanErrors
+        )
+          ? ocrResult.scanErrors
+          : [],
+
+      reviewWarnings:
+        Array.isArray(
+          ocrResult?.reviewWarnings
+        )
+          ? ocrResult.reviewWarnings
+          : [],
+
+
+      /*
+        Keep the raw OCR text.
+
+        This is extremely important because later we can compare:
+
+          raw OCR
+          parser result
+          human verified result
+      */
+
+      rawText:
+        rawText
+
+    },
+
+
+    // ----------------------------------------------------------
+    // FARMVISTA MATCHING RESULT
+    // ----------------------------------------------------------
+
+    farmVistaMatch: {
+
+      buyerId:
+        buyer?.id ||
+        null,
+
+      buyerName:
+        buyer
+          ? getBuyerName(
+              buyer
+            )
+          : null,
+
+      buyerMatchType:
+        matching?.buyerMatch
+          ?.matchType ||
+        null,
+
+
+      deliveryLocationId:
+        location?.id ||
+        null,
+
+      deliveryLocationName:
+        location
+          ? getLocationName(
+              location
+            )
+          : null,
+
+      deliveryLocationMatchType:
+        matching?.locationMatch
+          ?.matchType ||
+        null,
+
+
+      customerId:
+        customer?.id ||
+        null,
+
+      customerName:
+        customer
+          ? getCustomerName(
+              customer
+            )
+          : null,
+
+      customerMatchType:
+        matching?.customerMatch
+          ?.matchType ||
+        null,
+
+
+      validationStatus:
+        matching?.validationStatus ||
+        null,
+
+      reviewReasons:
+        Array.isArray(
+          matching?.reviewReasons
+        )
+          ? matching.reviewReasons
+          : []
+
+    },
+
+
+    // ----------------------------------------------------------
+    // VALUES SAVED AT SCAN TIME
+    //
+    // These are NOT considered verified training truth yet.
+    // ----------------------------------------------------------
+
+    savedValues: {
+
+      buyerId:
+        buyer?.id ||
+        null,
+
+      buyerName:
+        buyer
+          ? getBuyerName(
+              buyer
+            )
+          : null,
+
+
+      deliveryLocationId:
+        location?.id ||
+        null,
+
+      deliveryLocationName:
+        location
+          ? getLocationName(
+              location
+            )
+          : null,
+
+      deliveryStreet:
+        location
+          ? getLocationStreet(
+              location
+            ) || null
+          : grainTicket.deliveryStreet ||
+            null,
+
+      deliveryCity:
+        location
+          ? getLocationCity(
+              location
+            ) || null
+          : grainTicket.deliveryCity ||
+            null,
+
+      deliveryState:
+        location
+          ? getLocationState(
+              location
+            ) || null
+          : grainTicket.deliveryState ||
+            null,
+
+      deliveryZip:
+        location
+          ? getLocationZip(
+              location
+            ) || null
+          : grainTicket.deliveryZip ||
+            null,
+
+
+      customerId:
+        customer?.id ||
+        null,
+
+      customerName:
+        customer
+          ? getCustomerName(
+              customer
+            )
+          : grainTicket.customerText ||
+            null,
+
+
+      grainSourceType:
+        driverGrainSource?.type ||
+        null,
+
+      grainSourceId:
+        driverGrainSource?.id ||
+        driverGrainSource?.siteId ||
+        driverGrainSource?.fieldId ||
+        null,
+
+      grainSourceName:
+        driverGrainSource?.siteName ||
+        driverGrainSource?.fieldName ||
+        null,
+
+
+      crop:
+        grainTicket.crop ||
+        null,
+
+
+      grossWeight:
+        grainTicket.grossWeight ??
+        null,
+
+      tareWeight:
+        grainTicket.tareWeight ??
+        null,
+
+      netWeight:
+        grainTicket.netWeight ??
+        null,
+
+
+      testWeight:
+        grainTicket.testWeight ??
+        null,
+
+      moisture:
+        grainTicket.moisture ??
+        null,
+
+      damage:
+        grainTicket.damage ??
+        null,
+
+      foreignMaterial:
+        grainTicket.foreignMaterial ??
+        null,
+
+
+      grossBushels:
+        grainTicket.grossBushels ??
+        null,
+
+      shrinkBushels:
+        grainTicket.shrinkBushels ??
+        null,
+
+      netBushels:
+        grainTicket.netBushels ??
+        null
+
+    },
+
+
+    // ----------------------------------------------------------
+    // HUMAN INPUT DURING SCAN
+    //
+    // Crop chooser is the first example.
+    // ----------------------------------------------------------
+
+    humanInput: {
+
+      crop: {
+
+        used:
+          Boolean(
+            manualCrop
+          ),
+
+        source:
+          manualCrop
+            ? "driver_selection"
+            : null,
+
+        originalValue:
+          manualCrop
+            ?.originalValue ??
+          null,
+
+        selectedValue:
+          manualCrop
+            ?.selectedValue ??
+          null,
+
+        learningEligible:
+          Boolean(
+            manualCrop &&
+            String(
+              manualCrop.originalValue ??
+              ""
+            ).trim()
+          ),
+
+        learningReason:
+          manualCrop
+            ? (
+                String(
+                  manualCrop.originalValue ??
+                  ""
+                ).trim()
+                  ? "ocr_evidence_confirmed"
+                  : "driver_supplied_missing_value"
+              )
+            : null
+
+      },
+
+
+      destination: {
+
+        used:
+          Boolean(
+            manualDestination
+          ),
+
+        source:
+          manualDestination
+            ?.source ||
+          null,
+
+        originalValue:
+          manualDestination
+            ?.originalValue ??
+          null,
+
+        selectedId:
+          manualDestination
+            ?.selectedId ??
+          null,
+
+        selectedValue:
+          manualDestination
+            ?.selectedValue ??
+          null,
+
+        learningEligible:
+          manualDestination
+            ?.learningEligible ===
+          true,
+
+        learningReason:
+          manualDestination
+            ?.learningReason ||
+          null
+
+      },
+
+
+      customer: {
+
+        used:
+          Boolean(
+            manualCustomer
+          ),
+
+        source:
+          manualCustomer
+            ?.source ||
+          null,
+
+        originalValue:
+          manualCustomer
+            ?.originalValue ??
+          null,
+
+        selectedId:
+          manualCustomer
+            ?.selectedId ??
+          null,
+
+        selectedValue:
+          manualCustomer
+            ?.selectedValue ??
+          null,
+
+        learningEligible:
+          manualCustomer
+            ?.learningEligible ===
+          true,
+
+        learningReason:
+          manualCustomer
+            ?.learningReason ||
+          null
+
+      },
+
+
+      grainSource:
+        driverGrainSource
+          ? {
+              ...driverGrainSource,
+
+              source:
+                "driver_selection",
+
+              learningEligible:
+                false,
+
+              learningReason:
+                "operational_context_not_ocr_field"
+            }
+          : null
+
+    },
+
+
+    learningSignals: {
+
+      crop: {
+        ocrEvidence:
+          manualCrop
+            ?.originalValue ??
+          grainTicket.crop ??
+          null,
+
+        confirmedValue:
+          grainTicket.crop ||
+          null,
+
+        eligible:
+          Boolean(
+            manualCrop &&
+            String(
+              manualCrop.originalValue ??
+              ""
+            ).trim()
+          )
+      },
+
+      destination: {
+        ocrEvidence:
+          (
+            manualDestination
+              ?.originalValue ??
+            buildLocationAliasText(
+              grainTicket
+            )
+          ) ||
+          null,
+
+        confirmedId:
+          location?.id ||
+          null,
+
+        confirmedName:
+          location
+            ? getLocationName(
+                location
+              )
+            : null,
+
+        eligible:
+          manualDestination
+            ?.learningEligible ===
+          true
+      },
+
+      customer: {
+        ocrEvidence:
+          manualCustomer
+            ?.originalValue ??
+          grainTicket.customerText ??
+          null,
+
+        confirmedId:
+          customer?.id ||
+          null,
+
+        confirmedName:
+          customer
+            ? getCustomerName(
+                customer
+              )
+            : null,
+
+        eligible:
+          manualCustomer
+            ?.learningEligible ===
+          true
+      }
+
+    },
+
+
+    // ----------------------------------------------------------
+    // FUTURE VERIFIED RESULT
+    //
+    // The office correction/review workflow will eventually
+    // populate this.
+    // ----------------------------------------------------------
+
+    verifiedValues:
+      null,
+
+    verificationSource:
+      null,
+
+    verifiedByUid:
+      null,
+
+    verifiedAt:
+      null,
+
+
+    // ----------------------------------------------------------
+    // WHO CREATED THIS MEMORY
+    // ----------------------------------------------------------
+
+    createdByUid:
+      signedInUser?.uid ||
+      null,
+
+    createdByEmployeeId:
+      employee?.id ||
+      null,
+
+    createdByName:
+      driverName ||
+      null,
+
+
+    // ----------------------------------------------------------
+    // TIMESTAMPS
+    // ----------------------------------------------------------
+
+    createdAt:
+      serverTimestamp(),
+
+    updatedAt:
+      serverTimestamp()
+
+  };
+
+
+  const memoryDoc =
+    await addDoc(
+      collection(
+        db,
+        OCR_MEMORY_COLLECTION
+      ),
+      memoryPayload
+    );
+
+
+  console.log(
+    "[Grain Ticket] OCR memory saved:",
+    {
+      memoryId:
+        memoryDoc.id,
+
+      ticketId:
+        savedTicketId,
+
+      profileKey
+    }
+  );
+
+
+  return {
+    id:
+      memoryDoc.id,
+
+    profileKey
+  };
+
+}
+
+
+      // ==========================================================
+// SECURE GUEST / SMS GRAIN-TICKET SAVE
+// ==========================================================
+
+async function saveGuestScannedTicket(
+  file,
+  ocrResult
+) {
+
+  if (
+    !guestToken
+  ) {
+
+    throw new Error(
+      "The guest grain-ticket link is missing."
+    );
+
+  }
+
+
+  if (
+    !file
+  ) {
+
+    throw new Error(
+      "The grain-ticket image is missing."
+    );
+
+  }
+
+
+  if (
+    !ocrResult?.grainTicket
+  ) {
+
+    throw new Error(
+      "FarmVista did not receive grain-ticket OCR data."
+    );
+
+  }
+
+
+  if (
+    !GUEST_GRAIN_TICKET_URL ||
+    GUEST_GRAIN_TICKET_URL.includes(
+      "PASTE_YOUR"
+    )
+  ) {
+
+    throw new Error(
+      "The FarmVista guest grain-ticket service URL has not been configured."
+    );
+
+  }
+
+
+  processingText.textContent =
+    "Submitting grain ticket…";
+
+
+  /*
+    Guest drivers are not authenticated FarmVista users.
+
+    Do NOT attempt to upload directly to Firebase Storage.
+
+    Send the prepared image to the secure backend and let the
+    Cloud Function upload it using Firebase Admin permissions.
+  */
+
+  const imageBase64 =
+    await fileToBase64(
+      file
+    );
+
+
+  if (
+    !imageBase64
+  ) {
+
+    throw new Error(
+      "FarmVista could not prepare the grain-ticket image."
+    );
+
+  }
+
+
+  const response =
+    await fetch(
+      GUEST_GRAIN_TICKET_URL,
+      {
+
+        method:
+          "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json"
+        },
+
+        body:
+          JSON.stringify({
+
+            token:
+              guestToken,
+
+            image: {
+
+              content:
+                imageBase64,
+
+              mimeType:
+                file.type ||
+                "image/jpeg"
+
+            },
+
+            ocrResult:
+              ocrResult
+
+          })
+
+      }
+    );
+
+
+  let result =
+    null;
+
+
+  try {
+
+    result =
+      await response.json();
+
+  }
+  catch (_) {
+
+    result =
+      null;
+
+  }
+
+
+  if (
+    !response.ok ||
+    result?.ok !==
+      true
+  ) {
+
+    const message =
+
+      result?.error ||
+
+      (
+        Array.isArray(
+          result?.errors
+        )
+          ? result.errors.join(
+              " "
+            )
+          : ""
+      ) ||
+
+      `FarmVista could not submit this grain ticket (${response.status}).`;
+
+
+    throw new Error(
+      message
+    );
+
+  }
+
+
+  console.log(
+    "[Grain Ticket] Guest ticket saved:",
+    result
+  );
+
+
+  return {
+
+    id:
+      result.ticketId ||
+      null,
+
+    loadId:
+      result.loadId ||
+      null,
+
+    loadNumber:
+      result.loadNumber ||
+      null,
+
+    validationStatus:
+      result.validationStatus ||
+      null,
+
+    reconciliationStatus:
+      result.reconciliationStatus ||
+      null
+
+  };
+
+}
+
+
+async function saveScannedTicket(
+  file,
+  ocrResult
+) {
+
+  /*
+    Guest-driver scans must never write directly
+    through the normal authenticated FarmVista path.
+
+    They will use the secure guest load-out
+    Cloud Function instead.
+  */
+
+  if (
+    isGuestScan
+  ) {
+
+    return await saveGuestScannedTicket(
+      file,
+      ocrResult
+    );
+
+  }
+
+
+  if (
+    !ocrResult?.grainTicket
+  ) {
+
+    throw new Error(
+      "FarmVista did not receive parsed grain-ticket data."
+    );
+
+  }
+
+
+  /*
+    OCR must pass before we save anything.
+  */
+
+  if (
+    ocrResult.scanValid !==
+    true
+  ) {
+
+    const message =
+      Array.isArray(
+        ocrResult.scanErrors
+      ) &&
+      ocrResult.scanErrors.length
+        ? ocrResult.scanErrors.join(
+            " "
+          )
+        : "The grain ticket did not pass validation.";
+
+
+    throw new Error(
+      message
+    );
+
+  }
+
+
+  processingText.textContent =
+    "Loading FarmVista records…";
+
+
+  const employee =
+    await loadFarmVistaData();
+
+
+  const grainTicket =
+    ocrResult.grainTicket;
+
+
+  /*
+    BUSHEL SANITY CHECK
+
+    OCR can occasionally reverse Shrink Bushels and Net Bushels.
+
+    Gross - Shrink = Net can still mathematically pass when the
+    two values are reversed, so we need an additional sanity check
+    before this ticket is allowed to save.
+  */
+
+  const grossBushels =
+    Number(
+      grainTicket.grossBushels
+    );
+
+  const shrinkBushels =
+    Number(
+      grainTicket.shrinkBushels ?? 0
+    );
+
+  const netBushels =
+    Number(
+      grainTicket.netBushels
+    );
+
+
+  if (
+    !Number.isFinite(grossBushels) ||
+    !Number.isFinite(shrinkBushels) ||
+    !Number.isFinite(netBushels) ||
+    grossBushels <= 0 ||
+    netBushels <= 0 ||
+    shrinkBushels < 0
+  ) {
+
+    throw new Error(
+      "The grain ticket has invalid bushel values. Please review the ticket."
+    );
+
+  }
+
+
+  /*
+    Gross - Shrink must equal Net.
+  */
+
+  if (
+    Math.abs(
+      (
+        grossBushels -
+        shrinkBushels
+      ) -
+      netBushels
+    ) >
+    0.02
+  ) {
+
+    throw new Error(
+      "Gross, shrink, and net bushels do not balance. Please review the ticket."
+    );
+
+  }
+
+
+  /*
+    CATCH LIKELY REVERSED SHRINK / NET VALUES
+
+    Net bushels should never reasonably be smaller than shrink,
+    and shrink should never consume half or more of the load.
+
+    Do NOT automatically swap the values.
+    Stop the ticket and require review instead.
+  */
+
+  if (
+    netBushels < shrinkBushels ||
+    netBushels < grossBushels * 0.50 ||
+    shrinkBushels > grossBushels * 0.50
+  ) {
+
+    throw new Error(
+      "Net Bushels and Shrink Bushels appear to be reversed. Please review the grain ticket."
+    );
+
+  }
+
+
+  let matching =
+    matchScannedTicket(
+      grainTicket
+    );
+
+
+  matching =
+    await runDriverAssistQuestions(
+      grainTicket,
+      ocrResult,
+      matching
+    );
+
+
+  /*
+    DUPLICATE PROTECTION
+
+    A ticket is considered a duplicate only when BOTH match:
+
+    1. Elevator / Buyer
+    2. Ticket Number
+
+    Check BEFORE uploading the image so duplicate scans
+    do not create extra Storage files.
+  */
+
+  processingText.textContent =
+    "Checking for duplicate ticket…";
+
+
+  const duplicateTicket =
+    await findDuplicateGrainTicket(
+      grainTicket,
+      matching
+    );
+
+
+  if (
+    duplicateTicket
+  ) {
+
+    console.warn(
+      "[Grain Ticket] Duplicate prevented:",
+      {
+        existingTicketId:
+          duplicateTicket.id,
+
+        ticketNumber:
+          grainTicket.ticketNumber,
+
+        elevator:
+          grainTicket.elevatorName,
+
+        buyerId:
+          matching?.buyerMatch?.buyer?.id ||
+          null
+      }
+    );
+
+
+    throw new Error(
+      "It appears this ticket is already in the system."
+    );
+
+  }
+
+
+  processingText.textContent =
+    "Saving ticket image…";
+
+
+  /*
+    IMAGE FIRST.
+
+    If the image upload fails, we do NOT create a Firestore
+    grain-ticket record without its original ticket image.
+  */
+
+  const image =
+    await uploadGrainTicketImage(
+      file,
+      grainTicket
+    );
+
+
+  processingText.textContent =
+    "Saving grain ticket…";
+
+
+  const customer =
+    matching.customerMatch
+      ?.customer ||
+    null;
+
+
+  const location =
+    matching.locationMatch
+      ?.location ||
+    null;
+
+
+  const buyer =
+    matching.buyerMatch
+      ?.buyer ||
+    null;
+
+
+/*
+  CONTRACT AUTO-ALLOCATION
+
+  FarmVista may auto-assign a grain contract ONLY when process of
+  elimination leaves exactly one valid contract after the Hauling Job
+  and Sold Under / Customer are known.
+
+  Examples:
+    - 2 matching hauling jobs -> no hauling job auto-assignment.
+    - 1 hauling job + 1 matching John C Dowson contract -> auto-assign.
+    - 1 hauling job + 2 matching John C Dowson contracts -> do not guess.
+*/
+const matchingHaulingJob =
+  matching?.haulingJob ||
+  null;
+
+
+const matchingCustomer =
+  matching?.customerMatch
+    ?.customer ||
+  null;
+
+
+const matchingCrop =
+  normalizeScannedCrop(
+    grainTicket?.crop
+  );
+
+
+const eligibleContracts =
+  (
+    matchingHaulingJob &&
+    matchingCustomer &&
+    matchingCrop
+  )
+    ? contracts.filter(
+        contract => {
+
+          if (
+            !contractIsAvailableForDriverAssist(
+              contract
+            )
+          ) {
+
+            return false;
+
+          }
+
+
+          const contractHaulingJobId =
+            String(
+              contract?.haulingJobId ||
+              ""
+            ).trim();
+
+
+          const contractCustomerId =
+            String(
+              firstExistingValue(
+                contract,
+                [
+                  "customerId",
+                  "grainCustomerId"
+                ]
+              ) ||
+              ""
+            ).trim();
+
+
+          const contractCrop =
+            normalizeScannedCrop(
+              firstExistingValue(
+                contract,
+                [
+                  "crop",
+                  "commodity"
+                ]
+              )
+            );
+
+
+          return (
+            contractHaulingJobId ===
+              String(
+                matchingHaulingJob.id ||
+                ""
+              ).trim() &&
+            contractCustomerId ===
+              String(
+                matchingCustomer.id ||
+                ""
+              ).trim() &&
+            contractCrop ===
+              matchingCrop
+          );
+
+        }
+      )
+    : [];
+
+
+const autoContract =
+  eligibleContracts.length ===
+    1
+    ? eligibleContracts[0]
+    : null;
+
+
+const autoContractNumber =
+  autoContract
+    ? String(
+        autoContract.contractNumber ||
+        autoContract.number ||
+        ""
+      ).trim() ||
+      null
+    : null;
+
+
+const driverName =
+  (
+    employee
+      ? getEmployeeDisplayName(
+          employee
+        )
+      : ""
+  ) ||
+  signedInUser?.displayName ||
+  signedInUser?.email ||
+  (
+    isGuestScan
+      ? "Guest Driver"
+      : "FarmVista Driver"
+  );
+
+
+  const payload = {
+
+    // ----------------------------------------------------------
+    // BUYER / ELEVATOR
+    // ----------------------------------------------------------
+
+    buyerId:
+      buyer?.id ||
+      null,
+
+    buyerName:
+      buyer
+        ? getBuyerName(
+            buyer
+          )
+        : null,
+
+
+    // ----------------------------------------------------------
+    // DELIVERY LOCATION SNAPSHOT
+    // ----------------------------------------------------------
+
+    deliveryLocationId:
+      location?.id ||
+      null,
+
+    deliveryLocationName:
+      location
+        ? getLocationName(
+            location
+          )
+        : null,
+
+    deliveryStreet:
+      location
+        ? getLocationStreet(
+            location
+          ) || null
+        : grainTicket.deliveryStreet ||
+          null,
+
+    deliveryCity:
+      location
+        ? getLocationCity(
+            location
+          ) || null
+        : grainTicket.deliveryCity ||
+          null,
+
+    deliveryState:
+      location
+        ? getLocationState(
+            location
+          ) || null
+        : grainTicket.deliveryState ||
+          null,
+
+    deliveryZip:
+      location
+        ? getLocationZip(
+            location
+          ) || null
+        : grainTicket.deliveryZip ||
+          null,
+
+
+    // ----------------------------------------------------------
+    // CUSTOMER
+    // ----------------------------------------------------------
+
+    customerId:
+      customer?.id ||
+      null,
+
+    customerName:
+      customer
+        ? getCustomerName(
+            customer
+          )
+        : grainTicket.customerText ||
+          null,
+
+
+    // ----------------------------------------------------------
+    // HAULING JOB
+    // ----------------------------------------------------------
+
+    haulingJobId:
+      matching.haulingJob?.id ||
+      null,
+
+    haulingJobName:
+      matching.haulingJob
+        ? haulingJobDisplayLabel(
+            matching.haulingJob
+          ).label
+        : null,
+
+    haulingJobLabel:
+      matching.haulingJob
+        ? haulingJobDisplayLabel(
+            matching.haulingJob
+          ).label
+        : null,
+
+    haulingJobStartingBushels:
+      matching.haulingJob
+        ? haulingJobStartingBushels(
+            matching.haulingJob
+          )
+        : null,
+
+    haulingJobDeliveryStartDate:
+      matching.haulingJob?.deliveryStartDate ||
+      matching.haulingJob?.startDate ||
+      null,
+
+    haulingJobDeliveryEndDate:
+      matching.haulingJob?.deliveryEndDate ||
+      matching.haulingJob?.endDate ||
+      null,
+
+
+    // ----------------------------------------------------------
+    // GRAIN SOURCE
+    // Driver selects the field or storage SITE.
+    // ----------------------------------------------------------
+
+    grainSourceType:
+      matching.grainSource?.type ||
+      null,
+
+    grainSourceScope:
+      matching.grainSource?.sourceScope ||
+      null,
+
+    grainSourceId:
+      matching.grainSource?.id ||
+      matching.grainSource?.siteId ||
+      matching.grainSource?.fieldId ||
+      null,
+
+    grainSourceName:
+      matching.grainSource?.siteName ||
+      matching.grainSource?.fieldName ||
+      null,
+
+    grainSourceSiteId:
+      matching.grainSource?.siteId ||
+      null,
+
+    grainSourceSiteName:
+      matching.grainSource?.siteName ||
+      null,
+
+    grainSourceFieldId:
+      matching.grainSource?.fieldId ||
+      null,
+
+    grainSourceFieldName:
+      matching.grainSource?.fieldName ||
+      null,
+
+    grainSourceBinIndex:
+      Number.isFinite(
+        Number(
+          matching.grainSource?.binIndex
+        )
+      )
+        ? Number(
+            matching.grainSource.binIndex
+          )
+        : null,
+
+    grainSourceBinNum:
+      matching.grainSource?.binNumber ??
+      null,
+
+    grainSourceBagEventId:
+      matching.grainSource?.bagEventId ||
+      (
+        matching.grainSource?.type ===
+          "grain_bag"
+          ? matching.grainSource?.id ||
+            null
+          : null
+      ),
+
+
+    // ----------------------------------------------------------
+    // TICKET
+    // ----------------------------------------------------------
+
+    ticketNumber:
+      grainTicket.ticketNumber,
+
+    ticketDate:
+      grainTicket.ticketDate,
+
+    crop:
+      grainTicket.crop,
+
+
+    // ----------------------------------------------------------
+    // WEIGHTS
+    // ----------------------------------------------------------
+
+    grossWeight:
+      grainTicket.grossWeight,
+
+    tareWeight:
+      grainTicket.tareWeight,
+
+    netWeight:
+      grainTicket.netWeight,
+
+
+    // ----------------------------------------------------------
+    // GRADE FACTORS
+    // ----------------------------------------------------------
+
+    testWeight:
+      grainTicket.testWeight ??
+      null,
+
+    moisture:
+      grainTicket.moisture ??
+      null,
+
+    damage:
+      grainTicket.damage ??
+      null,
+
+foreignMaterial:
+  grainTicket.foreignMaterial ??
+  0,
+
+
+    // ----------------------------------------------------------
+    // BUSHELS
+    // ----------------------------------------------------------
+
+    grossBushels:
+      grainTicket.grossBushels,
+
+    shrinkBushels:
+      grainTicket.shrinkBushels ??
+      0,
+
+    netBushels:
+      grainTicket.netBushels,
+
+
+    // ----------------------------------------------------------
+    // DRIVER
+    // Logged-in FarmVista employee who took the picture.
+    // ----------------------------------------------------------
+
+ driverEmployeeId:
+  employee?.id ||
+  null,
+
+    driverUid:
+      signedInUser.uid,
+
+    driverName:
+      driverName,
+
+    driverEmail:
+      signedInUser?.email ||
+      employee?.email ||
+      null,
+
+    driverPhone:
+      signedInUser?.phoneNumber ||
+      employee?.phoneE164 ||
+      employee?.phone ||
+      null,
+
+
+    // ----------------------------------------------------------
+    // ENTERED BY
+    // For OCR entry, driver is also the person who submitted it.
+    // ----------------------------------------------------------
+
+    enteredByUid:
+      signedInUser?.uid ||
+      null,
+
+    enteredByName:
+      driverName,
+
+    enteredByEmail:
+      signedInUser?.email ||
+      employee?.email ||
+      null,
+
+    enteredByPhone:
+      signedInUser?.phoneNumber ||
+      employee?.phoneE164 ||
+      employee?.phone ||
+      null,
+
+
+    // ----------------------------------------------------------
+    // SOURCE
+    // ----------------------------------------------------------
+
+    entryMethod:
+      "ocr_scan",
+
+
+    // ----------------------------------------------------------
+    // ORIGINAL TICKET IMAGE
+    // ----------------------------------------------------------
+
+    ticketImagePath:
+      image.imagePath,
+
+    ticketImageUrl:
+      image.imageUrl,
+
+
+    // ----------------------------------------------------------
+    // OCR SNAPSHOT
+    // Keep what OCR actually saw for future office review.
+    // ----------------------------------------------------------
+
+    ocrElevatorName:
+      grainTicket.elevatorName ||
+      null,
+
+    ocrDeliveryStreet:
+      grainTicket.deliveryStreet ||
+      null,
+
+    ocrDeliveryCity:
+      grainTicket.deliveryCity ||
+      null,
+
+    ocrDeliveryState:
+      grainTicket.deliveryState ||
+      null,
+
+    ocrDeliveryZip:
+      grainTicket.deliveryZip ||
+      null,
+
+    ocrCustomerText:
+      grainTicket.customerText ||
+      null,
+
+    ocrCustomerAccountText:
+      grainTicket.customerAccountText ||
+      null,
+
+    ocrVehicleId:
+      grainTicket.vehicleId ||
+      null,
+
+    ocrRawText:
+      grainTicket.rawText ||
+      ocrResult.document?.text ||
+      "",
+
+
+    // ----------------------------------------------------------
+    // OCR VALIDATION
+    // ----------------------------------------------------------
+
+    scanValid:
+      true,
+
+    scanErrors:
+      Array.isArray(
+        ocrResult.scanErrors
+      )
+        ? ocrResult.scanErrors
+        : [],
+
+    ocrReviewWarnings:
+      Array.isArray(
+        ocrResult.reviewWarnings
+      )
+        ? ocrResult.reviewWarnings
+        : [],
+
+
+    // ----------------------------------------------------------
+    // FARMVISTA MATCHING
+    // ----------------------------------------------------------
+
+    validationStatus:
+      matching.validationStatus,
+
+    reviewReasons:
+      matching.reviewReasons,
+
+    customerMatchType:
+      matching.customerMatch
+        ?.matchType ||
+      null,
+
+    deliveryLocationMatchType:
+      matching.locationMatch
+        ?.matchType ||
+      null,
+
+    buyerMatchType:
+      matching.buyerMatch
+        ?.matchType ||
+      null,
+
+// ----------------------------------------------------------
+// CONTRACT RECONCILIATION
+//
+// Auto-assign ONLY when exactly one valid contract remains after
+// Hauling Job + Sold Under + Crop are known. Otherwise preserve the
+// hauling-job assignment and leave contract allocation unresolved.
+// ----------------------------------------------------------
+
+contractId:
+  autoContract?.id ||
+  null,
+
+contractNumber:
+  autoContractNumber,
+
+contractAllocations:
+  autoContract
+    ? [
+        {
+          contractId:
+            autoContract.id,
+
+          contractNumber:
+            autoContractNumber,
+
+          bushels:
+            Number(
+              grainTicket.netBushels
+            ) || 0
+        }
+      ]
+    : [],
+
+allocationModelVersion:
+  2,
+
+spotBushels:
+  0,
+
+unassignedBushels:
+  autoContract
+    ? 0
+    : (
+        Number(
+          grainTicket.netBushels
+        ) || 0
+      ),
+
+reconciliationStatus:
+  autoContract
+    ? "reconciled"
+    : matching.haulingJob
+      ? "needs_contract"
+      : "needs_review",
+
+
+    // ----------------------------------------------------------
+    // TIMESTAMPS
+    // ----------------------------------------------------------
+
+    createdAt:
+      serverTimestamp(),
+
+    updatedAt:
+      serverTimestamp()
+
+  };
+
+
+  console.log(
+    "[Grain Ticket] Saving OCR ticket:",
+    payload
+  );
+
+
+  /*
+    IDEMPOTENT TICKET SAVE
+
+    Use a stable Firestore document ID based on:
+
+      buyer/elevator + ticket number
+
+    If cell service disappears after Firestore received the
+    write but before the phone receives the acknowledgement,
+    retrying writes to THIS SAME DOCUMENT instead of creating
+    another grain-ticket document.
+  */
+
+  const ticketIdentityBuyer =
+    String(
+      buyer?.id ||
+      normalizeMatchText(
+        grainTicket.elevatorName
+      ) ||
+      "unknown-elevator"
+    );
+
+
+  const ticketIdentityNumber =
+    String(
+      grainTicket.ticketNumber ||
+      ""
+    ).trim();
+
+
+  const stableTicketId =
+    encodeURIComponent(
+      `${ticketIdentityBuyer}__${ticketIdentityNumber}`
+    );
+
+
+  const savedTicket =
+    doc(
+      db,
+      TICKET_COLLECTION,
+      stableTicketId
+    );
+
+
+  await retryNetworkAction(
+    () =>
+      setDoc(
+        savedTicket,
+        payload
+      ),
+
+    "Saving grain ticket"
+  );
+
+
+  console.log(
+    "[Grain Ticket] OCR ticket saved:",
+    savedTicket.id
+  );
+
+
+  /*
+    ----------------------------------------------------------
+    BUILD OCR MEMORY
+    ----------------------------------------------------------
+
+    The normal grain ticket is already safely saved.
+
+    Memory creation is intentionally BEST-EFFORT.
+
+    If Firestore rules have not yet been opened for
+    grain_ocr_memory, we do NOT make the driver's successful
+    grain-ticket scan fail. We log the memory error instead.
+  */
+
+  let memory =
+    null;
+
+
+  try {
+
+    processingText.textContent =
+      "Building OCR memory…";
+
+
+    memory =
+      await saveOcrMemoryRecord({
+
+        savedTicketId:
+          savedTicket.id,
+
+        grainTicket,
+
+        ocrResult,
+
+        matching,
+
+        image,
+
+        employee,
+
+        driverName
+
+      });
+
+  }
+  catch (
+    memoryError
+  ) {
+
+    console.error(
+      "[Grain Ticket] OCR memory could not be saved:",
+      memoryError
+    );
+
+  }
+
+
+  return {
+    id:
+      savedTicket.id,
+
+    validationStatus:
+      matching.validationStatus,
+
+    reviewReasons:
+      matching.reviewReasons,
+
+    imagePath:
+      image.imagePath,
+
+    imageUrl:
+      image.imageUrl,
+
+    memoryId:
+      memory?.id ||
+      null,
+
+    memoryProfileKey:
+      memory?.profileKey ||
+      null
+  };
+
+}
+      
+      
+// ==========================================================
+// CROP SELECTION
+// ==========================================================
+
+function normalizeScannedCrop(
+  value
+) {
+
+  const crop =
+    String(
+      value ||
+      ""
+    )
+      .trim()
+      .toLowerCase();
+
+
+  if (
+    crop.includes(
+      "corn"
+    )
+  ) {
+
+    return "Corn";
+
+  }
+
+
+  if (
+    crop.includes(
+      "soy"
+    )
+  ) {
+
+    return "Soybeans";
+
+  }
+
+
+  if (
+    crop.includes(
+      "wheat"
+    )
+  ) {
+
+    return "Wheat";
+
+  }
+
+
+  return "";
+
+}
+
+
+function askDriverForCrop() {
+
+  return new Promise(
+    resolve => {
+
+      cropScreen.classList.add(
+        "show"
+      );
+
+
+      const choose =
+        crop => {
+
+          cropScreen.classList.remove(
+            "show"
+          );
+
+
+          resolve(
+            crop
+          );
+
+        };
+
+
+      cropCornBtn.onclick =
+        () =>
+          choose(
+            "Corn"
+          );
+
+
+      cropSoybeansBtn.onclick =
+        () =>
+          choose(
+            "Soybeans"
+          );
+
+
+      cropWheatBtn.onclick =
+        () =>
+          choose(
+            "Wheat"
+          );
+
+    }
+  );
+
+}
+
+
+      // ==========================================================
+      // SCREEN HELPERS
+      // ==========================================================
+
+function hideAllScreens() {
+
+  processingScreen.classList.remove(
+    "show"
+  );
+
+
+  resultScreen.classList.remove(
+    "show"
+  );
+
+
+  cropScreen.classList.remove(
+    "show"
+  );
+
+
+  assistScreen.classList.remove(
+    "show"
+  );
+
+
+  errorScreen.classList.remove(
+    "show"
+  );
+
+}
+
+
+      function showCameraScreen() {
+
+        hideAllScreens();
+
+
+        cameraPage.style.display =
+          "flex";
+
+      }
+
+
+      function showProcessing(
+        message =
+          "Reading ticket information…"
+      ) {
+
+        processingText.textContent =
+          message;
+
+
+        processingScreen.classList.add(
+          "show"
+        );
+
+      }
+
+
+function showResult() {
+
+  processingScreen.classList.remove(
+    "show"
+  );
+
+
+  errorScreen.classList.remove(
+    "show"
+  );
+
+
+  /*
+    Outside trucking-company driver:
+
+    One scan only.
+    No FarmVista Home button.
+    No Scan Another Ticket button.
+  */
+
+  if (
+    isGuestScan
+  ) {
+
+    const resultTitle =
+      resultScreen.querySelector(
+        ".result-title"
+      );
+
+
+    const resultText =
+      resultScreen.querySelector(
+        ".result-text"
+      );
+
+
+    if (
+      resultTitle
+    ) {
+
+      resultTitle.textContent =
+        "Grain Ticket Received";
+
+    }
+
+
+    if (
+      resultText
+    ) {
+
+      resultText.textContent =
+        "Your grain ticket was successfully submitted. You may close this window.";
+
+    }
+
+
+    retakeBtn.style.display =
+      "none";
+
+
+    homeBtn.style.display =
+      "none";
+
+  }
+
+
+  resultScreen.classList.add(
+    "show"
+  );
+
+}
+
+
+      function showError(
+        message
+      ) {
+
+        processingScreen.classList.remove(
+          "show"
+        );
+
+
+        resultScreen.classList.remove(
+          "show"
+        );
+
+
+        assistScreen.classList.remove(
+          "show"
+        );
+
+
+        errorText.textContent =
+          message ||
+          "Please try taking the photo again.";
+
+
+        errorScreen.classList.add(
+          "show"
+        );
+
+      }
+
+
+
+      // ==========================================================
+      // CAMERA FRAME POSITION
+      // ==========================================================
+
+function resetTicketFramePosition() {
+
+  ticketFrameLocked =
+    false;
+
+
+  ticketFrame.style.left =
+    "50%";
+
+
+  ticketFrame.style.top =
+    "50%";
+
+
+  ticketFrame.style.transform =
+    "translate(-50%, -50%)";
+
+}
+
+
+function lockTicketFramePosition() {
+
+  if (
+    ticketFrameLocked ||
+    !cameraView
+  ) {
+
+    return;
+
+  }
+
+
+  const viewWidth =
+    cameraView.clientWidth;
+
+
+  const viewHeight =
+    cameraView.clientHeight;
+
+
+  const frameWidth =
+    ticketFrame.offsetWidth;
+
+
+  const frameHeight =
+    ticketFrame.offsetHeight;
+
+
+  if (
+    !viewWidth ||
+    !viewHeight ||
+    !frameWidth ||
+    !frameHeight
+  ) {
+
+    return;
+
+  }
+
+
+  /*
+    IMPORTANT FOR iPHONE / PWA CAMERA:
+
+    The frame initially appears in the correct centered position.
+    Safari can then change the usable viewport when the live camera
+    and flashlight finish initializing. If the frame remains centered
+    with percentages, that later viewport change moves the box.
+
+    Convert the good initial position to fixed pixel coordinates once
+    the video is playing. After that, normal browser viewport changes
+    cannot recenter or shift the ticket box.
+  */
+
+  const lockedLeft =
+    Math.max(
+      0,
+      Math.round(
+        (viewWidth - frameWidth) / 2
+      )
+    );
+
+
+  const lockedTop =
+    Math.max(
+      0,
+      Math.round(
+        (viewHeight - frameHeight) / 2
+      )
+    );
+
+
+  ticketFrame.style.left =
+    `${lockedLeft}px`;
+
+
+  ticketFrame.style.top =
+    `${lockedTop}px`;
+
+
+  ticketFrame.style.transform =
+    "none";
+
+
+  ticketFrameLocked =
+    true;
+
+
+  console.log(
+    "[Grain Ticket] Ticket frame locked.",
+    {
+      left:
+        lockedLeft,
+
+      top:
+        lockedTop,
+
+      width:
+        frameWidth,
+
+      height:
+        frameHeight,
+
+      cameraViewWidth:
+        viewWidth,
+
+      cameraViewHeight:
+        viewHeight
+    }
+  );
+
+}
+
+// ==========================================================
+// CAMERA IMAGE QUALITY / FOCUS CHECK
+// ==========================================================
+
+function stopFocusQualityCheck() {
+
+  if (
+    focusCheckTimer
+  ) {
+
+    clearInterval(
+      focusCheckTimer
+    );
+
+  }
+
+
+  focusCheckTimer =
+    null;
+
+
+  focusStableFrames =
+    0;
+
+
+  lastSharpnessScore =
+    0;
+
+}
+
+
+function calculateCameraSharpness() {
+
+  if (
+    !cameraVideo ||
+    !cameraVideo.videoWidth ||
+    !cameraVideo.videoHeight
+  ) {
+
+    return 0;
+
+  }
+
+
+  /*
+    Use a small canvas so this check stays very lightweight.
+
+    We only need enough resolution to tell whether printed
+    ticket text has strong edges or is blurry.
+  */
+  const sampleWidth =
+    180;
+
+
+  const sampleHeight =
+    240;
+
+
+  const canvas =
+    document.createElement(
+      "canvas"
+    );
+
+
+  canvas.width =
+    sampleWidth;
+
+
+  canvas.height =
+    sampleHeight;
+
+
+  const ctx =
+    canvas.getContext(
+      "2d",
+      {
+        willReadFrequently:
+          true
+      }
+    );
+
+
+  if (
+    !ctx
+  ) {
+
+    return 0;
+
+  }
+
+
+  const videoWidth =
+    cameraVideo.videoWidth;
+
+
+  const videoHeight =
+    cameraVideo.videoHeight;
+
+
+  /*
+    Analyze the center portion of the camera.
+
+    This is approximately where the grain ticket sits inside
+    the FarmVista ticket frame.
+  */
+  const sourceWidth =
+    Math.round(
+      videoWidth *
+      0.72
+    );
+
+
+  const sourceHeight =
+    Math.round(
+      videoHeight *
+      0.82
+    );
+
+
+  const sourceX =
+    Math.round(
+      (
+        videoWidth -
+        sourceWidth
+      ) /
+      2
+    );
+
+
+  const sourceY =
+    Math.round(
+      (
+        videoHeight -
+        sourceHeight
+      ) /
+      2
+    );
+
+
+  ctx.drawImage(
+    cameraVideo,
+
+    sourceX,
+    sourceY,
+    sourceWidth,
+    sourceHeight,
+
+    0,
+    0,
+    sampleWidth,
+    sampleHeight
+  );
+
+
+  const imageData =
+    ctx.getImageData(
+      0,
+      0,
+      sampleWidth,
+      sampleHeight
+    );
+
+
+  const data =
+    imageData.data;
+
+
+  /*
+    Edge-strength measurement.
+
+    Sharp printed numbers and letters have rapid brightness
+    changes from one pixel to the next.
+
+    Blurred text has much weaker changes.
+  */
+  let totalDifference =
+    0;
+
+
+  let comparisons =
+    0;
+
+
+  for (
+    let y = 1;
+    y < sampleHeight - 1;
+    y += 2
+  ) {
+
+    for (
+      let x = 1;
+      x < sampleWidth - 1;
+      x += 2
+    ) {
+
+      const index =
+        (
+          y *
+          sampleWidth +
+          x
+        ) *
+        4;
+
+
+      const rightIndex =
+        (
+          y *
+          sampleWidth +
+          x +
+          1
+        ) *
+        4;
+
+
+      const downIndex =
+        (
+          (
+            y +
+            1
+          ) *
+          sampleWidth +
+          x
+        ) *
+        4;
+
+
+      const gray =
+        (
+          data[index] *
+          0.299
+        ) +
+        (
+          data[index + 1] *
+          0.587
+        ) +
+        (
+          data[index + 2] *
+          0.114
+        );
+
+
+      const rightGray =
+        (
+          data[rightIndex] *
+          0.299
+        ) +
+        (
+          data[rightIndex + 1] *
+          0.587
+        ) +
+        (
+          data[rightIndex + 2] *
+          0.114
+        );
+
+
+      const downGray =
+        (
+          data[downIndex] *
+          0.299
+        ) +
+        (
+          data[downIndex + 1] *
+          0.587
+        ) +
+        (
+          data[downIndex + 2] *
+          0.114
+        );
+
+
+      totalDifference +=
+        Math.abs(
+          gray -
+          rightGray
+        );
+
+
+      totalDifference +=
+        Math.abs(
+          gray -
+          downGray
+        );
+
+
+      comparisons +=
+        2;
+
+    }
+
+  }
+
+
+  if (
+    !comparisons
+  ) {
+
+    return 0;
+
+  }
+
+
+  return (
+    totalDifference /
+    comparisons
+  );
+
+}
+
+
+function startFocusQualityCheck() {
+
+  stopFocusQualityCheck();
+
+
+  /*
+    The shutter is available as soon as the live camera is usable.
+    Sharpness only changes the visual feedback; it does not trap
+    the driver waiting for a perfect focus score.
+  */
+  captureBtn.disabled =
+    false;
+
+
+  ticketFrame.classList.remove(
+    "ready"
+  );
+
+
+  const cameraTip =
+    document.querySelector(
+      ".camera-tip"
+    );
+
+
+  if (
+    cameraTip
+  ) {
+
+    cameraTip.textContent =
+      "Keep the whole ticket visible — tap when ready.";
+
+  }
+
+
+  const checkQuality =
+    () => {
+
+      if (
+        processing ||
+        !cameraTrack ||
+        cameraTrack.readyState !==
+          "live" ||
+        !cameraVideo.videoWidth ||
+        !cameraVideo.videoHeight
+      ) {
+
+        if (
+          !processing
+        ) {
+
+          captureBtn.disabled =
+            true;
+
+        }
+
+
+        focusStableFrames =
+          0;
+
+
+        return;
+
+      }
+
+
+      /*
+        Camera is live, so keep Capture available even when the
+        current frame is below the preferred sharpness score.
+      */
+      captureBtn.disabled =
+        false;
+
+
+      let sharpness =
+        0;
+
+
+      try {
+
+        sharpness =
+          calculateCameraSharpness();
+
+      }
+      catch (err) {
+
+        console.warn(
+          "[Grain Ticket] Sharpness check failed:",
+          err
+        );
+
+
+        focusStableFrames =
+          0;
+
+
+        ticketFrame.classList.remove(
+          "ready"
+        );
+
+
+        return;
+
+      }
+
+
+      lastSharpnessScore =
+        sharpness;
+
+
+      const sharpEnough =
+        sharpness >=
+          FOCUS_SHARPNESS_THRESHOLD;
+
+
+      if (
+        sharpEnough
+      ) {
+
+        focusStableFrames++;
+
+      }
+      else {
+
+        focusStableFrames =
+          0;
+
+      }
+
+
+      const focusReady =
+        focusStableFrames >=
+          FOCUS_REQUIRED_STABLE_FRAMES;
+
+
+      ticketFrame.classList.toggle(
+        "ready",
+        focusReady
+      );
+
+
+      if (
+        cameraTip
+      ) {
+
+        cameraTip.textContent =
+          focusReady
+            ? "Looks good — tap to capture."
+            : "Tap to capture — FarmVista will choose the sharpest frame.";
+
+      }
+
+
+      console.log(
+        "[Grain Ticket] Camera quality:",
+        {
+          sharpness:
+            Number(
+              sharpness.toFixed(
+                2
+              )
+            ),
+
+          preferredThreshold:
+            FOCUS_SHARPNESS_THRESHOLD,
+
+          stableFrames:
+            focusStableFrames,
+
+          looksReady:
+            focusReady,
+
+          shutterAvailable:
+            true
+        }
+      );
+
+    };
+
+
+  /*
+    Give autofocus, exposure and flashlight a brief moment to settle,
+    but do not keep the shutter locked while that happens.
+  */
+  setTimeout(
+    () => {
+
+      if (
+        !cameraTrack ||
+        cameraTrack.readyState !==
+          "live"
+      ) {
+
+        return;
+
+      }
+
+
+      checkQuality();
+
+
+      focusCheckTimer =
+        setInterval(
+          checkQuality,
+          FOCUS_CHECK_INTERVAL
+        );
+
+    },
+    350
+  );
+
+}
+
+      // ==========================================================
+      // CAMERA
+      // ==========================================================
+
+async function startCamera() {
+
+  stopCamera();
+
+  showCameraScreen();
+
+
+  resetTicketFramePosition();
+
+
+  captureBtn.disabled =
+    true;
+
+  torchBtn.hidden =
+    true;
+
+  torchBtn.classList.remove(
+    "active"
+  );
+
+  torchBtn.textContent =
+    "🔦 Flashlight";
+
+  torchOn =
+    false;
+
+
+  if (
+    !navigator.mediaDevices ||
+    !navigator.mediaDevices.getUserMedia
+  ) {
+
+    showError(
+      "Camera access is not available in this browser."
+    );
+
+    return;
+
+  }
+
+
+  try {
+
+    console.log(
+      "[Grain Ticket] Starting camera…"
+    );
+
+
+cameraStream =
+  await navigator.mediaDevices.getUserMedia({
+
+    video: {
+
+      facingMode: {
+        ideal:
+          "environment"
+      },
+
+      width: {
+        ideal:
+          3840
+      },
+
+      height: {
+        ideal:
+          2160
+      }
+
+    },
+
+    audio:
+      false
+
+  });
+
+
+    cameraTrack =
+      cameraStream
+        .getVideoTracks()[0] ||
+      null;
+      
+      /*
+  CAMERA FOCUS
+
+  Ask the rear camera to continuously focus on the grain ticket.
+  Only request the feature when the device reports support.
+*/
+
+try {
+
+  const capabilities =
+    cameraTrack.getCapabilities
+      ? cameraTrack.getCapabilities()
+      : {};
+
+
+  if (
+    Array.isArray(
+      capabilities.focusMode
+    ) &&
+    capabilities.focusMode.includes(
+      "continuous"
+    )
+  ) {
+
+    await cameraTrack.applyConstraints({
+
+      advanced: [
+        {
+          focusMode:
+            "continuous"
+        }
+      ]
+
+    });
+
+
+    console.log(
+      "[Grain Ticket] Continuous autofocus enabled."
+    );
+
+  }
+
+}
+catch (focusErr) {
+
+  console.warn(
+    "[Grain Ticket] Autofocus request was not supported:",
+    focusErr
+  );
+
+}
+
+
+    if (
+      !cameraTrack
+    ) {
+
+      throw new Error(
+        "No camera video track was available."
+      );
+
+    }
+
+
+    cameraVideo.srcObject =
+      cameraStream;
+
+
+    cameraVideo.muted =
+      true;
+
+
+    cameraVideo.playsInline =
+      true;
+
+
+    await cameraVideo.play();
+
+
+    /*
+      Lock the green ticket frame while the preview is still in its
+      original good position. This happens BEFORE flashlight startup,
+      because iPhone Safari/PWA can resize its usable camera viewport
+      when the torch is enabled.
+    */
+
+    await new Promise(
+      resolve =>
+        requestAnimationFrame(
+          () =>
+            requestAnimationFrame(
+              resolve
+            )
+        )
+    );
+
+
+    lockTicketFramePosition();
+
+
+    /*
+      Check whether the phone supports the flashlight.
+      The existing FarmVista behavior automatically turns it on.
+    */
+
+await setupTorch();
+
+
+/*
+  Start lightweight quality feedback. Capture stays available;
+  the burst capture will choose the sharpest live frame.
+*/
+startFocusQualityCheck();
+
+
+console.log(
+  "[Grain Ticket] Camera ready — burst capture enabled.",
+      {
+        width:
+          cameraVideo.videoWidth,
+
+        height:
+          cameraVideo.videoHeight,
+
+        trackState:
+          cameraTrack.readyState
+      }
+    );
+
+  }
+  catch (err) {
+
+    console.error(
+      "[Grain Ticket] Camera failed:",
+      err
+    );
+
+
+    stopCamera();
+
+
+    captureBtn.disabled =
+      true;
+
+
+    const errorName =
+      String(
+        err?.name ||
+        ""
+      );
+
+
+    if (
+      errorName ===
+        "NotAllowedError" ||
+      errorName ===
+        "PermissionDeniedError"
+    ) {
+
+      showError(
+        "Camera permission is blocked. Allow camera access for FarmVista and try again."
+      );
+
+      return;
+
+    }
+
+
+    showError(
+      err?.message ||
+      "FarmVista could not start the camera."
+    );
+
+  }
+
+}
+
+function stopCamera() {
+
+  stopFocusQualityCheck();
+
+
+  captureBtn.disabled =
+    true;
+
+
+  if (
+    cameraStream
+  ) {
+
+          cameraStream
+            .getTracks()
+            .forEach(
+              track => {
+
+                try {
+                  track.stop();
+                }
+                catch (_) {}
+
+              }
+            );
+
+        }
+
+
+        cameraStream =
+          null;
+
+
+        cameraTrack =
+          null;
+
+
+        cameraVideo.srcObject =
+          null;
+
+
+        torchOn =
+          false;
+
+
+        ticketFrame.classList.remove(
+          "ready"
+        );
+
+
+        resetTicketFramePosition();
+
+      }
+
+
+
+      // ==========================================================
+      // FLASHLIGHT
+      // ==========================================================
+
+async function setupTorch() {
+
+  torchBtn.hidden =
+    true;
+
+
+  if (
+    !cameraTrack ||
+    !cameraTrack.getCapabilities
+  ) {
+
+    return;
+
+  }
+
+
+  try {
+
+    const capabilities =
+      cameraTrack.getCapabilities();
+
+
+if (
+  capabilities?.torch
+) {
+
+  torchBtn.hidden =
+    false;
+
+
+  /*
+    Automatically turn the flashlight ON
+    when the grain-ticket camera opens.
+  */
+
+  await cameraTrack.applyConstraints({
+    advanced: [
+      {
+        torch: true
+      }
+    ]
+  });
+
+
+  torchOn =
+    true;
+
+
+  torchBtn.classList.add(
+    "active"
+  );
+
+
+  torchBtn.textContent =
+    "🔦 Flashlight On";
+
+}
+
+  }
+  catch (err) {
+
+    console.warn(
+      "[Grain Ticket] Torch capability check failed:",
+      err
+    );
+
+
+    torchBtn.hidden =
+      true;
+
+  }
+
+}
+
+
+      async function toggleTorch() {
+
+        if (
+          !cameraTrack
+        ) {
+          return;
+        }
+
+
+        try {
+
+          torchOn =
+            !torchOn;
+
+
+          await cameraTrack.applyConstraints({
+            advanced: [
+              {
+                torch:
+                  torchOn
+              }
+            ]
+          });
+
+
+          torchBtn.classList.toggle(
+            "active",
+            torchOn
+          );
+
+
+          torchBtn.textContent =
+            torchOn
+              ? "🔦 Flashlight On"
+              : "🔦 Flashlight";
+
+        }
+        catch (err) {
+
+          console.warn(
+            "[Grain Ticket] Torch failed:",
+            err
+          );
+
+
+          torchOn =
+            false;
+
+
+          torchBtn.classList.remove(
+            "active"
+          );
+
+        }
+
+      }
+
+
+
+      // ==========================================================
+      // CAMERA CAPTURE
+      // ==========================================================
+
+      async function captureBestLiveFrame() {
+
+        let bestFrame =
+          null;
+
+
+        let bestScore =
+          -1;
+
+
+        const width =
+          cameraVideo.videoWidth;
+
+
+        const height =
+          cameraVideo.videoHeight;
+
+
+        for (
+          let frameIndex = 0;
+          frameIndex < CAPTURE_BURST_FRAME_COUNT;
+          frameIndex++
+        ) {
+
+          if (
+            !cameraTrack ||
+            cameraTrack.readyState !==
+              "live"
+          ) {
+
+            break;
+
+          }
+
+
+          let sharpness =
+            0;
+
+
+          try {
+
+            sharpness =
+              calculateCameraSharpness();
+
+          }
+          catch (err) {
+
+            console.warn(
+              "[Grain Ticket] Burst sharpness check failed:",
+              err
+            );
+
+          }
+
+
+          const canvas =
+            document.createElement(
+              "canvas"
+            );
+
+
+          canvas.width =
+            width;
+
+
+          canvas.height =
+            height;
+
+
+          const ctx =
+            canvas.getContext(
+              "2d"
+            );
+
+
+          if (
+            !ctx
+          ) {
+
+            throw new Error(
+              "Camera image canvas was unavailable."
+            );
+
+          }
+
+
+          ctx.drawImage(
+            cameraVideo,
+            0,
+            0,
+            width,
+            height
+          );
+
+
+          if (
+            !bestFrame ||
+            sharpness >
+              bestScore
+          ) {
+
+            bestFrame =
+              canvas;
+
+
+            bestScore =
+              sharpness;
+
+          }
+
+
+          if (
+            frameIndex <
+              CAPTURE_BURST_FRAME_COUNT - 1
+          ) {
+
+            await wait(
+              CAPTURE_BURST_INTERVAL_MS
+            );
+
+          }
+
+        }
+
+
+        if (
+          !bestFrame
+        ) {
+
+          throw new Error(
+            "No live camera frame was available."
+          );
+
+        }
+
+
+        console.log(
+          "[Grain Ticket] Best burst frame selected:",
+          {
+            framesRequested:
+              CAPTURE_BURST_FRAME_COUNT,
+
+            bestSharpness:
+              Number(
+                Math.max(
+                  0,
+                  bestScore
+                ).toFixed(
+                  2
+                )
+              )
+          }
+        );
+
+
+        return bestFrame;
+
+      }
+
+
+
+      async function capturePhoto() {
+
+        if (
+          processing ||
+          !cameraVideo.videoWidth ||
+          !cameraVideo.videoHeight
+        ) {
+          return;
+        }
+
+
+        processing =
+          true;
+
+
+        captureBtn.disabled =
+          true;
+
+
+        const cameraTip =
+          document.querySelector(
+            ".camera-tip"
+          );
+
+
+        if (
+          cameraTip
+        ) {
+
+          cameraTip.textContent =
+            "Capturing best frame…";
+
+        }
+
+
+        try {
+
+          /*
+            Grab several frames from the live preview over roughly
+            a quarter second. This gives a moving/vibrating phone
+            multiple chances to catch crisp printed text without
+            creating an Apple Live Photo or uploading extra files.
+          */
+          const bestFrame =
+            await captureBestLiveFrame();
+
+
+          const blob =
+            await canvasToBlob(
+              bestFrame
+            );
+
+
+          const file =
+            new File(
+              [blob],
+              `grain-ticket-${Date.now()}.jpg`,
+              {
+                type:
+                  "image/jpeg"
+              }
+            );
+
+
+          stopCamera();
+
+
+          await processTicket(
+            file
+          );
+
+        }
+        catch (err) {
+
+          console.error(
+            "[Grain Ticket] Capture failed:",
+            err
+          );
+
+
+          processing =
+            false;
+
+
+          showError(
+            "The photo could not be captured. Please try again."
+          );
+
+        }
+
+      }
+
+      // ==========================================================
+      // IMAGE PREPARATION
+      // ==========================================================
+
+      function canvasToBlob(
+        canvas
+      ) {
+
+        return new Promise(
+          (
+            resolve,
+            reject
+          ) => {
+
+            canvas.toBlob(
+              blob => {
+
+                if (blob) {
+
+                  resolve(
+                    blob
+                  );
+
+                }
+                else {
+
+                  reject(
+                    new Error(
+                      "JPEG conversion failed."
+                    )
+                  );
+
+                }
+
+              },
+
+              "image/jpeg",
+
+              JPEG_QUALITY
+            );
+
+          }
+        );
+
+      }
+
+
+      function readFileAsDataURL(
+        file
+      ) {
+
+        return new Promise(
+          (
+            resolve,
+            reject
+          ) => {
+
+            const reader =
+              new FileReader();
+
+
+            reader.onload =
+              () =>
+                resolve(
+                  reader.result
+                );
+
+
+            reader.onerror =
+              () =>
+                reject(
+                  reader.error
+                );
+
+
+            reader.readAsDataURL(
+              file
+            );
+
+          }
+        );
+
+      }
+
+
+      function loadImage(
+        src
+      ) {
+
+        return new Promise(
+          (
+            resolve,
+            reject
+          ) => {
+
+            const img =
+              new Image();
+
+
+            img.onload =
+              () =>
+                resolve(
+                  img
+                );
+
+
+            img.onerror =
+              reject;
+
+
+            img.src =
+              src;
+
+          }
+        );
+
+      }
+
+
+      async function prepareImage(
+        rawFile
+      ) {
+
+        if (
+          !rawFile
+        ) {
+          return null;
+        }
+
+
+        if (
+          !String(
+            rawFile.type || ""
+          ).startsWith(
+            "image/"
+          )
+        ) {
+
+          return rawFile;
+
+        }
+
+
+        const dataUrl =
+          await readFileAsDataURL(
+            rawFile
+          );
+
+
+        const img =
+          await loadImage(
+            dataUrl
+          );
+
+
+        const srcWidth =
+          img.naturalWidth ||
+          img.width;
+
+
+        const srcHeight =
+          img.naturalHeight ||
+          img.height;
+
+
+        const longest =
+          Math.max(
+            srcWidth,
+            srcHeight
+          );
+
+
+        let scale =
+          1;
+
+
+        if (
+          longest >
+          MAX_IMAGE_SIDE
+        ) {
+
+          scale =
+            MAX_IMAGE_SIDE /
+            longest;
+
+        }
+
+
+        const width =
+          Math.round(
+            srcWidth *
+            scale
+          );
+
+
+        const height =
+          Math.round(
+            srcHeight *
+            scale
+          );
+
+
+        const canvas =
+          document.createElement(
+            "canvas"
+          );
+
+
+        canvas.width =
+          width;
+
+
+        canvas.height =
+          height;
+
+
+        const ctx =
+          canvas.getContext(
+            "2d"
+          );
+
+
+        ctx.drawImage(
+          img,
+          0,
+          0,
+          width,
+          height
+        );
+
+
+        const blob =
+          await canvasToBlob(
+            canvas
+          );
+
+
+        return new File(
+          [blob],
+
+          `grain-ticket-${Date.now()}.jpg`,
+
+          {
+            type:
+              "image/jpeg"
+          }
+        );
+
+      }
+
+
+
+      // ==========================================================
+      // BASE64
+      // ==========================================================
+
+      async function fileToBase64(
+        file
+      ) {
+
+        const dataUrl =
+          await readFileAsDataURL(
+            file
+          );
+
+
+        const parts =
+          String(
+            dataUrl || ""
+          ).split(
+            ","
+          );
+
+
+        return parts.length > 1
+          ? parts[1]
+          : "";
+
+      }
+
+
+
+      // ==========================================================
+      // OCR
+      // ==========================================================
+
+      async function processTicket(
+        rawFile
+      ) {
+
+        showProcessing(
+          "Preparing grain ticket…"
+        );
+
+
+        try {
+
+          const file =
+            await prepareImage(
+              rawFile
+            );
+
+
+          if (
+            !file
+          ) {
+
+            throw new Error(
+              "No image was available."
+            );
+
+          }
+
+
+          processingText.textContent =
+            "Reading grain ticket…";
+
+
+          const base64 =
+            await fileToBase64(
+              file
+            );
+
+
+          if (
+            !base64
+          ) {
+
+            throw new Error(
+              "Could not read the ticket image."
+            );
+
+          }
+
+
+          console.log(
+            "[Grain Ticket] Sending to OCR:",
+            {
+              mode:
+                "grain_ticket",
+
+              mimeType:
+                file.type,
+
+              size:
+                file.size
+            }
+          );
+
+
+          const response =
+            await fetchWithCellRetry(
+              OCR_URL,
+              {
+                method:
+                  "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json"
+                },
+
+                body:
+                  JSON.stringify({
+                    mode:
+                      "grain_ticket",
+
+                    content:
+                      base64,
+
+                    mimeType:
+                      file.type ||
+                      "image/jpeg"
+                  })
+              },
+
+              "Reading grain ticket"
+            );
+
+
+          if (
+            !response.ok
+          ) {
+
+            const serverText =
+              await response.text();
+
+
+            console.error(
+              "[Grain Ticket] OCR HTTP error:",
+              response.status,
+              serverText
+            );
+
+
+            throw new Error(
+              `OCR server returned ${response.status}.`
+            );
+
+          }
+
+
+          const result =
+            await response.json();
+
+          /*
+            FarmVista verification layer:
+            Re-associate explicit grade labels (TW/MO/DM/FM/SP) with the
+            values OCR already recognized before validation or save.
+          */
+          normalizeGrainTicketGrades(result);
+            
+            /*
+/*
+  OCR GRADE FIELD SAFETY
+
+  fvOcr may return the correctly recognized value in result.fields
+  while grainTicket contains an older/default/parser value.
+
+  result.fields is the direct structured OCR result, so when it
+  contains a valid numeric grade value, copy that exact value into
+  grainTicket before FarmVista validates or saves the ticket.
+
+  ADM FALLBACK:
+  Some ADM tickets OCR the FM value correctly in the raw document
+  text (example 00.8) while the structured foreignMaterial field
+  comes back as 0. This fallback only runs for ADM tickets and only
+  replaces FM when the structured/parser result is zero or missing.
+*/
+
+function getOcrNumericField(field) {
+
+  if (
+    field === null ||
+    field === undefined ||
+    field === ""
+  ) {
+    return null;
+  }
+
+  let rawValue =
+    field;
+
+  if (
+    typeof field === "object"
+  ) {
+
+    rawValue =
+      field.value ??
+      field.normalizedValue ??
+      field.text ??
+      field.rawValue ??
+      null;
+
+  }
+
+  const cleaned =
+    String(
+      rawValue ?? ""
+    )
+      .replace(
+        /[^0-9.-]/g,
+        ""
+      )
+      .trim();
+
+  if (
+    !cleaned
+  ) {
+    return null;
+  }
+
+  const number =
+    Number(
+      cleaned
+    );
+
+  return Number.isFinite(
+    number
+  )
+    ? number
+    : null;
+
+}
+
+
+if (
+  result.grainTicket &&
+  result.fields
+) {
+
+  const directFields = [
+    [
+      "testWeight",
+      "testWeight"
+    ],
+    [
+      "moisture",
+      "moisture"
+    ],
+    [
+      "damage",
+      "damage"
+    ],
+    [
+      "foreignMaterial",
+      "foreignMaterial"
+    ]
+  ];
+
+
+  directFields.forEach(
+    ([
+      fieldName,
+      ticketName
+    ]) => {
+
+      const value =
+        getOcrNumericField(
+          result.fields[
+            fieldName
+          ]
+        );
+
+
+      if (
+        value !== null
+      ) {
+
+        console.log(
+          `[Grain Ticket] OCR direct field ${fieldName}:`,
+          {
+            directOcrValue:
+              value,
+
+            parserValue:
+              result.grainTicket[
+                ticketName
+              ]
+          }
+        );
+
+
+        result.grainTicket[
+          ticketName
+        ] =
+          value;
+
+      }
+
+    }
+  );
+
+}
+
+
+/*
+  NOTE:
+  ADM-specific grade-factor interpretation belongs in the OCR
+  backend / Google function. FarmVista should consume the OCR
+  function's structured values rather than maintain a second
+  ADM parser here.
+*/
+
+
+
+
+          console.log(
+            "=================================================="
+          );
+
+
+          console.log(
+            "[Grain Ticket] FULL OCR RESULT"
+          );
+
+
+          console.log(
+            result
+          );
+
+
+          console.log(
+            "[Grain Ticket] OCR FIELDS"
+          );
+
+
+          console.table(
+            result.fields ||
+            {}
+          );
+
+
+          console.log(
+            "[Grain Ticket] DOCUMENT TEXT"
+          );
+
+
+          console.log(
+            result.document?.text ||
+            ""
+          );
+
+
+          console.log(
+            "=================================================="
+          );
+
+
+          if (
+            !result.ok
+          ) {
+
+            throw new Error(
+              result.error ||
+              "OCR could not process the grain ticket."
+            );
+
+          }
+          
+          /*
+  TEST WEIGHT SANITY CHECK
+
+  Do not silently save a suspicious OCR reading.
+
+  Example:
+    actual ticket = 57.2
+    blurry OCR     = 67.2
+
+  We do NOT auto-change 67.2 to 57.2.
+  We require another picture instead.
+*/
+
+const scannedTestWeight =
+  Number(
+    result.grainTicket
+      ?.testWeight
+  );
+
+
+const scannedCropForGradeCheck =
+  String(
+    result.grainTicket
+      ?.crop ||
+    ""
+  )
+    .trim()
+    .toLowerCase();
+
+
+if (
+  Number.isFinite(
+    scannedTestWeight
+  ) &&
+  (
+    scannedCropForGradeCheck ===
+      "corn" ||
+    scannedCropForGradeCheck ===
+      "yellow corn"
+  ) &&
+  (
+    scannedTestWeight <
+      45 ||
+    scannedTestWeight >
+      65
+  )
+) {
+
+  throw new Error(
+    `Test Weight ${scannedTestWeight.toFixed(1)} looks unusual for corn. Please take a clearer picture of the ticket.`
+  );
+
+}
+
+
+const documentText =
+  String(
+    result.document?.text ||
+    ""
+  ).trim();
+
+
+if (
+  documentText.length <
+  10
+) {
+
+  throw new Error(
+    "FarmVista did not read enough information from this ticket."
+  );
+
+}
+
+          /*
+  CROP
+
+  First use the crop OCR found.
+
+  If OCR did not identify the crop,
+  ask the driver to select it before saving.
+*/
+
+/*
+  CROP
+
+  Preserve exactly what OCR originally returned.
+
+  If OCR cannot determine crop, ask the driver.
+
+  IMPORTANT:
+  fvOcr already calculated scanValid + scanErrors BEFORE
+  the driver answered this question.
+
+  Therefore, after a driver supplies a valid crop we remove
+  ONLY the crop-related validation error and recalculate
+  scanValid. All other OCR errors remain untouched.
+*/
+
+const originalOcrCrop =
+  result.grainTicket?.crop ??
+  null;
+
+
+let scannedCrop =
+  normalizeScannedCrop(
+    originalOcrCrop
+  );
+
+
+let cropSelectedByDriver =
+  false;
+
+
+if (
+  !scannedCrop &&
+  !isGuestScan
+) {
+
+  /*
+    NORMAL FARMVISTA SCAN
+
+    Do NOT ask for Crop here anymore.
+
+    The driver selects the Hauling Job during Driver Assist,
+    and that job supplies the authoritative Crop, Destination,
+    Buyer, and Sold Under values.
+  */
+
+  console.log(
+    "[Grain Ticket] OCR did not identify crop. Hauling Job will supply crop."
+  );
+
+}
+
+
+if (
+  !scannedCrop &&
+  isGuestScan
+) {
+
+  /*
+    SMS / LOAD-OUT SCAN
+
+    DO NOT ask the driver.
+
+    The secure saveGuestGrainTicket backend knows the assigned
+    load and will use the load's authoritative crop.
+
+    Preserve null here so we never create a false OCR-learning
+    relationship such as:
+
+      null -> Corn
+  */
+
+  console.log(
+    "[Grain Ticket] Guest OCR did not identify crop. Load-out crop will be used."
+  );
+
+}
+
+
+/*
+  Put the final crop onto the structured grain ticket.
+*/
+
+if (
+  scannedCrop
+) {
+
+  result.grainTicket.crop =
+    scannedCrop;
+
+}
+
+
+/*
+  Record the HUMAN correction separately.
+
+  The OCR memory writer will preserve this so later we know:
+
+    OCR said:
+      null
+
+    Driver said:
+      Corn
+
+  That is real learning information.
+*/
+
+if (
+  cropSelectedByDriver
+) {
+
+  result.manualCorrections = {
+
+    ...(
+      result.manualCorrections ||
+      {}
+    ),
+
+    crop: {
+
+      originalValue:
+        originalOcrCrop,
+
+      selectedValue:
+        scannedCrop,
+
+      source:
+        "driver_selection",
+
+      learningEligible:
+        Boolean(
+          String(
+            originalOcrCrop ??
+            ""
+          ).trim()
+        ),
+
+      learningReason:
+        String(
+          originalOcrCrop ??
+          ""
+        ).trim()
+          ? "ocr_evidence_confirmed"
+          : "driver_supplied_missing_value"
+
+    }
+
+  };
+
+
+  /*
+    Remove ONLY crop-related validation errors.
+
+    Never clear a weight error, ticket-number error,
+    grade-factor error, etc.
+  */
+
+  if (
+    Array.isArray(
+      result.scanErrors
+    )
+  ) {
+
+    result.scanErrors =
+      result.scanErrors.filter(
+        error => {
+
+          const text =
+            String(
+              error ||
+              ""
+            )
+              .trim()
+              .toLowerCase();
+
+
+          if (
+            !text.includes(
+              "crop"
+            )
+          ) {
+
+            return true;
+
+          }
+
+
+          const cropError =
+            (
+              text.includes(
+                "could not be read"
+              ) ||
+              text.includes(
+                "could not determine"
+              ) ||
+              text.includes(
+                "must be selected"
+              ) ||
+              text.includes(
+                "not identified"
+              )
+            );
+
+
+          return !cropError;
+
+        }
+      );
+
+  }
+
+
+  /*
+    OCR validation has now been repaired with the
+    driver's answer.
+
+    If another problem remains, scanValid stays false.
+  */
+
+  result.scanValid =
+    !Array.isArray(
+      result.scanErrors
+    ) ||
+    result.scanErrors.length ===
+      0;
+
+
+  console.log(
+    "[Grain Ticket] Driver supplied missing crop:",
+    {
+      originalOcrCrop,
+      selectedCrop:
+        scannedCrop,
+
+      remainingScanErrors:
+        result.scanErrors,
+
+      scanValid:
+        result.scanValid
+    }
+  );
+
+}
+
+/*
+  DEFERRED CROP RECOVERY
+
+  If OCR failed ONLY because Crop was missing, remove just the crop
+  error here. A normal FarmVista scan gets its authoritative Crop from
+  the selected Hauling Job. A guest/SMS scan gets Crop from its assigned
+  load-out backend. Never clear weight, ticket-number, grade, or other
+  scan errors.
+*/
+
+if (
+  !scannedCrop &&
+  Array.isArray(
+    result.scanErrors
+  )
+) {
+
+  result.scanErrors =
+    result.scanErrors.filter(
+      error =>
+        !String(
+          error ||
+          ""
+        )
+          .trim()
+          .toLowerCase()
+          .includes(
+            "crop"
+          )
+    );
+
+
+  result.scanValid =
+    result.scanErrors.length ===
+      0;
+
+}
+
+
+/*
+  HARD OCR VALIDATION
+
+  If fvOcr says this ticket is not valid,
+  the driver must rescan it.
+*/
+
+if (
+  result.scanValid !==
+  true
+) {
+
+  const scanMessage =
+    Array.isArray(
+      result.scanErrors
+    ) &&
+    result.scanErrors.length
+      ? result.scanErrors.join(
+          " "
+        )
+      : "FarmVista could not verify this grain ticket. Please rescan it.";
+
+
+  throw new Error(
+    scanMessage
+  );
+
+}
+
+
+/*
+  FINAL CROP SAFETY CHECK.
+
+  At this point Crop either came from OCR
+  or was selected by the driver.
+*/
+
+const validScannedCrops =
+  [
+    "Corn",
+    "Soybeans",
+    "Wheat"
+  ];
+
+
+if (
+  scannedCrop &&
+  !validScannedCrops.includes(
+    scannedCrop
+  )
+) {
+
+  throw new Error(
+    "The scanned crop is not supported by FarmVista."
+  );
+
+}
+
+
+/*
+  Keep the prepared image so the exact image that OCR read
+  is the image saved with the grain ticket.
+*/
+
+currentTicketFile =
+  file;
+
+
+processingText.textContent =
+  "Saving grain ticket…";
+
+
+const savedTicket =
+  await saveScannedTicket(
+    currentTicketFile,
+    result
+  );
+
+
+console.log(
+  "[Grain Ticket] Save complete:",
+  savedTicket
+);
+
+
+processing =
+  false;
+
+
+showResult();
+
+
+
+        }
+        catch (err) {
+
+          console.error(
+            "[Grain Ticket] Processing failed:",
+            err
+          );
+
+
+          processing =
+            false;
+
+
+          showError(
+            err?.message ||
+            "FarmVista could not read this grain ticket. Please try again."
+          );
+
+        }
+
+      }
+
+===== SCAN getTicketHeaderText =====
+
+function getTicketHeaderText(
+  grainTicket
+) {
+
+  /*
+    Only use the TOP of the ticket to identify the elevator.
+
+    This prevents later lines such as:
+
+      JOHN C DOWSON
+      DIVERNON IL
+      CHS Elevators Sycamore IL
+
+    from being mistaken for the destination.
+  */
+
+  return getOcrLines(
+    grainTicket
+  )
+    .slice(
+      0,
+      8
+    )
+    .join(
+      " "
+    );
+
+}
