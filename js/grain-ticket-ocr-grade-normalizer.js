@@ -1,5 +1,5 @@
 /* FarmVista grain ticket OCR grade normalizer
-   Rev 2026-09-09 — Scoular layout support
+   Rev 2026-09-09 — Scoular layout + customer support
 
    Re-associates explicit grade labels with the numeric value OCR already read.
    This is deliberately conservative: FarmVista never invents an unlabeled
@@ -104,6 +104,44 @@ function elevatorFamily(result, rawText) {
   return 'Generic';
 }
 
+function extractScoularCustomer(rawText) {
+  const text = clean(rawText);
+  if (!text || !/\bscoular\b/i.test(text)) return null;
+
+  const lines = text
+    .split(/\n+/)
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  let account = null;
+  let name = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const accountMatch = line.match(/\bCustomer\s*ID\s*:\s*([A-Z0-9._-]+)/i);
+    if (!accountMatch) continue;
+
+    account = accountMatch[1].trim();
+
+    for (let j = i + 1; j < Math.min(lines.length, i + 4); j++) {
+      const candidate = lines[j];
+      if (
+        /^(?:Inbound\s+Ticket|Scoular-|Elevator\s+ID|Yellow\s+Corn|Corn|Soybeans?|Wheat)\b/i.test(candidate)
+      ) {
+        break;
+      }
+      if (/[A-Za-z]/.test(candidate) && !/^Customer\s*ID\b/i.test(candidate)) {
+        name = candidate;
+        break;
+      }
+    }
+
+    break;
+  }
+
+  return account || name ? { account, name } : null;
+}
+
 function scoularGradeBlock(rawText) {
   const text = clean(rawText);
   if (!text || !/\bscoular\b/i.test(text)) return null;
@@ -147,7 +185,6 @@ function scoularGradeBlock(rawText) {
 
   if (!hasExpectedLabels) return null;
 
-  /* Decimal grade readings are the safest Scoular signature here. */
   const decimals = [];
   const decimalRegex = /(?:^|\s)(\d{1,2}\.\d{1,2})(?=\s|$)/g;
   let match;
@@ -236,11 +273,23 @@ export function normalizeGrainTicketGrades(result) {
   const rawText = clean(result?.grainTicket?.rawText || result?.document?.text || '');
   const family = elevatorFamily(result, rawText);
   const scoularBlock = family === 'Scoular' ? scoularGradeBlock(rawText) : null;
+  const scoularCustomer = family === 'Scoular' ? extractScoularCustomer(rawText) : null;
   const fields = ['testWeight', 'moisture', 'damage', 'foreignMaterial', 'splits'];
   const audit = {};
   const review = [];
 
   if (!result.fields || typeof result.fields !== 'object') result.fields = {};
+
+  if (scoularCustomer) {
+    if (scoularCustomer.account) {
+      result.grainTicket.customerAccountText = scoularCustomer.account;
+      result.fields.customerAccountText = scoularCustomer.account;
+    }
+    if (scoularCustomer.name) {
+      result.grainTicket.customerText = scoularCustomer.name;
+      result.fields.customerText = scoularCustomer.name;
+    }
+  }
 
   for (const field of fields) {
     const chosen = chooseField(result, rawText, field, family, scoularBlock);
@@ -249,12 +298,6 @@ export function normalizeGrainTicketGrades(result) {
     if (chosen.value !== null && chosen.value !== undefined) {
       result.grainTicket[field] = chosen.value;
 
-      /*
-        The scan page has an older direct-field compatibility pass after this
-        normalizer. Any high-confidence raw/layout recovery must also update the
-        structured field so stale parser data (especially a false FM 0) cannot
-        overwrite the recovered value later in the same save path.
-      */
       if (
         chosen.source === 'raw_label_value' ||
         chosen.source === 'scoular_grade_column_order'
@@ -269,9 +312,10 @@ export function normalizeGrainTicketGrades(result) {
   }
 
   result.grainTicket.gradeParser = {
-    version: 'farmvista-grade-v2',
+    version: 'farmvista-grade-v3',
     elevatorFamily: family,
-    fields: audit
+    fields: audit,
+    customer: scoularCustomer
   };
   result.gradeNormalization = result.grainTicket.gradeParser;
 
