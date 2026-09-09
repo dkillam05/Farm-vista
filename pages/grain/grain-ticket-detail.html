@@ -12630,6 +12630,258 @@ async function saveVerifiedTicketWithInventory(
 }
 
     // ==========================================================
+    // BULK SOLD UNDER CORRECTION FOR REVIEW TICKETS
+    // ==========================================================
+
+    function normalizedSoldUnderOcr(
+      value
+    ) {
+
+      return clean(
+        value
+      )
+        .toLowerCase()
+        .replace(
+          /[^a-z0-9]+/g,
+          ""
+        );
+
+    }
+
+
+    function soldUnderOcrEvidence(
+      ticket
+    ) {
+
+      return {
+        account:
+          normalizedSoldUnderOcr(
+            ticket?.ocrCustomerAccountText ||
+            ticket?.customerAccountText ||
+            ""
+          ),
+
+        name:
+          normalizedSoldUnderOcr(
+            ticket?.ocrCustomerText ||
+            ticket?.customerText ||
+            ""
+          )
+      };
+
+    }
+
+
+    function sameSoldUnderOcrEvidence(
+      sourceTicket,
+      candidateTicket
+    ) {
+
+      const source =
+        soldUnderOcrEvidence(
+          sourceTicket
+        );
+
+      const candidate =
+        soldUnderOcrEvidence(
+          candidateTicket
+        );
+
+
+      if (
+        source.account
+      ) {
+
+        return Boolean(
+          candidate.account &&
+          candidate.account ===
+            source.account
+        );
+
+      }
+
+
+      return Boolean(
+        source.name &&
+        candidate.name &&
+        candidate.name ===
+          source.name
+      );
+
+    }
+
+
+    async function bulkUpdateMatchingReviewSoldUnder(
+      selectedCustomer
+    ) {
+
+      if (
+        !selectedCustomer?.id ||
+        selectedCustomer?.unknown ===
+          true ||
+        !state.ticket
+      ) {
+
+        return 0;
+
+      }
+
+
+      const sourceEvidence =
+        soldUnderOcrEvidence(
+          state.ticket
+        );
+
+
+      if (
+        !sourceEvidence.account &&
+        !sourceEvidence.name
+      ) {
+
+        return 0;
+
+      }
+
+
+      const customerReviewReasons =
+        new Set([
+          "customer_not_matched",
+          "customer_not_selected",
+          "sold_under_unknown",
+          "sold_under_driver_skipped"
+        ]);
+
+
+      const matches =
+        state.tickets.filter(
+          ticket =>
+            ticket?.id !==
+              ticketId &&
+            normalize(
+              ticket?.validationStatus
+            ) ===
+              "needs_review" &&
+            clean(
+              ticket?.customerId
+            ) !==
+              clean(
+                selectedCustomer.id
+              ) &&
+            sameSoldUnderOcrEvidence(
+              state.ticket,
+              ticket
+            )
+        );
+
+
+      let updatedCount =
+        0;
+
+
+      for (
+        const ticket of
+        matches
+      ) {
+
+        const existingReasons =
+          Array.isArray(
+            ticket.reviewReasons
+          )
+            ? ticket.reviewReasons
+            : [];
+
+
+        const reviewReasons =
+          existingReasons.filter(
+            reason =>
+              !customerReviewReasons.has(
+                String(
+                  reason ||
+                  ""
+                )
+              )
+          );
+
+
+        try {
+
+          await updateDoc(
+            doc(
+              db,
+              "grain_tickets",
+              ticket.id
+            ),
+            {
+              customerId:
+                selectedCustomer.id,
+
+              customerName:
+                selectedCustomer.name,
+
+              reviewReasons,
+
+              soldUnderBulkCorrectedFromTicketId:
+                ticketId,
+
+              soldUnderBulkCorrectionSource:
+                sourceEvidence.account
+                  ? "exact_ocr_customer_account"
+                  : "exact_ocr_customer_text",
+
+              soldUnderBulkCorrectedAt:
+                serverTimestamp(),
+
+              soldUnderBulkCorrectedByUid:
+                state.user?.uid ||
+                null,
+
+              soldUnderBulkCorrectedByName:
+                state.user?.displayName ||
+                state.user?.email ||
+                "FarmVista User",
+
+              updatedAt:
+                serverTimestamp()
+            }
+          );
+
+
+          ticket.customerId =
+            selectedCustomer.id;
+
+          ticket.customerName =
+            selectedCustomer.name;
+
+          ticket.reviewReasons =
+            reviewReasons;
+
+          updatedCount++;
+
+        }
+        catch (
+          error
+        ) {
+
+          console.warn(
+            "[Grain Ticket Detail] Matching Sold Under review ticket could not be updated:",
+            {
+              ticketId:
+                ticket.id,
+              error
+            }
+          );
+
+        }
+
+      }
+
+
+      return updatedCount;
+
+    }
+
+
+    // ==========================================================
     // SAVE / APPROVE
     // ==========================================================
 
@@ -12775,6 +13027,10 @@ const customerIsUnknown =
 
       elements.saveBtn.textContent =
         "Saving…";
+
+
+      let bulkSoldUnderUpdated =
+        0;
 
 
       try {
@@ -13327,6 +13583,25 @@ customerName:
 
 
         /*
+          Apply an office Sold Under correction to every OTHER ticket
+          still under review with the same exact OCR customer identity.
+        */
+        if (
+          state.selectedCustomer &&
+          state.selectedCustomer.unknown !==
+            true &&
+          state.selectedCustomer.id
+        ) {
+
+          bulkSoldUnderUpdated =
+            await bulkUpdateMatchingReviewSoldUnder(
+              state.selectedCustomer
+            );
+
+        }
+
+
+        /*
           Teach FarmVista the OCR wording only for selections that
           were actually resolved.
         */
@@ -13372,10 +13647,20 @@ state.selectedCustomer.id
         updateReviewUI();
 
 
+        const bulkMessage =
+          bulkSoldUnderUpdated >
+            0
+            ? ` Also updated Sold Under on ${bulkSoldUnderUpdated} matching ticket${bulkSoldUnderUpdated === 1 ? "" : "s"} still under review.`
+            : "";
+
+
         showMessage(
-          verified
-            ? "Ticket saved and verified."
-            : "Ticket saved. It will stay under Needs Review until all required load details are filled in.",
+          (
+            verified
+              ? "Ticket saved and verified."
+              : "Ticket saved. It will stay under Needs Review until all required load details are filled in."
+          ) +
+          bulkMessage,
           verified
             ? "success"
             : "warning"
