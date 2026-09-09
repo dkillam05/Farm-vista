@@ -1,0 +1,58 @@
+name: FarmVista Cahokia grade apply
+on:
+  push:
+    paths:
+      - '.github/workflows/fv-cahokia-grade-apply.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Apply patch
+        run: python3 .github/scripts/fv_cahokia_grade_patch.py
+      - name: Validate Cahokia fixture
+        run: |
+          cp js/grain-ticket-ocr-grade-normalizer.js /tmp/fv-grade.mjs
+          node --input-type=module <<'NODE'
+          import { normalizeGrainTicketGrades } from 'file:///tmp/fv-grade.mjs';
+          const rawText = `Cahokia Grain
+          Cahokia, IL
+          Scale Ticket M328578
+          YELLOW CORN
+          12.60
+          MOISTURE
+          59.60
+          TEST WEIGHT
+          1.50
+          FOREIGN MATERIAL
+          2.70
+          DAMAGE
+          Weigher
+          CHS Elevators Sycamore, IL`;
+          const result = normalizeGrainTicketGrades({
+            fields: { testWeight: 59.6, moisture: 12.6, damage: 2.0, foreignMaterial: 2.7 },
+            grainTicket: { rawText, testWeight: 59.6, moisture: 12.6, damage: 2.0, foreignMaterial: 2.7 }
+          });
+          const expected = { testWeight: 59.6, moisture: 12.6, damage: 2.7, foreignMaterial: 1.5 };
+          for (const [key, value] of Object.entries(expected)) {
+            if (result.grainTicket[key] !== value) throw new Error(`${key}: expected ${value}, got ${result.grainTicket[key]}`);
+          }
+          if (result.grainTicket.gradeParser.elevatorFamily !== 'Cahokia') throw new Error('Cahokia family detection failed');
+          console.log('Cahokia fixture passed');
+          NODE
+          node --check js/version.js
+          grep -q 'farmvista-grade-v5' js/grain-ticket-ocr-grade-normalizer.js
+          grep -q 'number:  "09.09.05"' js/version.js
+      - name: Commit feature
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add js/grain-ticket-ocr-grade-normalizer.js pages/grain/grain-ticket-scan-core.html pages/grain/grain-ticket-scan.html js/version.js
+          git commit -m 'Fix Cahokia grain ticket grade mapping [skip auto-version]'
+          git pull --rebase origin main
+          git push origin main
