@@ -1,0 +1,78 @@
+name: FarmVista destination matcher diagnostic
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fv-destination-match-debug.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Extract destination matching code
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def extract_function(text, name):
+              marker = f'function {name}'
+              start = text.find(marker)
+              if start < 0:
+                  return f'NOT FOUND: {name}\n'
+              brace = text.find('{', start)
+              if brace < 0:
+                  return f'NO BRACE: {name}\n'
+              depth = 0
+              quote = None
+              escape = False
+              i = brace
+              while i < len(text):
+                  ch = text[i]
+                  if quote:
+                      if escape:
+                          escape = False
+                      elif ch == '\\':
+                          escape = True
+                      elif ch == quote:
+                          quote = None
+                  else:
+                      if ch in ('"', "'", '`'):
+                          quote = ch
+                      elif ch == '{':
+                          depth += 1
+                      elif ch == '}':
+                          depth -= 1
+                          if depth == 0:
+                              return text[start:i+1] + '\n'
+                  i += 1
+              return text[start:start+12000]
+
+          out = []
+          detail = Path('pages/grain/grain-ticket-detail.html').read_text()
+          scan = Path('pages/grain/grain-ticket-scan-core.html').read_text()
+          for name in ['autoMatchLocation','autoMatchBuyer','currentReviewReasons']:
+              out.append(f'===== DETAIL {name} =====\n')
+              out.append(extract_function(detail, name))
+          for name in ['findDeliveryLocationMatch','findBuyerMatch','findCityStateInTicketHeader','getTicketHeaderText']:
+              out.append(f'===== SCAN {name} =====\n')
+              out.append(extract_function(scan, name))
+          Path('.github/destination-match-debug.txt').write_text('\n'.join(out))
+          PY
+
+      - name: Commit diagnostic
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/destination-match-debug.txt
+          git commit -m 'Capture destination matcher diagnostic [skip auto-version]'
+          git pull --rebase origin main
+          git push
