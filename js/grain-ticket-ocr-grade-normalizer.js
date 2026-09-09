@@ -1,5 +1,5 @@
 /* FarmVista grain ticket OCR grade normalizer
-   Rev 2026-09-09b — Scoular split-column grade recovery
+   Rev 2026-09-09c — labeled-row and reversed-row grade recovery
 
    Re-associates explicit grade labels with the numeric value OCR already read.
    This is deliberately conservative: FarmVista never invents an unlabeled
@@ -60,25 +60,108 @@ function inRange(field, value) {
 function rawCandidates(rawText, field) {
   const text = clean(rawText);
   if (!text) return [];
+
   const spec = SPECS[field];
+  const lines = text
+    .split(/\n+/)
+    .map(line => line.trim())
+    .filter(Boolean);
   const out = [];
+
+  const numericOnly = line => {
+    const match = clean(line)
+      .replace(/,/g, '')
+      .match(/^([0-9]{1,2}(?:\.[0-9]{1,2})?)$/);
+    if (!match) return null;
+    const value = Number(match[1]);
+    return inRange(field, value) ? value : null;
+  };
 
   for (const label of spec.labels) {
     const escaped = escapeRegex(label).replace(/\\ /g, '\\s+');
-    const regex = new RegExp(
-      `(?:^|\\n|\\s)${escaped}\\s*[:#-]?\\s*([0-9]{1,2}(?:\\.[0-9]{1,2})?)`,
-      'gim'
+    const sameLineForward = new RegExp(
+      `^${escaped}[ \\t]*[:#-]?[ \\t]*([0-9]{1,2}(?:\\.[0-9]{1,2})?)[ \\t]*$`,
+      'i'
     );
-    let match;
-    while ((match = regex.exec(text))) {
-      const value = Number(match[1]);
-      if (inRange(field, value)) {
-        out.push({ value, label, evidence: match[0].trim(), index: match.index });
+    const sameLineReverse = new RegExp(
+      `^([0-9]{1,2}(?:\\.[0-9]{1,2})?)[ \\t]+${escaped}[ \\t]*[:#-]?[ \\t]*$`,
+      'i'
+    );
+    const labelOnly = new RegExp(
+      `^${escaped}[ \\t]*[:#-]?[ \\t]*$`,
+      'i'
+    );
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+
+      let match = line.match(sameLineForward);
+      if (match) {
+        const value = Number(match[1]);
+        if (inRange(field, value)) {
+          out.push({ value, label, evidence: line, index: i, direction: 'label_then_value_same_line' });
+        }
+        continue;
+      }
+
+      match = line.match(sameLineReverse);
+      if (match) {
+        const value = Number(match[1]);
+        if (inRange(field, value)) {
+          out.push({ value, label, evidence: line, index: i, direction: 'value_then_label_same_line' });
+        }
+        continue;
+      }
+
+      if (!labelOnly.test(line)) continue;
+
+      /*
+        Google OCR often returns narrow receipt columns as:
+
+          12.60
+          MOISTURE
+          59.60
+          TEST WEIGHT
+
+        Prefer the number immediately BEFORE an explicit label. Only use the
+        next numeric line when no valid previous numeric line exists. Never let
+        whitespace matching cross a newline; that old behavior allowed FOREIGN
+        MATERIAL to steal the following DAMAGE value.
+      */
+      const previousValue = i > 0 ? numericOnly(lines[i - 1]) : null;
+      if (previousValue !== null) {
+        out.push({
+          value: previousValue,
+          label,
+          evidence: `${lines[i - 1]} | ${line}`,
+          index: i,
+          direction: 'value_previous_line'
+        });
+        continue;
+      }
+
+      const nextValue = i + 1 < lines.length ? numericOnly(lines[i + 1]) : null;
+      if (nextValue !== null) {
+        out.push({
+          value: nextValue,
+          label,
+          evidence: `${line} | ${lines[i + 1]}`,
+          index: i,
+          direction: 'value_next_line'
+        });
       }
     }
   }
 
-  return out.sort((a, b) => a.index - b.index);
+  const seen = new Set();
+  return out
+    .filter(item => {
+      const key = `${item.label}|${item.value}|${item.index}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => a.index - b.index);
 }
 
 function structuredValue(result, field) {
@@ -98,9 +181,16 @@ function elevatorFamily(result, rawText) {
   */
   if (/\bscoular\b/.test(haystack)) return 'Scoular';
   if (/archer\s+daniels|\badm\b/.test(haystack)) return 'ADM';
+
+  /*
+    Cahokia Grain tickets can contain "CHS Elevators Sycamore, IL" in the
+    weigher/footer area. The ticket header is stronger evidence than that footer,
+    so classify Cahokia before the generic CHS family test.
+  */
+  if (/\bcahokia\s+grain\b|\bcahokia,?\s+il\b/.test(haystack)) return 'Cahokia';
+
   if (/\bchs\b|lowder/.test(haystack)) return 'CHS';
   if (/bartlett/.test(haystack)) return 'Bartlett';
-  if (/cahokia/.test(haystack)) return 'Cahokia';
   return 'Generic';
 }
 
@@ -328,7 +418,7 @@ export function normalizeGrainTicketGrades(result) {
   }
 
   result.grainTicket.gradeParser = {
-    version: 'farmvista-grade-v4',
+    version: 'farmvista-grade-v5',
     elevatorFamily: family,
     fields: audit,
     customer: scoularCustomer
