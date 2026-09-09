@@ -4266,65 +4266,90 @@ function populateReconciliationSelect(
 }
 
 
-function getBuyersWithActiveContracts() {
-  const openContracts =
-    state.contracts.filter(
-      contract =>
-        !contract.voided &&
-        numberValue(
-          contract.openBushels
-        ) >
-        EPSILON
-    );
+function reconciliationBuyerKey(
+  id,
+  name
+) {
+  const cleanId = clean(id);
+  if (cleanId) {
+    return cleanId;
+  }
 
-  const buyerIds =
-    new Set(
-      openContracts
-        .map(
-          contract =>
-            clean(
-              contract.buyerId
-            )
-        )
-        .filter(Boolean)
-    );
+  const cleanName = normalized(name);
+  return cleanName
+    ? `__ticket_buyer_name__:${cleanName}`
+    : "";
+}
 
-  const buyerNames =
-    new Set(
-      openContracts
-        .map(
-          contract =>
-            normalized(
-              contract.buyerName
-            )
-        )
-        .filter(Boolean)
-    );
 
-  return state.buyers
-    .filter(
-      buyer =>
-        buyerIds.has(
-          clean(
-            buyer.id
-          )
-        ) ||
-        buyerNames.has(
-          normalized(
-            buyer.name
-          )
-        )
+function getBuyersForReconciliation() {
+  const candidates = new Map();
+
+  const addBuyer = (id, name) => {
+    const key = reconciliationBuyerKey(id, name);
+    const label = clean(name);
+
+    if (!key || !label) return;
+
+    if (!candidates.has(key)) {
+      candidates.set(key, {
+        id:key,
+        sourceId:clean(id) || null,
+        name:label
+      });
+    }
+  };
+
+  state.contracts
+    .filter(contract =>
+      !contract.voided &&
+      numberValue(contract.openBushels) > EPSILON
     )
-    .sort(
-      (a, b) =>
-        clean(
-          a.name
-        ).localeCompare(
-          clean(
-            b.name
-          )
-        )
+    .forEach(contract =>
+      addBuyer(contract.buyerId, contract.buyerName)
     );
+
+  state.tickets
+    .filter(ticket =>
+      !ticket.voided &&
+      getUnassignedBushels(ticket) > EPSILON
+    )
+    .forEach(ticket =>
+      addBuyer(
+        ticket.buyerId,
+        ticket.buyerName ||
+        ticket.deliveryLocationBuyerName ||
+        ticket.ocrElevatorName
+      )
+    );
+
+  state.buyers.forEach(buyer => {
+    const canonicalId = clean(buyer.id);
+    const canonicalName = normalized(buyer.name);
+
+    for (const [key, candidate] of candidates) {
+      if (
+        (canonicalId && candidate.sourceId === canonicalId) ||
+        (canonicalName && normalized(candidate.name) === canonicalName)
+      ) {
+        candidates.delete(key);
+        candidates.set(canonicalId || key, {
+          id:canonicalId || key,
+          sourceId:canonicalId || null,
+          name:clean(buyer.name) || candidate.name
+        });
+        break;
+      }
+    }
+  });
+
+  return [...candidates.values()].sort((a, b) =>
+    clean(a.name).localeCompare(
+      clean(b.name),
+      undefined,
+      { numeric:true, sensitivity:'base' }
+    )
+  );
 }
 
 
@@ -4338,7 +4363,7 @@ function getCustomersForBuyer(
   const buyer =
     allBuyers
       ? null
-      : state.buyers.find(
+      : getBuyersForReconciliation().find(
           item =>
             clean(item.id) ===
             clean(buyerId)
@@ -4395,28 +4420,49 @@ function getCustomersForBuyer(
       }
     );
 
+  const ticketCustomers =
+    state.tickets.filter(
+      ticket => {
+        if (
+          ticket.voided ||
+          getUnassignedBushels(ticket) <= EPSILON
+        ) {
+          return false;
+        }
+
+        if (allBuyers) {
+          return true;
+        }
+
+        return (
+          (
+            clean(ticket.buyerId) &&
+            clean(ticket.buyerId) ===
+              clean(buyer.sourceId || buyer.id)
+          ) ||
+          (
+            normalized(ticket.buyerName) &&
+            normalized(ticket.buyerName) ===
+              normalized(buyer.name)
+          )
+        );
+      }
+    );
+
   const customerIds =
     new Set(
-      contracts
-        .map(
-          contract =>
-            clean(
-              contract.customerId
-            )
-        )
-        .filter(Boolean)
+      [
+        ...contracts.map(contract => clean(contract.customerId)),
+        ...ticketCustomers.map(ticket => clean(ticket.customerId))
+      ].filter(Boolean)
     );
 
   const customerNames =
     new Set(
-      contracts
-        .map(
-          contract =>
-            normalized(
-              contract.customerName
-            )
-        )
-        .filter(Boolean)
+      [
+        ...contracts.map(contract => normalized(contract.customerName)),
+        ...ticketCustomers.map(ticket => normalized(ticket.customerName))
+      ].filter(Boolean)
     );
 
   return state.customers
@@ -4448,7 +4494,7 @@ function getCustomersForBuyer(
 
 function populateReconciliationPickers() {
   const buyers =
-    getBuyersWithActiveContracts();
+    getBuyersForReconciliation();
 
   const buyerIsValid =
     state.reconcileBuyerId ===
@@ -4547,7 +4593,7 @@ function ticketMatchesCurrent(
   const buyer =
     allBuyers
       ? null
-      : state.buyers.find(
+      : getBuyersForReconciliation().find(
           item =>
             clean(item.id) ===
             clean(
@@ -4584,7 +4630,7 @@ function ticketMatchesCurrent(
           ticket.buyerId
         ) ===
         clean(
-          buyer.id
+          buyer.sourceId || buyer.id
         )
       ) ||
       (
@@ -4697,7 +4743,7 @@ function getAvailableContracts() {
   const buyer =
     allBuyers
       ? null
-      : state.buyers.find(
+      : getBuyersForReconciliation().find(
           item =>
             clean(item.id) ===
             clean(
@@ -4750,7 +4796,7 @@ function getAvailableContracts() {
                 contract.buyerId
               ) ===
               clean(
-                buyer.id
+                buyer.sourceId || buyer.id
               )
             ) ||
             (
