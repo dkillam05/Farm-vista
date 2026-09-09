@@ -1,5 +1,5 @@
 /* FarmVista grain ticket OCR grade normalizer
-   Rev 2026-09-04
+   Rev 2026-09-09 — Scoular layout support
 
    Re-associates explicit grade labels with the numeric value OCR already read.
    This is deliberately conservative: FarmVista never invents an unlabeled
@@ -21,11 +21,31 @@ function numeric(value) {
 }
 
 const SPECS = {
-  testWeight: { labels: ['TW', 'TEST WT', 'TEST WEIGHT'], min: 20, max: 80 },
-  moisture: { labels: ['MO', 'MOIST', 'MOISTURE'], min: 0, max: 40 },
-  damage: { labels: ['DM', 'DAM', 'DAMAGE', 'DAMAGED'], min: 0, max: 100 },
-  foreignMaterial: { labels: ['FM', 'F.M.', 'FOREIGN MATERIAL'], min: 0, max: 100 },
-  splits: { labels: ['SP', 'SPLITS'], min: 0, max: 100 }
+  testWeight: {
+    labels: ['TW', 'TEST WT', 'TEST WEIGHT'],
+    min: 20,
+    max: 80
+  },
+  moisture: {
+    labels: ['MO', 'MOIST', 'MOISTURE', 'VOISTURE'],
+    min: 0,
+    max: 40
+  },
+  damage: {
+    labels: ['DM', 'DAM', 'DAMAGE', 'DAMAGED', 'DAMAGED KERNELS', 'DAMAGED KERNELS (TOTAL)'],
+    min: 0,
+    max: 100
+  },
+  foreignMaterial: {
+    labels: ['FM', 'F.M.', 'FOREIGN MATERIAL', 'BROKEN CORN & FOREIGN MAT', 'BROKEN CORN AND FOREIGN MAT'],
+    min: 0,
+    max: 100
+  },
+  splits: {
+    labels: ['SP', 'SPLITS'],
+    min: 0,
+    max: 100
+  }
 };
 
 function escapeRegex(value) {
@@ -57,6 +77,7 @@ function rawCandidates(rawText, field) {
       }
     }
   }
+
   return out.sort((a, b) => a.index - b.index);
 }
 
@@ -68,9 +89,116 @@ function structuredValue(result, field) {
   return null;
 }
 
-function chooseField(result, rawText, field) {
-  const raw = rawCandidates(rawText, field);
+function elevatorFamily(result, rawText) {
+  const haystack = `${result?.grainTicket?.parserProfile || ''} ${result?.grainTicket?.elevatorName || ''} ${rawText}`.toLowerCase();
+
+  /*
+    Scoular has a Waverly, Illinois location. Detect Scoular before CHS so the
+    word "Waverly" by itself never incorrectly classifies a Scoular ticket as CHS.
+  */
+  if (/\bscoular\b/.test(haystack)) return 'Scoular';
+  if (/archer\s+daniels|\badm\b/.test(haystack)) return 'ADM';
+  if (/\bchs\b|lowder/.test(haystack)) return 'CHS';
+  if (/bartlett/.test(haystack)) return 'Bartlett';
+  if (/cahokia/.test(haystack)) return 'Cahokia';
+  return 'Generic';
+}
+
+function scoularGradeBlock(rawText) {
+  const text = clean(rawText);
+  if (!text || !/\bscoular\b/i.test(text)) return null;
+
+  /*
+    Scoular's scale-ticket OCR commonly returns the four grade numbers in their
+    visual column order while the labels are read on separate lines. Example:
+
+      59.8
+      Field #
+      14.5
+      Test Weight
+      Voisture
+      Damaged Kernels (total)
+      Broken Corn & Foreign Mat
+      1.9
+      1.0
+
+    On the printed ticket those values are TW, Moisture, Damage and FM.
+    Restrict the recovery to the grade section only, bounded by the grade/hauler
+    area and GROSS LBS, so weights, dates, ticket numbers and bushels cannot be
+    mistaken for grade values.
+  */
+  const upper = text.toUpperCase();
+  let start = upper.indexOf('GRADE:');
+  if (start < 0) start = upper.indexOf('GRADE ');
+  if (start < 0) start = upper.indexOf('TEST WEIGHT');
+  if (start < 0) return null;
+
+  let end = upper.indexOf('GROSS LBS', start);
+  if (end < 0) end = upper.indexOf('GROSS WEIGHT', start);
+  if (end < 0) return null;
+
+  const section = text.slice(start, end);
+
+  const hasExpectedLabels =
+    /TEST\s+WEIGHT/i.test(section) &&
+    /(?:MOISTURE|VOISTURE)/i.test(section) &&
+    /DAMAGED\s+KERNELS?/i.test(section) &&
+    /BROKEN\s+CORN\s*(?:&|AND)\s*FOREIGN\s+MAT/i.test(section);
+
+  if (!hasExpectedLabels) return null;
+
+  /* Decimal grade readings are the safest Scoular signature here. */
+  const decimals = [];
+  const decimalRegex = /(?:^|\s)(\d{1,2}\.\d{1,2})(?=\s|$)/g;
+  let match;
+  while ((match = decimalRegex.exec(section))) {
+    const value = Number(match[1]);
+    if (Number.isFinite(value)) decimals.push(value);
+  }
+
+  if (decimals.length < 4) return null;
+
+  const values = decimals.slice(0, 4);
+  const [testWeight, moisture, damage, foreignMaterial] = values;
+
+  if (
+    !inRange('testWeight', testWeight) ||
+    !inRange('moisture', moisture) ||
+    !inRange('damage', damage) ||
+    !inRange('foreignMaterial', foreignMaterial)
+  ) {
+    return null;
+  }
+
+  return {
+    testWeight,
+    moisture,
+    damage,
+    foreignMaterial,
+    evidence: section,
+    source: 'scoular_grade_column_order'
+  };
+}
+
+function chooseField(result, rawText, field, family, scoularBlock) {
   const structured = structuredValue(result, field);
+
+  if (
+    family === 'Scoular' &&
+    scoularBlock &&
+    Object.prototype.hasOwnProperty.call(scoularBlock, field)
+  ) {
+    const value = scoularBlock[field];
+    return {
+      value,
+      confidence: structured === value ? 'verified' : 'high',
+      source: scoularBlock.source,
+      evidence: scoularBlock.evidence,
+      structuredValue: structured
+    };
+  }
+
+  const raw = rawCandidates(rawText, field);
 
   if (raw.length) {
     const unique = [...new Set(raw.map(item => item.value))];
@@ -102,20 +230,12 @@ function chooseField(result, rawText, field) {
   };
 }
 
-function elevatorFamily(result, rawText) {
-  const haystack = `${result?.grainTicket?.parserProfile || ''} ${result?.grainTicket?.elevatorName || ''} ${rawText}`.toLowerCase();
-  if (/archer\s+daniels|\badm\b/.test(haystack)) return 'ADM';
-  if (/\bchs\b|lowder|waverly/.test(haystack)) return 'CHS';
-  if (/bartlett/.test(haystack)) return 'Bartlett';
-  if (/cahokia/.test(haystack)) return 'Cahokia';
-  return 'Generic';
-}
-
 export function normalizeGrainTicketGrades(result) {
   if (!result?.grainTicket) return result;
 
   const rawText = clean(result?.grainTicket?.rawText || result?.document?.text || '');
   const family = elevatorFamily(result, rawText);
+  const scoularBlock = family === 'Scoular' ? scoularGradeBlock(rawText) : null;
   const fields = ['testWeight', 'moisture', 'damage', 'foreignMaterial', 'splits'];
   const audit = {};
   const review = [];
@@ -123,7 +243,7 @@ export function normalizeGrainTicketGrades(result) {
   if (!result.fields || typeof result.fields !== 'object') result.fields = {};
 
   for (const field of fields) {
-    const chosen = chooseField(result, rawText, field);
+    const chosen = chooseField(result, rawText, field, family, scoularBlock);
     audit[field] = chosen;
 
     if (chosen.value !== null && chosen.value !== undefined) {
@@ -131,11 +251,14 @@ export function normalizeGrainTicketGrades(result) {
 
       /*
         The scan page has an older direct-field compatibility pass after this
-        normalizer. When raw label/value evidence is unambiguous, update that
-        structured field too so stale parser data cannot overwrite the verified
-        value later in the same save path.
+        normalizer. Any high-confidence raw/layout recovery must also update the
+        structured field so stale parser data (especially a false FM 0) cannot
+        overwrite the recovered value later in the same save path.
       */
-      if (chosen.source === 'raw_label_value') {
+      if (
+        chosen.source === 'raw_label_value' ||
+        chosen.source === 'scoular_grade_column_order'
+      ) {
         result.fields[field] = chosen.value;
       }
     }
@@ -146,7 +269,7 @@ export function normalizeGrainTicketGrades(result) {
   }
 
   result.grainTicket.gradeParser = {
-    version: 'farmvista-grade-v1',
+    version: 'farmvista-grade-v2',
     elevatorFamily: family,
     fields: audit
   };
