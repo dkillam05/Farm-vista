@@ -1,0 +1,100 @@
+name: FarmVista bulk customer alias matcher fix
+on:
+  push:
+    paths:
+      - '.github/workflows/fv-fix-bulk-customer-alias.yml'
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Expand unresolved customer evidence matching
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('pages/grain/grain-ticket-detail.html')
+          s = p.read_text()
+
+          old = '''    function soldUnderOcrEvidence(
+      ticket
+    ) {
+
+      return {
+        account:
+          normalizedSoldUnderOcr(
+            ticket?.ocrCustomerAccountText ||
+            ticket?.customerAccountText ||
+            ""
+          ),
+
+        name:
+          normalizedSoldUnderOcr(
+            ticket?.ocrCustomerText ||
+            ticket?.customerText ||
+            ""
+          )
+      };
+
+    }'''
+
+          new = '''    function soldUnderOcrEvidence(
+      ticket
+    ) {
+
+      const hasResolvedCustomer =
+        Boolean(
+          clean(
+            ticket?.grainCustomerId ||
+            ticket?.customerId
+          )
+        );
+
+      return {
+        account:
+          normalizedSoldUnderOcr(
+            ticket?.ocrCustomerAccountText ||
+            ticket?.customerAccountText ||
+            ticket?.customerAccount ||
+            ticket?.customerCode ||
+            ticket?.customerNumber ||
+            ""
+          ),
+
+        name:
+          normalizedSoldUnderOcr(
+            ticket?.ocrCustomerText ||
+            ticket?.customerText ||
+            ticket?.scannedCustomerText ||
+            ticket?.rawCustomerName ||
+            (!hasResolvedCustomer
+              ? (
+                  ticket?.customerName ||
+                  ticket?.customer ||
+                  ticket?.soldUnder ||
+                  ""
+                )
+              : "")
+          )
+      };
+
+    }'''
+
+          count = s.count(old)
+          if count < 1:
+            raise SystemExit('soldUnderOcrEvidence block not found')
+          s = s.replace(old, new)
+          p.write_text(s)
+          print(f'Updated {count} soldUnderOcrEvidence block(s)')
+
+      - name: Commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pages/grain/grain-ticket-detail.html
+          git commit -m 'Fix bulk customer alias correction'
+          git pull --rebase origin main
+          git push
