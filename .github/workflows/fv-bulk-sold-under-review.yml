@@ -1,0 +1,352 @@
+name: FarmVista bulk Sold Under review patch
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fv-bulk-sold-under-review.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch grain ticket detail Sold Under propagation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('pages/grain/grain-ticket-detail.html')
+          text = path.read_text()
+          original = text
+
+          save_marker = '''    // ==========================================================\n    // SAVE / APPROVE\n    // ==========================================================\n'''
+          if save_marker not in text:
+              raise SystemExit('Save/approve marker not found')
+
+          helper = r'''    // ==========================================================
+    // BULK SOLD UNDER CORRECTION FOR REVIEW TICKETS
+    // ==========================================================
+
+    function normalizedSoldUnderOcr(
+      value
+    ) {
+
+      return clean(
+        value
+      )
+        .toLowerCase()
+        .replace(
+          /[^a-z0-9]+/g,
+          ""
+        );
+
+    }
+
+
+    function soldUnderOcrEvidence(
+      ticket
+    ) {
+
+      return {
+        account:
+          normalizedSoldUnderOcr(
+            ticket?.ocrCustomerAccountText ||
+            ticket?.customerAccountText ||
+            ""
+          ),
+
+        name:
+          normalizedSoldUnderOcr(
+            ticket?.ocrCustomerText ||
+            ticket?.customerText ||
+            ""
+          )
+      };
+
+    }
+
+
+    function sameSoldUnderOcrEvidence(
+      sourceTicket,
+      candidateTicket
+    ) {
+
+      const source =
+        soldUnderOcrEvidence(
+          sourceTicket
+        );
+
+      const candidate =
+        soldUnderOcrEvidence(
+          candidateTicket
+        );
+
+
+      /*
+        Exact elevator customer/account ID is the strongest evidence.
+        Example: Scoular DOWSJC1.
+
+        When an account ID exists on the corrected ticket, never fall
+        back to fuzzy/name matching for the bulk update.
+      */
+      if (
+        source.account
+      ) {
+
+        return (
+          candidate.account &&
+          candidate.account ===
+            source.account
+        );
+
+      }
+
+
+      /*
+        Older tickets may not have an extracted account ID.
+        In that case require the COMPLETE normalized OCR customer wording.
+        No fuzzy/partial customer-name matching is allowed here.
+      */
+      return Boolean(
+        source.name &&
+        candidate.name &&
+        candidate.name ===
+          source.name
+      );
+
+    }
+
+
+    async function bulkUpdateMatchingReviewSoldUnder(
+      selectedCustomer
+    ) {
+
+      if (
+        !selectedCustomer?.id ||
+        selectedCustomer?.unknown ===
+          true ||
+        !state.ticket
+      ) {
+
+        return 0;
+
+      }
+
+
+      const sourceEvidence =
+        soldUnderOcrEvidence(
+          state.ticket
+        );
+
+
+      if (
+        !sourceEvidence.account &&
+        !sourceEvidence.name
+      ) {
+
+        return 0;
+
+      }
+
+
+      const customerReviewReasons =
+        new Set([
+          "customer_not_matched",
+          "customer_not_selected",
+          "sold_under_unknown",
+          "sold_under_driver_skipped"
+        ]);
+
+
+      const matches =
+        state.tickets.filter(
+          ticket =>
+            ticket?.id !==
+              ticketId &&
+            normalize(
+              ticket?.validationStatus
+            ) ===
+              "needs_review" &&
+            clean(
+              ticket?.customerId
+            ) !==
+              clean(
+                selectedCustomer.id
+              ) &&
+            sameSoldUnderOcrEvidence(
+              state.ticket,
+              ticket
+            )
+        );
+
+
+      if (
+        !matches.length
+      ) {
+
+        return 0;
+
+      }
+
+
+      let updatedCount =
+        0;
+
+
+      for (
+        const ticket of
+        matches
+      ) {
+
+        const existingReasons =
+          Array.isArray(
+            ticket.reviewReasons
+          )
+            ? ticket.reviewReasons
+            : [];
+
+
+        const reviewReasons =
+          existingReasons.filter(
+            reason =>
+              !customerReviewReasons.has(
+                String(
+                  reason ||
+                  ""
+                )
+              )
+          );
+
+
+        try {
+
+          await updateDoc(
+            doc(
+              db,
+              "grain_tickets",
+              ticket.id
+            ),
+            {
+              customerId:
+                selectedCustomer.id,
+
+              customerName:
+                selectedCustomer.name,
+
+              reviewReasons,
+
+              soldUnderBulkCorrectedFromTicketId:
+                ticketId,
+
+              soldUnderBulkCorrectionSource:
+                sourceEvidence.account
+                  ? "exact_ocr_customer_account"
+                  : "exact_ocr_customer_text",
+
+              soldUnderBulkCorrectedAt:
+                serverTimestamp(),
+
+              soldUnderBulkCorrectedByUid:
+                state.user?.uid ||
+                null,
+
+              soldUnderBulkCorrectedByName:
+                state.user?.displayName ||
+                state.user?.email ||
+                "FarmVista User",
+
+              updatedAt:
+                serverTimestamp()
+            }
+          );
+
+
+          ticket.customerId =
+            selectedCustomer.id;
+
+          ticket.customerName =
+            selectedCustomer.name;
+
+          ticket.reviewReasons =
+            reviewReasons;
+
+          updatedCount++;
+
+        }
+        catch (
+          error
+        ) {
+
+          /*
+            One old review ticket must never prevent the ticket the
+            office is actively editing from being saved.
+          */
+          console.warn(
+            "[Grain Ticket Detail] Matching Sold Under review ticket could not be updated:",
+            {
+              ticketId:
+                ticket.id,
+              error
+            }
+          );
+
+        }
+
+      }
+
+
+      return updatedCount;
+
+    }
+
+
+'''
+
+          text = text.replace(save_marker, helper + save_marker, 1)
+
+          saving_anchor = '''      elements.saveBtn.textContent =\n        "Saving…";\n\n\n      try {\n'''
+          if saving_anchor not in text:
+              raise SystemExit('Saving anchor not found')
+          text = text.replace(
+              saving_anchor,
+              '''      elements.saveBtn.textContent =\n        "Saving…";\n\n\n      let bulkSoldUnderUpdated =\n        0;\n\n\n      try {\n''',
+              1
+          )
+
+          teach_anchor = '''        /*\n          Teach FarmVista the OCR wording only for selections that\n          were actually resolved.\n        */\n'''
+          if teach_anchor not in text:
+              raise SystemExit('Alias teaching anchor not found')
+
+          bulk_call = '''        /*\n          If the office corrected Sold Under, apply the same exact OCR\n          identity to every OTHER ticket that is still under review.\n          This handles backlogs such as ten Scoular DOWSJC1 tickets at once.\n        */\n        if (\n          state.selectedCustomer &&\n          state.selectedCustomer.unknown !==\n            true &&\n          state.selectedCustomer.id\n        ) {\n\n          bulkSoldUnderUpdated =\n            await bulkUpdateMatchingReviewSoldUnder(\n              state.selectedCustomer\n            );\n\n        }\n\n\n'''
+          text = text.replace(teach_anchor, bulk_call + teach_anchor, 1)
+
+          old_message = '''        showMessage(\n          verified\n            ? "Ticket saved and verified."\n            : "Ticket saved. It will stay under Needs Review until all required load details are filled in.",\n          verified\n            ? "success"\n            : "warning"\n        );\n'''
+          if old_message not in text:
+              raise SystemExit('Save message block not found')
+
+          new_message = '''        const bulkMessage =\n          bulkSoldUnderUpdated >\n            0\n            ? ` Also updated Sold Under on ${bulkSoldUnderUpdated} matching ticket${bulkSoldUnderUpdated === 1 ? "" : "s"} still under review.`\n            : "";\n\n\n        showMessage(\n          (\n            verified\n              ? "Ticket saved and verified."\n              : "Ticket saved. It will stay under Needs Review until all required load details are filled in."\n          ) +\n          bulkMessage,\n          verified\n            ? "success"\n            : "warning"\n        );\n'''
+          text = text.replace(old_message, new_message, 1)
+
+          if text == original:
+              raise SystemExit('No detail-page changes applied')
+
+          path.write_text(text)
+          PY
+
+      - name: Remove one-time workflow and commit
+        shell: bash
+        run: |
+          rm -f .github/workflows/fv-bulk-sold-under-review.yml
+          git config user.name "FarmVista Automation"
+          git config user.email "farmvista-automation@users.noreply.github.com"
+          git add pages/grain/grain-ticket-detail.html .github/workflows/fv-bulk-sold-under-review.yml
+          git commit -m "Bulk-correct matching review ticket Sold Under [skip auto-version]"
+          git push origin HEAD:main
