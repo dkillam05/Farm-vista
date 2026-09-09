@@ -1,98 +1,53 @@
 name: FarmVista bulk customer alias matcher fix
+
 on:
-  workflow_dispatch:
   push:
     paths:
-      - .github/workflows/fv-fix-bulk-customer-alias.yml
+      - '.github/workflows/fv-fix-bulk-customer-alias.yml'
+
+permissions:
+  contents: write
 
 jobs:
   patch:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Expand unresolved customer evidence matching
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Apply bulk customer alias matcher fix
+        run: python .github/scripts/fv_fix_bulk_customer_alias.py
+
+      - name: Validate ticket detail JavaScript
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          p = Path('pages/grain/grain-ticket-detail.html')
-          s = p.read_text()
-          old = '''    function soldUnderOcrEvidence(
-      ticket
-    ) {
-
-      return {
-        account:
-          normalizedSoldUnderOcr(
-            ticket?.ocrCustomerAccountText ||
-            ticket?.customerAccountText ||
-            ""
-          ),
-
-        name:
-          normalizedSoldUnderOcr(
-            ticket?.ocrCustomerText ||
-            ticket?.customerText ||
-            ""
-          )
-      };
-
-    }'''
-          new = '''    function soldUnderOcrEvidence(
-      ticket
-    ) {
-
-      const hasResolvedCustomer =
-        Boolean(
-          clean(
-            ticket?.grainCustomerId ||
-            ticket?.customerId
-          )
-        );
-
-      return {
-        account:
-          normalizedSoldUnderOcr(
-            ticket?.ocrCustomerAccountText ||
-            ticket?.customerAccountText ||
-            ticket?.customerAccount ||
-            ticket?.customerCode ||
-            ticket?.customerNumber ||
-            ""
-          ),
-
-        name:
-          normalizedSoldUnderOcr(
-            ticket?.ocrCustomerText ||
-            ticket?.customerText ||
-            ticket?.scannedCustomerText ||
-            ticket?.rawCustomerName ||
-            (!hasResolvedCustomer
-              ? (
-                  ticket?.customerName ||
-                  ticket?.customer ||
-                  ticket?.soldUnder ||
-                  ""
-                )
-              : "")
-          )
-      };
-
-    }'''
-          count = s.count(old)
-          if count < 1:
-              raise SystemExit('soldUnderOcrEvidence block not found')
-          p.write_text(s.replace(old, new))
-          print(f'Updated {count} soldUnderOcrEvidence block(s)')
+          import re, subprocess, tempfile
+          html = Path('pages/grain/grain-ticket-detail.html')
+          scripts = re.findall(r'<script\b[^>]*>([\s\S]*?)</script>', html.read_text(), re.I)
+          for i, script in enumerate(scripts):
+              if not script.strip():
+                  continue
+              path = Path(tempfile.gettempdir()) / f'fv-detail-alias-{i}.mjs'
+              path.write_text(script)
+              subprocess.run(['node', '--check', str(path)], check=True)
           PY
-      - name: Commit
+
+      - name: Commit fix
         shell: bash
         run: |
+          rm -f .github/workflows/fv-fix-bulk-customer-alias.yml
+          rm -f .github/scripts/fv_fix_bulk_customer_alias.py
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add pages/grain/grain-ticket-detail.html
-          git commit -m 'Fix bulk customer alias correction'
-          git pull --rebase origin main
-          git push
+          git add pages/grain/grain-ticket-detail.html .github/workflows/fv-fix-bulk-customer-alias.yml .github/scripts/fv_fix_bulk_customer_alias.py
+          git commit -m 'Fix bulk customer alias correction [skip auto-version]'
+          for i in 1 2 3 4 5; do
+            git pull --rebase origin main
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 3
+          done
+          exit 1
