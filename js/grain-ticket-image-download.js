@@ -1,32 +1,78 @@
 /* FarmVista — saved grain ticket image download/share
-   Rev 2026-09-09
+   Rev 2026-09-09b
    Uniform support for Ticket Detail, Grain Inventory drill-down,
    and Grain Contract Report ticket popup.
+
+   Mobile behavior:
+   - prepares the image file before the user taps
+   - the tap opens the native share sheet immediately
+   - never opens the Firebase Storage image URL as a fallback
+
+   Desktop behavior:
+   - downloads the actual image file
 */
 (() => {
   'use strict';
-  if (window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260909) return;
-  window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260909 = true;
+
+  if (window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260909B) return;
+  window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260909B = true;
 
   const style = document.createElement('style');
   style.id = 'fv-ticket-image-download-style';
   style.textContent = `
     .fv-ticket-download-btn{
-      min-height:40px;padding:8px 12px;border:1px solid #3B7E46;border-radius:9px;
-      background:#3B7E46;color:#fff;font:inherit;font-weight:850;cursor:pointer;
-      display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;
+      min-height:42px;
+      padding:9px 15px;
+      border:1px solid #3B7E46 !important;
+      border-radius:10px;
+      background:#3B7E46 !important;
+      color:#fff !important;
+      -webkit-text-fill-color:#fff !important;
+      font:inherit;
+      font-weight:850;
+      cursor:pointer;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:6px;
+      white-space:nowrap;
+      text-decoration:none;
     }
-    .fv-ticket-download-btn:disabled{opacity:.5;cursor:not-allowed}
-    .fv-ticket-download-row{display:flex;justify-content:flex-end;gap:8px;padding:10px 0 0}
-    .fv-ticket-image-head-download{margin-left:auto}
+
+    .fv-ticket-download-btn:hover,
+    .fv-ticket-download-btn:focus{
+      background:#326d3c !important;
+      color:#fff !important;
+      -webkit-text-fill-color:#fff !important;
+    }
+
+    .fv-ticket-download-btn:disabled{
+      opacity:.58;
+      cursor:wait;
+    }
+
+    .fv-ticket-download-row{
+      display:flex;
+      justify-content:flex-start;
+      gap:8px;
+      padding:10px 0 12px;
+      width:100%;
+    }
+
     @media(max-width:560px){
-      .fv-ticket-download-row .fv-ticket-download-btn{width:100%}
-      .fv-ticket-image-head-download{min-height:38px;padding:7px 9px;font-size:12px}
+      .fv-ticket-download-row .fv-ticket-download-btn{
+        width:100%;
+      }
     }
   `;
   document.head.appendChild(style);
 
   const clean = value => String(value || '').trim();
+  const prepared = new WeakMap();
+
+  const isMobileShareDevice = () =>
+    /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
+    matchMedia('(pointer:coarse)').matches;
 
   function extensionFrom(blob, url){
     const type = clean(blob?.type).toLowerCase();
@@ -35,118 +81,290 @@
     if(type.includes('heic') || type.includes('heif')) return 'heic';
     if(type.includes('pdf')) return 'pdf';
     if(type.includes('jpeg') || type.includes('jpg')) return 'jpg';
+
     const match = clean(url).match(/\.(jpe?g|png|webp|heic|heif|pdf)(?:[?#]|$)/i);
-    return match ? match[1].toLowerCase().replace('jpeg','jpg') : 'jpg';
+    return match
+      ? match[1].toLowerCase().replace('jpeg','jpg')
+      : 'jpg';
   }
 
   function ticketName(image){
-    const detailTicket = clean(document.querySelector('#ticketNumber')?.value || document.querySelector('[data-ticket-number]')?.dataset?.ticketNumber);
-    const popupTitle = clean(document.querySelector('#ticketPopupTitle')?.textContent || document.querySelector('#ticket-image-modal-title')?.textContent || document.querySelector('#fv-ticket-image-title')?.textContent);
-    const source = detailTicket || popupTitle.match(/(?:ticket\s*)?#?([A-Za-z0-9-]{3,})/i)?.[1] || new URLSearchParams(location.search).get('id') || 'image';
-    return `grain-ticket-${String(source).replace(/[^A-Za-z0-9_-]+/g,'-').replace(/^-+|-+$/g,'') || 'image'}`;
+    const detailTicket = clean(
+      document.querySelector('#ticketNumber')?.value ||
+      document.querySelector('[data-ticket-number]')?.dataset?.ticketNumber
+    );
+
+    const popupTitle = clean(
+      document.querySelector('#ticketPopupTitle')?.textContent ||
+      document.querySelector('#ticket-image-modal-title')?.textContent ||
+      document.querySelector('#fv-ticket-image-title')?.textContent
+    );
+
+    const source =
+      detailTicket ||
+      popupTitle.match(/(?:ticket\s*)?#?([A-Za-z0-9-]{3,})/i)?.[1] ||
+      new URLSearchParams(location.search).get('id') ||
+      'image';
+
+    return `grain-ticket-${String(source)
+      .replace(/[^A-Za-z0-9_-]+/g,'-')
+      .replace(/^-+|-+$/g,'') || 'image'}`;
   }
 
-  async function saveImage(image, button){
+  async function buildFile(image){
+    const url = clean(image?.currentSrc || image?.src);
+    if(!url) throw new Error('No ticket image URL available.');
+
+    const response = await fetch(url, {
+      mode:'cors',
+      credentials:'omit',
+      cache:'force-cache'
+    });
+
+    if(!response.ok){
+      throw new Error(`Image request failed (${response.status})`);
+    }
+
+    const blob = await response.blob();
+    const ext = extensionFrom(blob, url);
+    const filename = `${ticketName(image)}.${ext}`;
+    const type = blob.type || `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+
+    return new File([blob], filename, {type});
+  }
+
+  function prepareForShare(image, button){
+    if(!isMobileShareDevice() || !navigator.share) return;
+
     const url = clean(image?.currentSrc || image?.src);
     if(!url) return;
 
+    const existing = prepared.get(image);
+    if(existing?.url === url && (existing.file || existing.promise)) return;
+
+    const state = {
+      url,
+      file:null,
+      promise:null,
+      failed:false
+    };
+
+    prepared.set(image, state);
+
+    if(button){
+      button.disabled = true;
+      button.textContent = 'Preparing Image…';
+    }
+
+    state.promise = buildFile(image)
+      .then(file => {
+        state.file = file;
+        state.failed = false;
+
+        if(button?.isConnected){
+          button.disabled = false;
+          button.textContent = 'Download Image';
+        }
+
+        return file;
+      })
+      .catch(error => {
+        state.failed = true;
+        console.warn('[FarmVista] Could not prepare ticket image for native share:', error);
+
+        if(button?.isConnected){
+          button.disabled = true;
+          button.textContent = 'Image Unavailable';
+        }
+
+        return null;
+      });
+  }
+
+  function downloadDesktop(image, button){
     const oldText = button.textContent;
     button.disabled = true;
     button.textContent = 'Preparing…';
 
-    try{
-      const response = await fetch(url, {mode:'cors', credentials:'omit'});
-      if(!response.ok) throw new Error(`Image request failed (${response.status})`);
-      const blob = await response.blob();
-      const ext = extensionFrom(blob, url);
-      const filename = `${ticketName(image)}.${ext}`;
-      const file = new File([blob], filename, {type: blob.type || `image/${ext === 'jpg' ? 'jpeg' : ext}`});
-      const mobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || matchMedia('(pointer:coarse)').matches;
+    buildFile(image)
+      .then(file => {
+        const blobUrl = URL.createObjectURL(file);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = file.name;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
+      })
+      .catch(error => {
+        console.warn('[FarmVista] Ticket image download failed:', error);
+        alert('FarmVista could not prepare this ticket image for download. Please try again.');
+      })
+      .finally(() => {
+        if(button.isConnected){
+          button.disabled = false;
+          button.textContent = oldText;
+        }
+      });
+  }
 
-      if(mobile && navigator.share && navigator.canShare?.({files:[file]})){
-        await navigator.share({files:[file], title:'Grain Ticket Image'});
+  function activateImage(image, button){
+    if(isMobileShareDevice() && navigator.share){
+      const state = prepared.get(image);
+      const file = state?.file;
+
+      if(!file){
+        prepareForShare(image, button);
         return;
       }
 
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = filename;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
-    } catch(error){
-      console.warn('[FarmVista] Ticket image download fallback:', error);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${ticketName(image)}.jpg`;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } finally {
-      button.disabled = false;
-      button.textContent = oldText;
+      if(navigator.canShare && !navigator.canShare({files:[file]})){
+        alert('This device cannot share the saved ticket image as a file.');
+        return;
+      }
+
+      // IMPORTANT: call navigator.share directly from the user's tap.
+      // Do not await a fetch here; iOS can otherwise discard user activation.
+      navigator.share({
+        files:[file],
+        title:'Grain Ticket Image'
+      }).catch(error => {
+        if(error?.name === 'AbortError') return;
+        console.warn('[FarmVista] Native ticket-image share failed:', error);
+        alert('The iPhone share sheet could not open. Please try again.');
+      });
+
+      return;
     }
+
+    downloadDesktop(image, button);
   }
 
-  function makeButton(image, extraClass=''){
+  function makeButton(image, key){
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = `fv-ticket-download-btn ${extraClass}`.trim();
+    button.className = 'fv-ticket-download-btn';
     button.textContent = 'Download Image';
-    button.setAttribute('aria-label','Download saved grain ticket image');
+    button.dataset.fvTicketDownload = key;
+    button.setAttribute('aria-label','Download or share saved grain ticket image');
+
     button.addEventListener('click', event => {
       event.preventDefault();
       event.stopPropagation();
-      saveImage(image, button);
+      activateImage(image, button);
     });
+
+    prepareForShare(image, button);
     return button;
+  }
+
+  function makeRow(image, key){
+    const row = document.createElement('div');
+    row.className = 'fv-ticket-download-row';
+    row.dataset.fvTicketDownloadRow = key;
+    row.appendChild(makeButton(image, key));
+    return row;
+  }
+
+  function refreshPreparation(image, button){
+    if(!image || !button) return;
+    const url = clean(image.currentSrc || image.src);
+    const state = prepared.get(image);
+    if(url && state?.url !== url){
+      prepareForShare(image, button);
+    }
   }
 
   function enhanceDetail(){
     const image = document.getElementById('ticketImage');
-    const actions = document.querySelector('.image-actions');
-    if(!image || !actions || actions.querySelector('[data-fv-ticket-download="detail"]')) return;
-    const button = makeButton(image);
-    button.dataset.fvTicketDownload = 'detail';
-    actions.appendChild(button);
+    if(!image) return;
+
+    const card = image.closest('.image-card') || image.closest('.card');
+    const wrap = document.getElementById('ticketImageWrap') || image.parentElement;
+    if(!card || !wrap) return;
+
+    let row = card.querySelector('[data-fv-ticket-download-row="detail"]');
+
+    if(!row){
+      row = makeRow(image, 'detail');
+      const helper = card.querySelector('.card-sub');
+
+      if(helper){
+        helper.insertAdjacentElement('afterend', row);
+      } else {
+        wrap.insertAdjacentElement('beforebegin', row);
+      }
+    }
+
+    refreshPreparation(image, row.querySelector('.fv-ticket-download-btn'));
   }
 
   function enhanceInventory(){
-    const image = document.querySelector('.fv-ticket-image-body img') || document.getElementById('ticket-image-modal-img');
+    const image =
+      document.querySelector('.fv-ticket-image-body img') ||
+      document.getElementById('ticket-image-modal-img');
+
     if(!image) return;
-    const head = image.closest('.fv-ticket-image-dialog')?.querySelector('.fv-ticket-image-head') || document.querySelector('#ticket-image-modal-backdrop .modal-head');
-    if(!head || head.querySelector('[data-fv-ticket-download="inventory"]')) return;
-    const button = makeButton(image, 'fv-ticket-image-head-download');
-    button.dataset.fvTicketDownload = 'inventory';
-    const close = head.querySelector('.fv-ticket-image-close,.modal-close');
-    if(close) head.insertBefore(button, close); else head.appendChild(button);
+
+    const body =
+      image.closest('.fv-ticket-image-body') ||
+      image.parentElement;
+
+    if(!body) return;
+
+    const dialog =
+      image.closest('.fv-ticket-image-dialog') ||
+      image.closest('.modal-card') ||
+      body.parentElement;
+
+    let row = dialog?.querySelector('[data-fv-ticket-download-row="inventory"]');
+
+    if(!row){
+      row = makeRow(image, 'inventory');
+      body.insertAdjacentElement('beforebegin', row);
+    }
+
+    refreshPreparation(image, row.querySelector('.fv-ticket-download-btn'));
   }
 
   function enhanceContractReport(){
     const image = document.getElementById('ticketPopupImage');
     const wrap = image?.closest('.ticket-image-wrap');
-    if(!image || !wrap || wrap.parentElement?.querySelector(':scope > [data-fv-ticket-download-row="contract"]')) return;
-    const row = document.createElement('div');
-    row.className = 'fv-ticket-download-row';
-    row.dataset.fvTicketDownloadRow = 'contract';
-    const button = makeButton(image);
-    button.dataset.fvTicketDownload = 'contract';
-    row.appendChild(button);
-    wrap.insertAdjacentElement('afterend', row);
+    if(!image || !wrap) return;
+
+    const parent = wrap.parentElement;
+    let row = parent?.querySelector(':scope > [data-fv-ticket-download-row="contract"]');
+
+    if(!row){
+      row = makeRow(image, 'contract');
+      wrap.insertAdjacentElement('beforebegin', row);
+    }
+
+    refreshPreparation(image, row.querySelector('.fv-ticket-download-btn'));
+  }
+
+  function removeOldDetailButton(){
+    document
+      .querySelectorAll('.image-actions [data-fv-ticket-download]')
+      .forEach(button => button.remove());
   }
 
   function enhance(){
+    removeOldDetailButton();
     enhanceDetail();
     enhanceInventory();
     enhanceContractReport();
   }
 
   enhance();
+
   const observer = new MutationObserver(enhance);
-  observer.observe(document.documentElement,{childList:true,subtree:true});
+  observer.observe(document.documentElement, {
+    childList:true,
+    subtree:true,
+    attributes:true,
+    attributeFilter:['src']
+  });
 })();
