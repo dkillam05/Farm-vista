@@ -2917,9 +2917,23 @@ function setJobCropSelectValue(job) {
     );
 
 
+  Array.from(
+    select.options
+  ).forEach(
+    option => {
+      option.selected =
+        option === match;
+    }
+  );
+
+
   select.value =
     match?.value ||
     "";
+
+
+  select.dataset.fvExpectedCrop =
+    desired;
 
 }
 
@@ -3222,6 +3236,23 @@ function openEditJob(
     .add(
       "open"
     );
+
+
+  requestAnimationFrame(
+    () =>
+      setJobCropSelectValue(
+        job
+      )
+  );
+
+
+  setTimeout(
+    () =>
+      setJobCropSelectValue(
+        job
+      ),
+    950
+  );
 
 
   document.body.style
