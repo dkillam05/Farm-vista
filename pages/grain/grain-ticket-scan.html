@@ -16,7 +16,7 @@
   (() => {
     'use strict';
 
-    const CORE_URL = '/pages/grain/grain-ticket-scan-core.html?v=20260910-6';
+    const CORE_URL = '/pages/grain/grain-ticket-scan-core.html?v=20260910-7';
 
     function replaceRequired(text, oldValue, newValue, label) {
       if (!text.includes(oldValue)) throw new Error(`Scanner patch marker missing: ${label}`);
@@ -104,6 +104,9 @@
 
   .camera-tip {
     display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
   }
 
   .camera-footer {
@@ -168,6 +171,32 @@
       const correctionBlock = `        ocrResult.manualCorrections = {\n          ...(ocrResult.manualCorrections || {}),\n          customer: {\n            originalValue: originalEvidence || null,\n            selectedId: selectedCustomer.id,\n            selectedValue: getCustomerName(selectedCustomer),\n            source: "driver_selection",\n            learningEligible: Boolean(originalEvidence),\n            learningReason:\n              originalEvidence\n                ? "ocr_evidence_confirmed"\n                : "driver_supplied_missing_value"\n          }\n        };\n`;
 
       html = replaceRequired(html, correctionBlock, correctionBlock + `\n        await saveDriverCustomerAliases(\n          grainTicket,\n          selectedCustomer\n        );\n`, 'sold under alias learning');
+
+      const landscapeRuntime = `
+<script>
+(() => {
+  const applyLandscapeTipRule = () => {
+    const tip = document.querySelector('.camera-tip');
+    if (!tip) return;
+    if (window.innerWidth > window.innerHeight) {
+      tip.style.setProperty('display', 'none', 'important');
+      tip.style.setProperty('visibility', 'hidden', 'important');
+      tip.style.setProperty('opacity', '0', 'important');
+      tip.setAttribute('aria-hidden', 'true');
+    } else {
+      tip.style.removeProperty('display');
+      tip.style.removeProperty('visibility');
+      tip.style.removeProperty('opacity');
+      tip.removeAttribute('aria-hidden');
+    }
+  };
+  applyLandscapeTipRule();
+  window.addEventListener('resize', applyLandscapeTipRule, { passive: true });
+  window.addEventListener('orientationchange', () => setTimeout(applyLandscapeTipRule, 100), { passive: true });
+})();
+<\/script>`;
+
+      html = replaceRequired(html, '</body>', landscapeRuntime + '\n</body>', 'landscape helper runtime');
 
       document.open();
       document.write(html);
