@@ -1,16 +1,17 @@
 /* FarmVista Grain Ticket dashboard destination / hauling-job warning
-   Rev 2026-09-10c
+   Rev 2026-09-10d
 
-   Rule:
-   A scanned ticket does NOT need a contract merely to avoid a red warning.
-   Contract assignment normally happens later unless the scan auto-links to a
-   FarmVista load. The red Warning is specifically for a ticket whose resolved
-   destination + crop have NO CURRENT OPEN HAULING JOB.
+   A review ticket becomes red Warning when its resolved destination + crop
+   have no current open hauling job. Missing contract alone is not a warning.
+
+   IMPORTANT: keep DOM mutations idempotent. This helper runs beside the
+   dashboard renderer; a subtree MutationObserver that rewrites badge text can
+   self-trigger forever on Safari/mobile.
 */
 (async function(){
   'use strict';
 
-  if(!String(location.pathname||'').toLowerCase().endsWith('/pages/grain/grain-ticket.html'))return;
+  if(!String(location.pathname||'').toLowerCase().endsWith('/pages/grain/grain-ticket.html')) return;
 
   const {ready,getFirestore,collection,getDocs}=await import('/js/firebase-init.js');
   await ready;
@@ -30,8 +31,8 @@
 
   const cropKey=value=>{
     const v=norm(value);
-    if(v.includes('soy'))return 'soybeans';
-    if(v.includes('corn'))return 'corn';
+    if(v.includes('soy')) return 'soybeans';
+    if(v.includes('corn')) return 'corn';
     return v;
   };
 
@@ -41,7 +42,7 @@
   };
 
   function jobIsOpen(job){
-    if(!job||job.active===false||job.isActive===false)return false;
+    if(!job||job.active===false||job.isActive===false) return false;
 
     const status=norm(job.status||job.contractStatus||'active');
     if(
@@ -49,7 +50,7 @@
       status.includes('complete')||
       status.includes('cancel')||
       status.includes('void')
-    )return false;
+    ) return false;
 
     const remainingRaw=
       job.remainingBushels??
@@ -62,10 +63,10 @@
       remainingRaw!==''&&
       Number.isFinite(Number(remainingRaw))&&
       Number(remainingRaw)<=0
-    )return false;
+    ) return false;
 
     const end=clean(job.deliveryEndDate||job.endDate||job.expirationDate);
-    if(end&&end<todayISO())return false;
+    if(end&&end<todayISO()) return false;
 
     return true;
   }
@@ -86,7 +87,7 @@
   }
 
   function aliasesMatch(a,b){
-    if(!a.length||!b.length)return false;
+    if(!a.length||!b.length) return false;
     return a.some(left=>b.some(right=>
       left===right||
       (left.length>=5&&right.includes(left))||
@@ -98,18 +99,18 @@
     const ticketDest=destinationAliases(ticket);
     const ticketCrop=cropKey(ticket?.crop||ticket?.commodity);
 
-    if(!ticketDest.length)return true; // destination itself unresolved is handled by normal review logic.
+    if(!ticketDest.length) return true;
 
     return haulingJobs.some(job=>{
-      if(!jobIsOpen(job))return false;
+      if(!jobIsOpen(job)) return false;
 
       const jobCrop=cropKey(job?.crop||job?.commodity);
-      if(ticketCrop&&jobCrop&&ticketCrop!==jobCrop)return false;
+      if(ticketCrop&&jobCrop&&ticketCrop!==jobCrop) return false;
 
       const ticketLocationId=clean(ticket?.deliveryLocationId||ticket?.destinationId);
       const jobLocationId=clean(job?.deliveryLocationId||job?.locationId||job?.destinationId);
 
-      if(ticketLocationId&&jobLocationId&&ticketLocationId===jobLocationId)return true;
+      if(ticketLocationId&&jobLocationId&&ticketLocationId===jobLocationId) return true;
 
       return aliasesMatch(ticketDest,destinationAliases(job));
     });
@@ -126,7 +127,7 @@
       ticketSnap.docs.forEach(d=>{
         const data={id:d.id,...d.data()};
         const number=clean(data.ticketNumber);
-        if(number)byNumber.set(number,data);
+        if(number) byNumber.set(number,data);
       });
 
       haulingJobs=jobSnap.docs.map(d=>({id:d.id,...d.data()}));
@@ -136,57 +137,62 @@
   }
 
   function resetBadge(row,badge){
-    if(!badge?.dataset?.fvDestinationJobWarning)return;
+    if(!badge?.dataset?.fvDestinationJobWarning) return;
+
     row.classList.remove('ticket-warning-row');
     row.classList.add('ticket-review-row');
     badge.classList.remove('warning');
     badge.classList.add('review');
-    badge.textContent='Review';
+    if(badge.textContent!=='Review') badge.textContent='Review';
     badge.removeAttribute('title');
     delete badge.dataset.fvDestinationJobWarning;
   }
 
+  function makeWarning(row,badge){
+    if(
+      badge.dataset.fvDestinationJobWarning==='1'&&
+      badge.classList.contains('warning')&&
+      badge.textContent==='Warning'
+    ) return;
+
+    row.classList.remove('ticket-review-row');
+    row.classList.add('ticket-warning-row');
+    badge.classList.remove('review','job','good');
+    badge.classList.add('warning');
+    if(badge.textContent!=='Warning') badge.textContent='Warning';
+    badge.title='No current open hauling job matches this ticket destination and crop.';
+    badge.dataset.fvDestinationJobWarning='1';
+  }
+
   function apply(){
-    if(applying)return;
+    if(applying) return;
     applying=true;
 
     try{
       const tbody=document.getElementById('grain-ticket-table-body');
-      if(!tbody)return;
+      if(!tbody) return;
 
       tbody.querySelectorAll('tr').forEach(row=>{
         const cells=row.querySelectorAll('td');
-        if(cells.length<5)return;
+        if(cells.length<5) return;
 
         const ticket=byNumber.get(clean(cells[2]?.textContent));
-        if(!ticket)return;
+        if(!ticket) return;
 
-        let badge=row.querySelector('.ticket-status');
-        if(!badge)return;
+        const badge=row.querySelector('.ticket-status');
+        if(!badge) return;
 
-        const noOpenJob=!hasOpenHaulingJobForTicket(ticket);
-
-        if(!noOpenJob){
+        if(hasOpenHaulingJobForTicket(ticket)){
           resetBadge(row,badge);
           return;
         }
 
-        /* Only elevate unresolved/review-style tickets. A verified ticket that
-           already linked through a FarmVista load keeps its normal good state. */
         const unresolved=
           norm(ticket.validationStatus)==='needs review'||
-          norm(ticket.validationStatus)==='needs_review'||
-          badge.classList.contains('review');
+          badge.classList.contains('review')||
+          badge.dataset.fvDestinationJobWarning==='1';
 
-        if(!unresolved)return;
-
-        row.classList.remove('ticket-review-row');
-        row.classList.add('ticket-warning-row');
-        badge.classList.remove('review','job','good');
-        badge.classList.add('warning');
-        badge.textContent='Warning';
-        badge.title='No current open hauling job matches this ticket destination and crop.';
-        badge.dataset.fvDestinationJobWarning='1';
+        if(unresolved) makeWarning(row,badge);
       });
     }finally{
       applying=false;
@@ -197,7 +203,11 @@
   apply();
 
   const tbody=document.getElementById('grain-ticket-table-body');
-  if(tbody)new MutationObserver(apply).observe(tbody,{childList:true,subtree:true});
+  if(tbody){
+    /* Watch only row additions/removals. Watching the entire subtree while this
+       helper edits badge text creates a self-triggering mutation loop. */
+    new MutationObserver(apply).observe(tbody,{childList:true});
+  }
 
   setInterval(async()=>{
     await refreshData();
