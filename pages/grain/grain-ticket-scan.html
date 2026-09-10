@@ -16,7 +16,7 @@
   (() => {
     'use strict';
 
-    const CORE_URL = '/pages/grain/grain-ticket-scan-core.html?v=20260910-3';
+    const CORE_URL = '/pages/grain/grain-ticket-scan-core.html?v=20260910-4';
 
     function replaceRequired(text, oldValue, newValue, label) {
       if (!text.includes(oldValue)) throw new Error(`Scanner patch marker missing: ${label}`);
@@ -83,9 +83,9 @@
     margin: 0 !important;
     transform: translate(-50%, -50%) !important;
     width: min(76vw, 980px) !important;
-    height: min(70%, 350px) !important;
+    height: min(88%, 430px) !important;
     max-width: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 72px) !important;
-    max-height: calc(100% - 34px) !important;
+    max-height: calc(100% - 20px) !important;
     box-sizing: border-box !important;
     border: 3px solid #fff !important;
     border-radius: 12px !important;
@@ -147,19 +147,8 @@
 }
 `;
 
-      html = replaceRequired(
-        html,
-        '</style>',
-        landscapeCss + '\n</style>',
-        'landscape camera layout'
-      );
-
-      html = replaceRequired(
-        html,
-        '/js/grain-ticket-ocr-grade-normalizer.js?v=20260909-6',
-        '/js/grain-ticket-ocr-grade-normalizer.js?v=20260909-6',
-        'grade normalizer version'
-      );
+      html = replaceRequired(html, '</style>', landscapeCss + '\n</style>', 'landscape camera layout');
+      html = replaceRequired(html, '/js/grain-ticket-ocr-grade-normalizer.js?v=20260909-6', '/js/grain-ticket-ocr-grade-normalizer.js?v=20260909-6', 'grade normalizer version');
 
       const oldAlias = `  if (\n    ocrName\n  ) {\n\n    const alias =\n      findLearnedAlias(\n        "customer",\n        ocrName\n      );\n\n\n    if (\n      alias?.targetId\n    ) {\n\n      const customer =\n        candidates.find(\n          item =>\n            item.id ===\n            alias.targetId\n        );\n\n\n      if (\n        customer\n      ) {\n\n        return {\n          matched:\n            true,\n\n          matchType:\n            "learned_alias",\n\n          customer\n        };\n\n      }\n\n    }\n\n  }\n`;
 
@@ -169,34 +158,21 @@
 
       const assistMarker = `async function runDriverAssistQuestions(\n  grainTicket,\n  ocrResult,\n  matching\n) {`;
 
-      const aliasHelpers = `function customerAliasEvidence(\n  grainTicket\n) {\n\n  return Array.from(\n    new Set(\n      [\n        String(grainTicket?.customerAccountText || "").trim(),\n        String(grainTicket?.customerText || "").trim()\n      ].filter(Boolean)\n    )\n  );\n\n}\n\n\nasync function saveDriverCustomerAliases(\n  grainTicket,\n  customer\n) {\n\n  if (!customer?.id) return;\n\n  const targetId = String(customer.id);\n  const targetName = getCustomerName(customer);\n\n  for (const ocrText of customerAliasEvidence(grainTicket)) {\n    const normalizedText = normalizeAliasText(ocrText);\n    if (!normalizedText) continue;\n\n    const aliasId =\n      \`customer_\${normalizedText}\`\n        .replace(/[^a-z0-9_-]+/g, "_")\n        .slice(0, 180);\n\n    const payload = {\n      type: "customer",\n      ocrText,\n      normalizedText,\n      targetId,\n      targetName: targetName || null,\n      source: "driver_confirmation",\n      active: true,\n      updatedAt: serverTimestamp()\n    };\n\n    try {\n      await setDoc(\n        doc(db, ALIAS_COLLECTION, aliasId),\n        payload,\n        { merge: true }\n      );\n\n      const existingIndex = ocrAliases.findIndex(\n        alias =>\n          String(alias.type || "") === "customer" &&\n          normalizeAliasText(alias.normalizedText || alias.ocrText) === normalizedText\n      );\n\n      const localAlias = { id: aliasId, ...payload };\n      if (existingIndex >= 0) ocrAliases[existingIndex] = localAlias;\n      else ocrAliases.push(localAlias);\n\n      console.log("[Grain Ticket] Learned Sold Under alias:", { ocrText, targetId, targetName });\n    }\n    catch (error) {\n      /* Learning must never prevent the driver's ticket from saving. */\n      console.warn("[Grain Ticket] Could not save Sold Under alias:", error);\n    }\n  }\n}\n\n\n`;
+      const aliasHelpers = `function customerAliasEvidence(\n  grainTicket\n) {\n\n  return Array.from(\n    new Set(\n      [\n        String(grainTicket?.customerAccountText || "").trim(),\n        String(grainTicket?.customerText || "").trim()\n      ].filter(Boolean)\n    )\n  );\n\n}\n\n\nasync function saveDriverCustomerAliases(\n  grainTicket,\n  customer\n) {\n\n  if (!customer?.id) return;\n\n  const targetId = String(customer.id);\n  const targetName = getCustomerName(customer);\n\n  for (const ocrText of customerAliasEvidence(grainTicket)) {\n    const normalizedText = normalizeAliasText(ocrText);\n    if (!normalizedText) continue;\n\n    const aliasId =\n      \`customer_\${normalizedText}\`\n        .replace(/[^a-z0-9_-]+/g, "_")\n        .slice(0, 180);\n\n    const payload = {\n      type: "customer",\n      ocrText,\n      normalizedText,\n      targetId,\n      targetName: targetName || null,\n      source: "driver_confirmation",\n      active: true,\n      updatedAt: serverTimestamp()\n    };\n\n    try {\n      await setDoc(\n        doc(db, ALIAS_COLLECTION, aliasId),\n        payload,\n        { merge: true }\n      );\n\n      const existingIndex = ocrAliases.findIndex(\n        alias =>\n          String(alias.type || "") === "customer" &&\n          normalizeAliasText(alias.normalizedText || alias.ocrText) === normalizedText\n      );\n\n      const localAlias = { id: aliasId, ...payload };\n      if (existingIndex >= 0) ocrAliases[existingIndex] = localAlias;\n      else ocrAliases.push(localAlias);\n\n      console.log("[Grain Ticket] Learned Sold Under alias:", { ocrText, targetId, targetName });\n    }\n    catch (error) {\n      console.warn("[Grain Ticket] Could not save Sold Under alias:", error);\n    }\n  }\n}\n\n\n`;
 
       html = replaceRequired(html, assistMarker, aliasHelpers + assistMarker, 'driver assist insertion');
 
       const oldCustomerBranch = `    if (eligibleCustomers.length === 1) {\n      customer = eligibleCustomers[0];\n    }\n    else if (eligibleCustomers.length > 1) {\n      const selectedCustomer =\n`;
 
-      const newCustomerBranch = `    const eligibleCustomerIds =\n      new Set(\n        eligibleCustomers.map(\n          item => String(item.id)\n        )\n      );\n\n    /*\n      If OCR cannot confidently link Sold Under, the driver verifies it.\n      Contract-valid customers are listed first, followed by every existing\n      FarmVista customer. No customer creation is available here.\n    */\n    const soldUnderCustomers = [\n      ...eligibleCustomers,\n      ...customers.filter(\n        item => !eligibleCustomerIds.has(String(item.id))\n      )\n    ];\n\n    if (soldUnderCustomers.length) {\n      const selectedCustomer =\n`;
+      const newCustomerBranch = `    const eligibleCustomerIds =\n      new Set(\n        eligibleCustomers.map(\n          item => String(item.id)\n        )\n      );\n\n    const soldUnderCustomers = [\n      ...eligibleCustomers,\n      ...customers.filter(\n        item => !eligibleCustomerIds.has(String(item.id))\n      )\n    ];\n\n    if (soldUnderCustomers.length) {\n      const selectedCustomer =\n`;
 
       html = replaceRequired(html, oldCustomerBranch, newCustomerBranch, 'sold under verification branch');
-      html = replaceRequired(
-        html,
-        '            ...eligibleCustomers.map(\n',
-        '            ...soldUnderCustomers.map(\n',
-        'sold under customer list'
-      );
-      html = html.replace(
-        '              : `Choose the Sold Under customer for this ${grainTicket.crop} delivery.`,',
-        '              : `OCR could not confidently link the Sold Under customer. Choose who this ${grainTicket.crop} load is sold under.`,',
-      );
+      html = replaceRequired(html, '            ...eligibleCustomers.map(\n', '            ...soldUnderCustomers.map(\n', 'sold under customer list');
+      html = html.replace('              : `Choose the Sold Under customer for this ${grainTicket.crop} delivery.`,', '              : `OCR could not confidently link the Sold Under customer. Choose who this ${grainTicket.crop} load is sold under.`,');
 
       const correctionBlock = `        ocrResult.manualCorrections = {\n          ...(ocrResult.manualCorrections || {}),\n          customer: {\n            originalValue: originalEvidence || null,\n            selectedId: selectedCustomer.id,\n            selectedValue: getCustomerName(selectedCustomer),\n            source: "driver_selection",\n            learningEligible: Boolean(originalEvidence),\n            learningReason:\n              originalEvidence\n                ? "ocr_evidence_confirmed"\n                : "driver_supplied_missing_value"\n          }\n        };\n`;
 
-      html = replaceRequired(
-        html,
-        correctionBlock,
-        correctionBlock + `\n        await saveDriverCustomerAliases(\n          grainTicket,\n          selectedCustomer\n        );\n`,
-        'sold under alias learning'
-      );
+      html = replaceRequired(html, correctionBlock, correctionBlock + `\n        await saveDriverCustomerAliases(\n          grainTicket,\n          selectedCustomer\n        );\n`, 'sold under alias learning');
 
       document.open();
       document.write(html);
