@@ -143,3 +143,122 @@
   firstLoadWake.dataset.fvTicketDetailFirstLoadWake = '1';
   document.head.appendChild(firstLoadWake);
 })();
+
+/*
+  Sept 10, 2026 — Review completion gate
+  --------------------------------------
+  Once an office user opens a grain ticket for review, FarmVista must not save
+  another partially-resolved Needs Review record. The detail page already has
+  one authoritative validator: currentReviewReasons(). Its result drives the
+  status pill, review list, and the "Save & Verify Ticket" label.
+
+  This capture-phase gate deliberately uses that existing UI result instead of
+  inventing a second set of business rules. If ANY review reason remains, the
+  native save handler is stopped, the user is moved to the review errors, and
+  the first unresolved control is focused when possible.
+*/
+(() => {
+  const path = String(location.pathname || '').toLowerCase();
+  if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) return;
+  if (window.__FV_GRAIN_TICKET_REVIEW_COMPLETION_GATE_20260910) return;
+  window.__FV_GRAIN_TICKET_REVIEW_COMPLETION_GATE_20260910 = true;
+
+  const clean = value => String(value == null ? '' : value).trim();
+
+  function verifiedNow() {
+    const status = document.getElementById('statusPill');
+    const save = document.getElementById('saveBtn');
+
+    return Boolean(
+      status?.classList.contains('good') &&
+      /save\s*&\s*verify\s*ticket/i.test(clean(save?.textContent))
+    );
+  }
+
+  function firstReviewText() {
+    const item = document.querySelector('#reviewList li');
+    return clean(item?.textContent).toLowerCase();
+  }
+
+  function targetForReviewText(text) {
+    const map = [
+      [/destination|delivery location|elevator/, 'destinationButton'],
+      [/sold under|customer/, 'customerButton'],
+      [/crop/, 'crop'],
+      [/grain source|source/, 'grainSourceButton'],
+      [/hauling job|spot load/, 'contractSelect'],
+      [/ticket number|ticket #/, 'ticketNumber'],
+      [/ticket date|date/, 'ticketDate'],
+      [/weight|gross|tare|net weight/, 'grossWeight'],
+      [/bushel|shrink/, 'grossBushels']
+    ];
+
+    for (const [pattern, id] of map) {
+      if (pattern.test(text)) return document.getElementById(id);
+    }
+
+    return null;
+  }
+
+  function showBlockedMessage() {
+    const message = document.getElementById('message');
+    if (!message) return;
+
+    message.textContent =
+      'This ticket cannot be saved yet. Correct every item under Needs Review, then Save & Verify Ticket.';
+
+    message.className = 'message warning show';
+  }
+
+  function redirectToErrors() {
+    showBlockedMessage();
+
+    const reviewBox = document.getElementById('reviewBox');
+    const firstText = firstReviewText();
+    const target = targetForReviewText(firstText);
+
+    (target || reviewBox)?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center'
+    });
+
+    if (target && typeof target.focus === 'function') {
+      setTimeout(() => {
+        try { target.focus({ preventScroll: true }); }
+        catch (_) { try { target.focus(); } catch (_) {} }
+      }, 350);
+    }
+  }
+
+  function blockIncompleteSave(event) {
+    if (verifiedNow()) return false;
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (typeof event.stopImmediatePropagation === 'function') {
+      event.stopImmediatePropagation();
+    }
+
+    redirectToErrors();
+    return true;
+  }
+
+  function onClickCapture(event) {
+    const save = event.target?.closest?.('#saveBtn');
+    if (!save) return;
+    blockIncompleteSave(event);
+  }
+
+  function onSubmitCapture(event) {
+    const save = document.getElementById('saveBtn');
+    if (!save) return;
+
+    const form = save.closest('form');
+    if (form && event.target !== form) return;
+
+    blockIncompleteSave(event);
+  }
+
+  document.addEventListener('click', onClickCapture, true);
+  document.addEventListener('submit', onSubmitCapture, true);
+})();
