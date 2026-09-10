@@ -16,7 +16,7 @@
   (() => {
     'use strict';
 
-    const CORE_URL = '/pages/grain/grain-ticket-scan-core.html?v=20260909-5';
+    const CORE_URL = '/pages/grain/grain-ticket-scan-core.html?v=20260910-1';
 
     function replaceRequired(text, oldValue, newValue, label) {
       if (!text.includes(oldValue)) throw new Error(`Scanner patch marker missing: ${label}`);
@@ -27,6 +27,108 @@
       const response = await fetch(CORE_URL, { cache: 'no-store' });
       if (!response.ok) throw new Error(`Scanner core request failed (${response.status})`);
       let html = await response.text();
+
+      const landscapeCss = `
+
+/* ============================================================
+   LANDSCAPE CAMERA LAYOUT
+   Keep the live camera nearly full-screen so the ticket frame
+   stays usable when a phone is rotated sideways.
+============================================================ */
+@media (orientation: landscape) and (max-height: 700px) {
+  .camera-page {
+    display: block;
+  }
+
+  .camera-header {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 20;
+    padding:
+      calc(env(safe-area-inset-top, 0px) + 6px)
+      calc(env(safe-area-inset-right, 0px) + 14px)
+      24px
+      calc(env(safe-area-inset-left, 0px) + 14px);
+    background: linear-gradient(to bottom, rgba(0,0,0,.90), rgba(0,0,0,0));
+  }
+
+  .camera-title {
+    font-size: 16px;
+  }
+
+  .camera-subtitle {
+    font-size: 11px;
+  }
+
+  .close-btn {
+    padding: 8px;
+  }
+
+  .camera-view {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .ticket-frame {
+    width: min(78vw, 920px);
+    height: min(70vh, 470px);
+    max-width: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 36px);
+    max-height: calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 118px);
+    top: 46%;
+    border-radius: 14px;
+  }
+
+  .camera-tip {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 78px);
+    width: min(48vw, 520px);
+    padding: 7px 12px;
+    font-size: 11px;
+  }
+
+  .camera-footer {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    min-height: 0;
+    padding:
+      8px
+      calc(env(safe-area-inset-right, 0px) + 16px)
+      calc(env(safe-area-inset-bottom, 0px) + 8px)
+      calc(env(safe-area-inset-left, 0px) + 16px);
+    background: linear-gradient(to top, rgba(0,0,0,.92), rgba(0,0,0,0));
+  }
+
+  .capture-btn {
+    width: 60px;
+    height: 60px;
+    border-width: 3px;
+  }
+
+  .capture-btn::before {
+    width: 46px;
+    height: 46px;
+  }
+
+  .torch-btn,
+  .fallback-btn {
+    padding: 8px 11px;
+    font-size: 11px;
+  }
+}
+`;
+
+      html = replaceRequired(
+        html,
+        '</style>',
+        landscapeCss + '\n</style>',
+        'landscape camera layout'
+      );
 
       html = replaceRequired(
         html,
