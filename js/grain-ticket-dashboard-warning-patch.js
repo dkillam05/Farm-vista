@@ -1,58 +1,45 @@
 /* FarmVista Grain Ticket dashboard unresolved-assignment warning
-   Rev 2026-09-10
-
-   A ticket that is already in Needs Review AND has no hauling job is not a
-   routine OCR review. It needs office action before it can post correctly.
-   The main dashboard currently suppresses Needs Hauling Job whenever a ticket
-   is in review, so this small UI guard upgrades that row to red Warning.
+   Rev 2026-09-10b
+   Needs Review stays amber for ordinary review work. A review ticket becomes
+   red Warning when it is also missing a Hauling Job or Contract assignment.
 */
-(function(){
+(async function(){
   'use strict';
+  if(!String(location.pathname||'').toLowerCase().endsWith('/pages/grain/grain-ticket.html'))return;
+  const {ready,getFirestore,collection,getDocs}=await import('/js/firebase-init.js');
+  await ready;
+  const db=getFirestore(),byNumber=new Map();
+  let applying=false;
+  const clean=value=>String(value??'').trim();
+  const hasJob=t=>!!clean(t?.haulingJobId||t?.grainHaulingJobId||t?._linkedHaulingJobId);
+  const hasContract=t=>!!clean(t?.contractId||t?.grainContractId||t?.postedContractId);
 
-  if (!String(location.pathname || '').toLowerCase().endsWith('/pages/grain/grain-ticket.html')) return;
-
-  const norm = value => String(value ?? '').trim().toLowerCase();
-
-  function rowNeedsAssignmentWarning(row){
-    const badge = row.querySelector('.ticket-status.review');
-    if (!badge) return false;
-
-    const cells = row.querySelectorAll('td');
-    if (cells.length < 3) return false;
-
-    /* Review rows that are missing load assignment are marked by the dashboard
-       data after Firestore render. We cannot safely infer contract IDs from the
-       visible columns, so also inspect the ticket status title/reason when the
-       page supplies one. The default behavior below intentionally upgrades
-       Review to Warning: a review ticket is unresolved and must not look mild. */
-    return true;
+  async function refreshData(){
+    try{
+      const snap=await getDocs(collection(db,'grain_tickets'));
+      byNumber.clear();
+      snap.docs.forEach(d=>{const data={id:d.id,...d.data()},number=clean(data.ticketNumber);if(number)byNumber.set(number,data);});
+    }catch(error){console.warn('[grain warning] ticket lookup failed:',error);}
   }
 
   function apply(){
-    const tbody = document.getElementById('grain-ticket-table-body');
-    if (!tbody) return;
-
-    tbody.querySelectorAll('tr').forEach(row => {
-      if (!rowNeedsAssignmentWarning(row)) return;
-      row.classList.remove('ticket-review-row');
-      row.classList.add('ticket-warning-row');
-      const badge = row.querySelector('.ticket-status.review');
-      if (badge) {
-        badge.classList.remove('review');
-        badge.classList.add('warning');
-        badge.textContent = 'Warning';
-        badge.title = 'Ticket needs office review / assignment before verification.';
-      }
-    });
+    if(applying)return; applying=true;
+    try{
+      const tbody=document.getElementById('grain-ticket-table-body'); if(!tbody)return;
+      tbody.querySelectorAll('tr').forEach(row=>{
+        const badge=row.querySelector('.ticket-status.review'); if(!badge)return;
+        const cells=row.querySelectorAll('td'),ticket=byNumber.get(clean(cells[2]?.textContent)); if(!ticket)return;
+        if(hasJob(ticket)&&hasContract(ticket))return;
+        row.classList.remove('ticket-review-row'); row.classList.add('ticket-warning-row');
+        badge.classList.remove('review'); badge.classList.add('warning'); badge.textContent='Warning';
+        const missing=[]; if(!hasJob(ticket))missing.push('Hauling Job'); if(!hasContract(ticket))missing.push('Contract');
+        badge.title=`Missing ${missing.join(' and ')} — office action required.`;
+      });
+    }finally{applying=false;}
   }
 
-  function start(){
-    apply();
-    const tbody = document.getElementById('grain-ticket-table-body');
-    if (!tbody) return;
-    new MutationObserver(apply).observe(tbody,{childList:true,subtree:true});
-  }
-
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded',start,{once:true});
-  else start();
+  await refreshData(); apply();
+  const tbody=document.getElementById('grain-ticket-table-body');
+  if(tbody)new MutationObserver(apply).observe(tbody,{childList:true,subtree:true});
+  setInterval(async()=>{await refreshData();apply();},30000);
 })();
