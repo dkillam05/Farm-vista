@@ -248,6 +248,26 @@
   }
 
   /* ===================================================================
+     SEPT 10, 2026 — MOBILE GRAIN DRAG/DROP EDGE AUTO-SCROLL
+
+     Keep long-press drag/drop usable on phones/tablets by scrolling long
+     contract, hauling-job, and ticket lists when the held item reaches the
+     top or bottom viewport edge. Existing drop logic remains authoritative.
+  =================================================================== */
+
+  if (
+    isGrainContracts &&
+    !window.__FV_GRAIN_MOBILE_DND_AUTOSCROLL_LOADER_20260910
+  ) {
+    window.__FV_GRAIN_MOBILE_DND_AUTOSCROLL_LOADER_20260910 = true;
+
+    const script = document.createElement('script');
+    script.src = '/js/grain-mobile-dnd-autoscroll.js?v=20260910-1';
+    script.dataset.fvGrainMobileDndAutoscroll = '1';
+    document.head.appendChild(script);
+  }
+
+  /* ===================================================================
      SEPT 5, 2026 — GRAIN INVENTORY TICKET IMAGE ZOOM + PAN
 
      The Grain Inventory harvest drill-in opens saved tickets inside its own
