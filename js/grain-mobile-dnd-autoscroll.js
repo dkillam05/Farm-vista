@@ -1,20 +1,22 @@
-// FarmVista — mobile drag/drop edge auto-scroll v2
+// FarmVista — mobile drag/drop edge auto-scroll v3
 // Sept. 10, 2026
 //
 // iPhone/PWA-safe edge auto-scroll for the Grain Contracts hauling-job and
-// ticket drag/drop workspaces. It remembers the finger position before the
-// long-press activates, starts as soon as the core DND adds .dragging, and
-// scrolls the actual scrollable container (falling back to the document).
+// ticket drag/drop workspaces. v3 deliberately starts bottom auto-scroll much
+// earlier on a phone so the user does not have to drag into the fixed footer
+// or almost off-screen before the page begins moving.
 
 (() => {
   'use strict';
 
-  if (window.__FV_GRAIN_MOBILE_DND_AUTOSCROLL_20260910_V2) return;
-  window.__FV_GRAIN_MOBILE_DND_AUTOSCROLL_20260910_V2 = true;
+  if (window.__FV_GRAIN_MOBILE_DND_AUTOSCROLL_20260910_V3) return;
+  window.__FV_GRAIN_MOBILE_DND_AUTOSCROLL_20260910_V3 = true;
 
-  const EDGE_PX = 135;
-  const MIN_SPEED_PX = 6;
-  const MAX_SPEED_PX = 28;
+  const TOP_EDGE_PX = 180;
+  const BOTTOM_EDGE_MIN_PX = 260;
+  const BOTTOM_EDGE_RATIO = 0.40;
+  const MIN_SPEED_PX = 10;
+  const MAX_SPEED_PX = 52;
 
   const DRAG_SELECTOR = [
     '.hauling-contract-card.dragging',
@@ -40,35 +42,41 @@
       0;
   }
 
+  function bottomEdgePx(height) {
+    // On short landscape phone screens, 135px was still forcing the user's
+    // finger almost into the footer. Start scrolling through roughly the lower
+    // 40% of the usable viewport, with a generous minimum zone.
+    return Math.min(
+      Math.max(BOTTOM_EDGE_MIN_PX, height * BOTTOM_EDGE_RATIO),
+      Math.max(BOTTOM_EDGE_MIN_PX, height - TOP_EDGE_PX - 80)
+    );
+  }
+
+  function easedSpeed(strength) {
+    const s = Math.min(1, Math.max(0, strength));
+    // Slightly aggressive curve so movement is obvious as soon as the user
+    // enters the zone, while still accelerating toward the edge.
+    const eased = Math.sqrt(s);
+    return MIN_SPEED_PX + (MAX_SPEED_PX - MIN_SPEED_PX) * eased;
+  }
+
   function edgeSpeed() {
     if (!havePointer) return 0;
 
     const height = viewportHeight();
     if (!height) return 0;
 
-    if (lastClientY < EDGE_PX) {
-      const strength = Math.min(
-        1,
-        Math.max(0, (EDGE_PX - lastClientY) / EDGE_PX)
-      );
-
-      return -(
-        MIN_SPEED_PX +
-        (MAX_SPEED_PX - MIN_SPEED_PX) * strength
-      );
+    if (lastClientY < TOP_EDGE_PX) {
+      const strength = (TOP_EDGE_PX - lastClientY) / TOP_EDGE_PX;
+      return -easedSpeed(strength);
     }
 
-    if (lastClientY > height - EDGE_PX) {
-      const strength = Math.min(
-        1,
-        Math.max(
-          0,
-          (lastClientY - (height - EDGE_PX)) / EDGE_PX
-        )
-      );
+    const bottomZone = bottomEdgePx(height);
+    const bottomStart = height - bottomZone;
 
-      return MIN_SPEED_PX +
-        (MAX_SPEED_PX - MIN_SPEED_PX) * strength;
+    if (lastClientY > bottomStart) {
+      const strength = (lastClientY - bottomStart) / bottomZone;
+      return easedSpeed(strength);
     }
 
     return 0;
@@ -221,9 +229,9 @@
     { passive: true, capture: true }
   );
 
-  // The core FarmVista DND adds .dragging only after the long-press delay.
-  // Watching that class change means auto-scroll starts even if the finger is
-  // already parked at the edge and does not move again after activation.
+  // Core FarmVista DND adds .dragging only after the long-press delay. Watching
+  // class changes starts auto-scroll even when the finger is already parked in
+  // the lower zone and does not move again after activation.
   const observer = new MutationObserver(ensureRunning);
   observer.observe(document.documentElement, {
     subtree: true,
