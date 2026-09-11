@@ -1,6 +1,6 @@
 // /js/dash-kpi-dynamic.js
 // FarmVista Dashboard — Dynamic Needs Attention + desktop split scrolling
-// Rev: 2026-09-11-v3
+// Rev: 2026-09-11-v4
 
 (function(){
   "use strict";
@@ -98,13 +98,9 @@
 })();
 
 /*
- * Desktop dashboard behaves like a fixed two-pane workspace:
- * - the browser page itself does not scroll
- * - left and right dashboard columns scroll independently
- * - column scrollbars are hidden, but mouse wheel/trackpad still work
- * - excess bottom page padding is removed so more dashboard is visible
- *
- * Mobile/tablet keep the normal document scrolling behavior.
+ * Desktop dashboard: preserve the original card sizes/layout, but make
+ * the left and right columns independently scrollable like two panes.
+ * The browser/body itself stays fixed so there is no outer scrollbar.
  */
 (function(){
   "use strict";
@@ -119,14 +115,8 @@
         overflow:hidden!important;
       }
 
-      body > fv-shell,
-      body > farm-vista-shell{
-        height:100dvh;
-        overflow:hidden;
-      }
-
       .page{
-        padding-bottom:10px!important;
+        padding-bottom:8px!important;
       }
 
       .desktop-dashboard{
@@ -138,22 +128,31 @@
 
       .desktop-left,
       .desktop-right{
+        display:flex!important;
+        flex-direction:column;
+        gap:14px;
         height:100%;
         min-height:0;
-        overflow-y:auto;
-        overflow-x:hidden;
+        min-width:0;
+        overflow-y:auto!important;
+        overflow-x:hidden!important;
         overscroll-behavior:contain;
         scrollbar-width:none;
         -ms-overflow-style:none;
-        align-content:start;
-        padding-bottom:4px;
+        padding-bottom:8px;
+      }
+
+      .desktop-left > *,
+      .desktop-right > *{
+        flex:0 0 auto!important;
+        min-height:auto;
       }
 
       .desktop-right{
-        position:relative;
-        top:auto;
+        position:relative!important;
+        top:auto!important;
         align-self:stretch;
-        max-height:none;
+        max-height:none!important;
       }
 
       .desktop-left::-webkit-scrollbar,
@@ -182,7 +181,7 @@
 
     const rect = dashboard.getBoundingClientRect();
     const footerAllowance = 18;
-    const bottomGap = 6;
+    const bottomGap = 4;
     const available = Math.max(
       220,
       Math.floor(window.innerHeight - rect.top - footerAllowance - bottomGap)
@@ -194,13 +193,40 @@
     );
   }
 
-  sizeDesktopColumns();
-  requestAnimationFrame(sizeDesktopColumns);
-  setTimeout(sizeDesktopColumns, 100);
-  setTimeout(sizeDesktopColumns, 400);
+  function enablePaneWheel(panel){
+    if (!panel || panel.dataset.fvPaneWheel === "1") return;
+    panel.dataset.fvPaneWheel = "1";
+
+    panel.addEventListener("wheel", (event) => {
+      if (!window.matchMedia("(min-width:900px)").matches) return;
+      if (panel.scrollHeight <= panel.clientHeight + 1) return;
+
+      const delta = event.deltaY;
+      if (!delta) return;
+
+      const atTop = panel.scrollTop <= 0;
+      const atBottom = panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 1;
+
+      if ((delta < 0 && atTop) || (delta > 0 && atBottom)) return;
+
+      panel.scrollTop += delta;
+      event.preventDefault();
+    }, { passive:false });
+  }
+
+  function initializePanes(){
+    sizeDesktopColumns();
+    enablePaneWheel(document.querySelector(".desktop-left"));
+    enablePaneWheel(document.querySelector(".desktop-right"));
+  }
+
+  initializePanes();
+  requestAnimationFrame(initializePanes);
+  setTimeout(initializePanes, 100);
+  setTimeout(initializePanes, 400);
 
   window.addEventListener("resize", sizeDesktopColumns, { passive:true });
   window.addEventListener("orientationchange", sizeDesktopColumns, { passive:true });
-  document.addEventListener("fv:user-ready", sizeDesktopColumns);
-  document.addEventListener("fv:dash-perms-ready", sizeDesktopColumns);
+  document.addEventListener("fv:user-ready", initializePanes);
+  document.addEventListener("fv:dash-perms-ready", initializePanes);
 })();
