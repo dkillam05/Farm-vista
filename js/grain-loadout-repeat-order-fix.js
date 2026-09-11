@@ -41,11 +41,42 @@ const E = {
 
 function keepCropLocked() {
   if (!E.crop) return;
+
   E.crop.disabled = true;
   E.crop.setAttribute("aria-disabled", "true");
-  E.crop.style.backgroundColor = "var(--surface-2, rgba(255,255,255,.04))";
-  E.crop.style.opacity = ".62";
-  E.crop.style.cursor = "not-allowed";
+
+  const combo = E.crop.closest(".fv-combo");
+  const comboButton = combo?.querySelector(".fv-buttonish");
+
+  if (comboButton) {
+    const selected = E.crop.options?.[E.crop.selectedIndex];
+    if (selected) comboButton.textContent = selected.textContent;
+
+    comboButton.disabled = true;
+    comboButton.setAttribute("aria-disabled", "true");
+    comboButton.classList.add("is-disabled");
+    comboButton.style.background = "var(--surface-2, rgba(255,255,255,.04))";
+    comboButton.style.color = "var(--muted, #87908a)";
+    comboButton.style.opacity = ".55";
+    comboButton.style.cursor = "not-allowed";
+
+    /* The custom combo is the visible control. Fully hide the native select
+       so Chrome cannot paint its own tiny second dropdown arrow beside it. */
+    E.crop.style.display = "none";
+  }
+  else {
+    /* Before the FarmVista combo enhancer wraps Crop, keep the native select
+       visually disabled. Once wrapped, the branch above takes over. */
+    E.crop.style.backgroundColor = "var(--surface-2, rgba(255,255,255,.04))";
+    E.crop.style.opacity = ".62";
+    E.crop.style.cursor = "not-allowed";
+  }
+}
+
+const cropFieldHost = E.crop?.closest(".loadout-field") || E.crop?.parentElement;
+if (cropFieldHost) {
+  new MutationObserver(() => keepCropLocked())
+    .observe(cropFieldHost, { childList: true, subtree: true });
 }
 
 keepCropLocked();
@@ -545,6 +576,10 @@ if (E.backdrop) {
     if (!createMode()) return;
 
     keepCropLocked();
+    setTimeout(keepCropLocked, 0);
+    setTimeout(keepCropLocked, 100);
+    setTimeout(keepCropLocked, 300);
+
     refresh(true).then(() => {
       keepCropLocked();
       decorate();
