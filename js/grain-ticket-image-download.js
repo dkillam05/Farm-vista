@@ -1,5 +1,5 @@
 /* FarmVista — saved grain ticket image download/share
-   Rev 2026-09-11h
+   Rev 2026-09-11i
    Uniform support for Ticket Detail, Grain Inventory drill-down,
    and Grain Contract Report ticket popup.
 
@@ -8,11 +8,13 @@
    helper. The old observer called enhance() for every subtree mutation while
    enhance() itself added/removed DOM, which could keep the main thread busy
    during Ticket Detail startup. Ticket Detail now watches only ticketImage src.
+
+   Rev i also adds the compact Active Hauling Jobs overview to Grain Inventory.
 */
 (() => {
   'use strict';
-  if (window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260911H) return;
-  window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260911H = true;
+  if (window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260911I) return;
+  window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260911I = true;
 
   const style = document.createElement('style');
   style.id = 'fv-ticket-image-download-style';
@@ -249,8 +251,187 @@
     refreshPreparation(image,row.querySelector('.fv-ticket-download-btn'));
   }
 
+  /* ============================================================
+     Grain Inventory — Active Hauling Jobs overview
+  ============================================================ */
+  async function installActiveHaulingJobs(){
+    if(!String(location.pathname||'').toLowerCase().endsWith('/pages/grain/index.html')) return;
+    if(document.getElementById('fv-active-hauling-jobs-section')) return;
+
+    const harvest=document.getElementById('active-harvest-section')?.closest('.workspace-section');
+    if(!harvest) return;
+
+    const extraStyle=document.createElement('style');
+    extraStyle.id='fv-active-hauling-jobs-style';
+    extraStyle.textContent=`
+      #fv-active-hauling-jobs-section .fv-ahj-table{width:100%;border-collapse:collapse;min-width:980px}
+      #fv-active-hauling-jobs-section .fv-ahj-table th{padding:10px 12px;background:var(--surface-2,#f3f3f3);border-bottom:1px solid var(--border,#d4d4d4);font-size:.78rem;font-weight:800;text-align:center;white-space:nowrap}
+      #fv-active-hauling-jobs-section .fv-ahj-table td{padding:11px 12px;border-bottom:1px solid var(--border,#e1e1e1);font-size:.88rem;text-align:center;vertical-align:middle}
+      #fv-active-hauling-jobs-section .fv-ahj-table td:first-child,#fv-active-hauling-jobs-section .fv-ahj-table th:first-child{text-align:left}
+      #fv-active-hauling-jobs-section .fv-ahj-row{cursor:pointer}
+      #fv-active-hauling-jobs-section .fv-ahj-row:hover{background:var(--surface-2,rgba(0,0,0,.04))}
+      .fv-ahj-jobname{font-weight:850}
+      .fv-ahj-status{display:inline-flex;align-items:center;justify-content:center;padding:4px 9px;border-radius:999px;background:rgba(59,126,70,.14);color:#2d6937;font-size:.75rem;font-weight:850;white-space:nowrap}
+      .fv-ahj-status.past-due{background:rgba(179,38,30,.12);color:#a6201a}
+      [data-theme="dark"] .fv-ahj-status{color:#b9e4bf}
+      [data-theme="dark"] .fv-ahj-status.past-due{color:#ffb4ab}
+      .fv-ahj-empty{padding:28px 18px;text-align:center;opacity:.68}
+      #fv-ahj-modal-backdrop{z-index:12500}
+      .fv-ahj-ticket-link{color:#3B7E46;font-weight:850;text-decoration:none}
+      .fv-ahj-ticket-link:hover{text-decoration:underline}
+      @media(max-width:560px){#fv-active-hauling-jobs-section .inventory-head{padding-bottom:13px}}
+    `;
+    document.head.appendChild(extraStyle);
+
+    const section=document.createElement('section');
+    section.className='workspace-section';
+    section.id='fv-active-hauling-jobs-section';
+    section.innerHTML=`
+      <div class="inventory-card">
+        <div class="inventory-head">
+          <div>
+            <h2 class="inventory-title">Active Hauling Jobs</h2>
+            <div class="inventory-sub">Open hauling jobs at a glance. Click a job to see its tickets and weighted grain-quality averages.</div>
+          </div>
+        </div>
+        <div class="inventory-body">
+          <div class="table-wrap">
+            <table class="fv-ahj-table">
+              <thead><tr>
+                <th>Hauling Job</th><th>Status</th><th>Crop</th><th>Starting Bu.</th><th>Ticketed Bu.</th><th>Remaining</th><th>Loads</th><th>Avg MO</th><th>Avg FM</th><th>Avg Damage</th>
+              </tr></thead>
+              <tbody id="fv-ahj-tbody"><tr><td colspan="10" class="fv-ahj-empty">Loading active hauling jobs…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>`;
+    harvest.insertAdjacentElement('beforebegin',section);
+
+    const modal=document.createElement('div');
+    modal.className='modal-backdrop';
+    modal.id='fv-ahj-modal-backdrop';
+    modal.setAttribute('aria-hidden','true');
+    modal.innerHTML=`
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="fv-ahj-modal-title">
+        <div class="modal-head">
+          <div><div class="modal-title" id="fv-ahj-modal-title">Hauling Job</div><div class="inventory-sub" id="fv-ahj-modal-sub"></div></div>
+          <button type="button" class="modal-close" id="fv-ahj-modal-close" aria-label="Close">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="detail-grid" id="fv-ahj-summary"></div>
+          <div id="fv-ahj-ticket-list"></div>
+          <div class="modal-actions"><button type="button" class="btn" id="fv-ahj-modal-done">Close</button></div>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+
+    const n=v=>{const x=Number(String(v??'').replace(/,/g,''));return Number.isFinite(x)?x:0};
+    const norm=v=>clean(v).toLowerCase();
+    const esc=v=>clean(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+    const fmtBu=v=>`${Math.round(n(v)).toLocaleString('en-US')} bu`;
+    const fmtGrade=v=>{const x=Number(v);return Number.isFinite(x)?`${x.toFixed(2)}%`:'N/A'};
+    const cropLabel=v=>{const x=norm(v);if(['soy','soybean','soybeans','beans','sb'].includes(x))return 'Soybeans';if(['corn','maize'].includes(x))return 'Corn';if(x==='wheat')return 'Wheat';return clean(v)||'—'};
+    const today=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`};
+    const starting=j=>Math.max(0,n(j?.startingBushels??j?.jobBushels??j?.bushels));
+    const isVoided=t=>t?.voided===true||norm(t?.status).includes('void');
+    const ticketBushels=t=>Math.max(0,n(t?.netBushels??t?.netBu??t?.bushels));
+    const ticketsFor=(tickets,id)=>tickets.filter(t=>!isVoided(t)&&clean(t?.haulingJobId)===clean(id));
+    const ticketed=(tickets,j)=>ticketsFor(tickets,j.id).reduce((s,t)=>s+ticketBushels(t),0);
+    const remaining=(tickets,j)=>Math.max(0,starting(j)-ticketed(tickets,j));
+    const status=(tickets,j)=>{
+      if(j?.manualClosed===true)return 'closed';
+      const raw=norm(j?.status);
+      if(j?.active===false||raw.includes('void'))return 'voided';
+      if(raw.includes('closed')||raw.includes('cancel'))return 'closed';
+      if(raw.includes('complete')||(starting(j)>0&&remaining(tickets,j)<=.005))return 'complete';
+      const start=clean(j?.deliveryStartDate||j?.startDate);
+      if(start&&start>today())return 'upcoming';
+      const end=clean(j?.deliveryEndDate||j?.endDate);
+      if(end&&end<today()&&remaining(tickets,j)>.005)return 'past_due';
+      return 'active';
+    };
+    const jobName=j=>{
+      const saved=clean(j?.displayName||j?.jobName||j?.haulingJobName);if(saved)return saved;
+      const buyer=clean(j?.buyerName||j?.buyer);
+      const location=clean(j?.deliveryLocationName||j?.locationName||j?.destinationName||j?.destination);
+      const place=buyer&&location&&!norm(location).startsWith(norm(buyer))?`${buyer} ${location}`:(location||buyer||'Hauling Job');
+      return `${place} — ${Math.round(starting(j)).toLocaleString('en-US')} bu`;
+    };
+    const dateValue=t=>clean(t?.ticketDate||t?.date||t?.deliveryDate||'');
+    const ticketNumber=t=>clean(t?.ticketNumber||t?.ticketNo||t?.number||t?.scaleTicketNumber)||clean(t?.id).slice(0,8);
+    const driver=t=>clean(t?.driverName||t?.driver||t?.submittedByName||t?.submittedBy)||'—';
+    const weighted=tickets=>{
+      let total=0,mo=0,moW=0,fm=0,fmW=0,da=0,daW=0;
+      tickets.forEach(t=>{const w=ticketBushels(t);total+=w;if(!(w>0))return;
+        const m=Number(t?.moisture??t?.mo),f=Number(t?.foreignMaterial??t?.fm),d=Number(t?.damage??t?.dm);
+        if(Number.isFinite(m)){mo+=m*w;moW+=w}if(Number.isFinite(f)){fm+=f*w;fmW+=w}if(Number.isFinite(d)){da+=d*w;daW+=w}
+      });
+      return{bushels:total,loads:tickets.length,moisture:moW?mo/moW:null,fm:fmW?fm/fmW:null,damage:daW?da/daW:null};
+    };
+
+    const closeModal=()=>{modal.classList.remove('open');modal.setAttribute('aria-hidden','true');document.body.style.overflow=''};
+    modal.querySelector('#fv-ahj-modal-close').addEventListener('click',closeModal);
+    modal.querySelector('#fv-ahj-modal-done').addEventListener('click',closeModal);
+    modal.addEventListener('click',e=>{if(e.target===modal)closeModal()});
+
+    try{
+      const firebase=await import('/js/firebase-init.js');
+      await firebase.ready;
+      const db=firebase.getFirestore();
+      const [jobSnap,ticketSnap]=await Promise.all([
+        firebase.getDocs(firebase.collection(db,'grain_hauling_jobs')),
+        firebase.getDocs(firebase.collection(db,'grain_tickets'))
+      ]);
+      const jobs=jobSnap.docs.map(ds=>({id:ds.id,...(ds.data()||{})}));
+      const tickets=ticketSnap.docs.map(ds=>({id:ds.id,...(ds.data()||{})}));
+      const active=jobs.filter(j=>['active','past_due'].includes(status(tickets,j))).sort((a,b)=>{
+        const as=status(tickets,a)==='past_due'?0:1,bs=status(tickets,b)==='past_due'?0:1;
+        return as-bs||jobName(a).localeCompare(jobName(b),undefined,{numeric:true,sensitivity:'base'});
+      });
+      const tbody=section.querySelector('#fv-ahj-tbody');
+      if(!active.length){tbody.innerHTML='<tr><td colspan="10" class="fv-ahj-empty">No active hauling jobs.</td></tr>';return;}
+      tbody.innerHTML=active.map(j=>{
+        const jt=ticketsFor(tickets,j.id),g=weighted(jt),st=status(tickets,j);
+        return `<tr class="fv-ahj-row" data-job-id="${esc(j.id)}">
+          <td><span class="fv-ahj-jobname">${esc(jobName(j))}</span></td>
+          <td><span class="fv-ahj-status ${st==='past_due'?'past-due':''}">${st==='past_due'?'Past Due':'Active'}</span></td>
+          <td>${esc(cropLabel(j?.crop||j?.commodity))}</td>
+          <td>${fmtBu(starting(j))}</td><td>${fmtBu(g.bushels)}</td><td>${fmtBu(remaining(tickets,j))}</td>
+          <td>${g.loads.toLocaleString('en-US')}</td><td>${fmtGrade(g.moisture)}</td><td>${fmtGrade(g.fm)}</td><td>${fmtGrade(g.damage)}</td>
+        </tr>`;
+      }).join('');
+
+      tbody.querySelectorAll('[data-job-id]').forEach(row=>row.addEventListener('click',()=>{
+        const job=active.find(j=>j.id===row.dataset.jobId);if(!job)return;
+        const jt=ticketsFor(tickets,job.id).sort((a,b)=>dateValue(b).localeCompare(dateValue(a))||ticketNumber(a).localeCompare(ticketNumber(b),undefined,{numeric:true,sensitivity:'base'}));
+        const g=weighted(jt);
+        modal.querySelector('#fv-ahj-modal-title').textContent=jobName(job);
+        const sold=clean(job?.customerName||job?.soldUnderName||job?.soldUnder);
+        modal.querySelector('#fv-ahj-modal-sub').textContent=[cropLabel(job?.crop||job?.commodity),sold?`Sold Under: ${sold}`:''].filter(Boolean).join(' • ');
+        modal.querySelector('#fv-ahj-summary').innerHTML=`
+          <div class="detail-box"><div class="detail-label">Starting Bushels</div><div class="detail-value">${fmtBu(starting(job))}</div></div>
+          <div class="detail-box"><div class="detail-label">Ticketed Bushels</div><div class="detail-value">${fmtBu(g.bushels)}</div></div>
+          <div class="detail-box"><div class="detail-label">Remaining</div><div class="detail-value">${fmtBu(remaining(tickets,job))}</div></div>
+          <div class="detail-box"><div class="detail-label">Loads</div><div class="detail-value">${g.loads}</div></div>
+          <div class="detail-box"><div class="detail-label">Avg Moisture</div><div class="detail-value">${fmtGrade(g.moisture)}</div></div>
+          <div class="detail-box"><div class="detail-label">Avg FM / Damage</div><div class="detail-value">${fmtGrade(g.fm)} / ${fmtGrade(g.damage)}</div></div>`;
+        modal.querySelector('#fv-ahj-ticket-list').innerHTML=jt.length?`
+          <div class="table-wrap"><table class="harvest-drill-table"><thead><tr><th>Ticket #</th><th>Date</th><th>Driver</th><th>Bushels</th><th>MO</th><th>FM</th><th>Damage</th></tr></thead><tbody>
+          ${jt.map(t=>`<tr><td><a class="fv-ahj-ticket-link" href="/pages/grain/grain-ticket-detail.html?id=${encodeURIComponent(t.id)}">${esc(ticketNumber(t))}</a></td><td>${esc(dateValue(t)||'—')}</td><td>${esc(driver(t))}</td><td>${fmtBu(ticketBushels(t))}</td><td>${fmtGrade(t?.moisture??t?.mo)}</td><td>${fmtGrade(t?.foreignMaterial??t?.fm)}</td><td>${fmtGrade(t?.damage??t?.dm)}</td></tr>`).join('')}
+          </tbody></table></div>`:'<div class="fv-ahj-empty">No tickets are linked to this hauling job yet.</div>';
+        modal.classList.add('open');modal.setAttribute('aria-hidden','false');document.body.style.overflow='hidden';
+      }));
+    }catch(error){
+      console.error('[FarmVista] Active hauling jobs overview failed:',error);
+      const tbody=section.querySelector('#fv-ahj-tbody');
+      if(tbody)tbody.innerHTML='<tr><td colspan="10" class="fv-ahj-empty">Active hauling jobs could not be loaded.</td></tr>';
+    }
+  }
+
   const path=String(location.pathname||'').toLowerCase();
   const isDetail=path.endsWith('/pages/grain/grain-ticket-detail.html');
+
+  if(path.endsWith('/pages/grain/index.html')) installActiveHaulingJobs();
 
   if(isDetail){
     enhanceDetail();
