@@ -8,9 +8,8 @@ import {
 } from '/js/firebase-init.js';
 
 const path = String(location.pathname || '').toLowerCase();
-if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) {
-  // This module is only for the grain ticket detail page.
-} else {
+
+if (path.endsWith('/pages/grain/grain-ticket-detail.html')) {
   const params = new URLSearchParams(location.search);
   const ticketId = String(params.get('id') || '').trim();
 
@@ -19,11 +18,12 @@ if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) {
 
   let desiredFieldName = '';
   let fieldChoices = [];
+  let fieldsById = new Map();
+
   let menuObserver = null;
   let labelObserver = null;
-  let applyingLabel = false;
-  let compactingMenu = false;
-  let fieldsById = new Map();
+  let menuRaf = 0;
+  let disposed = false;
 
   const sourceButtonText = () => document.getElementById('grainSourceButtonText');
   const sourceMenu = () => document.getElementById('grainSourceMenu');
@@ -42,6 +42,7 @@ if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) {
       await ready;
       const db = getFirestore();
       const snap = await getDocs(collection(db, 'fields'));
+
       fieldsById = new Map();
       snap.forEach(ds => {
         const data = ds.data() || {};
@@ -67,24 +68,47 @@ if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) {
     }
   }
 
+  function observeLabel() {
+    if (disposed || !labelObserver) return;
+    const label = sourceButtonText();
+    if (!label) return;
+
+    labelObserver.observe(label, {
+      childList: true,
+      characterData: true,
+      subtree: true
+    });
+  }
+
+  function writeDisplayedLabel(text) {
+    const label = sourceButtonText();
+    if (!label || clean(label.textContent) === text) return;
+
+    /*
+      IMPORTANT:
+      Disconnect while FarmVista changes the label. MutationObserver callbacks
+      run after the current JavaScript stack, so a simple boolean guard can be
+      false again before the callback fires and can create a self-trigger loop.
+      Disconnecting around our own write makes the guard deterministic.
+    */
+    labelObserver?.disconnect();
+    label.textContent = text;
+    observeLabel();
+  }
+
   function setDisplayedFieldName() {
     const label = sourceButtonText();
-    if (!label || applyingLabel) return;
+    if (!label) return;
 
     const current = clean(label.textContent);
 
     if (desiredFieldName) {
-      if (current === desiredFieldName) return;
-      applyingLabel = true;
-      label.textContent = desiredFieldName;
-      applyingLabel = false;
+      writeDisplayedLabel(desiredFieldName);
       return;
     }
 
     if (norm(current) === 'active field harvest') {
-      applyingLabel = true;
-      label.textContent = 'Active Harvest';
-      applyingLabel = false;
+      writeDisplayedLabel('Active Harvest');
     }
   }
 
@@ -254,17 +278,28 @@ if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) {
     requestAnimationFrame(() => input.focus());
   }
 
+  function observeMenu() {
+    if (disposed || !menuObserver) return;
+    const menu = sourceMenu();
+    if (!menu) return;
+
+    menuObserver.observe(menu, {
+      childList: true,
+      subtree: true
+    });
+  }
+
   function compactSourceMenu() {
     const menu = sourceMenu();
-    if (!menu || compactingMenu) return;
+    if (!menu || disposed) return;
 
-    const allButtons = Array.from(menu.querySelectorAll('.load-picker-choice'));
-    if (!allButtons.length) return;
-
-    compactingMenu = true;
+    /* Never observe our own menu edits. */
+    menuObserver?.disconnect();
 
     try {
-      /* One visible name everywhere: Active Harvest. */
+      const allButtons = Array.from(menu.querySelectorAll('.load-picker-choice'));
+      if (!allButtons.length) return;
+
       allButtons.forEach(button => {
         const value = clean(button.dataset.sourceValue);
         if (
@@ -283,11 +318,6 @@ if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) {
           const fieldId = parseFieldIdFromValue(value);
           const canonicalName = fieldsById.get(fieldId);
 
-          /*
-            IMPORTANT: only mutate DOM when the value is actually different.
-            Reassigning textContent on every observer pass caused a self-triggering
-            MutationObserver loop that could lock Ticket Details on iPhone/Safari.
-          */
           if (canonicalName && clean(button.textContent) !== canonicalName) {
             button.textContent = canonicalName;
           }
@@ -346,14 +376,24 @@ if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) {
         if (button.dataset.fvClearFieldBound === '1') return;
         const value = clean(button.dataset.sourceValue);
         if (!value || value.startsWith('active_field_harvest:field:')) return;
+
         button.dataset.fvClearFieldBound = '1';
         button.addEventListener('click', stopShowingSavedField, { capture: true });
       });
 
       setDisplayedFieldName();
     } finally {
-      compactingMenu = false;
+      observeMenu();
     }
+  }
+
+  function scheduleCompactSourceMenu() {
+    if (disposed || menuRaf) return;
+
+    menuRaf = requestAnimationFrame(() => {
+      menuRaf = 0;
+      compactSourceMenu();
+    });
   }
 
   async function loadSavedFieldName() {
@@ -374,7 +414,6 @@ if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) {
         parseFieldIdFromValue(sourceValue)
       );
 
-      /* Only show a saved Field when it resolves to a real /fields document. */
       desiredFieldName = fieldId ? clean(fieldsById.get(fieldId)) : '';
       setDisplayedFieldName();
     } catch (error) {
@@ -388,18 +427,16 @@ if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) {
 
     if (label && !labelObserver) {
       labelObserver = new MutationObserver(() => {
-        if (!applyingLabel) setDisplayedFieldName();
+        if (disposed) return;
+        requestAnimationFrame(setDisplayedFieldName);
       });
-      labelObserver.observe(label, { childList: true, characterData: true, subtree: true });
+      observeLabel();
     }
 
     if (menu && !menuObserver) {
-      menuObserver = new MutationObserver(() => {
-        if (compactingMenu) return;
-        requestAnimationFrame(compactSourceMenu);
-      });
-      menuObserver.observe(menu, { childList: true, subtree: true });
-      compactSourceMenu();
+      menuObserver = new MutationObserver(scheduleCompactSourceMenu);
+      observeMenu();
+      scheduleCompactSourceMenu();
     }
   }
 
@@ -408,6 +445,8 @@ if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) {
     await loadFieldIndex();
     startObservers();
     await loadSavedFieldName();
+
+    /* Bounded retries only; no polling loop. */
     setTimeout(moveHaulingJobUnderLoadNumber, 250);
     setTimeout(startObservers, 250);
     setTimeout(startObservers, 1000);
@@ -420,6 +459,8 @@ if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) {
   }
 
   window.addEventListener('pagehide', () => {
+    disposed = true;
+    if (menuRaf) cancelAnimationFrame(menuRaf);
     labelObserver?.disconnect();
     menuObserver?.disconnect();
     closeFieldModal();
