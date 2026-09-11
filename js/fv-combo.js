@@ -1,11 +1,11 @@
 /* /js/fv-combo.js
-   FarmVista Combo Upgrader — v1.4.1
+   FarmVista Combo Upgrader — v1.4.2
    - Rounded, tight “buttonish + combo panel”.
    - Portals to <body> so parents can’t clip it.
    - Panels prefer to open below; flip up if needed.
    - Footer-aware: detects .ftr height and z-index (900 by your CSS),
      sets panel z-index to (footerZ - 1) so the footer always overlays.
-   - List max-height clamps to stay above the footer line.
+   - Every long list is height-clamped to the visible viewport and scrolls.
    - Small padding + overflow fixes keep scrollbar end-cap visible.
    - Opt in with: <select data-fv-combo ...> (optional: data-fv-search="true")
 */
@@ -54,7 +54,8 @@
     box-shadow:var(--combo-shadow);
     /* z-index is set dynamically to (footerZ - 1) so footer wins */
     padding:8px; display:none;
-    overflow:hidden;              /* keeps scrollbar/arrow from visually bleeding */
+    overflow:hidden;
+    max-height:calc(100vh - 16px);
   }
   .fv-panel.show{ display:block }
 
@@ -69,7 +70,12 @@
 
   .fv-panel .fv-list{
     max-height:var(--combo-max-h);
-    overflow:auto;
+    min-height:0;
+    overflow-y:auto;
+    overflow-x:hidden;
+    overscroll-behavior:contain;
+    -webkit-overflow-scrolling:touch;
+    scrollbar-gutter:stable;
     border-top:1px solid var(--border);
     padding-bottom:10px;          /* ensures scrollbar end-cap is visible */
   }
@@ -240,7 +246,7 @@
         : `<div class="fv-empty">(no matches)</div>`;
     }
 
-    /* ----- Smart placement (no footer overlap; footer overlays if touched) ----- */
+    /* ----- Smart placement (always remains inside visible viewport) ----- */
     let scrollUnsub = null;
 
     function computeAndApplyZ() {
@@ -251,52 +257,72 @@
     function placePanel() {
       computeAndApplyZ();
 
-      const gap = Math.max(4, parseInt(getComputedStyle(document.documentElement).getPropertyValue('--combo-gap')) || 4);
+      const rootStyle = getComputedStyle(document.documentElement);
+      const gap = Math.max(4, parseInt(rootStyle.getPropertyValue('--combo-gap')) || 4);
+      const hardListCeiling = parseInt(rootStyle.getPropertyValue('--combo-max-h')) || 600;
       const r = anchor.getBoundingClientRect();
       const vwW = window.innerWidth;
       const vwH = window.innerHeight;
 
       const footerH = getFooterHeight();
-      const bottomLimit = vwH - footerH - 6;
+      const topLimit = 8;
+      const bottomLimit = Math.max(topLimit + 80, vwH - footerH - 6);
 
-      // Panel is already display:block via .show; just hide visually while measuring.
       panel.style.visibility = 'hidden';
 
       const desiredWidth = Math.max(180, r.width);
       panel.style.width = desiredWidth + 'px';
       const panelW = panel.offsetWidth || desiredWidth;
-      let left = Math.round(Math.min(Math.max(8, r.left), vwW - panelW - 8));
+      const left = Math.round(Math.min(Math.max(8, r.left), vwW - panelW - 8));
 
-      let desiredTop = r.bottom + gap;
-
-      const fullH = panel.offsetHeight || 0;
-
-      if ((desiredTop + fullH) > bottomLimit) {
-        const tryUp = r.top - gap - fullH;
-        if (tryUp >= 8) {
-          desiredTop = tryUp;
-        } else {
-          desiredTop = Math.max(8, desiredTop);
-        }
-      }
-
-      const maxBottom = bottomLimit;
       const searchEl = panel.querySelector('.fv-search');
       const searchChrome = searchEl ? (searchEl.getBoundingClientRect().height || 42) : 0;
-      const chrome = 8 + 8 + 2 + searchChrome;
+      const chrome = 18 + searchChrome;
+
+      // Remove the previous inline clamp before measuring natural content height.
+      const listEl = panel.querySelector('.fv-list');
+      if (listEl) listEl.style.maxHeight = hardListCeiling + 'px';
+
+      const naturalPanelHeight = panel.offsetHeight || (chrome + 120);
+      const belowTop = r.bottom + gap;
+      const aboveBottom = r.top - gap;
+      const spaceBelow = Math.max(0, bottomLimit - belowTop);
+      const spaceAbove = Math.max(0, aboveBottom - topLimit);
+
+      let openUp = false;
+      if (naturalPanelHeight > spaceBelow && spaceAbove > spaceBelow) {
+        openUp = true;
+      }
+
+      const availablePanelHeight = Math.max(
+        72,
+        openUp ? spaceAbove : spaceBelow
+      );
+
       const maxListHeight = Math.max(
-        120,
+        56,
         Math.min(
-          parseInt(getComputedStyle(document.documentElement).getPropertyValue('--combo-max-h')) || 600,
-          maxBottom - desiredTop - 12 - chrome
+          hardListCeiling,
+          availablePanelHeight - chrome
         )
       );
 
-      const listEl = panel.querySelector('.fv-list');
       if (listEl) listEl.style.maxHeight = maxListHeight + 'px';
 
+      // Re-measure after clamping the list and position the entire panel on-screen.
+      const clampedPanelHeight = panel.offsetHeight || Math.min(naturalPanelHeight, availablePanelHeight);
+      let desiredTop = openUp
+        ? aboveBottom - clampedPanelHeight
+        : belowTop;
+
+      desiredTop = Math.max(
+        topLimit,
+        Math.min(desiredTop, bottomLimit - clampedPanelHeight)
+      );
+
       panel.style.left = left + 'px';
-      panel.style.top  = Math.round(desiredTop) + 'px';
+      panel.style.top = Math.round(desiredTop) + 'px';
+      panel.style.maxHeight = Math.max(72, bottomLimit - desiredTop) + 'px';
       panel.style.visibility = '';
     }
 
@@ -367,6 +393,7 @@
       render('');
       const currOpt = Array.from(sel.options).find(o => o.value === prev) || sel.options[sel.selectedIndex];
       btn.textContent = currOpt?.text || placeholder;
+      if (panel.classList.contains('show')) placePanel();
     });
     mo.observe(sel, { childList: true, subtree: true, attributes: true });
 
