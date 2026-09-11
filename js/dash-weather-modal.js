@@ -1,10 +1,11 @@
 // /js/dash-weather-modal.js
-// Rev: 2026-09-11-weather-zip-persistent-sync-v2
+// Rev: 2026-09-11-weather-zip-instant-persistent
 //
 // Dashboard weather card -> modal wiring.
 // ZIP editing exists ONLY inside Weather details.
 // The selected ZIP is persisted by fv-weather.js and is always reused by both
 // the modal and the main dashboard weather tile on future page loads.
+// Saved weather renders immediately without repeated forced network refreshes.
 
 (function () {
   "use strict";
@@ -134,44 +135,55 @@
     return resolvedWeatherLocationPromise;
   }
 
-  async function renderMainWeather(loc) {
+  async function renderMainWeather(loc, forceRefresh) {
     const shell = document.getElementById("fv-weather");
     if (!shell || !hasValidCoordinates(loc)) return;
     if (!window.FVWeather || typeof window.FVWeather.initWeatherModule !== "function") return;
 
     window.FV_DASH_WEATHER_LOCATION = loc;
 
+    const options = {
+      googleApiKey: WEATHER_GOOGLE_KEY,
+      lat: Number(loc.lat),
+      lon: Number(loc.lon),
+      unitsSystem: "IMPERIAL",
+      selector: "#fv-weather",
+      showOpenMeteo: true,
+      mode: "card",
+      locationLabel: loc.locationLabel || ""
+    };
+
+    /*
+      IMPORTANT: do not force-refresh on normal dashboard startup/navigation.
+      fv-weather.js can reuse its normal cached/rendered state and start quickly.
+      A forced refresh is reserved for an actual ZIP change.
+    */
+    if (forceRefresh === true) options.__forceRefresh = true;
+
     try {
-      await window.FVWeather.initWeatherModule({
-        googleApiKey: WEATHER_GOOGLE_KEY,
-        lat: Number(loc.lat),
-        lon: Number(loc.lon),
-        unitsSystem: "IMPERIAL",
-        selector: "#fv-weather",
-        showOpenMeteo: true,
-        mode: "card",
-        locationLabel: loc.locationLabel || "",
-        __forceRefresh: true
-      });
+      await window.FVWeather.initWeatherModule(options);
     } catch (err) {
       console.error("Weather: dashboard tile refresh failed.", err);
     }
   }
 
-  async function forceSavedLocationOntoDashboard() {
+  async function forceSavedLocationOntoDashboard(forceRefresh) {
     const saved = readSavedWeatherLocation();
     if (!hasValidCoordinates(saved)) return;
     window.FV_DASH_WEATHER_LOCATION = saved;
     resolvedWeatherLocationPromise = Promise.resolve(saved);
-    await renderMainWeather(saved);
+    await renderMainWeather(saved, forceRefresh === true);
   }
 
   function queueSavedLocationOverride() {
-    // index.html may initialize company weather after DOM ready/fv:company.
-    // Reapply the user's saved ZIP after that initialization completes.
-    setTimeout(forceSavedLocationOntoDashboard, 0);
-    setTimeout(forceSavedLocationOntoDashboard, 250);
-    setTimeout(forceSavedLocationOntoDashboard, 750);
+    /*
+      index.html also initializes company weather on fv:company.
+      Reapply the saved ZIP once, on the next task, after all synchronous
+      fv:company listeners finish. Do not fire repeated weather requests.
+    */
+    setTimeout(function () {
+      forceSavedLocationOntoDashboard(false);
+    }, 0);
   }
 
   function syncSavedZipToDashboard(expectedZip) {
@@ -187,14 +199,14 @@
       if (hasValidCoordinates(saved) && savedZip === wantedZip) {
         window.FV_DASH_WEATHER_LOCATION = saved;
         resolvedWeatherLocationPromise = Promise.resolve(saved);
-        await renderMainWeather(saved);
+        await renderMainWeather(saved, true);
         return;
       }
 
-      if (attempts < 16) zipSyncTimer = setTimeout(check, 250);
+      if (attempts < 12) zipSyncTimer = setTimeout(check, 200);
     }
 
-    zipSyncTimer = setTimeout(check, 450);
+    zipSyncTimer = setTimeout(check, 250);
   }
 
   onReady(function () {
@@ -208,10 +220,18 @@
       return;
     }
 
-    if (hasValidCoordinates(readSavedWeatherLocation())) {
-      queueSavedLocationOverride();
+    /*
+      Fast path: if the user already chose a ZIP, use those saved coordinates
+      immediately. No company lookup and no ZIP geocoding is needed.
+    */
+    const savedAtLoad = readSavedWeatherLocation();
+    if (hasValidCoordinates(savedAtLoad)) {
+      window.FV_DASH_WEATHER_LOCATION = savedAtLoad;
+      resolvedWeatherLocationPromise = Promise.resolve(savedAtLoad);
+      renderMainWeather(savedAtLoad, false);
     }
 
+    /* Company initialization may run later; saved ZIP still wins afterward. */
     document.addEventListener("fv:company", queueSavedLocationOverride);
 
     async function openModal() {
