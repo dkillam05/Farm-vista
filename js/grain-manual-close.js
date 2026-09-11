@@ -224,3 +224,28 @@ new MutationObserver(sync).observe(document.documentElement,{subtree:true,childL
 document.addEventListener('click',() => setTimeout(sync,0),true);
 setInterval(sync,700);
 sync();
+
+/*
+  Sept. 11, 2026 — Ticket -> Hauling Job first-load context.
+  The hybrid DND workspace intentionally lets the active ticket determine the
+  compatible jobs shown on the right. On first render there can be several
+  unassigned tickets, so select the first card automatically instead of making
+  the user click/half-drag once before any hauling job appears.
+*/
+let fvInitialTicketContextSet = false;
+const setInitialTicketContext = () => {
+  if(fvInitialTicketContextSet) return;
+  const list = document.getElementById('fv-unassigned-ticket-list');
+  if(!list) return;
+  if(list.querySelector('.fv-hauling-ticket-card.fv-active-ticket')){
+    fvInitialTicketContextSet = true;
+    return;
+  }
+  const first = list.querySelector('.fv-hauling-ticket-card[data-ticket-id]');
+  if(!first) return;
+  fvInitialTicketContextSet = true;
+  first.click();
+};
+
+new MutationObserver(() => setTimeout(setInitialTicketContext,0)).observe(document.documentElement,{subtree:true,childList:true});
+setTimeout(setInitialTicketContext,0);
