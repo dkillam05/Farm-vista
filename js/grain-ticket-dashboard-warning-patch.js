@@ -1,8 +1,14 @@
 /* FarmVista Grain Ticket dashboard destination / hauling-job warning
-   Rev 2026-09-10d
+   Rev 2026-09-11a
 
-   A review ticket becomes red Warning when its resolved destination + crop
-   have no current open hauling job. Missing contract alone is not a warning.
+   Resolved tickets that are already assigned to a valid hauling job must show
+   Good on the dashboard even when an older OCR/review flag is still stored on
+   the ticket. Historical assigned tickets are not reclassified as Warning just
+   because their hauling job is no longer the current open job.
+
+   Unassigned review tickets can still become Warning when their resolved
+   destination + crop have no current open hauling job. Missing contract alone
+   is not a warning.
 
    IMPORTANT: keep DOM mutations idempotent. This helper runs beside the
    dashboard renderer; a subtree MutationObserver that rewrites badge text can
@@ -28,6 +34,11 @@
     .replace(/[^a-z0-9]+/g,' ')
     .replace(/\s+/g,' ')
     .trim();
+
+  const present=value=>{
+    const v=norm(value);
+    return !!v&&v!=='unknown'&&v!=='none'&&v!=='not selected'&&v!=='notselected';
+  };
 
   const cropKey=value=>{
     const v=norm(value);
@@ -69,6 +80,52 @@
     if(end&&end<todayISO()) return false;
 
     return true;
+  }
+
+  function linkedJobForTicket(ticket){
+    const jobId=clean(ticket?.haulingJobId||ticket?.jobId);
+    if(!jobId) return null;
+    return haulingJobs.find(job=>clean(job?.id)===jobId)||null;
+  }
+
+  function linkedJobIsValid(job){
+    if(!job||job.active===false||job.isActive===false) return false;
+    const status=norm(job.status||job.contractStatus);
+    return !status.includes('void')&&!status.includes('cancel');
+  }
+
+  function ticketHasResolvedAssignment(ticket){
+    const job=linkedJobForTicket(ticket);
+    if(!linkedJobIsValid(job)) return false;
+
+    const customerResolved=
+      present(ticket?.customerId)||
+      present(ticket?.grainCustomerId)||
+      present(ticket?.customerName)||
+      present(ticket?.soldUnderId)||
+      present(ticket?.soldUnderName)||
+      present(ticket?.soldUnder);
+
+    const destinationResolved=
+      present(ticket?.deliveryLocationId)||
+      present(ticket?.destinationId)||
+      present(ticket?.deliveryLocationName)||
+      present(ticket?.destinationName)||
+      present(ticket?.locationName)||
+      present(ticket?.buyerId)||
+      present(ticket?.buyerName);
+
+    const cropResolved=present(ticket?.crop||ticket?.commodity);
+
+    const sourceResolved=
+      present(ticket?.grainSourceType)||
+      present(ticket?.grainSourceName)||
+      present(ticket?.grainSourceValue)||
+      present(ticket?.grainSourceId)||
+      present(ticket?.fieldId)||
+      present(ticket?.fieldName);
+
+    return customerResolved&&destinationResolved&&cropResolved&&sourceResolved;
   }
 
   function destinationAliases(record){
@@ -136,6 +193,15 @@
     }
   }
 
+  function makeGood(row,badge){
+    row.classList.remove('ticket-warning-row','ticket-review-row');
+    badge.classList.remove('warning','review','job');
+    badge.classList.add('good');
+    if(badge.textContent!=='Good') badge.textContent='Good';
+    badge.removeAttribute('title');
+    delete badge.dataset.fvDestinationJobWarning;
+  }
+
   function resetBadge(row,badge){
     if(!badge?.dataset?.fvDestinationJobWarning) return;
 
@@ -181,6 +247,16 @@
 
         const badge=row.querySelector('.ticket-status');
         if(!badge) return;
+
+        /*
+          Once the ticket has a real hauling job and the load context is fully
+          resolved, the dashboard must agree with Ticket Detail and show Good.
+          Do this before checking stale validationStatus/reviewReasons.
+        */
+        if(ticketHasResolvedAssignment(ticket)){
+          makeGood(row,badge);
+          return;
+        }
 
         if(hasOpenHaulingJobForTicket(ticket)){
           resetBadge(row,badge);
