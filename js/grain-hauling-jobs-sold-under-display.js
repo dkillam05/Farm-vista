@@ -25,6 +25,7 @@
   let buyerSelectWired = false;
   let locationSelectWired = false;
   let addJobResetWired = false;
+  let contractStatusVoidedWired = false;
   let buyerSyncToken = 0;
 
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -692,6 +693,40 @@
     return true;
   }
 
+  function wireVoidedIntoStatusFilter() {
+    const status = document.getElementById('status-filter');
+    const checkbox = document.getElementById('show-voided-checkbox');
+    if (!status || !checkbox) return false;
+
+    if (!Array.from(status.options).some(option => option.value === 'voided')) {
+      const option = document.createElement('option');
+      option.value = 'voided';
+      option.textContent = 'Voided';
+      status.appendChild(option);
+    }
+
+    const oldToggle = checkbox.closest('.show-voided-toggle');
+    if (oldToggle) {
+      oldToggle.style.display = 'none';
+      oldToggle.setAttribute('aria-hidden', 'true');
+    }
+
+    const syncVoidedState = () => {
+      const wantsVoided = status.value === 'voided';
+      if (checkbox.checked === wantsVoided) return;
+      checkbox.checked = wantsVoided;
+      checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+
+    if (!contractStatusVoidedWired) {
+      contractStatusVoidedWired = true;
+      status.addEventListener('change', syncVoidedState);
+    }
+
+    syncVoidedState();
+    return true;
+  }
+
   function watchHaulingJobModal() {
     const modal = document.getElementById(JOB_MODAL_ID);
     if (!modal) return false;
@@ -823,6 +858,7 @@
     wireFreshAddJobReset();
     layoutHaulingJobModal();
     moveContractActionsIntoCard();
+    wireVoidedIntoStatusFilter();
     watchHaulingJobModal();
 
     if (!attachToTable()) {
@@ -833,6 +869,7 @@
         wireFreshAddJobReset();
         layoutHaulingJobModal();
         moveContractActionsIntoCard();
+        wireVoidedIntoStatusFilter();
         watchHaulingJobModal();
         if (attachToTable()) pageObserver.disconnect();
       });
