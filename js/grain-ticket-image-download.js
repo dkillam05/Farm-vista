@@ -469,7 +469,12 @@
   const path=String(location.pathname||'').toLowerCase();
   const isDetail=path.endsWith('/pages/grain/grain-ticket-detail.html');
 
-  if(path.endsWith('/pages/grain/index.html')) installActiveHaulingJobs();
+  if(path.endsWith('/pages/grain/index.html')) {
+    installActiveHaulingJobs();
+    import('/js/grain-hauling-job-contract-drilldown.js?v=20260911-1').catch(error=>{
+      console.error('[FarmVista] Hauling job contract drill-down loader failed:',error);
+    });
+  }
 
   if(isDetail){
     enhanceDetail();
