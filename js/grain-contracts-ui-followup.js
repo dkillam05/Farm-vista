@@ -1,36 +1,22 @@
+import "/js/fv-combo.js";
+
 /* FarmVista — Grain Contracts UI follow-up
    Sept. 11, 2026
 
-   - Make the Grain Tickets -> Hauling Jobs filters use FarmVista custom combos.
-   - When a hauling job has NO linked contracts, keep the original simple
-     Assigned Tickets popup instead of labeling tickets as spot/uncontracted.
+   - Make Assign Grain Tickets to Hauling Jobs filters use the same FarmVista
+     custom rounded combo control used elsewhere.
+   - In simple hauling mode, do not label normal hauling-job tickets as
+     "Uncontracted / Spot Tickets". If a hauling-job popup has no actual
+     linked-contract groups, keep it as the plain Assigned Tickets view.
 */
 (() => {
   'use strict';
 
-  if (window.__FV_GRAIN_CONTRACTS_UI_FOLLOWUP_20260911) return;
-  window.__FV_GRAIN_CONTRACTS_UI_FOLLOWUP_20260911 = true;
+  if (window.__FV_GRAIN_CONTRACTS_UI_FOLLOWUP_20260911_V2) return;
+  window.__FV_GRAIN_CONTRACTS_UI_FOLLOWUP_20260911_V2 = true;
 
   const clean = value => String(value ?? '').trim();
   const norm = value => clean(value).toLowerCase();
-  const num = value => {
-    const parsed = Number(String(value ?? '').replace(/,/g, ''));
-    return Number.isFinite(parsed) ? parsed : 0;
-  };
-  const rawNum = value => {
-    if (value === null || value === undefined || value === '') return null;
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  };
-  const esc = value => clean(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
-
-  let currentJobId = '';
-  let ticketCache = null;
 
   function findTicketAssignmentBlock() {
     return Array.from(document.querySelectorAll('.workflow-block')).find(block =>
@@ -42,136 +28,69 @@
     const block = findTicketAssignmentBlock();
     if (!block) return;
 
-    const selects = Array.from(block.querySelectorAll('select'));
-    selects.forEach(select => {
-      if (!select.hasAttribute('data-fv-combo')) {
-        select.setAttribute('data-fv-combo', '');
-      }
+    block.querySelectorAll('select').forEach(select => {
+      select.setAttribute('data-fv-combo', '');
       select.setAttribute('data-fv-search', 'false');
     });
 
-    if (window.FVCombo?.upgrade) {
-      window.FVCombo.upgrade(block);
-    }
+    window.FVCombo?.upgrade?.(block);
   }
 
-  async function ticketsForJob(jobId) {
-    if (!ticketCache) {
-      ticketCache = import('/js/firebase-init.js').then(async firebase => {
-        await firebase.ready;
-        const db = firebase.getFirestore();
-        const snap = await firebase.getDocs(firebase.collection(db, 'grain_tickets'));
-        return snap.docs.map(docSnap => ({ id:docSnap.id, ...docSnap.data() }));
-      }).catch(error => {
-        ticketCache = null;
-        throw error;
-      });
-    }
+  function installSimplePopupStyles() {
+    if (document.getElementById('fv-simple-hauling-popup-style')) return;
 
-    const tickets = await ticketCache;
-    return tickets
-      .filter(ticket => {
-        const voided = ticket?.voided === true || norm(ticket?.status).includes('void');
-        return !voided && clean(ticket?.haulingJobId) === clean(jobId);
-      })
-      .sort((a,b) => {
-        const ad = clean(a?.ticketDate || a?.date || a?.deliveryDate);
-        const bd = clean(b?.ticketDate || b?.date || b?.deliveryDate);
-        const an = clean(a?.ticketNumber || a?.ticketNo || a?.number);
-        const bn = clean(b?.ticketNumber || b?.ticketNo || b?.number);
-        return bd.localeCompare(ad) || an.localeCompare(bn, undefined, { numeric:true, sensitivity:'base' });
-      });
+    const style = document.createElement('style');
+    style.id = 'fv-simple-hauling-popup-style';
+    style.textContent = `
+      .fv-simple-only-job-group{
+        border:0 !important;
+        border-radius:0 !important;
+        overflow:visible !important;
+        background:transparent !important;
+      }
+      .fv-simple-only-job-group > .fv-job-contract-toggle{
+        display:none !important;
+      }
+      .fv-simple-only-job-group > .fv-job-contract-body{
+        background:transparent !important;
+      }
+    `;
+    document.head.appendChild(style);
   }
 
-  function fmtBu(value) {
-    return num(value).toLocaleString('en-US', { maximumFractionDigits:2 });
-  }
-
-  function fmtGrade(value) {
-    const parsed = rawNum(value);
-    return parsed === null ? '—' : parsed.toFixed(1);
-  }
-
-  function ticketNo(ticket) {
-    return clean(ticket?.ticketNumber || ticket?.ticketNo || ticket?.number || ticket?.scaleTicketNumber) || clean(ticket?.id).slice(0,10);
-  }
-
-  function ticketDate(ticket) {
-    return clean(ticket?.ticketDate || ticket?.date || ticket?.deliveryDate) || '—';
-  }
-
-  function ticketBushels(ticket) {
-    return num(ticket?.netBushels ?? ticket?.netBu ?? ticket?.bushels);
-  }
-
-  function flatTicketTable(tickets) {
-    return `
-      <div class="fv-contract-job-table-wrap">
-        <table class="fv-contract-job-table">
-          <thead>
-            <tr><th>Ticket #</th><th>Date</th><th>Bushels</th><th>MO</th><th>FM</th><th>Damage</th></tr>
-          </thead>
-          <tbody>
-            ${tickets.map(ticket => `
-              <tr>
-                <td><a class="fv-contract-job-ticket-link" href="/pages/grain/grain-ticket-detail.html?id=${encodeURIComponent(clean(ticket.id))}">Ticket ${esc(ticketNo(ticket))}</a></td>
-                <td>${esc(ticketDate(ticket))}</td>
-                <td>${fmtBu(ticketBushels(ticket))} bu</td>
-                <td>${fmtGrade(ticket?.moisture ?? ticket?.mo ?? ticket?.MO)}</td>
-                <td>${fmtGrade(ticket?.foreignMaterial ?? ticket?.fm ?? ticket?.FM)}</td>
-                <td>${fmtGrade(ticket?.damage ?? ticket?.damaged ?? ticket?.dm ?? ticket?.DM)}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>`;
-  }
-
-  async function restoreSimpleOverviewWhenNoContracts() {
+  function normalizeSimpleHaulingPopup() {
     const modal = document.getElementById('fv-contract-hauling-overview');
-    if (!modal?.classList.contains('open') || !currentJobId) return;
+    if (!modal?.classList.contains('open')) return;
 
     const list = modal.querySelector('#fv-contract-job-ticket-list');
-    const heading = modal.querySelector('#fv-contract-job-ticket-heading');
-    if (!list || list.dataset.fvSimpleFallbackFor === currentJobId) return;
+    if (!list) return;
 
-    const realContractGroups = list.querySelectorAll('[data-fv-contract-group]').length;
-    const hasSpotLabel = /uncontracted\s*\/\s*spot/i.test(list.textContent || '');
+    const titles = Array.from(list.querySelectorAll('.fv-job-contract-title'));
+    const spotTitle = titles.find(node => /uncontracted\s*\/\s*spot\s*tickets/i.test(clean(node.textContent)));
+    if (!spotTitle) return;
 
-    // Only replace the grouped UI when the job truly has no linked contracts.
-    if (realContractGroups > 0 || !hasSpotLabel) return;
+    const hasActualContractGroup = titles.some(node => /^contract\b/i.test(clean(node.textContent)));
+    if (hasActualContractGroup) return;
 
-    try {
-      const tickets = await ticketsForJob(currentJobId);
-      if (!modal.classList.contains('open') || currentJobId !== clean(currentJobId)) return;
+    const group = spotTitle.closest('.fv-job-contract-group');
+    if (!group) return;
 
-      if (heading) heading.textContent = `Assigned Tickets (${tickets.length.toLocaleString('en-US')})`;
-      list.innerHTML = tickets.length
-        ? flatTicketTable(tickets)
-        : '<div class="fv-contract-job-empty">No tickets are linked to this hauling job yet.</div>';
+    group.classList.add('fv-simple-only-job-group');
 
-      list.dataset.fvSimpleFallbackFor = currentJobId;
-      // Keep the grouped renderer from immediately replacing this simple view again.
-      list.dataset.fvContractGroupedFor = currentJobId;
-    } catch (error) {
-      console.warn('[FarmVista] Could not restore simple hauling-job overview:', error);
+    const heading = modal.querySelector('#fv-contract-job-ticket-heading, .fv-contract-job-ticket-heading');
+    if (heading && !/^assigned tickets/i.test(clean(heading.textContent))) {
+      heading.textContent = 'Assigned Tickets';
     }
   }
 
-  function captureJobClick() {
-    document.addEventListener('click', event => {
-      const row = event.target?.closest?.('tr.hauling-row[data-hauling-job-id]');
-      if (!row) return;
-      currentJobId = clean(row.dataset.haulingJobId);
-      ticketCache = null;
-      setTimeout(restoreSimpleOverviewWhenNoContracts, 120);
-      setTimeout(restoreSimpleOverviewWhenNoContracts, 350);
-    }, true);
+  function runFixes() {
+    upgradeTicketAssignmentFilters();
+    normalizeSimpleHaulingPopup();
   }
 
   function start() {
-    upgradeTicketAssignmentFilters();
-    captureJobClick();
+    installSimplePopupStyles();
+    runFixes();
 
     let queued = false;
     new MutationObserver(() => {
@@ -179,10 +98,14 @@
       queued = true;
       requestAnimationFrame(() => {
         queued = false;
-        upgradeTicketAssignmentFilters();
-        restoreSimpleOverviewWhenNoContracts();
+        runFixes();
       });
-    }).observe(document.body, { childList:true, subtree:true, attributes:true, attributeFilter:['class'] });
+    }).observe(document.body, {
+      childList:true,
+      subtree:true,
+      attributes:true,
+      attributeFilter:['class']
+    });
   }
 
   if (document.readyState === 'loading') {
