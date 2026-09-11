@@ -51,32 +51,27 @@ jobs:
     });'''
 
           if old not in text:
+              if 'const haulingJobMismatch' in text:
+                  raise SystemExit(0)
               raise SystemExit('Expected isTicketWarning return statement was not found; refusing unsafe patch.')
 
           text = text.replace(old, new, 1)
           ticket_path.write_text(text, encoding='utf-8')
-
-          version_path = Path('js/version.js')
-          version = version_path.read_text(encoding='utf-8')
-          old_version = 'number:  "09.11.103"'
-          new_version = 'number:  "09.11.104"'
-          if old_version not in version:
-              raise SystemExit('Expected FarmVista version 09.11.103 was not found; refusing unsafe version bump.')
-          version = version.replace(old_version, new_version, 1)
-          version_path.write_text(version, encoding='utf-8')
           PY
 
       - name: Verify patch
         shell: bash
-        run: |
-          grep -q 'const haulingJobMismatch' pages/grain/grain-ticket.html
-          grep -q 'number:  "09.11.104"' js/version.js
+        run: grep -q 'const haulingJobMismatch' pages/grain/grain-ticket.html
 
       - name: Commit fix
         shell: bash
         run: |
+          if git diff --quiet -- pages/grain/grain-ticket.html; then
+            echo 'Patch already present; nothing to commit.'
+            exit 0
+          fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add pages/grain/grain-ticket.html js/version.js
+          git add pages/grain/grain-ticket.html
           git commit -m 'Show unmatched hauling-job tickets as warnings'
           git push
