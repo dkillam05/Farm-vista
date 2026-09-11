@@ -16,7 +16,7 @@
   (() => {
     'use strict';
 
-    const CORE_URL = '/pages/grain/grain-ticket-scan-core.html?v=20260911-4';
+    const CORE_URL = '/pages/grain/grain-ticket-scan-core.html?v=20260911-2';
 
     function replaceRequired(text, oldValue, newValue, label) {
       if (!text.includes(oldValue)) throw new Error(`Scanner patch marker missing: ${label}`);
@@ -146,15 +146,11 @@
 `;
 
       html = replaceRequired(html, '</style>', landscapeCss + '\n</style>', 'landscape camera layout');
-      html = replaceRequired(html, '/js/grain-ticket-ocr-grade-normalizer.js?v=20260909-6', '/js/grain-ticket-ocr-grade-normalizer.js?v=20260911-7', 'grade normalizer version');
-
-      if (!html.includes('/js/grain-ticket-adm-decatur-grade-fix.js')) {
-        html = html.replace('<script type="module">','<script src="/js/grain-ticket-adm-decatur-grade-fix.js?v=20260911-3"></script>\n<script type="module">');
-      }
+      html = replaceRequired(html, '/js/grain-ticket-ocr-grade-normalizer.js?v=20260909-6', '/js/grain-ticket-ocr-grade-normalizer.js?v=20260909-6', 'grade normalizer version');
 
       const oldAlias = `  if (\n    ocrName\n  ) {\n\n    const alias =\n      findLearnedAlias(\n        "customer",\n        ocrName\n      );\n\n\n    if (\n      alias?.targetId\n    ) {\n\n      const customer =\n        candidates.find(\n          item =>\n            item.id ===\n            alias.targetId\n        );\n\n\n      if (\n        customer\n      ) {\n\n        return {\n          matched:\n            true,\n\n          matchType:\n            "learned_alias",\n\n          customer\n        };\n\n      }\n\n    }\n\n  }\n`;
 
-      const newAlias = `  /* Learned Sold Under aliases prefer the elevator customer/account ID. */\n  const learnedCustomerAlias =\n    (ocrAccount ? findLearnedAlias("customer", ocrAccount) : null) ||\n    (ocrName ? findLearnedAlias("customer", ocrName) : null);\n\n\n  if (\n    learnedCustomerAlias?.targetId\n  ) {\n\n    const customer =\n      candidates.find(\n        item =>\n          String(item.id) ===\n            String(learnedCustomerAlias.targetId)\n      );\n\n\n    if (\n      customer\n    ) {\n\n      return {\n        matched:\n          true,\n\n          matchType:\n            "learned_alias",\n\n          customer\n        };\n\n    }\n\n  }\n`;
+      const newAlias = `  /* Learned Sold Under aliases prefer the elevator customer/account ID. */\n  const learnedCustomerAlias =\n    (ocrAccount ? findLearnedAlias("customer", ocrAccount) : null) ||\n    (ocrName ? findLearnedAlias("customer", ocrName) : null);\n\n\n  if (\n    learnedCustomerAlias?.targetId\n  ) {\n\n    const customer =\n      candidates.find(\n        item =>\n          String(item.id) ===\n            String(learnedCustomerAlias.targetId)\n      );\n\n\n    if (\n      customer\n    ) {\n\n      return {\n        matched:\n          true,\n\n        matchType:\n          "learned_alias",\n\n        customer\n      };\n\n    }\n\n  }\n`;
 
       html = replaceRequired(html, oldAlias, newAlias, 'customer alias lookup');
 
@@ -222,32 +218,6 @@
       const correctionBlock = `        ocrResult.manualCorrections = {\n          ...(ocrResult.manualCorrections || {}),\n          customer: {\n            originalValue: originalEvidence || null,\n            selectedId: selectedCustomer.id,\n            selectedValue: getCustomerName(selectedCustomer),\n            source: "driver_selection",\n            learningEligible: Boolean(originalEvidence),\n            learningReason:\n              originalEvidence\n                ? "ocr_evidence_confirmed"\n                : "driver_supplied_missing_value"\n          }\n        };\n`;
 
       html = replaceRequired(html, correctionBlock, correctionBlock + `\n        await saveDriverCustomerAliases(\n          grainTicket,\n          selectedCustomer\n        );\n`, 'sold under alias learning');
-
-      /* ============================================================
-         SEPT 11, 2026 — ADM DECATUR DESTINATION TEMPLATE
-
-         ADM Processing receipts identify the destination in the header with
-         Archer Daniels Midland / ADM Processing plus Decatur, IL and the
-         facility address. Treat that combination as authoritative when it
-         resolves to one FarmVista Decatur ADM delivery location.
-      ============================================================ */
-      const destinationFunctionMarker = `function findDeliveryLocationMatch(\n  grainTicket\n) {\n`;
-
-      const destinationTemplateLogic = `function findDeliveryLocationMatch(\n  grainTicket\n) {\n\n  const rawDestinationText =\n    normalizeMatchText(\n      grainTicket?.rawText ||\n      ""\n    );\n\n  const isAdmDecaturReceipt =\n    (\n      rawDestinationText.includes("adm processing") ||\n      rawDestinationText.includes("archer daniels midland")\n    ) &&\n    rawDestinationText.includes("decatur il") &&\n    (\n      rawDestinationText.includes("62522") ||\n      rawDestinationText.includes("4666 fairies parkway")\n    );\n\n  if (isAdmDecaturReceipt) {\n    const admDecaturLocations =\n      deliveryLocations.filter(\n        location => {\n          const city = normalizeMatchText(getLocationCity(location));\n          const state = normalizeMatchText(getLocationState(location));\n          const identity = normalizeMatchText(\n            [\n              getLocationName(location),\n              location?.buyerName || ""\n            ].join(" ")\n          );\n\n          return (\n            city === "decatur" &&\n            (!state || state === "il" || state === "illinois") &&\n            (\n              identity.includes("adm") ||\n              identity.includes("archer daniels midland")\n            )\n          );\n        }\n      );\n\n    const namedDecatur =\n      admDecaturLocations.filter(\n        location =>\n          normalizeMatchText(\n            getLocationName(location)\n          ).includes("decatur")\n      );\n\n    const location =\n      admDecaturLocations.length === 1\n        ? admDecaturLocations[0]\n        : namedDecatur.length === 1\n          ? namedDecatur[0]\n          : null;\n\n    if (location) {\n      console.log(\n        "[Grain Ticket] ADM Decatur template matched destination:",\n        { id: location.id, name: getLocationName(location) }\n      );\n\n      return {\n        matched: true,\n        matchType: "adm_decatur_template",\n        location\n      };\n    }\n  }\n`;
-
-      html = replaceRequired(html, destinationFunctionMarker, destinationTemplateLogic, 'ADM Decatur destination template');
-
-      /* ============================================================
-         SEPT 11, 2026 — VENDOR IS SOLD UNDER
-
-         On ADM receipts, CARRIER is the hauler and must never decide Sold
-         Under. VENDOR account/name is the authoritative Sold Under evidence.
-      ============================================================ */
-      const customerResultMarker = `  const result = {\n    account:\n      String(\n        grainTicket?.customerAccountText ||\n        ""\n      ).trim(),\n\n    name:\n      String(\n        grainTicket?.customerText ||\n        ""\n      ).trim(),\n\n    nearbyText:\n      ""\n  };\n`;
-
-      const customerResultWithVendor = customerResultMarker + `\n\n  const vendorIndex =\n    lines.findIndex(\n      line => /^\\s*vendor\\s*:/i.test(String(line || ""))\n    );\n\n  if (vendorIndex >= 0) {\n    const vendorLine = String(lines[vendorIndex] || "").trim();\n    const vendorValue = vendorLine.replace(/^\\s*vendor\\s*:\\s*/i, "").trim();\n    const accountMatch = vendorValue.match(/[A-Z0-9]*\\d[A-Z0-9-]*/i);\n    const vendorAccount = String(accountMatch?.[0] || "").trim();\n    const inlineName = vendorAccount\n      ? vendorValue.replace(vendorAccount, "").trim()\n      : "";\n    const nextLine = String(lines[vendorIndex + 1] || "").trim();\n    const nextLooksLikeLabel = /^(carrier|plate(?:\\s+id)?|vehicle|truck|ticket|weigh|gross|tare|net|scale|grade|farm\\s+name)\\s*:/i.test(nextLine);\n    const vendorName = inlineName || (!nextLooksLikeLabel ? nextLine : "");\n\n    if (vendorAccount) result.account = vendorAccount;\n    if (vendorName) result.name = vendorName;\n\n    result.nearbyText =\n      lines\n        .slice(vendorIndex, Math.min(lines.length, vendorIndex + 4))\n        .join(" ");\n\n    console.log(\n      "[Grain Ticket] Using VENDOR as Sold Under evidence:",\n      { account: result.account || null, name: result.name || null }\n    );\n\n    return result;\n  }\n`;
-
-      html = replaceRequired(html, customerResultMarker, customerResultWithVendor, 'vendor sold under evidence');
 
       const landscapeRuntime = `
 <script>
