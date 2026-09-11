@@ -4,7 +4,7 @@
 // and propagate contract assignments back to linked hauling jobs.
 import "/js/grain-hauling-jobs-core.js";
 import "/js/grain-contracts-hauling-overview-groups.js?v=20260911-1540";
-import "/js/grain-contracts-ui-followup.js?v=20260911-1558";
+import "/js/grain-contracts-ui-followup.js?v=20260911-1608";
 import {
   ready,
   getFirestore,
@@ -120,7 +120,7 @@ function ticketContractIds(ticket) {
     });
   }
 
-  const legacyContractId = clean(ticket?.contractId);
+  const legacyContractId = clean(ticket.contractId);
   if (!ids.length && legacyContractId) ids.push(legacyContractId);
 
   return [...new Set(ids)];
