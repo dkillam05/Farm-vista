@@ -16,7 +16,7 @@
   (() => {
     'use strict';
 
-    const CORE_URL = '/pages/grain/grain-ticket-scan-core.html?v=20260911-1';
+    const CORE_URL = '/pages/grain/grain-ticket-scan-core.html?v=20260911-2';
 
     function replaceRequired(text, oldValue, newValue, label) {
       if (!text.includes(oldValue)) throw new Error(`Scanner patch marker missing: ${label}`);
@@ -153,6 +153,32 @@
       const newAlias = `  /* Learned Sold Under aliases prefer the elevator customer/account ID. */\n  const learnedCustomerAlias =\n    (ocrAccount ? findLearnedAlias("customer", ocrAccount) : null) ||\n    (ocrName ? findLearnedAlias("customer", ocrName) : null);\n\n\n  if (\n    learnedCustomerAlias?.targetId\n  ) {\n\n    const customer =\n      candidates.find(\n        item =>\n          String(item.id) ===\n            String(learnedCustomerAlias.targetId)\n      );\n\n\n    if (\n      customer\n    ) {\n\n      return {\n        matched:\n          true,\n\n        matchType:\n          "learned_alias",\n\n        customer\n      };\n\n    }\n\n  }\n`;
 
       html = replaceRequired(html, oldAlias, newAlias, 'customer alias lookup');
+
+      /* ============================================================
+         SEPT 11, 2026 — SIMPLE/DETAILED SOLD UNDER NORMALIZATION
+
+         Hauling jobs created by different FarmVista generations may store
+         Sold Under as customerId, soldUnderId, or grainCustomerId. Normalize
+         all three so the scanner cannot miss a valid job just because the
+         record uses the newer soldUnderId field.
+      ============================================================ */
+      const oldHaulingJobCustomerId = `function haulingJobCustomerId(\n  job\n) {\n\n  return String(\n    job?.customerId ||\n    job?.grainCustomerId ||\n    ""\n  ).trim();\n\n}\n`;
+
+      const newHaulingJobCustomerId = `function haulingJobCustomerId(\n  job\n) {\n\n  return String(\n    job?.customerId ||\n    job?.soldUnderId ||\n    job?.grainCustomerId ||\n    ""\n  ).trim();\n\n}\n`;
+
+      html = replaceRequired(html, oldHaulingJobCustomerId, newHaulingJobCustomerId, 'hauling job sold under id normalization');
+
+      const oldKnownJobCustomerMarker = `  if (\n    haulingJob?.id\n  ) {\n\n    contracts.forEach(\n`;
+
+      const newKnownJobCustomerMarker = `  if (\n    haulingJob?.id\n  ) {\n\n    /*\n      SIMPLE grain mode stores Sold Under directly on the hauling job.\n      Treat that as authoritative. Contracts below remain a legacy/detailed\n      fallback and may add the same customer again harmlessly via Set.\n    */\n    const directHaulingJobCustomerId =\n      haulingJobCustomerId(\n        haulingJob\n      );\n\n    if (\n      directHaulingJobCustomerId\n    ) {\n      ids.add(\n        directHaulingJobCustomerId\n      );\n    }\n\n    contracts.forEach(\n`;
+
+      html = replaceRequired(html, oldKnownJobCustomerMarker, newKnownJobCustomerMarker, 'driver assist direct hauling job sold under');
+
+      const oldCandidateReturn = `  return ids;\n\n}\n\n\nfunction findCustomerBlockClues(\n`;
+
+      const newCandidateReturn = `  /*\n    SIMPLE grain tracking may have no contract at all. Add Sold Under from\n    active hauling jobs that match this crop/destination/buyer so OCR customer\n    matching uses the same operational truth as auto-assignment.\n  */\n  haulingJobs\n    .filter(haulingJobIsActive)\n    .forEach(\n      job => {\n        const jobCrop =\n          normalizeMatchText(\n            job?.crop ||\n            job?.commodity\n          );\n\n        if (\n          crop &&\n          jobCrop &&\n          crop !== jobCrop\n        ) {\n          return;\n        }\n\n        const jobLocationId =\n          String(\n            job?.deliveryLocationId ||\n            job?.locationId ||\n            job?.destinationId ||\n            ""\n          ).trim();\n\n        if (\n          locationId &&\n          jobLocationId &&\n          jobLocationId !== locationId\n        ) {\n          return;\n        }\n\n        const jobBuyerId =\n          String(\n            job?.buyerId ||\n            job?.grainBuyerId ||\n            job?.elevatorId ||\n            ""\n          ).trim();\n\n        if (\n          buyerId &&\n          jobBuyerId &&\n          jobBuyerId !== buyerId\n        ) {\n          return;\n        }\n\n        const jobCustomerId =\n          haulingJobCustomerId(\n            job\n          );\n\n        if (\n          jobCustomerId\n        ) {\n          ids.add(\n            jobCustomerId\n          );\n        }\n      }\n    );\n\n\n  return ids;\n\n}\n\n\nfunction findCustomerBlockClues(\n`;
+
+      html = replaceRequired(html, oldCandidateReturn, newCandidateReturn, 'simple hauling job sold under customer candidates');
 
       /* ============================================================
          SEPT 11, 2026 — SCAN AUTO-ASSIGNMENT ORDER
