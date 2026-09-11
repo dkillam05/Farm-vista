@@ -27,6 +27,43 @@ if (path.endsWith('/pages/grain/grain-ticket-detail.html')) {
 
   const sourceButtonText = () => document.getElementById('grainSourceButtonText');
   const sourceMenu = () => document.getElementById('grainSourceMenu');
+  const sourceValueInput = () => document.getElementById('grainSourceValue');
+  const cropSelect = () => document.getElementById('ticketCrop');
+
+  function cropKey() {
+    return norm(cropSelect()?.value).replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  }
+
+  /*
+    SEPT 11, 2026 — ACTIVE HARVEST CANONICAL VALUE
+
+    Load-outs created by the dispatch flow can store the generic source value
+    as exactly "active_field_harvest" while Ticket Detail's live Harvest item
+    is crop-qualified (for example active_field_harvest:soybeans).
+
+    The old Ticket Detail fallback treated an unmatched saved value as a grain
+    bag. That produced a bogus "Grain Bags -> Active Harvest" choice and sent
+    Save through grain-bag inventory validation.
+
+    Normalize only the generic Active Harvest value. Real field, bin and bag
+    values are left completely untouched.
+  */
+  function normalizeGenericActiveHarvestValue() {
+    const input = sourceValueInput();
+    const crop = cropKey();
+    if (!input || !crop) return false;
+
+    const current = clean(input.value);
+    const currentNorm = norm(current).replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+
+    if (currentNorm !== 'active_field_harvest') return false;
+
+    const canonical = `active_field_harvest:${crop}`;
+    if (input.value !== canonical) input.value = canonical;
+
+    writeDisplayedLabel('Active Harvest');
+    return true;
+  }
 
   function parseFieldIdFromValue(value) {
     const parts = clean(value).split(':').map(clean);
@@ -84,13 +121,6 @@ if (path.endsWith('/pages/grain/grain-ticket-detail.html')) {
     const label = sourceButtonText();
     if (!label || clean(label.textContent) === text) return;
 
-    /*
-      IMPORTANT:
-      Disconnect while FarmVista changes the label. MutationObserver callbacks
-      run after the current JavaScript stack, so a simple boolean guard can be
-      false again before the callback fires and can create a self-trigger loop.
-      Disconnecting around our own write makes the guard deterministic.
-    */
     labelObserver?.disconnect();
     label.textContent = text;
     observeLabel();
@@ -107,7 +137,10 @@ if (path.endsWith('/pages/grain/grain-ticket-detail.html')) {
       return;
     }
 
-    if (norm(current) === 'active field harvest') {
+    if (
+      norm(current) === 'active field harvest' ||
+      norm(current) === 'active harvest'
+    ) {
       writeDisplayedLabel('Active Harvest');
     }
   }
@@ -293,18 +326,27 @@ if (path.endsWith('/pages/grain/grain-ticket-detail.html')) {
     const menu = sourceMenu();
     if (!menu || disposed) return;
 
-    /* Never observe our own menu edits. */
     menuObserver?.disconnect();
 
     try {
+      normalizeGenericActiveHarvestValue();
+
       const allButtons = Array.from(menu.querySelectorAll('.load-picker-choice'));
       if (!allButtons.length) return;
 
+      const canonicalHarvestValue = `active_field_harvest:${cropKey()}`;
+
       allButtons.forEach(button => {
         const value = clean(button.dataset.sourceValue);
+
+        /* Remove the stale historical fallback that used to land in Grain Bags. */
+        if (value === 'active_field_harvest') {
+          button.style.display = 'none';
+          return;
+        }
+
         if (
-          value.startsWith('active_field_harvest') &&
-          !value.startsWith('active_field_harvest:field:') &&
+          value === canonicalHarvestValue &&
           norm(button.textContent) === 'active field harvest'
         ) {
           button.textContent = 'Active Harvest';
@@ -357,7 +399,7 @@ if (path.endsWith('/pages/grain/grain-ticket-detail.html')) {
 
           const genericHarvest = allButtons.find(button => {
             const value = clean(button.dataset.sourceValue);
-            return value.startsWith('active_field_harvest') && !value.startsWith('active_field_harvest:field:');
+            return value.startsWith('active_field_harvest') && !value.startsWith('active_field_harvest:field:') && value !== 'active_field_harvest';
           });
 
           if (genericHarvest?.nextSibling) {
@@ -428,7 +470,10 @@ if (path.endsWith('/pages/grain/grain-ticket-detail.html')) {
     if (label && !labelObserver) {
       labelObserver = new MutationObserver(() => {
         if (disposed) return;
-        requestAnimationFrame(setDisplayedFieldName);
+        requestAnimationFrame(() => {
+          normalizeGenericActiveHarvestValue();
+          setDisplayedFieldName();
+        });
       });
       observeLabel();
     }
@@ -443,13 +488,21 @@ if (path.endsWith('/pages/grain/grain-ticket-detail.html')) {
   async function boot() {
     moveHaulingJobUnderLoadNumber();
     await loadFieldIndex();
+    normalizeGenericActiveHarvestValue();
     startObservers();
     await loadSavedFieldName();
 
     /* Bounded retries only; no polling loop. */
-    setTimeout(moveHaulingJobUnderLoadNumber, 250);
-    setTimeout(startObservers, 250);
-    setTimeout(startObservers, 1000);
+    setTimeout(() => {
+      normalizeGenericActiveHarvestValue();
+      moveHaulingJobUnderLoadNumber();
+      scheduleCompactSourceMenu();
+    }, 250);
+    setTimeout(() => {
+      normalizeGenericActiveHarvestValue();
+      startObservers();
+      scheduleCompactSourceMenu();
+    }, 1000);
   }
 
   if (document.readyState === 'loading') {
