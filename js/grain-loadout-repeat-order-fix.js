@@ -39,6 +39,17 @@ const E = {
   message: $("loadout-form-message")
 };
 
+function keepCropLocked() {
+  if (!E.crop) return;
+  E.crop.disabled = true;
+  E.crop.setAttribute("aria-disabled", "true");
+  E.crop.style.backgroundColor = "var(--surface-2, rgba(255,255,255,.04))";
+  E.crop.style.opacity = ".62";
+  E.crop.style.cursor = "not-allowed";
+}
+
+keepCropLocked();
+
 let state = {
   jobs: [],
   tickets: [],
@@ -258,11 +269,7 @@ function syncCrop(job) {
     if (match) E.crop.value = match.value;
   }
 
-  E.crop.disabled = true;
-  E.crop.setAttribute("aria-disabled", "true");
-  E.crop.style.backgroundColor = "var(--surface-2, rgba(255,255,255,.04))";
-  E.crop.style.opacity = ".55";
-  E.crop.style.cursor = "not-allowed";
+  keepCropLocked();
 }
 
 function syncCustomer(job) {
@@ -514,6 +521,7 @@ E.job?.addEventListener("change", () => {
     setTimeout(() => lockJobDetails(job), 220);
   }
 
+  keepCropLocked();
   queueDecorate();
 });
 
@@ -536,7 +544,9 @@ if (E.backdrop) {
   new MutationObserver(() => {
     if (!createMode()) return;
 
+    keepCropLocked();
     refresh(true).then(() => {
+      keepCropLocked();
       decorate();
       const job = state.jobs.find(
         item => clean(item.id) === clean(E.job?.value)
@@ -549,4 +559,7 @@ if (E.backdrop) {
   });
 }
 
-refresh().then(decorate);
+refresh().then(() => {
+  keepCropLocked();
+  decorate();
+});
