@@ -193,19 +193,19 @@ export const NAV_MENU = {
       children: [
         {
           type: 'link',
-          id: 'grain-tix',
-          perm: 'grain-tix',
-          icon: '🎟️',
-          label: 'Grain Tickets',
-          href: '/pages/grain/grain-ticket.html'
-        },
-        {
-          type: 'link',
           id: 'grain-ctr',
           perm: 'grain-ctr',
           icon: '📄',
           label: 'Grain Contracts',
           href: '/pages/grain/grain-contracts.html'
+        },
+        {
+          type: 'link',
+          id: 'grain-tix',
+          perm: 'grain-tix',
+          icon: '🎟️',
+          label: 'Grain Tickets',
+          href: '/pages/grain/grain-ticket.html'
         },
         {
           type: 'link',
