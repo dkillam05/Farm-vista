@@ -153,7 +153,7 @@
     window.__FV_GRAIN_TICKET_DETAIL_PRESERVE_LOAD_20260904 = true;
 
     const script = document.createElement('script');
-    script.src = '/js/grain-ticket-detail-preserve-load.js?v=20260911-2';
+    script.src = '/js/grain-ticket-detail-preserve-load.js?v=20260911-3';
     script.dataset.fvGrainTicketDetailPreserveLoad = '1';
     document.head.appendChild(script);
   }
