@@ -1,6 +1,5 @@
-# Trigger 2026-09-11 10:44 CDT
+# Trigger 2026-09-11 10:47 CDT
 from pathlib import Path
-import re
 
 # Keep ADM template active in the scanner wrapper.
 p = Path('pages/grain/grain-ticket-scan.html')
@@ -16,7 +15,8 @@ if 'grain-ticket-adm-decatur-grade-fix.js?v=20260911-3' not in s:
     s = s.replace(marker, inject + marker, 1)
 p.write_text(s)
 
-# A secure load-out scan already knows Grain Source from its assigned load-out.
+# Secure FarmVista load-out / SMS scan: Grain Source is already stored on the
+# assigned grain_loadouts record and must not be replaced by Driver Assist.
 scan = Path('pages/grain/grain-ticket-scan-core.html')
 t = scan.read_text()
 if 'LOAD-OUT SOURCE IS AUTHORITATIVE — 2026-09-11' not in t:
@@ -26,6 +26,10 @@ if 'LOAD-OUT SOURCE IS AUTHORITATIVE — 2026-09-11' not in t:
   if (crop) {
     source =
       await askDriverForGrainSource(crop);
+
+    if (!source) {
+      skippedReasons.push("grain_source_not_selected");
+    }
   }'''
     new_block = '''  /* ========================================================
      GRAIN SOURCE
@@ -33,17 +37,39 @@ if 'LOAD-OUT SOURCE IS AUTHORITATIVE — 2026-09-11' not in t:
   /*
     LOAD-OUT SOURCE IS AUTHORITATIVE — 2026-09-11
 
-    A secure FarmVista load-out scan already has Grain Source on its assigned
-    grain_loadouts record. The load-out backend is authoritative, so asking the
-    driver again can replace that context and break hauling-job linkage.
-    Normal signed-in scans without a load-out still ask Grain Source.
+    Secure FarmVista load-out scans already have Grain Source on the assigned
+    grain_loadouts record. The backend is authoritative; do not ask the driver
+    to choose Active Harvest / Field / Storage again and accidentally replace
+    the load-out context. Normal signed-in scans still ask Grain Source.
   */
   if (crop && !isGuestScan) {
     source =
       await askDriverForGrainSource(crop);
+
+    if (!source) {
+      skippedReasons.push("grain_source_not_selected");
+    }
   }'''
     assert old_block in t, 'grain source assist block not found'
     t = t.replace(old_block, new_block, 1)
+
+    # Back-navigation to Source must also stay disabled for secure load-out scans.
+    t = t.replace(
+        '''      if (crop) {
+        const correctedSource =
+          await askDriverForGrainSource(crop);''',
+        '''      if (crop && !isGuestScan) {
+        const correctedSource =
+          await askDriverForGrainSource(crop);'''
+    )
+    t = t.replace(
+        '''        if (crop) {
+          const correctedSource =
+            await askDriverForGrainSource(crop);''',
+        '''        if (crop && !isGuestScan) {
+          const correctedSource =
+            await askDriverForGrainSource(crop);'''
+    )
     scan.write_text(t)
 
 # Add Load: restore the copied previous hauling job into the actual select.
@@ -59,7 +85,13 @@ if 'PREVIOUS LOAD HAULING JOB RESTORE — 2026-09-11' not in g:
     assert marker in g, 'loOpenModal marker not found'
     addition = marker + '''
 
-    /* PREVIOUS LOAD HAULING JOB RESTORE — 2026-09-11 */
+    /*
+      PREVIOUS LOAD HAULING JOB RESTORE — 2026-09-11
+
+      Copy Previous can restore Crop, Destination, Sold Under and Grain Source,
+      then a dependent rerender clears only the hauling-job select. That is why
+      the correct delivery/remaining note can show while the select is blank.
+    */
     setTimeout(() => {
       try {
         if (loState.mode !== "create") return;
