@@ -3,8 +3,8 @@
 //
 // The full hybrid DND workspace is preserved in grain-mobile-dnd-autoscroll-core.js.
 // This lightweight loader keeps that behavior intact and adds Sold Under to the
-// Ticket -> Hauling Job assignment cards. It also repairs missing ticket context
-// from the hauling job after assignment so the ticket detail/list stays aligned.
+// Ticket -> Hauling Job assignment cards. It also repairs ticket context from
+// the hauling job after assignment so the ticket detail/list stays aligned.
 
 (() => {
   'use strict';
@@ -20,7 +20,6 @@
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;');
 
-  // Load the preserved DND / hybrid-workspace implementation first.
   const core = document.createElement('script');
   core.src = '/js/grain-mobile-dnd-autoscroll-core.js?v=20260911-1';
   core.dataset.fvGrainMobileDndCore = '1';
@@ -155,8 +154,8 @@
       const { customerId, customerName } = jobCustomer(job);
       const patch = {};
 
-      if (customerId && isMissing(ticket.customerId)) patch.customerId = customerId;
-      if (customerName && isMissing(ticket.customerName)) patch.customerName = customerName;
+      if (customerId && clean(ticket.customerId) !== customerId) patch.customerId = customerId;
+      if (customerName && clean(ticket.customerName) !== customerName) patch.customerName = customerName;
 
       const buyerId = clean(job.buyerId || job.grainBuyerId);
       const buyerName = clean(job.buyerName || job.buyer);
