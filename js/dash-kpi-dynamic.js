@@ -1,445 +1,135 @@
 // /js/dash-kpi-dynamic.js
-// FarmVista Dashboard — Dynamic Needs Attention
-// Rev: 2026-08-30-v1
-//
-// Keeps the existing KPI data loaders unchanged.
-// This controller only decides whether each KPI should be visible:
-//
-//   count > 0  => show it, if permissions allow it
-//   count <= 0 => hide it
-//   no visible active KPIs => hide the entire Needs Attention section
-//
-// Examples:
-//   4 boundary corrections => Boundary KPI shows
-//   all 4 fixed => Boundary KPI disappears
-//   new boundary request => Boundary KPI comes back
-//   no grain bags => Grain Bags KPI disappears
-//   all KPI counts = 0 => entire Needs Attention section disappears
+// FarmVista Dashboard — Dynamic Needs Attention + desktop split scrolling
+// Rev: 2026-09-11-v2
 
 (function(){
   "use strict";
 
   const KPI_CONFIG = [
-    {
-      cardId: "wo-approve-kpi",
-      countId: "wo-approve-count"
-    },
-    {
-      cardId: "boundary-kpi",
-      countId: "boundary-kpi-count"
-    },
-    {
-      cardId: "bag-kpi",
-      countId: "bag-kpi-count"
-    }
+    { cardId: "wo-approve-kpi", countId: "wo-approve-count" },
+    { cardId: "boundary-kpi", countId: "boundary-kpi-count" },
+    { cardId: "bag-kpi", countId: "bag-kpi-count" }
   ];
 
-  const section =
-    document.getElementById(
-      "attention-section"
-    );
+  const section = document.getElementById("attention-section");
+  if (!section) return;
 
-  if (!section){
-    return;
+  function readCount(el){
+    if (!el) return null;
+    const raw = String(el.textContent || "").replace(/,/g, "").trim();
+    if (!raw || raw === "–" || raw === "-") return null;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : null;
   }
 
-  function readCount(
-    el
-  ){
-
-    if (!el){
-      return null;
-    }
-
-    const raw =
-      String(
-        el.textContent ||
-        ""
-      )
-        .replace(
-          /,/g,
-          ""
-        )
-        .trim();
-
-    /*
-     * Initial KPI value is "–".
-     *
-     * Treat anything not yet loaded as zero
-     * so we do not briefly show empty KPI cards.
-     */
-    if (
-      !raw ||
-      raw === "–" ||
-      raw === "-"
-    ){
-      return null;
-    }
-
-    const value =
-      Number(
-        raw
-      );
-
-    return Number.isFinite(
-      value
-    )
-      ? value
-      : null;
-  }
-
-
-  /*
-   * Check only the permission state of the KPI.
-   *
-   * dash-perms.js uses:
-   *
-   *   .perm-hidden
-   *   hidden
-   *   aria-hidden="true"
-   *
-   * We never override those on an individual KPI.
-   */
-  function permissionAllows(
-    card
-  ){
-
-    if (!card){
-      return false;
-    }
-
+  function permissionAllows(card){
+    if (!card) return false;
     return !(
       card.hidden ||
-      card.classList.contains(
-        "perm-hidden"
-      ) ||
-      card.getAttribute(
-        "aria-hidden"
-      ) === "true"
+      card.classList.contains("perm-hidden") ||
+      card.getAttribute("aria-hidden") === "true"
     );
   }
-
-
-  /*
-   * Dynamic hiding is done with inline display.
-   *
-   * This is intentionally separate from
-   * the existing permission classes.
-   */
-  function setZeroHidden(
-    card,
-    shouldHide
-  ){
-
-    if (!card){
-      return;
-    }
-
-    const nextDisplay =
-      shouldHide
-        ? "none"
-        : "";
-
-    if (
-      card.style.display !==
-      nextDisplay
-    ){
-      card.style.display =
-        nextDisplay;
-    }
-
-    card.dataset.attentionActive =
-      shouldHide
-        ? "false"
-        : "true";
-  }
-
 
   function sync(){
+    let hasVisibleAttention = false;
 
-    let hasVisibleAttention =
-      false;
+    KPI_CONFIG.forEach(({cardId, countId}) => {
+      const card = document.getElementById(cardId);
+      const countEl = document.getElementById(countId);
+      if (!card || !countEl) return;
 
-    KPI_CONFIG.forEach(
-      ({
-        cardId,
-        countId
-      }) => {
+      const count = readCount(countEl);
+      const hasItems = count !== null && count > 0;
 
-        const card =
-          document.getElementById(
-            cardId
-          );
+      card.style.display = hasItems ? "" : "none";
+      card.dataset.attentionActive = hasItems ? "true" : "false";
 
-        const countEl =
-          document.getElementById(
-            countId
-          );
-
-        if (
-          !card ||
-          !countEl
-        ){
-          return;
-        }
-
-        const count =
-          readCount(
-            countEl
-          );
-
-        const hasItems =
-          count !== null &&
-          count > 0;
-
-
-        /*
-         * Zero or not loaded:
-         * hide this KPI.
-         *
-         * Positive count:
-         * allow it to show.
-         */
-        setZeroHidden(
-          card,
-          !hasItems
-        );
-
-
-        /*
-         * It counts toward Needs Attention
-         * only when:
-         *
-         *   1. It actually has something open.
-         *   2. The user has permission to see it.
-         */
-        if (
-          hasItems &&
-          permissionAllows(
-            card
-          )
-        ){
-          hasVisibleAttention =
-            true;
-        }
-
+      if (hasItems && permissionAllows(card)){
+        hasVisibleAttention = true;
       }
-    );
+    });
 
-
-    /*
-     * The Needs Attention section has no reason
-     * to exist when none of its KPIs have anything
-     * requiring attention.
-     *
-     * If at least one permitted KPI has a positive
-     * count, restore the section.
-     */
-    if (
-      hasVisibleAttention
-    ){
-
-      section.style.display =
-        "";
-
-      section.hidden =
-        false;
-
-      /*
-       * attention-section itself is derived from
-       * the visibility of the KPI cards, so it is
-       * safe to restore it when a permitted KPI
-       * actually contains an open item.
-       */
-      section.classList.remove(
-        "perm-hidden"
-      );
-
-      section.removeAttribute(
-        "aria-hidden"
-      );
-
+    if (hasVisibleAttention){
+      section.style.display = "";
+      section.hidden = false;
+      section.classList.remove("perm-hidden");
+      section.removeAttribute("aria-hidden");
+    }else{
+      section.style.display = "none";
+      section.hidden = true;
+      section.setAttribute("aria-hidden", "true");
     }
-    else{
-
-      section.style.display =
-        "none";
-
-      section.hidden =
-        true;
-
-      section.setAttribute(
-        "aria-hidden",
-        "true"
-      );
-
-    }
-
   }
 
+  KPI_CONFIG.forEach(({cardId, countId}) => {
+    const card = document.getElementById(cardId);
+    const countEl = document.getElementById(countId);
 
-  /*
-   * Watch the live numbers.
-   *
-   * The existing KPI scripts change these
-   * count elements after Firestore finishes
-   * loading.
-   */
-  function observe(){
+    if (countEl){
+      new MutationObserver(sync).observe(countEl, {
+        childList: true,
+        characterData: true,
+        subtree: true
+      });
+    }
 
-    KPI_CONFIG.forEach(
-      ({
-        cardId,
-        countId
-      }) => {
+    if (card){
+      new MutationObserver(sync).observe(card, {
+        attributes: true,
+        attributeFilter: ["class", "hidden", "aria-hidden"]
+      });
+    }
+  });
 
-        const card =
-          document.getElementById(
-            cardId
-          );
-
-        const countEl =
-          document.getElementById(
-            countId
-          );
-
-
-        if (
-          countEl
-        ){
-
-          new MutationObserver(
-            sync
-          ).observe(
-            countEl,
-            {
-              childList:
-                true,
-
-              characterData:
-                true,
-
-              subtree:
-                true
-            }
-          );
-
-        }
-
-
-        /*
-         * Also watch permission changes.
-         *
-         * This matters for separate farms/accounts
-         * where the logged-in user may not have
-         * access to one of these KPI categories.
-         */
-        if (
-          card
-        ){
-
-          new MutationObserver(
-            sync
-          ).observe(
-            card,
-            {
-              attributes:
-                true,
-
-              attributeFilter: [
-                "class",
-                "hidden",
-                "aria-hidden"
-              ]
-            }
-          );
-
-        }
-
-      }
-    );
-
-  }
-
-
-  /*
-   * Initial run.
-   *
-   * This hides the placeholder KPI cards while
-   * their Firestore counts are still loading.
-   */
   sync();
+  document.addEventListener("fv:dash-perms-ready", sync);
+  document.addEventListener("fv:user-ready", sync);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden){
+      setTimeout(sync, 0);
+      setTimeout(sync, 250);
+    }
+  });
+  window.addEventListener("focus", () => {
+    setTimeout(sync, 0);
+    setTimeout(sync, 250);
+  });
+})();
 
-  observe();
+/*
+ * Desktop dashboard scrolling now follows the same pattern as the
+ * grain-ticket detail page: the main/left column stays in the normal
+ * document flow, while the right column stays beside it and gets its
+ * own scroll area only when its content is taller than the viewport.
+ */
+(function(){
+  "use strict";
 
-
-  /*
-   * Recheck after dashboard permissions
-   * finish loading.
-   */
-  document.addEventListener(
-    "fv:dash-perms-ready",
-    sync
-  );
-
-
-  /*
-   * Recheck when the signed-in user/farm
-   * context becomes available.
-   */
-  document.addEventListener(
-    "fv:user-ready",
-    sync
-  );
-
-
-  /*
-   * Existing KPI scripts refresh themselves when
-   * the page becomes visible again.
-   *
-   * Re-run our visibility calculation immediately
-   * and once again after they have had time to
-   * update their Firestore counts.
-   */
-  document.addEventListener(
-    "visibilitychange",
-    () => {
-
-      if (
-        !document.hidden
-      ){
-
-        setTimeout(
-          sync,
-          0
-        );
-
-        setTimeout(
-          sync,
-          250
-        );
-
+  const style = document.createElement("style");
+  style.id = "fv-dashboard-split-scroll-style";
+  style.textContent = `
+    @media (min-width:900px){
+      .desktop-right{
+        position:sticky;
+        top:calc(var(--hdr-h,56px) + 12px);
+        align-self:start;
+        max-height:calc(100dvh - var(--hdr-h,56px) - var(--ftr-h,42px) - 24px);
+        overflow-y:auto;
+        overflow-x:hidden;
+        overscroll-behavior:contain;
+        scrollbar-width:none;
+        -ms-overflow-style:none;
+        padding-bottom:2px;
       }
 
+      .desktop-right::-webkit-scrollbar{
+        width:0;
+        height:0;
+        display:none;
+      }
     }
-  );
+  `;
 
-
-  window.addEventListener(
-    "focus",
-    () => {
-
-      setTimeout(
-        sync,
-        0
-      );
-
-      setTimeout(
-        sync,
-        250
-      );
-
-    }
-  );
-
+  document.head.appendChild(style);
 })();
