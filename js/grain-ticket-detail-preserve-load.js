@@ -127,27 +127,30 @@
 })();
 
 /*
-  Sept 11, 2026 — Saved destination reconciliation.
+  Sept 11, 2026 — Saved ticket assignment reconciliation.
 
-  A reviewed/saved FarmVista deliveryLocationId is authoritative. OCR is only
-  supporting evidence and may contain a bad ZIP/state character. The inline
-  Ticket Details matcher can currently reject a correct saved destination when
-  any one OCR location field differs. After the native menus finish rendering,
-  re-select the saved location through the page's own destination button so the
-  private Ticket Details state, hidden IDs, Sold Under choices, hauling jobs,
-  and review status all stay synchronized.
+  Driver-/office-selected FarmVista IDs are authoritative. OCR is supporting
+  evidence only and may contain a different postal ZIP or a slightly different
+  printed address. The inline Ticket Details matcher can reject a correct saved
+  destination when one OCR location field differs, and it can downgrade a real
+  saved Sold Under to Unknown while the hauling job is still unresolved.
+
+  After the native page controls render, re-select the saved destination and
+  saved Sold Under through the page's OWN picker buttons. That keeps the private
+  Ticket Details state, hidden IDs, hauling-job filtering, and review state in
+  sync. Hauling Job itself is never guessed here.
 */
 (() => {
   const path = String(location.pathname || '').toLowerCase();
   if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) return;
-  if (window.__FV_TICKET_DETAIL_SAVED_DESTINATION_20260911) return;
-  window.__FV_TICKET_DETAIL_SAVED_DESTINATION_20260911 = true;
+  if (window.__FV_TICKET_DETAIL_SAVED_ASSIGNMENTS_20260911_V2) return;
+  window.__FV_TICKET_DETAIL_SAVED_ASSIGNMENTS_20260911_V2 = true;
 
   const clean = value => String(value == null ? '' : value).trim();
   const ticketId = clean(new URLSearchParams(location.search).get('id'));
 
-  async function readSavedLocationId() {
-    if (!ticketId) return '';
+  async function readSavedAssignments() {
+    if (!ticketId) return null;
 
     try {
       const firebase = await import('/js/firebase-init.js');
@@ -158,21 +161,30 @@
         firebase.doc(db, 'grain_tickets', ticketId)
       );
 
-      if (!snap.exists()) return '';
+      if (!snap.exists()) return null;
 
       const ticket = snap.data() || {};
-      return clean(
-        ticket.deliveryLocationId ||
-        ticket.destinationId ||
-        ticket.locationId
-      );
+
+      return {
+        locationId: clean(
+          ticket.deliveryLocationId ||
+          ticket.destinationId ||
+          ticket.locationId
+        ),
+        customerId: clean(
+          ticket.customerId ||
+          ticket.grainCustomerId
+        ),
+        locationMatchType: clean(ticket.deliveryLocationMatchType),
+        customerMatchType: clean(ticket.customerMatchType)
+      };
     } catch (error) {
-      console.warn('[FarmVista] Could not reconcile saved grain ticket destination:', error);
-      return '';
+      console.warn('[FarmVista] Could not reconcile saved grain ticket assignments:', error);
+      return null;
     }
   }
 
-  function selectSavedDestination(locationId) {
+  function clickSavedDestination(locationId) {
     if (!locationId) return true;
 
     const current = clean(document.getElementById('locationSelect')?.value);
@@ -191,29 +203,60 @@
     return clean(document.getElementById('locationSelect')?.value) === locationId;
   }
 
+  function clickSavedCustomer(customerId) {
+    if (!customerId) return true;
+
+    const current = clean(document.getElementById('customerSelect')?.value);
+    if (current === customerId) return true;
+
+    const menu = document.getElementById('customerMenu');
+    if (!menu) return false;
+
+    const button = Array.from(
+      menu.querySelectorAll('.load-picker-choice[data-customer-id]')
+    ).find(item => clean(item.dataset.customerId) === customerId);
+
+    if (!button) return false;
+
+    button.click();
+    return clean(document.getElementById('customerSelect')?.value) === customerId;
+  }
+
   async function reconcile() {
-    const locationId = await readSavedLocationId();
-    if (!locationId) return;
+    const saved = await readSavedAssignments();
+    if (!saved) return;
 
     let attempts = 0;
 
-    const trySelect = () => {
+    const tryRestore = () => {
       attempts += 1;
 
-      if (selectSavedDestination(locationId)) {
-        console.info('[Grain Ticket Detail] Restored saved FarmVista destination.', {
+      const locationReady = clickSavedDestination(saved.locationId);
+      const customerReady = locationReady && clickSavedCustomer(saved.customerId);
+
+      if (locationReady && customerReady) {
+        console.info('[Grain Ticket Detail] Restored saved FarmVista assignments.', {
           ticketId,
-          deliveryLocationId: locationId
+          deliveryLocationId: saved.locationId || null,
+          deliveryLocationMatchType: saved.locationMatchType || null,
+          customerId: saved.customerId || null,
+          customerMatchType: saved.customerMatchType || null
         });
         return;
       }
 
-      if (attempts < 40) {
-        setTimeout(trySelect, 100);
+      if (attempts < 50) {
+        setTimeout(tryRestore, 100);
+      } else {
+        console.warn('[Grain Ticket Detail] Saved assignment restore timed out.', {
+          ticketId,
+          deliveryLocationId: saved.locationId || null,
+          customerId: saved.customerId || null
+        });
       }
     };
 
-    trySelect();
+    tryRestore();
   }
 
   if (document.readyState === 'loading') {
