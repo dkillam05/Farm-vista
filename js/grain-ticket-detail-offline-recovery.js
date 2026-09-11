@@ -6,6 +6,11 @@
    Detail changes many classes/values while populating, and the old observer
    repeatedly forced a full-page innerText layout/read on every mutation. That
    could monopolize the main thread and leave Ticket Detail apparently frozen.
+
+   Sept 11, 2026 — return navigation:
+   Ticket Detail can be opened from Grain Tickets, Grain Inventory, Contracts,
+   reports, and drill-downs. Back and a successful Save now return to the
+   FarmVista page that opened the detail instead of always forcing Grain Tickets.
 */
 (() => {
   'use strict';
@@ -22,8 +27,6 @@
   }
 
   function hasOfflineFailure() {
-    // Offline failures are rendered into Ticket Detail's message/error areas.
-    // Read only those small nodes; never force a full-document innerText scan.
     const candidates = [
       document.getElementById('message'),
       document.getElementById('loadStatus'),
@@ -77,14 +80,85 @@
     }, 250);
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', observe, { once: true });
-  } else {
-    observe();
+  /* ----------------------------------------------------------
+     RETURN TO THE PAGE THAT OPENED TICKET DETAIL
+  ---------------------------------------------------------- */
+  const fallbackReturn = '/pages/grain/grain-ticket.html';
+  let returnUrl = fallbackReturn;
+  let returning = false;
+
+  try {
+    const referrer = document.referrer ? new URL(document.referrer) : null;
+    const sameOrigin = referrer && referrer.origin === location.origin;
+    const isThisDetail = sameOrigin &&
+      referrer.pathname.toLowerCase().endsWith('/pages/grain/grain-ticket-detail.html');
+
+    if (sameOrigin && !isThisDetail) {
+      returnUrl = `${referrer.pathname}${referrer.search}${referrer.hash}`;
+    }
+  } catch (_) {
+    returnUrl = fallbackReturn;
   }
 
-  // Observe only the small status nodes that can actually contain an offline
-  // error. Do not observe documentElement or form/class/value churn.
+  function returnToSource() {
+    if (returning) return;
+    returning = true;
+
+    if (returnUrl && returnUrl !== fallbackReturn) {
+      location.href = returnUrl;
+      return;
+    }
+
+    // If the browser has a real previous FarmVista entry but referrer was
+    // unavailable (some PWA/browser launches), history is the next best truth.
+    if (history.length > 1) {
+      history.back();
+      return;
+    }
+
+    location.href = fallbackReturn;
+  }
+
+  function attachReturnNavigation() {
+    const backBtn = document.getElementById('backBtn');
+    if (backBtn) {
+      backBtn.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        returnToSource();
+      }, true);
+    }
+
+    const message = document.getElementById('message');
+    if (!message) return;
+
+    const checkSaved = () => {
+      const text = String(message.textContent || '').trim().toLowerCase();
+      if (
+        text.startsWith('ticket saved and verified.') ||
+        text.startsWith('ticket saved. it will stay under needs review')
+      ) {
+        returnToSource();
+      }
+    };
+
+    const saveObserver = new MutationObserver(checkSaved);
+    saveObserver.observe(message, {
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
+    window.addEventListener('pagehide', () => saveObserver.disconnect(), { once: true });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', observe, { once: true });
+    document.addEventListener('DOMContentLoaded', attachReturnNavigation, { once: true });
+  } else {
+    observe();
+    attachReturnNavigation();
+  }
+
   const attachObservers = () => {
     const nodes = [
       document.getElementById('message'),
