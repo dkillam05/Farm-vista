@@ -14,57 +14,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Classify unmatched hauling-job tickets as warnings
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          ticket_path = Path('pages/grain/grain-ticket.html')
-          text = ticket_path.read_text(encoding='utf-8')
-
-          old = '''    return reasons.some(reason => warningReasons.has(reason));'''
-          new = '''    return reasons.some(reason => {
-
-      if (warningReasons.has(reason)) return true;
-
-      /*
-        A clean/readable ticket that cannot be matched to an ACTIVE hauling
-        job is an operational mismatch, not an OCR/data-entry review item.
-        Keep these red so dispatch immediately sees that the destination /
-        crop / Sold Under combination has no current hauling job available.
-      */
-      const haulingJobMismatch =
-        (reason.includes("hauling") || reason.includes("job")) &&
-        (
-          reason.includes("not_matched") ||
-          reason.includes("not_found") ||
-          reason.includes("no_match") ||
-          reason.includes("missing") ||
-          reason.includes("inactive") ||
-          reason.includes("no_active") ||
-          reason.includes("requires_review")
-        );
-
-      return haulingJobMismatch;
-
-    });'''
-
-          if old not in text:
-              if 'const haulingJobMismatch' in text:
-                  raise SystemExit(0)
-              raise SystemExit('Expected isTicketWarning return statement was not found; refusing unsafe patch.')
-
-          text = text.replace(old, new, 1)
-          ticket_path.write_text(text, encoding='utf-8')
-          PY
+      - name: Patch grain ticket warning classification
+        run: python .github/scripts/fix-ticket-warning-hauling-job.py
 
       - name: Verify patch
-        shell: bash
         run: grep -q 'const haulingJobMismatch' pages/grain/grain-ticket.html
 
       - name: Commit fix
-        shell: bash
         run: |
           if git diff --quiet -- pages/grain/grain-ticket.html; then
             echo 'Patch already present; nothing to commit.'
