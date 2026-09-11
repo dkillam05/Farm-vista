@@ -82,7 +82,7 @@ self.addEventListener("activate", (e)=>{
 
 // ---------------- Fetch rules ----------------
 function isBypassPath(pathname){
-  // Never cache boot-critical JS. Always network-fresh.
+  // Never cache boot-critical JS or live grain-ticket OCR templates. Always network-fresh.
   const p = pathname;
   return (
     p === `${SCOPE_PREFIX}js/version.js` ||
@@ -90,7 +90,8 @@ function isBypassPath(pathname){
     p === `${SCOPE_PREFIX}js/firebase-config.js` ||
     p === `${SCOPE_PREFIX}js/theme-boot.js` ||
     p === `${SCOPE_PREFIX}js/app/login.js` ||
-    p === `${SCOPE_PREFIX}js/startup.js`
+    p === `${SCOPE_PREFIX}js/startup.js` ||
+    p === `${SCOPE_PREFIX}js/grain-ticket-adm-decatur-grade-fix.js`
   );
 }
 
