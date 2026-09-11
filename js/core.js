@@ -5,6 +5,7 @@
    - Exposes App API used by fv-shell.js
    - Sets data-theme attr + updates <meta name="theme-color">
    - Loads the Grain Ticket unresolved-review warning guard
+   - Preserves previous-page navigation from Grain Ticket Detail
    ========================================================== */
 (function (global, doc) {
   const THEME_KEY = "fv-theme";
@@ -74,6 +75,28 @@
     }catch{}
   }
 
+  function initGrainTicketDetailBackNavigation(){
+    try{
+      const path = String(global.location?.pathname || '').toLowerCase();
+      if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) return;
+
+      doc.addEventListener('click', (event) => {
+        const backBtn = event.target?.closest?.('#backBtn');
+        if (!backBtn) return;
+
+        event.preventDefault();
+        event.stopImmediatePropagation();
+
+        if (global.history && global.history.length > 1) {
+          global.history.back();
+          return;
+        }
+
+        global.location.href = '/pages/grain/grain-ticket.html';
+      }, true);
+    }catch{}
+  }
+
   const App = global.App || {};
   App.getTheme = () => { try { return localStorage.getItem(THEME_KEY) || "system"; } catch { return "system"; } };
   App.setTheme = (mode) => applyTheme(mode);
@@ -88,6 +111,7 @@
   initTheme();
   readVersion();
   loadPageGuards();
+  initGrainTicketDetailBackNavigation();
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', applyThemeColorFromCSS, { once:true });
