@@ -131,7 +131,7 @@
 
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = '/js/grain-ticket-detail-source-ui.js?v=20260904-3';
+    script.src = '/js/grain-ticket-detail-source-ui.js?v=20260911-4';
     script.dataset.fvGrainTicketSourceUi = '1';
     document.head.appendChild(script);
   }
@@ -153,7 +153,7 @@
     window.__FV_GRAIN_TICKET_DETAIL_PRESERVE_LOAD_20260904 = true;
 
     const script = document.createElement('script');
-    script.src = '/js/grain-ticket-detail-preserve-load.js?v=20260904-1';
+    script.src = '/js/grain-ticket-detail-preserve-load.js?v=20260911-2';
     script.dataset.fvGrainTicketDetailPreserveLoad = '1';
     document.head.appendChild(script);
   }
