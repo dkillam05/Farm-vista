@@ -11,6 +11,7 @@
   const TABLE_BODY_ID = 'hauling-jobs-table-body';
   const BUYER_SELECT_ID = 'hauling-job-buyer';
   const LOCATION_SELECT_ID = 'hauling-job-destination';
+  const CUSTOMER_SELECT_ID = 'hauling-job-customer';
   const JOB_MODAL_ID = 'hauling-job-modal';
   const ADD_BUYER_VALUE = '__fv_add_new_buyer__';
   const ADD_LOCATION_VALUE = '__fv_add_new_location__';
@@ -602,20 +603,51 @@
     return true;
   }
 
+  function upgradeCustomerCombo() {
+    const select = document.getElementById(CUSTOMER_SELECT_ID);
+    if (!select) return false;
+
+    // Sold Under is injected dynamically by grain-hauling-jobs.js after the
+    // page-level combo upgrader has already run. Opt it into the exact same
+    // FarmVista combo control used by Buyer / Location / Crop and upgrade it
+    // immediately. The combo's list is scrollable when the customer list is long.
+    select.setAttribute('data-fv-combo', '');
+    select.setAttribute('data-fv-search', 'false');
+
+    if (window.FVCombo && typeof window.FVCombo.upgradeSelect === 'function') {
+      window.FVCombo.upgradeSelect(select);
+    }
+
+    return !!select._fvUpgraded;
+  }
+
   function watchHaulingJobModal() {
     const modal = document.getElementById(JOB_MODAL_ID);
     if (!modal) return false;
 
     wireBuyerSelect();
     wireLocationSelect();
+    upgradeCustomerCombo();
 
     if (jobModalObserver) jobModalObserver.disconnect();
     jobModalObserver = new MutationObserver(() => {
+      // Customer/Sold Under can be inserted after this helper boots, so retry
+      // the combo upgrade for both modal-open changes and dynamic child changes.
+      upgradeCustomerCombo();
+
       if (!modal.classList.contains('open')) return;
       syncBuyerSelect();
-      setTimeout(() => putAddLocationAtTop(document.getElementById(LOCATION_SELECT_ID)), 800);
+      setTimeout(() => {
+        putAddLocationAtTop(document.getElementById(LOCATION_SELECT_ID));
+        upgradeCustomerCombo();
+      }, 800);
     });
-    jobModalObserver.observe(modal, { attributes: true, attributeFilter: ['class'] });
+    jobModalObserver.observe(modal, {
+      attributes: true,
+      attributeFilter: ['class'],
+      childList: true,
+      subtree: true
+    });
     return true;
   }
 
@@ -624,6 +656,12 @@
     const style = document.createElement('style');
     style.id = 'fv-grain-contracts-dark-theme-fix';
     style.textContent = `
+      #${JOB_MODAL_ID} .fv-panel .fv-list {
+        max-height:min(320px,45vh) !important;
+        overflow-y:auto !important;
+        overscroll-behavior:contain;
+        -webkit-overflow-scrolling:touch;
+      }
       html.dark .compact-summary, html[data-theme="dark"] .compact-summary,
       html.dark .hauling-dnd-message, html[data-theme="dark"] .hauling-dnd-message,
       html.dark .dnd-toolbar, html[data-theme="dark"] .dnd-toolbar,
@@ -705,12 +743,14 @@
     installAddLocationModal();
     wireBuyerSelect();
     wireLocationSelect();
+    upgradeCustomerCombo();
     watchHaulingJobModal();
 
     if (!attachToTable()) {
       const pageObserver = new MutationObserver(() => {
         wireBuyerSelect();
         wireLocationSelect();
+        upgradeCustomerCombo();
         watchHaulingJobModal();
         if (attachToTable()) pageObserver.disconnect();
       });
