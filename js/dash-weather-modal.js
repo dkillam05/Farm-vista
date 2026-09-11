@@ -1,17 +1,15 @@
 // /js/dash-weather-modal.js
-// Rev: 2026-09-11-weather-saved-zip-no-flash-v4
+// Rev: 2026-09-11-weather-single-render-v4
 //
 // Dashboard weather card -> modal wiring.
 // ZIP editing exists ONLY inside Weather details.
-// Saved ZIP remains authoritative for both the modal and main dashboard tile.
-// index.html owns the normal first weather paint; this helper silently corrects
-// that paint to the saved ZIP if company/main tries to paint its address instead.
+// The saved ZIP is authoritative for BOTH the dashboard tile and details modal.
+// This file does not create a second dashboard weather render on page load.
 
 (function () {
   "use strict";
 
   const WEATHER_GOOGLE_KEY = "AIzaSyD5qLrXZch_rM4sVXmBrpGDH3Zp7RgfVHc";
-  const DEFAULT_ZIP = "62530";
   const LS_KEYS = {
     zip: "fv_weather_zip",
     lat: "fv_weather_lat",
@@ -19,13 +17,8 @@
     label: "fv_weather_label"
   };
 
-  let resolvedWeatherLocationPromise = null;
   let zipSyncTimer = null;
-  let retryTimer = null;
-  let repairQueued = false;
-  let repairSelectorVersion = 0;
-  let activeRepairAttr = "";
-  let activeMainSelector = "#fv-weather";
+  let modalRenderVersion = 0;
 
   const style = document.createElement("style");
   style.textContent = `
@@ -46,14 +39,6 @@
   `;
   document.head.appendChild(style);
 
-  function onReady(fn) {
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", fn, { once:true });
-    } else {
-      fn();
-    }
-  }
-
   function hasCoords(loc) {
     if (!loc) return false;
     const lat = Number(loc.lat);
@@ -67,231 +52,144 @@
       const lon = Number(localStorage.getItem(LS_KEYS.lon));
       const zip = String(localStorage.getItem(LS_KEYS.zip) || "").trim();
       const label = String(localStorage.getItem(LS_KEYS.label) || "").trim();
+
       if (hasCoords({ lat, lon })) {
-        return { lat, lon, zip, locationLabel: label || zip };
+        return {
+          lat,
+          lon,
+          zip,
+          locationLabel: label || zip
+        };
       }
     } catch (err) {
       console.warn("Weather: unable to read saved location.", err);
     }
+
     return null;
   }
 
-  async function geocodeZip(zip) {
-    const cleanZip = String(zip || DEFAULT_ZIP).replace(/\D/g, "").slice(0, 5);
-    if (cleanZip.length !== 5) throw new Error("A valid 5-digit ZIP is required.");
-
-    const response = await fetch(`https://api.zippopotam.us/us/${encodeURIComponent(cleanZip)}`, {
-      cache: "no-store"
-    });
-    if (!response.ok) throw new Error(`ZIP lookup failed with HTTP ${response.status}.`);
-
-    const data = await response.json();
-    const place = Array.isArray(data?.places) ? data.places[0] : null;
-    if (!place) throw new Error(`No weather location found for ZIP ${cleanZip}.`);
-
-    const lat = Number(place.latitude);
-    const lon = Number(place.longitude);
-    if (!hasCoords({ lat, lon })) throw new Error(`Invalid coordinates returned for ZIP ${cleanZip}.`);
-
-    const city = String(place["place name"] || "").trim();
-    const state = String(place["state abbreviation"] || "").trim();
-    return {
-      lat,
-      lon,
-      zip: cleanZip,
-      locationLabel: city && state ? `${city}, ${state}` : city || cleanZip
-    };
-  }
-
-  async function resolveLocation() {
-    const saved = readSaved();
-    if (hasCoords(saved)) return saved;
-
-    const configured = window.FV_DASH_WEATHER_LOCATION || null;
-    if (hasCoords(configured)) return configured;
-
-    const company = window.FV_COMPANY || {};
-    const companyZip = String(company.addressZip || DEFAULT_ZIP).replace(/\D/g, "").slice(0, 5);
-
-    try {
-      return await geocodeZip(companyZip || DEFAULT_ZIP);
-    } catch (err) {
-      console.warn("Weather: company ZIP lookup failed.", err);
-      try {
-        return await geocodeZip(DEFAULT_ZIP);
-      } catch (fallbackErr) {
-        console.error("Weather: fallback ZIP lookup failed.", fallbackErr);
-        return null;
-      }
+  function onReady(fn) {
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", fn, { once:true });
+    } else {
+      fn();
     }
   }
 
-  function getLocation() {
-    if (!resolvedWeatherLocationPromise) resolvedWeatherLocationPromise = resolveLocation();
-    return resolvedWeatherLocationPromise;
+  /*
+    IMPORTANT:
+
+    index.html owns the normal dashboard weather render. Previously this helper
+    also rendered the dashboard, which created a race: Divernon could paint first,
+    then the saved ZIP painted second, causing the visible flash.
+
+    Instead, wrap the existing weather initializer BEFORE index.html calls it.
+    Any render whose target is the main #fv-weather tile is given the saved ZIP
+    coordinates up front. That means the dashboard still renders only once, but it
+    renders the correct saved location on that one pass.
+  */
+  function installMainWeatherInterceptor() {
+    if (!window.FVWeather || typeof window.FVWeather.initWeatherModule !== "function") {
+      return false;
+    }
+
+    if (window.FVWeather.__fvSavedZipInterceptorInstalled) return true;
+
+    const originalInit = window.FVWeather.initWeatherModule.bind(window.FVWeather);
+
+    window.FVWeather.__fvOriginalInitWeatherModule = originalInit;
+    window.FVWeather.initWeatherModule = function (options) {
+      const next = Object.assign({}, options || {});
+      const selector = String(next.selector || "");
+
+      if (selector === "#fv-weather" || selector.startsWith("#fv-weather[")) {
+        const saved = readSaved();
+        if (hasCoords(saved)) {
+          next.lat = Number(saved.lat);
+          next.lon = Number(saved.lon);
+          next.locationLabel = saved.locationLabel || saved.zip || "";
+          window.FV_DASH_WEATHER_LOCATION = saved;
+        }
+      }
+
+      return originalInit(next);
+    };
+
+    window.FVWeather.__fvSavedZipInterceptorInstalled = true;
+    return true;
   }
 
-  function shellHasWeatherHooks(shell) {
-    return !!(
-      shell &&
-      shell.querySelector('[data-fv="temp"]') &&
-      shell.querySelector('[data-fv="title"]')
+  installMainWeatherInterceptor();
+
+  function originalWeatherInit() {
+    if (!window.FVWeather) return null;
+    return (
+      window.FVWeather.__fvOriginalInitWeatherModule ||
+      window.FVWeather.initWeatherModule ||
+      null
     );
   }
 
-  function normalizeLocationLabel(value) {
-    return String(value || "")
-      .toLowerCase()
-      .replace(/^weather\s*[·:\-]?\s*/i, "")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-
-  function shellMatchesSavedLocation(shell, saved) {
-    if (!shellHasWeatherHooks(shell) || !saved) return false;
-    const wanted = normalizeLocationLabel(saved.locationLabel || saved.zip);
-    if (!wanted) return true;
-
-    const title = shell.querySelector('[data-fv="title"]');
-    const shown = normalizeLocationLabel(title?.textContent || "");
-    return shown === wanted || shown.includes(wanted);
-  }
-
-  function selectorForMainRender(shell) {
-    /*
-      fv-weather.js remembers which selector has already had its card skeleton
-      rendered. index.html can later replace #fv-weather with "Loading weather…".
-      When that happens, calling FVWeather again with #fv-weather only fetches data;
-      it will not rebuild the missing DOM hooks because that selector is still
-      marked as rendered internally.
-
-      Give the same shell a fresh selector only when its weather hooks are gone.
-      If the hooks are present, keep the same selector so a saved-ZIP correction
-      updates the existing card in place instead of rebuilding/flashing it.
-    */
-    if (shellHasWeatherHooks(shell)) return activeMainSelector;
-
-    if (activeRepairAttr) shell.removeAttribute(activeRepairAttr);
-
-    repairSelectorVersion += 1;
-    activeRepairAttr = `data-fv-weather-repair-${repairSelectorVersion}`;
-    shell.setAttribute(activeRepairAttr, "");
-    activeMainSelector = `#fv-weather[${activeRepairAttr}]`;
-    return activeMainSelector;
-  }
-
-  async function renderMain(loc, forceRefresh) {
+  async function refreshMainFromSaved(forceRefresh) {
     const shell = document.getElementById("fv-weather");
-    if (!shell || !hasCoords(loc)) return false;
-    if (!window.FVWeather || typeof window.FVWeather.initWeatherModule !== "function") return false;
+    const init = originalWeatherInit();
+    const saved = readSaved();
 
-    window.FV_DASH_WEATHER_LOCATION = loc;
+    if (!shell || !init || !hasCoords(saved)) return false;
+
+    window.FV_DASH_WEATHER_LOCATION = saved;
 
     const options = {
       googleApiKey: WEATHER_GOOGLE_KEY,
-      lat: Number(loc.lat),
-      lon: Number(loc.lon),
+      lat: Number(saved.lat),
+      lon: Number(saved.lon),
       unitsSystem: "IMPERIAL",
-      selector: selectorForMainRender(shell),
+      selector: "#fv-weather",
       showOpenMeteo: true,
       mode: "card",
-      locationLabel: loc.locationLabel || ""
+      locationLabel: saved.locationLabel || saved.zip || ""
     };
+
     if (forceRefresh === true) options.__forceRefresh = true;
 
     try {
-      await window.FVWeather.initWeatherModule(options);
-      return shellHasWeatherHooks(shell);
+      await init(options);
+      return true;
     } catch (err) {
       console.error("Weather: dashboard tile refresh failed.", err);
       return false;
     }
   }
 
-  function renderSavedWhenReady(forceRefresh) {
-    if (retryTimer) clearTimeout(retryTimer);
-    let attempts = 0;
-
-    async function run() {
-      attempts += 1;
-      const saved = readSaved();
-      const shell = document.getElementById("fv-weather");
-      if (!hasCoords(saved)) {
-        if (shell) shell.style.visibility = "";
-        return;
-      }
-
-      window.FV_DASH_WEATHER_LOCATION = saved;
-      resolvedWeatherLocationPromise = Promise.resolve(saved);
-
-      if (await renderMain(saved, forceRefresh === true)) {
-        if (shell) shell.style.visibility = "";
-        return;
-      }
-      if (attempts < 30) retryTimer = setTimeout(run, 50);
-      else if (shell) shell.style.visibility = "";
-    }
-
-    run();
-  }
-
-  function repairIfLoading() {
-    const shell = document.getElementById("fv-weather");
-    if (!shell || repairQueued) return;
-
-    const saved = readSaved();
-    const text = String(shell.textContent || "").trim().toLowerCase();
-    const missingHooks = !shellHasWeatherHooks(shell);
-    const isLoading = text === "loading weather..." || text === "loading weather…";
-    const wrongSavedLocation = hasCoords(saved) && shellHasWeatherHooks(shell) && !shellMatchesSavedLocation(shell, saved);
-
-    if (!missingHooks && !isLoading && !wrongSavedLocation) {
-      shell.style.visibility = "";
-      return;
-    }
-
-    /*
-      If company/main painted Divernon (or another company ZIP) while a user-saved
-      ZIP exists, hide that wrong frame before the browser paints it. Then refresh
-      the existing weather hooks in place with the saved ZIP and reveal the tile.
-      This preserves the no-flash behavior while keeping the saved ZIP authoritative.
-    */
-    if (wrongSavedLocation) shell.style.visibility = "hidden";
-
-    repairQueued = true;
-    setTimeout(function () {
-      repairQueued = false;
-      renderSavedWhenReady(wrongSavedLocation);
-    }, 0);
-  }
-
   function syncSavedZip(expectedZip) {
     if (zipSyncTimer) clearTimeout(zipSyncTimer);
+
     const wantedZip = String(expectedZip || "").replace(/\D/g, "").slice(0, 5);
     let attempts = 0;
 
     async function run() {
       attempts += 1;
+
       const saved = readSaved();
       const savedZip = String(saved?.zip || "").replace(/\D/g, "").slice(0, 5);
 
       if (hasCoords(saved) && savedZip === wantedZip) {
-        window.FV_DASH_WEATHER_LOCATION = saved;
-        resolvedWeatherLocationPromise = Promise.resolve(saved);
-        const shell = document.getElementById("fv-weather");
-        if (shell) shell.style.visibility = "hidden";
-        await renderMain(saved, true);
-        if (shell) shell.style.visibility = "";
+        await refreshMainFromSaved(true);
         return;
       }
 
-      if (attempts < 15) zipSyncTimer = setTimeout(run, 150);
+      if (attempts < 20) {
+        zipSyncTimer = setTimeout(run, 100);
+      }
     }
 
-    zipSyncTimer = setTimeout(run, 150);
+    zipSyncTimer = setTimeout(run, 100);
   }
 
   onReady(function () {
+    /* In case script ordering ever changes, make one more safe interceptor check. */
+    installMainWeatherInterceptor();
+
     const shell = document.getElementById("fv-weather");
     const modal = document.getElementById("fv-weather-modal");
     const modalBody = document.getElementById("fv-weather-modal-body");
@@ -299,64 +197,54 @@
 
     if (!shell || !modal || !modalBody || !closeBtn) return;
 
-    const saved = readSaved();
-    if (hasCoords(saved)) {
-      window.FV_DASH_WEATHER_LOCATION = saved;
-      resolvedWeatherLocationPromise = Promise.resolve(saved);
+    const savedAtReady = readSaved();
+    if (hasCoords(savedAtReady)) {
+      window.FV_DASH_WEATHER_LOCATION = savedAtReady;
     }
-
-    document.addEventListener("fv:company", function () {
-      setTimeout(repairIfLoading, 0);
-    });
-
-    window.addEventListener("pageshow", function () {
-      repairIfLoading();
-    });
-
-    window.addEventListener("focus", repairIfLoading);
-    document.addEventListener("visibilitychange", function () {
-      if (document.visibilityState === "visible") repairIfLoading();
-    });
-
-    const observer = new MutationObserver(function () {
-      repairIfLoading();
-    });
-    observer.observe(shell, {
-      childList: true,
-      subtree: true,
-      characterData: true
-    });
 
     async function openModal() {
       modal.removeAttribute("hidden");
       document.body.style.overflow = "hidden";
-      modalBody.innerHTML = '<div class="fv-weather-card">Loading weather...</div>';
 
-      if (!window.FVWeather || typeof window.FVWeather.initWeatherModule !== "function") {
+      const init = originalWeatherInit();
+      if (!init) {
         modalBody.innerHTML = shell.innerHTML;
         return;
       }
 
-      const loc = readSaved() || await getLocation();
-      if (!hasCoords(loc)) {
-        modalBody.innerHTML = '<div class="fv-weather-card">Weather location could not be loaded.</div>';
-        return;
-      }
+      const saved = readSaved();
+      const configured = hasCoords(saved)
+        ? saved
+        : (hasCoords(window.FV_DASH_WEATHER_LOCATION)
+            ? window.FV_DASH_WEATHER_LOCATION
+            : { lat:39.5656, lon:-89.6573, zip:"62530", locationLabel:"Divernon, IL" });
 
-      window.FV_DASH_WEATHER_LOCATION = loc;
-      resolvedWeatherLocationPromise = Promise.resolve(loc);
+      window.FV_DASH_WEATHER_LOCATION = configured;
+
+      /*
+        fv-weather.js remembers selectors it has already rendered. Reusing the same
+        modal selector after clearing the modal body can therefore leave the modal
+        blank or stuck on a later open. Give each modal opening a fresh selector so
+        its complete weather structure is always rebuilt reliably.
+      */
+      modalRenderVersion += 1;
+      const attr = `data-fv-weather-modal-render-${modalRenderVersion}`;
+      modalBody.getAttributeNames()
+        .filter(name => name.startsWith("data-fv-weather-modal-render-"))
+        .forEach(name => modalBody.removeAttribute(name));
+      modalBody.setAttribute(attr, "");
       modalBody.innerHTML = "";
 
       try {
-        await window.FVWeather.initWeatherModule({
+        await init({
           googleApiKey: WEATHER_GOOGLE_KEY,
-          lat: Number(loc.lat),
-          lon: Number(loc.lon),
+          lat: Number(configured.lat),
+          lon: Number(configured.lon),
           unitsSystem: "IMPERIAL",
-          selector: "#fv-weather-modal-body",
+          selector: `#fv-weather-modal-body[${attr}]`,
           showOpenMeteo: true,
           mode: "modal",
-          locationLabel: loc.locationLabel || ""
+          locationLabel: configured.locationLabel || configured.zip || ""
         });
       } catch (err) {
         console.error("Weather modal: FVWeather initialization failed.", err);
@@ -367,10 +255,12 @@
       const zipInput = modalBody.querySelector(".fv-weather-zip");
       if (zipInput && !zipInput.__fvDashboardSyncWired) {
         zipInput.__fvDashboardSyncWired = true;
+
         const sync = function () {
           const zip = String(zipInput.value || "").replace(/\D/g, "").slice(0, 5);
           if (zip.length === 5) syncSavedZip(zip);
         };
+
         zipInput.addEventListener("input", sync);
         zipInput.addEventListener("blur", sync);
         zipInput.addEventListener("keydown", function (evt) {
@@ -386,7 +276,7 @@
 
     shell.addEventListener("click", function (evt) {
       if (evt.target.closest(".fv-weather-refresh")) return;
-      if (shell.querySelector(".fv-weather-card")) openModal();
+      openModal();
     });
 
     closeBtn.addEventListener("click", closeModal);
