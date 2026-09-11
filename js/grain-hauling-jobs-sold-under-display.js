@@ -389,8 +389,6 @@
         })).id;
       }
 
-      // Refresh the core hauling-job module so its private customer cache knows
-      // about the new record before this job is submitted.
       requestCoreHaulingRefresh();
       await delay(900);
 
@@ -765,10 +763,20 @@
     const style = document.createElement('style');
     style.id = 'fv-grain-contracts-dark-theme-fix';
     style.textContent = `
+      #${JOB_MODAL_ID} .modal-card,
+      #${JOB_MODAL_ID} .modal-body,
+      #${JOB_MODAL_ID} .form-grid,
+      #${JOB_MODAL_ID} .field {
+        overflow:visible !important;
+      }
+      #${JOB_MODAL_ID} .fv-panel {
+        z-index:10050 !important;
+      }
       #${JOB_MODAL_ID} .fv-panel .fv-list,
       #fv-portal-root .fv-panel .fv-list {
-        max-height:min(280px,40vh) !important;
+        max-height:min(360px,52vh) !important;
         overflow-y:auto !important;
+        overflow-x:hidden !important;
         overscroll-behavior:contain;
         -webkit-overflow-scrolling:touch;
         scrollbar-gutter:stable;
