@@ -28,7 +28,7 @@
   // Preserve the original FarmVista version initialization behavior.
   if (!window.FV_VERSION || !window.FV_VERSION.number) {
     window.FV_VERSION = {
-      number:  "09.11.07",
+      number:  "09.11.08",
       date:    "2026-09-11",
       tagline: "Farm Data - Simplified"
     };
@@ -248,11 +248,11 @@
   }
 
   /* ===================================================================
-     SEPT 10, 2026 — MOBILE GRAIN DRAG/DROP EDGE AUTO-SCROLL
+     SEPT 11, 2026 — GRAIN DND HYBRID WORKSPACE
 
-     Keep long-press drag/drop usable on phones/tablets by scrolling long
-     contract, hauling-job, and ticket lists when the held item reaches the
-     top or bottom viewport edge. Existing drop logic remains authoritative.
+     Keep long-press drag/drop usable on phones/tablets and provide the
+     remembered collapsible hybrid hauling-job workspaces for both contracts
+     and grain tickets.
   =================================================================== */
 
   if (
@@ -262,7 +262,7 @@
     window.__FV_GRAIN_MOBILE_DND_AUTOSCROLL_LOADER_20260910 = true;
 
     const script = document.createElement('script');
-    script.src = '/js/grain-mobile-dnd-autoscroll.js?v=20260910-1';
+    script.src = '/js/grain-mobile-dnd-autoscroll.js?v=20260911-2';
     script.dataset.fvGrainMobileDndAutoscroll = '1';
     document.head.appendChild(script);
   }
