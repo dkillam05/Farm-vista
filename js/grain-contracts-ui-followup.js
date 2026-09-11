@@ -3,37 +3,55 @@ import "/js/fv-combo.js";
 /* FarmVista — Grain Contracts UI follow-up
    Sept. 11, 2026
 
-   - Make Assign Grain Tickets to Hauling Jobs filters use the same FarmVista
-     custom rounded combo control used elsewhere.
-   - In simple hauling mode, do not label normal hauling-job tickets as
-     "Uncontracted / Spot Tickets". If a hauling-job popup has no actual
-     linked-contract groups, keep it as the plain Assigned Tickets view.
+   - Keep the Grain Tickets -> Hauling Jobs filters on FarmVista custom combos.
+   - Restore the contract-assignment filters to the same custom combo behavior.
+   - In simple hauling mode, hide the misleading Uncontracted / Spot Tickets
+     heading when there are no actual linked-contract groups.
 */
 (() => {
   'use strict';
 
-  if (window.__FV_GRAIN_CONTRACTS_UI_FOLLOWUP_20260911_V2) return;
-  window.__FV_GRAIN_CONTRACTS_UI_FOLLOWUP_20260911_V2 = true;
+  if (window.__FV_GRAIN_CONTRACTS_UI_FOLLOWUP_20260911_V3) return;
+  window.__FV_GRAIN_CONTRACTS_UI_FOLLOWUP_20260911_V3 = true;
 
   const clean = value => String(value ?? '').trim();
   const norm = value => clean(value).toLowerCase();
 
-  function findTicketAssignmentBlock() {
+  function findWorkflowBlock(title) {
+    const wanted = norm(title);
     return Array.from(document.querySelectorAll('.workflow-block')).find(block =>
-      norm(block.querySelector('.workflow-block-title')?.textContent) === 'assign grain tickets to hauling jobs'
+      norm(block.querySelector('.workflow-block-title')?.textContent) === wanted
     ) || null;
   }
 
-  function upgradeTicketAssignmentFilters() {
-    const block = findTicketAssignmentBlock();
-    if (!block) return;
+  function upgradeSelect(select) {
+    if (!select) return;
+    select.setAttribute('data-fv-combo', '');
+    select.setAttribute('data-fv-search', 'false');
+  }
 
-    block.querySelectorAll('select').forEach(select => {
-      select.setAttribute('data-fv-combo', '');
-      select.setAttribute('data-fv-search', 'false');
-    });
+  function upgradeAssignmentFilters() {
+    // SIMPLE MODE: Assign Grain Tickets to Hauling Jobs.
+    const haulingTicketBlock = findWorkflowBlock('Assign Grain Tickets to Hauling Jobs');
+    haulingTicketBlock?.querySelectorAll('select').forEach(upgradeSelect);
 
-    window.FVCombo?.upgrade?.(block);
+    // DETAILED MODE: Assign Contracts to Hauling Jobs.
+    [
+      document.getElementById('hauling-link-buyer'),
+      document.getElementById('hauling-link-customer'),
+      document.getElementById('hauling-link-crop')
+    ].forEach(upgradeSelect);
+
+    // DETAILED MODE: Assign Grain Tickets to Contracts.
+    [
+      document.getElementById('reconcile-buyer'),
+      document.getElementById('reconcile-customer')
+    ].forEach(upgradeSelect);
+
+    // Upgrade only after all attributes are in place. FVCombo preserves the
+    // native selects/change events, so the existing filtering logic continues
+    // to work while the visible control uses the rounded FarmVista dropdown.
+    window.FVCombo?.upgrade?.(document);
   }
 
   function installSimplePopupStyles() {
@@ -84,7 +102,7 @@ import "/js/fv-combo.js";
   }
 
   function runFixes() {
-    upgradeTicketAssignmentFilters();
+    upgradeAssignmentFilters();
     normalizeSimpleHaulingPopup();
   }
 
@@ -104,7 +122,7 @@ import "/js/fv-combo.js";
       childList:true,
       subtree:true,
       attributes:true,
-      attributeFilter:['class']
+      attributeFilter:['class', 'disabled']
     });
   }
 
