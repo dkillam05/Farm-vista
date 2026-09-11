@@ -1,11 +1,12 @@
 /* ==========================================================
-   FarmVista — Core (theme + version) v3.1.2
+   FarmVista — Core (theme + version) v3.1.3
    - Applies saved theme ASAP (prevents flash)
    - Keeps "system" synced with OS changes
    - Exposes App API used by fv-shell.js
    - Sets data-theme attr + updates <meta name="theme-color">
    - Loads the Grain Ticket unresolved-review warning guard
    - Preserves previous-page navigation from Grain Ticket Detail
+   - Loads compact Hauling Job ticket cards + inventory edit handoff
    ========================================================== */
 (function (global, doc) {
   const THEME_KEY = "fv-theme";
@@ -13,7 +14,7 @@
 
   function ensureThemeMeta(){
     let m = doc.querySelector('meta[name="theme-color"]');
-    if (!m) { m = doc.createElement('meta'); m.setAttribute('name','theme-color'); doc.head.appendChild(m); }
+    if (!m) { m = doc.createElement('meta'); m.setAttribute('content','#3B7E46'); m.setAttribute('name','theme-color'); doc.head.appendChild(m); }
     return m;
   }
   function applyThemeColorFromCSS(){
@@ -75,6 +76,23 @@
     }catch{}
   }
 
+  function loadHaulingJobUx(){
+    try{
+      const path = String(global.location?.pathname || '').toLowerCase();
+      const supported =
+        path.endsWith('/pages/grain/index.html') ||
+        path.endsWith('/pages/grain/grain-contracts.html');
+
+      if (!supported || doc.querySelector('script[data-fv-hauling-job-ux]')) return;
+
+      const script = doc.createElement('script');
+      script.src = '/js/grain-hauling-job-ux.js?v=20260911-1';
+      script.defer = true;
+      script.dataset.fvHaulingJobUx = '1';
+      doc.head.appendChild(script);
+    }catch{}
+  }
+
   function initGrainTicketDetailBackNavigation(){
     try{
       const path = String(global.location?.pathname || '').toLowerCase();
@@ -111,6 +129,7 @@
   initTheme();
   readVersion();
   loadPageGuards();
+  loadHaulingJobUx();
   initGrainTicketDetailBackNavigation();
 
   if (document.readyState === 'loading') {
