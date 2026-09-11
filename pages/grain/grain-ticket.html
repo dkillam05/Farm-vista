@@ -3148,7 +3148,31 @@ function ticketHasHaulingJob(
       "customer_mismatch"
     ]);
 
-    return reasons.some(reason => warningReasons.has(reason));
+    return reasons.some(reason => {
+
+      if (warningReasons.has(reason)) return true;
+
+      /*
+        A clean/readable ticket that cannot be matched to an ACTIVE hauling
+        job is an operational mismatch, not an OCR/data-entry review item.
+        Keep these red so dispatch immediately sees that the destination /
+        crop / Sold Under combination has no current hauling job available.
+      */
+      const haulingJobMismatch =
+        (reason.includes("hauling") || reason.includes("job")) &&
+        (
+          reason.includes("not_matched") ||
+          reason.includes("not_found") ||
+          reason.includes("no_match") ||
+          reason.includes("missing") ||
+          reason.includes("inactive") ||
+          reason.includes("no_active") ||
+          reason.includes("requires_review")
+        );
+
+      return haulingJobMismatch;
+
+    });
 
   }
 
