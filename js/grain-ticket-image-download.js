@@ -1,5 +1,5 @@
 /* FarmVista — saved grain ticket image download/share
-   Rev 2026-09-11i
+   Rev 2026-09-11j
    Uniform support for Ticket Detail, Grain Inventory drill-down,
    and Grain Contract Report ticket popup.
 
@@ -9,12 +9,13 @@
    enhance() itself added/removed DOM, which could keep the main thread busy
    during Ticket Detail startup. Ticket Detail now watches only ticketImage src.
 
-   Rev i also adds the compact Active Hauling Jobs overview to Grain Inventory.
+   Rev i adds the compact Active Hauling Jobs overview to Grain Inventory.
+   Rev j adds Sold Under as the second column so duplicate destinations are clear.
 */
 (() => {
   'use strict';
-  if (window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260911I) return;
-  window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260911I = true;
+  if (window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260911J) return;
+  window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260911J = true;
 
   const style = document.createElement('style');
   style.id = 'fv-ticket-image-download-style';
@@ -264,7 +265,7 @@
     const extraStyle=document.createElement('style');
     extraStyle.id='fv-active-hauling-jobs-style';
     extraStyle.textContent=`
-      #fv-active-hauling-jobs-section .fv-ahj-table{width:100%;border-collapse:collapse;min-width:980px}
+      #fv-active-hauling-jobs-section .fv-ahj-table{width:100%;border-collapse:collapse;min-width:1080px}
       #fv-active-hauling-jobs-section .fv-ahj-table th{padding:10px 12px;background:var(--surface-2,#f3f3f3);border-bottom:1px solid var(--border,#d4d4d4);font-size:.78rem;font-weight:800;text-align:center;white-space:nowrap}
       #fv-active-hauling-jobs-section .fv-ahj-table td{padding:11px 12px;border-bottom:1px solid var(--border,#e1e1e1);font-size:.88rem;text-align:center;vertical-align:middle}
       #fv-active-hauling-jobs-section .fv-ahj-table td:first-child,#fv-active-hauling-jobs-section .fv-ahj-table th:first-child{text-align:left}
@@ -298,9 +299,9 @@
           <div class="table-wrap">
             <table class="fv-ahj-table">
               <thead><tr>
-                <th>Hauling Job</th><th>Status</th><th>Crop</th><th>Starting Bu.</th><th>Ticketed Bu.</th><th>Remaining</th><th>Loads</th><th>Avg MO</th><th>Avg FM</th><th>Avg Damage</th>
+                <th>Hauling Job</th><th>Sold Under</th><th>Status</th><th>Crop</th><th>Starting Bu.</th><th>Ticketed Bu.</th><th>Remaining</th><th>Loads</th><th>Avg MO</th><th>Avg FM</th><th>Avg Damage</th>
               </tr></thead>
-              <tbody id="fv-ahj-tbody"><tr><td colspan="10" class="fv-ahj-empty">Loading active hauling jobs…</td></tr></tbody>
+              <tbody id="fv-ahj-tbody"><tr><td colspan="11" class="fv-ahj-empty">Loading active hauling jobs…</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -331,6 +332,7 @@
     const fmtBu=v=>`${Math.round(n(v)).toLocaleString('en-US')} bu`;
     const fmtGrade=v=>{const x=Number(v);return Number.isFinite(x)?`${x.toFixed(2)}%`:'N/A'};
     const cropLabel=v=>{const x=norm(v);if(['soy','soybean','soybeans','beans','sb'].includes(x))return 'Soybeans';if(['corn','maize'].includes(x))return 'Corn';if(x==='wheat')return 'Wheat';return clean(v)||'—'};
+    const soldUnder=j=>clean(j?.customerName||j?.soldUnderName||j?.soldUnder||j?.customer)||'—';
     const today=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`};
     const starting=j=>Math.max(0,n(j?.startingBushels??j?.jobBushels??j?.bushels));
     const isVoided=t=>t?.voided===true||norm(t?.status).includes('void');
@@ -389,11 +391,12 @@
         return as-bs||jobName(a).localeCompare(jobName(b),undefined,{numeric:true,sensitivity:'base'});
       });
       const tbody=section.querySelector('#fv-ahj-tbody');
-      if(!active.length){tbody.innerHTML='<tr><td colspan="10" class="fv-ahj-empty">No active hauling jobs.</td></tr>';return;}
+      if(!active.length){tbody.innerHTML='<tr><td colspan="11" class="fv-ahj-empty">No active hauling jobs.</td></tr>';return;}
       tbody.innerHTML=active.map(j=>{
         const jt=ticketsFor(tickets,j.id),g=weighted(jt),st=status(tickets,j);
         return `<tr class="fv-ahj-row" data-job-id="${esc(j.id)}">
           <td><span class="fv-ahj-jobname">${esc(jobName(j))}</span></td>
+          <td>${esc(soldUnder(j))}</td>
           <td><span class="fv-ahj-status ${st==='past_due'?'past-due':''}">${st==='past_due'?'Past Due':'Active'}</span></td>
           <td>${esc(cropLabel(j?.crop||j?.commodity))}</td>
           <td>${fmtBu(starting(j))}</td><td>${fmtBu(g.bushels)}</td><td>${fmtBu(remaining(tickets,j))}</td>
@@ -406,7 +409,7 @@
         const jt=ticketsFor(tickets,job.id).sort((a,b)=>dateValue(b).localeCompare(dateValue(a))||ticketNumber(a).localeCompare(ticketNumber(b),undefined,{numeric:true,sensitivity:'base'}));
         const g=weighted(jt);
         modal.querySelector('#fv-ahj-modal-title').textContent=jobName(job);
-        const sold=clean(job?.customerName||job?.soldUnderName||job?.soldUnder);
+        const sold=soldUnder(job)==='—'?'':soldUnder(job);
         modal.querySelector('#fv-ahj-modal-sub').textContent=[cropLabel(job?.crop||job?.commodity),sold?`Sold Under: ${sold}`:''].filter(Boolean).join(' • ');
         modal.querySelector('#fv-ahj-summary').innerHTML=`
           <div class="detail-box"><div class="detail-label">Starting Bushels</div><div class="detail-value">${fmtBu(starting(job))}</div></div>
@@ -424,7 +427,7 @@
     }catch(error){
       console.error('[FarmVista] Active hauling jobs overview failed:',error);
       const tbody=section.querySelector('#fv-ahj-tbody');
-      if(tbody)tbody.innerHTML='<tr><td colspan="10" class="fv-ahj-empty">Active hauling jobs could not be loaded.</td></tr>';
+      if(tbody)tbody.innerHTML='<tr><td colspan="11" class="fv-ahj-empty">Active hauling jobs could not be loaded.</td></tr>';
     }
   }
 
