@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#111111">
+  <title>FarmVista • Grain Ticket OCR Test</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#f4f6f4;color:#182018;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.wrap{max-width:1100px;margin:0 auto;padding:28px 18px 48px}.card{background:#fff;border:1px solid #d9dfd9;border-radius:16px;box-shadow:0 8px 28px rgba(0,0,0,.08);padding:22px}.title{margin:0 0 6px;font-size:28px}.sub{margin:0 0 20px;color:#5f695f}.drop{border:2px dashed #8aa58a;border-radius:14px;padding:28px;text-align:center;background:#f8fbf8}.drop input{display:none}.btn{appearance:none;border:0;border-radius:10px;padding:12px 18px;font-weight:800;cursor:pointer;background:#2f7d3b;color:#fff;font-size:15px}.btn.secondary{background:#e8eee8;color:#1c2a1c;border:1px solid #cad5ca}.file-name{margin-top:12px;font-size:14px;color:#526052}.preview{display:none;margin-top:18px;max-width:100%;max-height:420px;border-radius:12px;border:1px solid #d9dfd9}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}.status{margin-top:14px;font-weight:700}.status.error{color:#b42318}.status.ok{color:#1f6b2b}.results{display:none;margin-top:22px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.panel{background:#0f1510;color:#eaf2ea;border-radius:12px;padding:14px;overflow:auto;min-height:220px}.panel h2{margin:0 0 10px;font-size:16px;color:#b9d8bd}.panel pre{margin:0;white-space:pre-wrap;word-break:break-word;font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.full{grid-column:1/-1}@media(max-width:800px){.grid{grid-template-columns:1fr}.full{grid-column:auto}}
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="card">
+      <h1 class="title">Desktop Grain Ticket OCR Test</h1>
+      <p class="sub">Testing page only. Uploads one existing ticket image through the same FarmVista OCR endpoint and shows the raw response. It does not save a grain ticket.</p>
+
+      <div class="drop" id="dropZone">
+        <button class="btn" id="chooseBtn" type="button">Choose Ticket Image</button>
+        <input id="fileInput" type="file" accept="image/*,.heic,.heif">
+        <div class="file-name" id="fileName">No file selected</div>
+        <img id="preview" class="preview" alt="Ticket preview">
+      </div>
+
+      <div class="actions">
+        <button class="btn" id="runBtn" type="button" disabled>Run OCR Test</button>
+        <button class="btn secondary" id="copyBtn" type="button" disabled>Copy All Results</button>
+      </div>
+      <div class="status" id="status"></div>
+
+      <section class="results" id="results">
+        <div class="grid">
+          <div class="panel"><h2>grainTicket</h2><pre id="ticketOut"></pre></div>
+          <div class="panel"><h2>fields</h2><pre id="fieldsOut"></pre></div>
+          <div class="panel full"><h2>Document Text</h2><pre id="textOut"></pre></div>
+          <div class="panel full"><h2>Full OCR JSON</h2><pre id="jsonOut"></pre></div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+  (() => {
+    'use strict';
+
+    const OCR_URL = 'https://fv-ocr-300398089669.us-central1.run.app/fvOcr';
+    const input = document.getElementById('fileInput');
+    const chooseBtn = document.getElementById('chooseBtn');
+    const runBtn = document.getElementById('runBtn');
+    const copyBtn = document.getElementById('copyBtn');
+    const fileName = document.getElementById('fileName');
+    const preview = document.getElementById('preview');
+    const status = document.getElementById('status');
+    const results = document.getElementById('results');
+    const ticketOut = document.getElementById('ticketOut');
+    const fieldsOut = document.getElementById('fieldsOut');
+    const textOut = document.getElementById('textOut');
+    const jsonOut = document.getElementById('jsonOut');
+    let selectedFile = null;
+    let lastResult = null;
+
+    chooseBtn.addEventListener('click', () => input.click());
+
+    input.addEventListener('change', () => {
+      selectedFile = input.files && input.files[0] ? input.files[0] : null;
+      lastResult = null;
+      copyBtn.disabled = true;
+      results.style.display = 'none';
+      status.textContent = '';
+      if (!selectedFile) {
+        fileName.textContent = 'No file selected';
+        preview.style.display = 'none';
+        runBtn.disabled = true;
+        return;
+      }
+      fileName.textContent = `${selectedFile.name} • ${Math.round(selectedFile.size / 1024)} KB`;
+      runBtn.disabled = false;
+      const url = URL.createObjectURL(selectedFile);
+      preview.src = url;
+      preview.style.display = 'block';
+      preview.onload = () => URL.revokeObjectURL(url);
+    });
+
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const value = String(reader.result || '');
+          resolve(value.includes(',') ? value.split(',')[1] : value);
+        };
+        reader.onerror = () => reject(reader.error || new Error('Could not read file.'));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function pickRoot(data) {
+      if (data?.grainTicket) return data;
+      if (data?.result?.grainTicket) return data.result;
+      if (data?.ocrResult?.grainTicket) return data.ocrResult;
+      return data || {};
+    }
+
+    runBtn.addEventListener('click', async () => {
+      if (!selectedFile) return;
+      runBtn.disabled = true;
+      copyBtn.disabled = true;
+      status.className = 'status';
+      status.textContent = 'Reading ticket with FarmVista OCR…';
+      results.style.display = 'none';
+
+      try {
+        const base64 = await fileToBase64(selectedFile);
+        const response = await fetch(OCR_URL, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            mode: 'grain_ticket',
+            content: base64,
+            mimeType: selectedFile.type || 'image/jpeg'
+          })
+        });
+
+        const raw = await response.text();
+        let data;
+        try { data = JSON.parse(raw); }
+        catch { throw new Error(`OCR returned non-JSON (${response.status}): ${raw.slice(0,500)}`); }
+        if (!response.ok) throw new Error(data?.error || `OCR returned ${response.status}`);
+
+        lastResult = data;
+        const root = pickRoot(data);
+        const documentText = root?.document?.text || data?.document?.text || data?.result?.document?.text || data?.ocrResult?.document?.text || root?.grainTicket?.rawText || '';
+
+        ticketOut.textContent = JSON.stringify(root?.grainTicket || null, null, 2);
+        fieldsOut.textContent = JSON.stringify(root?.fields || null, null, 2);
+        textOut.textContent = documentText || '(No document text returned)';
+        jsonOut.textContent = JSON.stringify(data, null, 2);
+        results.style.display = 'block';
+        copyBtn.disabled = false;
+        status.className = 'status ok';
+        status.textContent = 'OCR complete. Nothing was saved to FarmVista.';
+        console.log('[FarmVista OCR TEST] FULL RESULT', data);
+        console.log('[FarmVista OCR TEST] grainTicket', root?.grainTicket || null);
+        console.log('[FarmVista OCR TEST] fields', root?.fields || null);
+        console.log('[FarmVista OCR TEST] document text', documentText);
+      } catch (error) {
+        console.error('[FarmVista OCR TEST] failed', error);
+        status.className = 'status error';
+        status.textContent = error?.message || String(error);
+      } finally {
+        runBtn.disabled = !selectedFile;
+      }
+    });
+
+    copyBtn.addEventListener('click', async () => {
+      if (!lastResult) return;
+      const root = pickRoot(lastResult);
+      const documentText = root?.document?.text || lastResult?.document?.text || lastResult?.result?.document?.text || lastResult?.ocrResult?.document?.text || root?.grainTicket?.rawText || '';
+      const text = [
+        '=== grainTicket ===', JSON.stringify(root?.grainTicket || null, null, 2),
+        '', '=== fields ===', JSON.stringify(root?.fields || null, null, 2),
+        '', '=== document text ===', documentText,
+        '', '=== full OCR JSON ===', JSON.stringify(lastResult, null, 2)
+      ].join('\n');
+      await navigator.clipboard.writeText(text);
+      status.className = 'status ok';
+      status.textContent = 'All OCR results copied. Paste them into ChatGPT.';
+    });
+  })();
+  </script>
+</body>
+</html>
