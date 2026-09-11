@@ -1,5 +1,5 @@
 /* FarmVista — saved grain ticket image download/share
-   Rev 2026-09-11j
+   Rev 2026-09-11k
    Uniform support for Ticket Detail, Grain Inventory drill-down,
    and Grain Contract Report ticket popup.
 
@@ -11,11 +11,12 @@
 
    Rev i adds the compact Active Hauling Jobs overview to Grain Inventory.
    Rev j adds Sold Under as the second column so duplicate destinations are clear.
+   Rev k lists upcoming hauling jobs directly below the active jobs.
 */
 (() => {
   'use strict';
-  if (window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260911J) return;
-  window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260911J = true;
+  if (window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260911K) return;
+  window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260911K = true;
 
   const style = document.createElement('style');
   style.id = 'fv-ticket-image-download-style';
@@ -274,8 +275,11 @@
       .fv-ahj-jobname{font-weight:850}
       .fv-ahj-status{display:inline-flex;align-items:center;justify-content:center;padding:4px 9px;border-radius:999px;background:rgba(59,126,70,.14);color:#2d6937;font-size:.75rem;font-weight:850;white-space:nowrap}
       .fv-ahj-status.past-due{background:rgba(179,38,30,.12);color:#a6201a}
+      .fv-ahj-status.upcoming{background:rgba(154,103,0,.13);color:#8a5b00}
       [data-theme="dark"] .fv-ahj-status{color:#b9e4bf}
       [data-theme="dark"] .fv-ahj-status.past-due{color:#ffb4ab}
+      [data-theme="dark"] .fv-ahj-status.upcoming{color:#ffd58a}
+      .fv-ahj-group-row td{padding:10px 12px!important;background:var(--surface-2,#f3f3f3);font-size:.8rem!important;font-weight:850!important;text-align:left!important;letter-spacing:.01em}
       .fv-ahj-empty{padding:28px 18px;text-align:center;opacity:.68}
       #fv-ahj-modal-backdrop{z-index:12500}
       .fv-ahj-ticket-link{color:#3B7E46;font-weight:850;text-decoration:none}
@@ -292,7 +296,7 @@
         <div class="inventory-head">
           <div>
             <h2 class="inventory-title">Active Hauling Jobs</h2>
-            <div class="inventory-sub">Open hauling jobs at a glance. Click a job to see its tickets and weighted grain-quality averages.</div>
+            <div class="inventory-sub">Open hauling jobs at a glance. Upcoming jobs are listed underneath so the next grain commitments are easy to see.</div>
           </div>
         </div>
         <div class="inventory-body">
@@ -359,6 +363,7 @@
       const place=buyer&&location&&!norm(location).startsWith(norm(buyer))?`${buyer} ${location}`:(location||buyer||'Hauling Job');
       return `${place} — ${Math.round(starting(j)).toLocaleString('en-US')} bu`;
     };
+    const startDate=j=>clean(j?.deliveryStartDate||j?.startDate||'');
     const dateValue=t=>clean(t?.ticketDate||t?.date||t?.deliveryDate||'');
     const ticketNumber=t=>clean(t?.ticketNumber||t?.ticketNo||t?.number||t?.scaleTicketNumber)||clean(t?.id).slice(0,8);
     const driver=t=>clean(t?.driverName||t?.driver||t?.submittedByName||t?.submittedBy)||'—';
@@ -390,22 +395,32 @@
         const as=status(tickets,a)==='past_due'?0:1,bs=status(tickets,b)==='past_due'?0:1;
         return as-bs||jobName(a).localeCompare(jobName(b),undefined,{numeric:true,sensitivity:'base'});
       });
+      const upcoming=jobs.filter(j=>status(tickets,j)==='upcoming').sort((a,b)=>{
+        return startDate(a).localeCompare(startDate(b))||jobName(a).localeCompare(jobName(b),undefined,{numeric:true,sensitivity:'base'});
+      });
+      const visible=[...active,...upcoming];
       const tbody=section.querySelector('#fv-ahj-tbody');
-      if(!active.length){tbody.innerHTML='<tr><td colspan="11" class="fv-ahj-empty">No active hauling jobs.</td></tr>';return;}
-      tbody.innerHTML=active.map(j=>{
+      if(!visible.length){tbody.innerHTML='<tr><td colspan="11" class="fv-ahj-empty">No active or upcoming hauling jobs.</td></tr>';return;}
+      const renderJob=j=>{
         const jt=ticketsFor(tickets,j.id),g=weighted(jt),st=status(tickets,j);
+        const statusClass=st==='past_due'?'past-due':st==='upcoming'?'upcoming':'';
+        const statusLabel=st==='past_due'?'Past Due':st==='upcoming'?'Upcoming':'Active';
         return `<tr class="fv-ahj-row" data-job-id="${esc(j.id)}">
           <td><span class="fv-ahj-jobname">${esc(jobName(j))}</span></td>
           <td>${esc(soldUnder(j))}</td>
-          <td><span class="fv-ahj-status ${st==='past_due'?'past-due':''}">${st==='past_due'?'Past Due':'Active'}</span></td>
+          <td><span class="fv-ahj-status ${statusClass}">${statusLabel}</span></td>
           <td>${esc(cropLabel(j?.crop||j?.commodity))}</td>
           <td>${fmtBu(starting(j))}</td><td>${fmtBu(g.bushels)}</td><td>${fmtBu(remaining(tickets,j))}</td>
           <td>${g.loads.toLocaleString('en-US')}</td><td>${fmtGrade(g.moisture)}</td><td>${fmtGrade(g.fm)}</td><td>${fmtGrade(g.damage)}</td>
         </tr>`;
-      }).join('');
+      };
+      tbody.innerHTML=[
+        active.map(renderJob).join(''),
+        upcoming.length?`<tr class="fv-ahj-group-row"><td colspan="11">Upcoming Hauling Jobs</td></tr>${upcoming.map(renderJob).join('')}`:''
+      ].join('');
 
       tbody.querySelectorAll('[data-job-id]').forEach(row=>row.addEventListener('click',()=>{
-        const job=active.find(j=>j.id===row.dataset.jobId);if(!job)return;
+        const job=visible.find(j=>j.id===row.dataset.jobId);if(!job)return;
         const jt=ticketsFor(tickets,job.id).sort((a,b)=>dateValue(b).localeCompare(dateValue(a))||ticketNumber(a).localeCompare(ticketNumber(b),undefined,{numeric:true,sensitivity:'base'}));
         const g=weighted(jt);
         modal.querySelector('#fv-ahj-modal-title').textContent=jobName(job);
