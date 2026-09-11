@@ -3,13 +3,14 @@
 //
 // The full hybrid DND workspace is preserved in grain-mobile-dnd-autoscroll-core.js.
 // This lightweight loader keeps that behavior intact and adds Sold Under to the
-// Ticket -> Hauling Job assignment cards without changing assignment logic.
+// Ticket -> Hauling Job assignment cards. It also repairs missing ticket context
+// from the hauling job after assignment so the ticket detail/list stays aligned.
 
 (() => {
   'use strict';
 
-  if (window.__FV_GRAIN_DND_WRAPPER_20260911) return;
-  window.__FV_GRAIN_DND_WRAPPER_20260911 = true;
+  if (window.__FV_GRAIN_DND_WRAPPER_20260911_V2) return;
+  window.__FV_GRAIN_DND_WRAPPER_20260911_V2 = true;
 
   const clean = value => String(value ?? '').trim();
   const escapeHtml = value => clean(value)
@@ -28,6 +29,7 @@
   const state = {
     loaded: false,
     loading: null,
+    repairing: false,
     tickets: new Map(),
     jobs: new Map(),
     customers: new Map(),
@@ -109,6 +111,91 @@
     return state.loading;
   }
 
+  function isMissing(value) {
+    const text = clean(value);
+    return !text || text.toLowerCase() === 'unknown';
+  }
+
+  function jobCustomer(job) {
+    const customerId = clean(
+      job?.customerId ||
+      job?.soldUnderId ||
+      job?.grainCustomerId
+    );
+
+    const directName = clean(
+      job?.customerName ||
+      job?.soldUnderName ||
+      job?.soldUnder ||
+      job?.customer
+    );
+
+    const customerName =
+      directName && directName.toLowerCase() !== 'unknown'
+        ? directName
+        : clean(state.customers.get(customerId)?.name);
+
+    return { customerId, customerName };
+  }
+
+  async function repairMissingAssignedTicketContext() {
+    if (state.repairing) return;
+    await loadData();
+    if (!state.loaded) return;
+
+    const repairs = [];
+
+    for (const ticket of state.tickets.values()) {
+      const jobId = clean(ticket.haulingJobId);
+      if (!jobId) continue;
+
+      const job = state.jobs.get(jobId);
+      if (!job) continue;
+
+      const { customerId, customerName } = jobCustomer(job);
+      const patch = {};
+
+      if (customerId && isMissing(ticket.customerId)) patch.customerId = customerId;
+      if (customerName && isMissing(ticket.customerName)) patch.customerName = customerName;
+
+      const buyerId = clean(job.buyerId || job.grainBuyerId);
+      const buyerName = clean(job.buyerName || job.buyer);
+      const locationId = clean(job.deliveryLocationId || job.locationId || job.destinationId);
+      const locationName = clean(job.deliveryLocationName || job.locationName || job.destinationName || job.destination);
+      const crop = clean(job.crop || job.commodity || job.cropName || job.cropType);
+
+      if (buyerId && isMissing(ticket.buyerId)) patch.buyerId = buyerId;
+      if (buyerName && isMissing(ticket.buyerName)) patch.buyerName = buyerName;
+      if (locationId && isMissing(ticket.deliveryLocationId)) patch.deliveryLocationId = locationId;
+      if (locationName && isMissing(ticket.deliveryLocationName)) patch.deliveryLocationName = locationName;
+      if (crop && isMissing(ticket.crop)) patch.crop = crop;
+
+      if (Object.keys(patch).length) repairs.push({ ticket, patch });
+    }
+
+    if (!repairs.length) return;
+
+    state.repairing = true;
+    try {
+      const firebase = await import('/js/firebase-init.js');
+      await firebase.ready;
+      const db = firebase.getFirestore();
+
+      await Promise.all(repairs.map(({ ticket, patch }) =>
+        firebase.updateDoc(
+          firebase.doc(db, 'grain_tickets', ticket.id),
+          { ...patch, updatedAt: firebase.serverTimestamp() }
+        )
+      ));
+
+      repairs.forEach(({ ticket, patch }) => Object.assign(ticket, patch));
+    } catch (error) {
+      console.warn('[FarmVista] Could not repair ticket context from hauling job:', error);
+    } finally {
+      state.repairing = false;
+    }
+  }
+
   function ensureStyle() {
     if (document.getElementById('fv-ticket-job-sold-under-style')) return;
 
@@ -172,6 +259,7 @@
     state.renderQueued = false;
     ensureStyle();
     await loadData();
+    await repairMissingAssignedTicketContext();
     applyTicketLabels();
     applyJobLabels();
   }
@@ -196,7 +284,7 @@
   document.addEventListener('click', event => {
     if (event.target.closest('#refresh-hauling-link-btn')) {
       state.loaded = false;
-      setTimeout(() => loadData(true).then(queueRender), 250);
+      setTimeout(() => loadData(true).then(repairMissingAssignedTicketContext).then(queueRender), 250);
     }
   }, true);
 
