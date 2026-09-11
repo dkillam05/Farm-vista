@@ -679,6 +679,19 @@
     if (bushelsField) bushelsField.classList.add('span-2');
   }
 
+  function moveContractActionsIntoCard() {
+    const group = document.querySelector('.workflow-group.grain-ticket-group');
+    const actions = group?.querySelector(':scope > .workflow-group-head .page-heading-actions');
+    const firstBlock = group?.querySelector(':scope > .workflow-block');
+    const firstBlockHead = firstBlock?.querySelector(':scope > .workflow-block-head');
+
+    if (!actions || !firstBlock || !firstBlockHead) return false;
+
+    actions.classList.add('fv-contract-card-actions');
+    firstBlockHead.insertAdjacentElement('afterend', actions);
+    return true;
+  }
+
   function watchHaulingJobModal() {
     const modal = document.getElementById(JOB_MODAL_ID);
     if (!modal) return false;
@@ -720,6 +733,10 @@
         overscroll-behavior:contain;
         -webkit-overflow-scrolling:touch;
         scrollbar-gutter:stable;
+      }
+      .grain-ticket-group .workflow-block > .fv-contract-card-actions {
+        margin:0 0 12px;
+        justify-content:flex-end;
       }
       html.dark .compact-summary, html[data-theme="dark"] .compact-summary,
       html.dark .hauling-dnd-message, html[data-theme="dark"] .hauling-dnd-message,
@@ -805,6 +822,7 @@
     upgradeCustomerCombo();
     wireFreshAddJobReset();
     layoutHaulingJobModal();
+    moveContractActionsIntoCard();
     watchHaulingJobModal();
 
     if (!attachToTable()) {
@@ -814,6 +832,7 @@
         upgradeCustomerCombo();
         wireFreshAddJobReset();
         layoutHaulingJobModal();
+        moveContractActionsIntoCard();
         watchHaulingJobModal();
         if (attachToTable()) pageObserver.disconnect();
       });
