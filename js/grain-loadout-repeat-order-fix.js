@@ -1,25 +1,497 @@
-import{ready,getFirestore,collection,getDocs}from"/js/firebase-init.js";
+import {
+  ready,
+  getFirestore,
+  collection,
+  getDocs
+} from "/js/firebase-init.js";
+
 await ready;
-const db=getFirestore(),$=id=>document.getElementById(id),c=v=>String(v??"").trim(),n=v=>c(v).toLowerCase(),num=v=>{const x=Number(String(v??"").replace(/,/g,""));return Number.isFinite(x)?x:0},ms=v=>v?.toMillis?v.toMillis():v?.toDate?v.toDate().getTime():(()=>{const d=new Date(v||0);return Number.isNaN(d.getTime())?0:d.getTime()})();
-const E={backdrop:$("loadout-modal-backdrop"),title:$("loadout-modal-title"),driver:$("loadout-driver"),subdriver:$("loadout-subdriver"),job:$("loadout-hauling-job"),customer:$("loadout-customer"),customerButton:$("loadout-customer-button"),customerText:$("loadout-customer-button-text"),customerMenu:$("loadout-customer-menu"),sourceButton:$("loadout-source-button"),sourceMenu:$("loadout-source-menu"),message:$("loadout-form-message")};
-let state={jobs:[],tickets:[],customers:[]},refreshing=null,token=0,observerTimer=0;
-const createMode=()=>E.backdrop?.classList.contains("open")&&n(E.title?.textContent)==="assign load";
-const jobCustomerId=j=>c(j?.customerId||j?.grainCustomerId),customerName=id=>c(state.customers.find(x=>c(x.id)===c(id))?.name||state.customers.find(x=>c(x.id)===c(id))?.customerName),jobCustomerName=j=>c(j?.customerName||j?.soldUnderName||customerName(jobCustomerId(j)))||"Unknown",jobCrop=j=>c(j?.crop||j?.commodity||j?.cropName||j?.cropType),jobPlace=j=>c(j?.deliveryLocationId||j?.locationId||j?.destinationId||j?.deliveryLocationName||j?.locationName||j?.destinationName||j?.buyerName),startBu=j=>Math.max(0,num(j?.startingBushels??j?.jobBushels??j?.bushels));
-const voidTicket=t=>t?.voided===true||n(t?.status).includes("void"),ticketed=j=>state.tickets.filter(t=>!voidTicket(t)&&c(t?.haulingJobId||t?.grainHaulingJobId)===c(j.id)).reduce((s,t)=>s+num(t?.netBushels??t?.netBu??t?.bushels),0),remaining=j=>{const starting=startBu(j);if(starting>0)return Math.max(0,starting-ticketed(j));const x=j?.remainingBushels??j?.bushelsRemaining??j?.remainingBu;return x!==undefined&&x!==null&&x!==""?Math.max(0,num(x)):0};
-const openJob=j=>{if(!j||j.active===false||j.isActive===false||j.manualClosed===true)return false;const s=n(j.status||j.jobStatus);if(["void","cancel","closed","complete"].some(x=>s.includes(x)))return false;return !(startBu(j)>0&&remaining(j)<=.005)},oldest=j=>{const iso=c(j?.deliveryStartDate||j?.startDate);if(iso){const d=new Date(`${iso}T12:00:00`);if(!Number.isNaN(d.getTime()))return d.getTime()}return ms(j?.createdAt||j?.createdAtISO||j?.updatedAt)||Number.MAX_SAFE_INTEGER},key=j=>`${n(jobPlace(j))}|${n(jobCrop(j))}|${jobCustomerId(j)?`id:${jobCustomerId(j)}`:`name:${n(jobCustomerName(j))}`}`;
-const visibleIds=()=>{const map=new Map;state.jobs.filter(openJob).sort((a,b)=>oldest(a)-oldest(b)).forEach(j=>{const k=key(j);if(!map.has(k))map.set(k,c(j.id))});return new Set(map.values())};
-const fmt=v=>num(v).toLocaleString("en-US",{maximumFractionDigits:2}),shortDate=v=>{const p=c(v).split("-").map(Number);return p.length===3&&p[1]&&p[2]?`${p[1]}/${p[2]}`:c(v)},label=j=>{const buyer=c(j?.buyerName),dest=c(j?.deliveryLocationName||j?.locationName||j?.destinationName),place=buyer&&dest&&!n(dest).startsWith(n(buyer))?`${buyer} ${dest}`:(dest||buyer||c(j?.displayName||j?.jobName)||"Hauling Job"),parts=[`${place} — ${jobCustomerName(j)}`],start=startBu(j),a=c(j?.deliveryStartDate||j?.startDate),b=c(j?.deliveryEndDate||j?.endDate);if(start)parts.push(`${fmt(start)} bu`);if(a||b)parts.push(`Delivery ${shortDate(a)||"—"}–${shortDate(b)||"—"}`);parts.push(`Remaining ${fmt(remaining(j))} bu`);return parts.join(" • ")};
-async function refresh(force=false){if(refreshing&&!force)return refreshing;return refreshing=(async()=>{try{const[a,b,d]=await Promise.all([getDocs(collection(db,"grain_hauling_jobs")),getDocs(collection(db,"grain_tickets")),getDocs(collection(db,"grain_customers"))]);state={jobs:a.docs.map(x=>({id:x.id,...x.data()})),tickets:b.docs.map(x=>({id:x.id,...x.data()})),customers:d.docs.map(x=>({id:x.id,...x.data()}))}}catch(e){console.warn("[grain loadout flow] read failed",e)}finally{refreshing=null}return state})()}
-function syncCustomer(j){if(!j||!E.customer)return;const id=jobCustomerId(j),name=jobCustomerName(j),value=id||(n(name)==="unknown"?"__unknown__":"");if(!value)return;E.customer.value=value;if(E.customerText)E.customerText.textContent=name;if(E.customerButton)E.customerButton.disabled=false;E.customerMenu?.querySelectorAll("[data-customer-value]").forEach(b=>{const on=c(b.getAttribute("data-customer-value"))===value;b.classList.toggle("selected",on);b.setAttribute("aria-selected",on?"true":"false")})}
-function decorate(){if(!E.job||!state.jobs.length)return;const allowed=visibleIds(),selected=c(E.job.value);Array.from(E.job.options||[]).forEach(o=>{const id=c(o.value);if(!id||id==="__add_new_job__")return;const j=state.jobs.find(x=>c(x.id)===id);if(!j)return;const show=allowed.has(id)||id===selected;if(!show){o.remove();return}o.hidden=false;o.disabled=false;o.textContent=label(j);o.label=o.textContent})}
-const queueDecorate=()=>{clearTimeout(observerTimer);observerTimer=setTimeout(decorate,0)};
-function sourceChoice(value){return Array.from(E.sourceMenu?.querySelectorAll("[data-source-value]")||[]).find(b=>c(b.getAttribute("data-source-value"))===c(value))||null}
-async function restoreSource(load){const value=c(load?.grainSourceValue);if(!value||!E.sourceButton||E.sourceButton.disabled)return;E.sourceButton.click();await new Promise(r=>setTimeout(r,60));const b=sourceChoice(value);if(b)b.click();else if(E.sourceMenu?.classList.contains("open"))E.sourceButton.click()}
-function driverKey(){const v=c(E.driver?.value);if(v.startsWith("emp:"))return v;if(v.startsWith("sub:")){const d=c(E.subdriver?.value);return d?`${v}:${d}`:""}return""}
-function loadMatches(l,k){if(k.startsWith("emp:"))return c(l.driverEmployeeId)===c(k.slice(4));if(k.startsWith("sub:")){const p=k.split(":");return c(l.driverSubcontractorId)===c(p[1])&&c(l.driverSubcontractorDriverId)===c(p.slice(2).join(":"))}return false}
-async function repeatRun(){const mine=++token,k=driverKey();if(!createMode()||!k)return;try{const snap=await getDocs(collection(db,"grain_loadouts"));await refresh(true);if(mine!==token||k!==driverKey()||!createMode())return;const load=snap.docs.map(x=>({id:x.id,...x.data()})).filter(x=>loadMatches(x,k)).sort((a,b)=>ms(b.loadedAt||b.createdAt||b.updatedAt)-ms(a.loadedAt||a.createdAt||a.updatedAt))[0];if(!load)return;const id=c(load.haulingJobId),j=state.jobs.find(x=>c(x.id)===id);if(!id||!j||!visibleIds().has(id))return;let o=Array.from(E.job.options||[]).find(x=>c(x.value)===id);if(!o){o=document.createElement("option");o.value=id;E.job.appendChild(o)}o.hidden=false;o.disabled=false;o.textContent=label(j);E.job.value=id;E.job.dispatchEvent(new Event("change",{bubbles:true}));setTimeout(()=>syncCustomer(j),30);await new Promise(r=>setTimeout(r,220));await restoreSource(load);if(E.message){E.message.textContent="Data copied from previous load.";E.message.className="loadout-form-message show good"}}catch(e){console.warn("[grain repeat-run] failed",e)}}
-E.job?.addEventListener("change",()=>{const id=c(E.job.value),j=state.jobs.find(x=>c(x.id)===id);if(j){setTimeout(()=>syncCustomer(j),0);setTimeout(()=>syncCustomer(j),80)}queueDecorate()});
-E.driver?.addEventListener("change",()=>{token++;setTimeout(repeatRun,100)});E.subdriver?.addEventListener("change",()=>{token++;setTimeout(repeatRun,100)});
-if(E.job)new MutationObserver(queueDecorate).observe(E.job,{childList:true});
-if(E.backdrop)new MutationObserver(()=>{if(createMode())refresh(true).then(()=>{decorate();const j=state.jobs.find(x=>c(x.id)===c(E.job?.value));if(j)syncCustomer(j)})}).observe(E.backdrop,{attributes:true,attributeFilter:["class"]});
+
+const db = getFirestore();
+const $ = id => document.getElementById(id);
+const clean = value => String(value ?? "").trim();
+const norm = value => clean(value).toLowerCase();
+const num = value => {
+  const parsed = Number(String(value ?? "").replace(/,/g, ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+const millis = value => {
+  if (value?.toMillis) return value.toMillis();
+  if (value?.toDate) return value.toDate().getTime();
+  const date = new Date(value || 0);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+};
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+const E = {
+  backdrop: $("loadout-modal-backdrop"),
+  title: $("loadout-modal-title"),
+  driver: $("loadout-driver"),
+  subdriver: $("loadout-subdriver"),
+  job: $("loadout-hauling-job"),
+  customer: $("loadout-customer"),
+  customerButton: $("loadout-customer-button"),
+  customerText: $("loadout-customer-button-text"),
+  customerMenu: $("loadout-customer-menu"),
+  sourceButton: $("loadout-source-button"),
+  sourceMenu: $("loadout-source-menu"),
+  message: $("loadout-form-message")
+};
+
+let state = {
+  jobs: [],
+  tickets: [],
+  customers: []
+};
+let refreshing = null;
+let token = 0;
+let observerTimer = 0;
+
+const createMode = () =>
+  E.backdrop?.classList.contains("open") &&
+  norm(E.title?.textContent) === "assign load";
+
+const jobCustomerId = job =>
+  clean(job?.customerId || job?.grainCustomerId);
+
+const customerName = id =>
+  clean(
+    state.customers.find(item => clean(item.id) === clean(id))?.name ||
+    state.customers.find(item => clean(item.id) === clean(id))?.customerName
+  );
+
+const jobCustomerName = job =>
+  clean(
+    job?.customerName ||
+    job?.soldUnderName ||
+    customerName(jobCustomerId(job))
+  ) || "Unknown";
+
+const jobCrop = job =>
+  clean(job?.crop || job?.commodity || job?.cropName || job?.cropType);
+
+const jobPlace = job =>
+  clean(
+    job?.deliveryLocationId ||
+    job?.locationId ||
+    job?.destinationId ||
+    job?.deliveryLocationName ||
+    job?.locationName ||
+    job?.destinationName ||
+    job?.buyerName
+  );
+
+const startingBushels = job =>
+  Math.max(
+    0,
+    num(job?.startingBushels ?? job?.jobBushels ?? job?.bushels)
+  );
+
+const voidTicket = ticket =>
+  ticket?.voided === true ||
+  norm(ticket?.status).includes("void");
+
+const ticketedBushels = job =>
+  state.tickets
+    .filter(ticket =>
+      !voidTicket(ticket) &&
+      clean(ticket?.haulingJobId || ticket?.grainHaulingJobId) === clean(job.id)
+    )
+    .reduce(
+      (sum, ticket) =>
+        sum + num(ticket?.netBushels ?? ticket?.netBu ?? ticket?.bushels),
+      0
+    );
+
+const remaining = job => {
+  const starting = startingBushels(job);
+  if (starting > 0) {
+    return Math.max(0, starting - ticketedBushels(job));
+  }
+
+  const explicit =
+    job?.remainingBushels ??
+    job?.bushelsRemaining ??
+    job?.remainingBu;
+
+  return explicit !== undefined && explicit !== null && explicit !== ""
+    ? Math.max(0, num(explicit))
+    : 0;
+};
+
+const openJob = job => {
+  if (
+    !job ||
+    job.active === false ||
+    job.isActive === false ||
+    job.manualClosed === true
+  ) {
+    return false;
+  }
+
+  const status = norm(job.status || job.jobStatus);
+  if (["void", "cancel", "closed", "complete"].some(word => status.includes(word))) {
+    return false;
+  }
+
+  return !(startingBushels(job) > 0 && remaining(job) <= 0.005);
+};
+
+const oldest = job => {
+  const iso = clean(job?.deliveryStartDate || job?.startDate);
+  if (iso) {
+    const date = new Date(`${iso}T12:00:00`);
+    if (!Number.isNaN(date.getTime())) return date.getTime();
+  }
+
+  return millis(job?.createdAt || job?.createdAtISO || job?.updatedAt) ||
+    Number.MAX_SAFE_INTEGER;
+};
+
+const groupingKey = job =>
+  `${norm(jobPlace(job))}|${norm(jobCrop(job))}|${
+    jobCustomerId(job)
+      ? `id:${jobCustomerId(job)}`
+      : `name:${norm(jobCustomerName(job))}`
+  }`;
+
+const visibleIds = () => {
+  const map = new Map();
+
+  state.jobs
+    .filter(openJob)
+    .sort((a, b) => oldest(a) - oldest(b))
+    .forEach(job => {
+      const key = groupingKey(job);
+      if (!map.has(key)) map.set(key, clean(job.id));
+    });
+
+  return new Set(map.values());
+};
+
+const formatBushels = value =>
+  num(value).toLocaleString("en-US", { maximumFractionDigits: 2 });
+
+const shortDate = value => {
+  const parts = clean(value).split("-").map(Number);
+  return parts.length === 3 && parts[1] && parts[2]
+    ? `${parts[1]}/${parts[2]}`
+    : clean(value);
+};
+
+const label = job => {
+  const buyer = clean(job?.buyerName);
+  const destination = clean(
+    job?.deliveryLocationName || job?.locationName || job?.destinationName
+  );
+  const place =
+    buyer && destination && !norm(destination).startsWith(norm(buyer))
+      ? `${buyer} ${destination}`
+      : destination || buyer || clean(job?.displayName || job?.jobName) || "Hauling Job";
+
+  const parts = [`${place} — ${jobCustomerName(job)}`];
+  const starting = startingBushels(job);
+  const start = clean(job?.deliveryStartDate || job?.startDate);
+  const end = clean(job?.deliveryEndDate || job?.endDate);
+
+  if (starting) parts.push(`${formatBushels(starting)} bu`);
+  if (start || end) {
+    parts.push(`Delivery ${shortDate(start) || "—"}–${shortDate(end) || "—"}`);
+  }
+  parts.push(`Remaining ${formatBushels(remaining(job))} bu`);
+
+  return parts.join(" • ");
+};
+
+async function refresh(force = false) {
+  if (refreshing && !force) return refreshing;
+
+  refreshing = (async () => {
+    try {
+      const [jobs, tickets, customers] = await Promise.all([
+        getDocs(collection(db, "grain_hauling_jobs")),
+        getDocs(collection(db, "grain_tickets")),
+        getDocs(collection(db, "grain_customers"))
+      ]);
+
+      state = {
+        jobs: jobs.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+        tickets: tickets.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+        customers: customers.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+      };
+    }
+    catch (error) {
+      console.warn("[grain loadout flow] read failed", error);
+    }
+    finally {
+      refreshing = null;
+    }
+
+    return state;
+  })();
+
+  return refreshing;
+}
+
+function syncCustomer(job) {
+  if (!job || !E.customer) return;
+
+  const id = jobCustomerId(job);
+  const name = jobCustomerName(job);
+  const value = id || (norm(name) === "unknown" ? "__unknown__" : "");
+  if (!value) return;
+
+  E.customer.value = value;
+  if (E.customerText) E.customerText.textContent = name;
+  if (E.customerButton) E.customerButton.disabled = false;
+
+  E.customerMenu
+    ?.querySelectorAll("[data-customer-value]")
+    .forEach(button => {
+      const selected =
+        clean(button.getAttribute("data-customer-value")) === value;
+      button.classList.toggle("selected", selected);
+      button.setAttribute("aria-selected", selected ? "true" : "false");
+    });
+}
+
+function decorate() {
+  if (!E.job || !state.jobs.length) return;
+
+  const allowed = visibleIds();
+  const selected = clean(E.job.value);
+
+  Array.from(E.job.options || []).forEach(option => {
+    const id = clean(option.value);
+    if (!id || id === "__add_new_job__") return;
+
+    const job = state.jobs.find(item => clean(item.id) === id);
+    if (!job) return;
+
+    const show = allowed.has(id) || id === selected;
+    if (!show) {
+      option.remove();
+      return;
+    }
+
+    option.hidden = false;
+    option.disabled = false;
+    option.textContent = label(job);
+    option.label = option.textContent;
+  });
+}
+
+const queueDecorate = () => {
+  clearTimeout(observerTimer);
+  observerTimer = setTimeout(decorate, 0);
+};
+
+function sourceChoices() {
+  return Array.from(
+    E.sourceMenu?.querySelectorAll("[data-source-value]") || []
+  );
+}
+
+function sourceChoice(value) {
+  const wanted = clean(value);
+  const choices = sourceChoices();
+
+  let match = choices.find(
+    button => clean(button.getAttribute("data-source-value")) === wanted
+  );
+
+  /*
+    Older loads stored Active Harvest as just "active_field_harvest".
+    The current picker stores crop-specific values such as
+    "active_field_harvest:soybeans". Accept that current value when the
+    historical load used the legacy base value.
+  */
+  if (!match && wanted === "active_field_harvest") {
+    match = choices.find(button =>
+      clean(button.getAttribute("data-source-value"))
+        .startsWith("active_field_harvest:")
+    );
+  }
+
+  return match || null;
+}
+
+async function restoreSource(load) {
+  const value = clean(load?.grainSourceValue);
+  if (!value || !E.sourceButton || E.sourceButton.disabled) return false;
+
+  E.sourceButton.click();
+  await wait(80);
+
+  const choice = sourceChoice(value);
+  if (choice) {
+    choice.click();
+    return true;
+  }
+
+  if (E.sourceMenu?.classList.contains("open")) {
+    E.sourceButton.click();
+  }
+
+  return false;
+}
+
+function driverKey() {
+  const value = clean(E.driver?.value);
+
+  if (value.startsWith("emp:")) return value;
+
+  if (value.startsWith("sub:")) {
+    const subdriverId = clean(E.subdriver?.value);
+    return subdriverId ? `${value}:${subdriverId}` : "";
+  }
+
+  return "";
+}
+
+function loadMatches(load, key) {
+  if (key.startsWith("emp:")) {
+    return clean(load.driverEmployeeId) === clean(key.slice(4));
+  }
+
+  if (key.startsWith("sub:")) {
+    const parts = key.split(":");
+    return (
+      clean(load.driverSubcontractorId) === clean(parts[1]) &&
+      clean(load.driverSubcontractorDriverId) === clean(parts.slice(2).join(":"))
+    );
+  }
+
+  return false;
+}
+
+async function repeatRun() {
+  const mine = ++token;
+  const key = driverKey();
+
+  if (!createMode() || !key) return;
+
+  try {
+    const snapshot = await getDocs(collection(db, "grain_loadouts"));
+    await refresh(true);
+
+    if (mine !== token || key !== driverKey() || !createMode()) return;
+
+    const load = snapshot.docs
+      .map(doc => ({ id: doc.id, ...doc.data() }))
+      .filter(item => loadMatches(item, key))
+      .sort(
+        (a, b) =>
+          millis(b.loadedAt || b.createdAt || b.updatedAt) -
+          millis(a.loadedAt || a.createdAt || a.updatedAt)
+      )[0];
+
+    if (!load) return;
+
+    const id = clean(load.haulingJobId);
+    const job = state.jobs.find(item => clean(item.id) === id);
+
+    if (!id || !job || !visibleIds().has(id)) return;
+
+    let option = Array.from(E.job?.options || [])
+      .find(item => clean(item.value) === id);
+
+    if (!option) {
+      option = document.createElement("option");
+      option.value = id;
+      option.dataset.fvRepeatInjected = "1";
+      E.job?.appendChild(option);
+    }
+
+    option.hidden = false;
+    option.disabled = false;
+    option.textContent = label(job);
+    option.label = option.textContent;
+
+    /*
+      IMPORTANT: the driver-job reset guard intentionally blanks the hauling
+      job while a driver change is rendering. Signal that a valid repeat-load
+      restore has started BEFORE touching the select so that guard stops and
+      does not erase the restored job again.
+    */
+    document.documentElement.classList.add("fv-loadout-silent-preload");
+
+    E.job.value = id;
+    option.selected = true;
+
+    E.job.dispatchEvent(new Event("input", { bubbles: true }));
+    E.job.dispatchEvent(new Event("change", { bubbles: true }));
+
+    /* Let the page's normal hauling-job change handler populate dependents. */
+    await wait(260);
+
+    if (mine !== token || key !== driverKey() || !createMode()) return;
+
+    syncCustomer(job);
+
+    /* Grain Source is intentionally restored last. */
+    const sourceRestored = await restoreSource(load);
+
+    /* Keep the reset guard suppressed through the complete restore cycle. */
+    await wait(120);
+
+    if (E.message) {
+      E.message.textContent = sourceRestored
+        ? "Data copied from previous load."
+        : "Previous route copied. Choose the current grain source.";
+      E.message.className = "loadout-form-message show good";
+    }
+  }
+  catch (error) {
+    console.warn("[grain repeat-run] failed", error);
+  }
+  finally {
+    document.documentElement.classList.remove("fv-loadout-silent-preload");
+  }
+}
+
+E.job?.addEventListener("change", () => {
+  const id = clean(E.job.value);
+  const job = state.jobs.find(item => clean(item.id) === id);
+
+  if (job) {
+    setTimeout(() => syncCustomer(job), 0);
+    setTimeout(() => syncCustomer(job), 80);
+  }
+
+  queueDecorate();
+});
+
+E.driver?.addEventListener("change", () => {
+  token += 1;
+  setTimeout(repeatRun, 100);
+});
+
+E.subdriver?.addEventListener("change", () => {
+  token += 1;
+  setTimeout(repeatRun, 100);
+});
+
+if (E.job) {
+  new MutationObserver(queueDecorate)
+    .observe(E.job, { childList: true });
+}
+
+if (E.backdrop) {
+  new MutationObserver(() => {
+    if (!createMode()) return;
+
+    refresh(true).then(() => {
+      decorate();
+      const job = state.jobs.find(
+        item => clean(item.id) === clean(E.job?.value)
+      );
+      if (job) syncCustomer(job);
+    });
+  }).observe(E.backdrop, {
+    attributes: true,
+    attributeFilter: ["class"]
+  });
+}
+
 refresh().then(decorate);
