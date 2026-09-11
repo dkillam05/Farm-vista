@@ -1,12 +1,12 @@
 /* ==========================================================
-   FarmVista — Core (theme + version) v3.1.3
+   FarmVista — Core (theme + version) v3.1.4
    - Applies saved theme ASAP (prevents flash)
    - Keeps "system" synced with OS changes
    - Exposes App API used by fv-shell.js
    - Sets data-theme attr + updates <meta name="theme-color">
    - Loads the Grain Ticket unresolved-review warning guard
    - Preserves previous-page navigation from Grain Ticket Detail
-   - Loads compact Hauling Job ticket cards + inventory edit handoff
+   - Loads compact Hauling Job cards + overview on Grain Contracts only
    ========================================================== */
 (function (global, doc) {
   const THEME_KEY = "fv-theme";
@@ -79,14 +79,11 @@
   function loadHaulingJobUx(){
     try{
       const path = String(global.location?.pathname || '').toLowerCase();
-      const supported =
-        path.endsWith('/pages/grain/index.html') ||
-        path.endsWith('/pages/grain/grain-contracts.html');
-
-      if (!supported || doc.querySelector('script[data-fv-hauling-job-ux]')) return;
+      if (!path.endsWith('/pages/grain/grain-contracts.html')) return;
+      if (doc.querySelector('script[data-fv-hauling-job-ux]')) return;
 
       const script = doc.createElement('script');
-      script.src = '/js/grain-hauling-job-ux.js?v=20260911-1';
+      script.src = '/js/grain-hauling-job-ux.js?v=20260911-2';
       script.defer = true;
       script.dataset.fvHaulingJobUx = '1';
       doc.head.appendChild(script);
