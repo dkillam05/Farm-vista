@@ -1,20 +1,21 @@
 // FarmVista — Grain Inventory hauling-job contract drill-down
-// Added 2026-09-11
-// Shows linked contracts under each hauling job, then the tickets allocated to
-// each contract, while keeping the hauling-job summary as the roll-up total.
+// Updated 2026-09-11
+// Detailed mode: hauling job -> linked contracts -> contract tickets.
+// Simple mode: hauling job -> tickets directly, with no warning-style header.
+// Also restores grade alert rings in hauling-job and Active Harvest drill-downs.
 
 import {
   ready,
   getFirestore,
   collection,
-  getDocs
+  getDocs,
+  getDoc,
+  doc
 } from "/js/firebase-init.js";
 
 await ready;
 
-if (!String(location.pathname || "").toLowerCase().endsWith("/pages/grain/index.html")) {
-  // This helper is intentionally scoped to Grain Inventory only.
-} else {
+if (String(location.pathname || "").toLowerCase().endsWith("/pages/grain/index.html")) {
   const db = getFirestore();
   const clean = value => String(value ?? "").trim();
   const norm = value => clean(value).toLowerCase();
@@ -26,7 +27,7 @@ if (!String(location.pathname || "").toLowerCase().endsWith("/pages/grain/index.
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
+    .replace(/\"/g, "&quot;")
     .replace(/'/g, "&#039;");
 
   const fmtBu = value => `${Math.round(num(value)).toLocaleString("en-US")} bu`;
@@ -41,6 +42,34 @@ if (!String(location.pathname || "").toLowerCase().endsWith("/pages/grain/index.
     if (key === "wheat") return "Wheat";
     return clean(value) || "—";
   };
+  const cropAlertKey = value => {
+    const key = norm(value);
+    if (key.includes("soy")) return "soybeans";
+    if (key.includes("corn")) return "corn";
+    return "";
+  };
+
+  const DEFAULT_ALERTS = {
+    enabled: true,
+    crops: {
+      corn: {
+        damage: { severe: { enabled: true, threshold: 8 }, trend: { enabled: true, threshold: 5 } },
+        foreignMaterial: { severe: { enabled: true, threshold: 5 }, trend: { enabled: true, threshold: 3 } },
+        moisture: { severe: { enabled: true, threshold: 20 }, trend: { enabled: true, threshold: 17 } }
+      },
+      soybeans: {
+        damage: { severe: { enabled: true, threshold: 5 }, trend: { enabled: true, threshold: 3 } },
+        foreignMaterial: { severe: { enabled: true, threshold: 3 }, trend: { enabled: true, threshold: 2 } },
+        moisture: { severe: { enabled: true, threshold: 16 }, trend: { enabled: true, threshold: 14 } }
+      }
+    }
+  };
+
+  let alertSettings = DEFAULT_ALERTS;
+  let jobs = [];
+  let contracts = [];
+  let tickets = [];
+
   const ticketBushels = ticket => Math.max(0, num(ticket?.netBushels ?? ticket?.netBu ?? ticket?.bushels));
   const ticketNumber = ticket => clean(ticket?.ticketNumber || ticket?.ticketNo || ticket?.number || ticket?.scaleTicketNumber) || clean(ticket?.id).slice(0, 8);
   const ticketDate = ticket => clean(ticket?.ticketDate || ticket?.date || ticket?.deliveryDate || "");
@@ -62,26 +91,35 @@ if (!String(location.pathname || "").toLowerCase().endsWith("/pages/grain/index.
   const contractNumber = contract => clean(contract?.contractNumber || contract?.number || contract?.contractNo || contract?.referenceNumber) || contract?.id || "Contract";
   const contractSoldUnder = contract => clean(contract?.customerName || contract?.soldUnderName || contract?.soldUnder || contract?.customer) || "—";
 
-  let jobs = [];
-  let contracts = [];
-  let tickets = [];
+  function gradeLevel(crop, metric, value) {
+    if (alertSettings?.enabled === false) return "";
+    const cropKey = cropAlertKey(crop);
+    if (!cropKey) return "";
+    const rules = alertSettings?.crops?.[cropKey]?.[metric];
+    const numeric = Number(value);
+    if (!rules || !Number.isFinite(numeric)) return "";
+    const severe = Number(rules.severe?.threshold);
+    if (rules.severe?.enabled !== false && Number.isFinite(severe) && numeric >= severe) return "severe";
+    const elevated = Number(rules.trend?.threshold);
+    if (rules.trend?.enabled !== false && Number.isFinite(elevated) && numeric >= elevated) return "elevated";
+    return "";
+  }
+
+  function gradeMarkup(crop, metric, value) {
+    const level = gradeLevel(crop, metric, value);
+    const title = level === "severe" ? "Severe grain alert level" : level === "elevated" ? "Elevated grain alert level" : "";
+    return `<span class="fv-grade-alert ${level}"${title ? ` title="${title}"` : ""}>${fmtGrade(value)}</span>`;
+  }
 
   function ticketAllocations(ticket) {
     if (!ticket || isTicketVoided(ticket)) return [];
-
     if (Array.isArray(ticket.contractAllocations)) {
       return ticket.contractAllocations
-        .map(allocation => ({
-          contractId: clean(allocation?.contractId),
-          bushels: Math.max(0, num(allocation?.bushels))
-        }))
+        .map(allocation => ({ contractId: clean(allocation?.contractId), bushels: Math.max(0, num(allocation?.bushels)) }))
         .filter(allocation => allocation.contractId && allocation.bushels > 0.005);
     }
-
     const legacyContractId = clean(ticket.contractId);
-    return legacyContractId
-      ? [{ contractId: legacyContractId, bushels: ticketBushels(ticket) }]
-      : [];
+    return legacyContractId ? [{ contractId: legacyContractId, bushels: ticketBushels(ticket) }] : [];
   }
 
   function allocationFor(ticket, contractId) {
@@ -103,25 +141,18 @@ if (!String(location.pathname || "").toLowerCase().endsWith("/pages/grain/index.
   }
 
   function weighted(ticketList) {
-    let total = 0;
-    let mo = 0, moW = 0;
-    let fm = 0, fmW = 0;
-    let damage = 0, damageW = 0;
-
+    let total = 0, mo = 0, moW = 0, fm = 0, fmW = 0, damage = 0, damageW = 0;
     ticketList.forEach(ticket => {
       const weight = ticketBushels(ticket);
       total += weight;
       if (!(weight > 0)) return;
-
       const moisture = Number(ticket?.moisture ?? ticket?.mo);
       const foreignMaterial = Number(ticket?.foreignMaterial ?? ticket?.fm);
       const dm = Number(ticket?.damage ?? ticket?.dm);
-
       if (Number.isFinite(moisture)) { mo += moisture * weight; moW += weight; }
       if (Number.isFinite(foreignMaterial)) { fm += foreignMaterial * weight; fmW += weight; }
       if (Number.isFinite(dm)) { damage += dm * weight; damageW += weight; }
     });
-
     return {
       bushels: total,
       loads: ticketList.length,
@@ -132,35 +163,39 @@ if (!String(location.pathname || "").toLowerCase().endsWith("/pages/grain/index.
   }
 
   function soldUnderNamesForJob(job) {
-    const names = linkedContracts(job.id)
-      .map(contractSoldUnder)
-      .filter(name => name && name !== "—");
-
-    const unique = [...new Set(names)];
-    if (unique.length) return unique.join(" / ");
-    return jobSoldUnder(job);
+    const names = [...new Set(linkedContracts(job.id).map(contractSoldUnder).filter(name => name && name !== "—"))];
+    return names.length ? names.join(" / ") : jobSoldUnder(job);
   }
 
-  function ticketRow(ticket, bushels) {
+  function ticketRow(ticket, bushels, bushelLabel = "Bushels") {
+    const crop = ticket?.crop || ticket?.commodity;
     return `
       <tr>
         <td><a class="fv-ahj-ticket-link" href="/pages/grain/grain-ticket-detail.html?id=${encodeURIComponent(ticket.id)}">${esc(ticketNumber(ticket))}</a></td>
         <td>${esc(ticketDate(ticket) || "—")}</td>
         <td>${esc(ticketDriver(ticket))}</td>
         <td>${fmtBu(bushels)}</td>
-        <td>${fmtGrade(ticket?.moisture ?? ticket?.mo)}</td>
-        <td>${fmtGrade(ticket?.foreignMaterial ?? ticket?.fm)}</td>
-        <td>${fmtGrade(ticket?.damage ?? ticket?.dm)}</td>
+        <td>${gradeMarkup(crop, "moisture", ticket?.moisture ?? ticket?.mo)}</td>
+        <td>${gradeMarkup(crop, "foreignMaterial", ticket?.foreignMaterial ?? ticket?.fm)}</td>
+        <td>${gradeMarkup(crop, "damage", ticket?.damage ?? ticket?.dm)}</td>
       </tr>`;
+  }
+
+  function ticketTable(rows, bushelHeading = "Bushels") {
+    return `
+      <div class="table-wrap">
+        <table class="harvest-drill-table">
+          <thead><tr><th>Ticket #</th><th>Date</th><th>Driver</th><th>${esc(bushelHeading)}</th><th>MO</th><th>FM</th><th>Damage</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
   }
 
   function contractBlock(contract, jobTicketList) {
     const contractTickets = jobTicketList
       .map(ticket => ({ ticket, bushels: allocationFor(ticket, contract.id) }))
       .filter(item => item.bushels > 0.005);
-
     const allocated = contractTickets.reduce((sum, item) => sum + item.bushels, 0);
-
     return `
       <section class="fv-ahj-contract-block">
         <div class="fv-ahj-contract-head">
@@ -170,19 +205,15 @@ if (!String(location.pathname || "").toLowerCase().endsWith("/pages/grain/index.
           </div>
           <div class="fv-ahj-contract-total">${fmtBu(allocated)} • ${contractTickets.length} ticket${contractTickets.length === 1 ? "" : "s"}</div>
         </div>
-        ${contractTickets.length ? `
-          <div class="table-wrap">
-            <table class="harvest-drill-table">
-              <thead><tr><th>Ticket #</th><th>Date</th><th>Driver</th><th>Contract Bu.</th><th>MO</th><th>FM</th><th>Damage</th></tr></thead>
-              <tbody>${contractTickets.map(item => ticketRow(item.ticket, item.bushels)).join("")}</tbody>
-            </table>
-          </div>` : `<div class="fv-ahj-contract-empty">No tickets are assigned to this contract yet.</div>`}
+        ${contractTickets.length
+          ? ticketTable(contractTickets.map(item => ticketRow(item.ticket, item.bushels)).join(""), "Contract Bu.")
+          : `<div class="fv-ahj-contract-empty">No tickets are assigned to this contract yet.</div>`}
       </section>`;
   }
 
-  function otherBushelBlock(linked, jobTicketList) {
+  function otherBushels(linked, jobTicketList) {
     const linkedIds = new Set(linked.map(contract => contract.id));
-    const other = jobTicketList
+    return jobTicketList
       .map(ticket => {
         const linkedAllocated = ticketAllocations(ticket)
           .filter(allocation => linkedIds.has(allocation.contractId))
@@ -190,9 +221,11 @@ if (!String(location.pathname || "").toLowerCase().endsWith("/pages/grain/index.
         return { ticket, bushels: Math.max(0, ticketBushels(ticket) - linkedAllocated) };
       })
       .filter(item => item.bushels > 0.005);
+  }
 
+  function otherBushelBlock(linked, jobTicketList) {
+    const other = otherBushels(linked, jobTicketList);
     if (!other.length) return "";
-
     const total = other.reduce((sum, item) => sum + item.bushels, 0);
     return `
       <section class="fv-ahj-contract-block fv-ahj-other-block">
@@ -203,13 +236,13 @@ if (!String(location.pathname || "").toLowerCase().endsWith("/pages/grain/index.
           </div>
           <div class="fv-ahj-contract-total">${fmtBu(total)}</div>
         </div>
-        <div class="table-wrap">
-          <table class="harvest-drill-table">
-            <thead><tr><th>Ticket #</th><th>Date</th><th>Driver</th><th>Other Bu.</th><th>MO</th><th>FM</th><th>Damage</th></tr></thead>
-            <tbody>${other.map(item => ticketRow(item.ticket, item.bushels)).join("")}</tbody>
-          </table>
-        </div>
+        ${ticketTable(other.map(item => ticketRow(item.ticket, item.bushels)).join(""), "Other Bu.")}
       </section>`;
+  }
+
+  function simpleTicketList(jobTicketList) {
+    if (!jobTicketList.length) return `<div class="fv-ahj-empty">No tickets are linked to this hauling job yet.</div>`;
+    return ticketTable(jobTicketList.map(ticket => ticketRow(ticket, ticketBushels(ticket))).join(""), "Bushels");
   }
 
   function ensureStyles() {
@@ -225,6 +258,11 @@ if (!String(location.pathname || "").toLowerCase().endsWith("/pages/grain/index.
       .fv-ahj-contract-total{font-size:.82rem;font-weight:900;white-space:nowrap;text-align:right}
       .fv-ahj-contract-empty{padding:18px;text-align:center;opacity:.68}
       .fv-ahj-other-block .fv-ahj-contract-head{background:rgba(154,103,0,.08)}
+      .fv-grade-alert{display:inline-flex;align-items:center;justify-content:center;min-width:42px;height:30px;padding:0 6px;border:2px solid transparent;border-radius:999px;box-sizing:border-box;font-weight:900;line-height:1}
+      .fv-grade-alert.elevated{border-color:#C18413;background:rgba(193,132,19,.08)}
+      .fv-grade-alert.severe{border-color:#C9444D;background:rgba(201,68,77,.10);color:#B52F38}
+      [data-theme="dark"] .fv-grade-alert.severe{color:#ffb4ab}
+      #harvest-modal-content td .fv-grade-alert{vertical-align:middle}
       @media(max-width:700px){.fv-ahj-contract-head{flex-direction:column}.fv-ahj-contract-total{text-align:left}}
     `;
     document.head.appendChild(style);
@@ -238,29 +276,25 @@ if (!String(location.pathname || "").toLowerCase().endsWith("/pages/grain/index.
     const totals = weighted(jt);
     const linked = linkedContracts(job.id);
     const linkedNames = [...new Set(linked.map(contractSoldUnder).filter(name => name && name !== "—"))];
+    const crop = cropLabel(job?.crop || job?.commodity);
 
     modal.querySelector("#fv-ahj-modal-title").textContent = jobName(job);
-    modal.querySelector("#fv-ahj-modal-sub").textContent = [
-      cropLabel(job?.crop || job?.commodity),
-      `${linked.length} linked contract${linked.length === 1 ? "" : "s"}`,
-      linkedNames.length ? `Sold Under: ${linkedNames.join(" / ")}` : `Sold Under: ${jobSoldUnder(job)}`
-    ].filter(Boolean).join(" • ");
+    modal.querySelector("#fv-ahj-modal-sub").textContent = linked.length
+      ? [crop, `${linked.length} linked contract${linked.length === 1 ? "" : "s"}`, linkedNames.length ? `Sold Under: ${linkedNames.join(" / ")}` : `Sold Under: ${jobSoldUnder(job)}`].filter(Boolean).join(" • ")
+      : [crop, `Sold Under: ${jobSoldUnder(job)}`].filter(Boolean).join(" • ");
 
     modal.querySelector("#fv-ahj-summary").innerHTML = `
       <div class="detail-box"><div class="detail-label">Starting Bushels</div><div class="detail-value">${fmtBu(startingBushels(job))}</div></div>
       <div class="detail-box"><div class="detail-label">Ticketed Bushels</div><div class="detail-value">${fmtBu(totals.bushels)}</div></div>
       <div class="detail-box"><div class="detail-label">Remaining</div><div class="detail-value">${fmtBu(Math.max(0, startingBushels(job) - totals.bushels))}</div></div>
       <div class="detail-box"><div class="detail-label">Loads</div><div class="detail-value">${totals.loads}</div></div>
-      <div class="detail-box"><div class="detail-label">Avg Moisture</div><div class="detail-value">${fmtGrade(totals.moisture)}</div></div>
-      <div class="detail-box"><div class="detail-label">Avg FM / Damage</div><div class="detail-value">${fmtGrade(totals.fm)} / ${fmtGrade(totals.damage)}</div></div>`;
+      <div class="detail-box"><div class="detail-label">Avg Moisture</div><div class="detail-value">${gradeMarkup(crop, "moisture", totals.moisture)}</div></div>
+      <div class="detail-box"><div class="detail-label">Avg FM / Damage</div><div class="detail-value">${gradeMarkup(crop, "foreignMaterial", totals.fm)} / ${gradeMarkup(crop, "damage", totals.damage)}</div></div>`;
 
-    const content = linked.length
+    modal.querySelector("#fv-ahj-ticket-list").innerHTML = linked.length
       ? `${linked.map(contract => contractBlock(contract, jt)).join("")}${otherBushelBlock(linked, jt)}`
-      : (jt.length
-          ? `${otherBushelBlock([], jt)}`
-          : `<div class="fv-ahj-empty">No tickets are linked to this hauling job yet.</div>`);
+      : simpleTicketList(jt);
 
-    modal.querySelector("#fv-ahj-ticket-list").innerHTML = content;
     modal.classList.add("open");
     modal.setAttribute("aria-hidden", "false");
     document.body.style.overflow = "hidden";
@@ -274,6 +308,44 @@ if (!String(location.pathname || "").toLowerCase().endsWith("/pages/grain/index.
     });
   }
 
+  function harvestCropFromModal() {
+    const text = `${clean(document.getElementById("harvest-modal-title")?.textContent)} ${clean(document.getElementById("harvest-modal-subtitle")?.textContent)}`;
+    return cropLabel(text.toLowerCase().includes("soy") ? "Soybeans" : text.toLowerCase().includes("corn") ? "Corn" : "");
+  }
+
+  function parseGradeCell(cell) {
+    const text = clean(cell?.textContent).replace("%", "");
+    const value = Number(text);
+    return Number.isFinite(value) ? value : null;
+  }
+
+  function decorateHarvestAlerts() {
+    const content = document.getElementById("harvest-modal-content");
+    if (!content) return;
+    const crop = harvestCropFromModal();
+    if (!crop || crop === "—") return;
+
+    content.querySelectorAll("table").forEach(table => {
+      const headers = [...table.querySelectorAll("thead th")].map(th => norm(th.textContent));
+      const metricByIndex = headers.map(header => {
+        if (header.includes("moisture") || header === "mo") return "moisture";
+        if (header.includes("fm") || header.includes("foreign")) return "foreignMaterial";
+        if (header.includes("damage") || header === "dm") return "damage";
+        return "";
+      });
+
+      table.querySelectorAll("tbody tr").forEach(row => {
+        [...row.children].forEach((cell, index) => {
+          const metric = metricByIndex[index];
+          if (!metric || cell.querySelector(".fv-grade-alert")) return;
+          const value = parseGradeCell(cell);
+          if (value === null) return;
+          cell.innerHTML = gradeMarkup(crop, metric, value);
+        });
+      });
+    });
+  }
+
   async function install() {
     const section = document.getElementById("fv-active-hauling-jobs-section");
     const modal = document.getElementById("fv-ahj-modal-backdrop");
@@ -281,11 +353,26 @@ if (!String(location.pathname || "").toLowerCase().endsWith("/pages/grain/index.
 
     ensureStyles();
 
-    const [jobSnap, contractSnap, ticketSnap] = await Promise.all([
+    const [jobSnap, contractSnap, ticketSnap, alertSnap] = await Promise.all([
       getDocs(collection(db, "grain_hauling_jobs")),
       getDocs(collection(db, "grain_contracts")),
-      getDocs(collection(db, "grain_tickets"))
+      getDocs(collection(db, "grain_tickets")),
+      getDoc(doc(db, "settings", "grainTicketAlerts")).catch(() => null)
     ]);
+
+    if (alertSnap?.exists?.()) {
+      const saved = alertSnap.data() || {};
+      alertSettings = {
+        ...DEFAULT_ALERTS,
+        ...saved,
+        crops: {
+          ...DEFAULT_ALERTS.crops,
+          ...(saved.crops || {}),
+          corn: { ...DEFAULT_ALERTS.crops.corn, ...(saved.crops?.corn || {}) },
+          soybeans: { ...DEFAULT_ALERTS.crops.soybeans, ...(saved.crops?.soybeans || {}) }
+        }
+      };
+    }
 
     jobs = jobSnap.docs.map(snapshot => ({ id: snapshot.id, ...(snapshot.data() || {}) }));
     contracts = contractSnap.docs.map(snapshot => ({ id: snapshot.id, ...(snapshot.data() || {}) }));
@@ -296,19 +383,34 @@ if (!String(location.pathname || "").toLowerCase().endsWith("/pages/grain/index.
     section.addEventListener("click", event => {
       const row = event.target.closest?.("[data-job-id]");
       if (!row || !section.contains(row)) return;
-
       const job = jobs.find(item => item.id === row.dataset.jobId);
       if (!job) return;
-
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
       showJob(job);
     }, true);
 
-    const observer = new MutationObserver(() => patchRows(section));
-    observer.observe(section, { childList: true, subtree: true });
-    window.addEventListener("pagehide", () => observer.disconnect(), { once: true });
+    const sectionObserver = new MutationObserver(() => patchRows(section));
+    sectionObserver.observe(section, { childList: true, subtree: true });
+
+    const harvestModal = document.getElementById("harvest-modal-backdrop");
+    let harvestTimer = 0;
+    const scheduleHarvestDecorate = () => {
+      clearTimeout(harvestTimer);
+      harvestTimer = window.setTimeout(decorateHarvestAlerts, 0);
+    };
+    const harvestObserver = harvestModal ? new MutationObserver(scheduleHarvestDecorate) : null;
+    harvestObserver?.observe(harvestModal, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+    document.addEventListener("click", event => {
+      if (event.target.closest?.("[data-harvest-crop],[data-harvest-field],#harvest-field-back")) setTimeout(decorateHarvestAlerts, 0);
+    }, true);
+
+    window.addEventListener("pagehide", () => {
+      sectionObserver.disconnect();
+      harvestObserver?.disconnect();
+      clearTimeout(harvestTimer);
+    }, { once: true });
 
     return true;
   }
@@ -317,7 +419,6 @@ if (!String(location.pathname || "").toLowerCase().endsWith("/pages/grain/index.
     if (document.readyState === "loading") {
       await new Promise(resolve => document.addEventListener("DOMContentLoaded", resolve, { once: true }));
     }
-
     for (let attempt = 0; attempt < 60; attempt += 1) {
       if (await install()) return;
       await new Promise(resolve => setTimeout(resolve, 100));
