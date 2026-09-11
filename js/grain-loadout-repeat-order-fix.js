@@ -29,6 +29,7 @@ const E = {
   driver: $("loadout-driver"),
   subdriver: $("loadout-subdriver"),
   job: $("loadout-hauling-job"),
+  crop: $("loadout-crop"),
   customer: $("loadout-customer"),
   customerButton: $("loadout-customer-button"),
   customerText: $("loadout-customer-button-text"),
@@ -70,16 +71,20 @@ const jobCustomerName = job =>
 const jobCrop = job =>
   clean(job?.crop || job?.commodity || job?.cropName || job?.cropType);
 
-const jobPlace = job =>
-  clean(
-    job?.deliveryLocationId ||
-    job?.locationId ||
-    job?.destinationId ||
+const jobPlace = job => {
+  const buyer = clean(job?.buyerName);
+  const destination = clean(
     job?.deliveryLocationName ||
     job?.locationName ||
-    job?.destinationName ||
-    job?.buyerName
+    job?.destinationName
   );
+
+  return (
+    buyer && destination && !norm(destination).startsWith(norm(buyer))
+      ? `${buyer} ${destination}`
+      : destination || buyer || clean(job?.displayName || job?.jobName) || "Hauling Job"
+  );
+};
 
 const startingBushels = job =>
   Math.max(
@@ -180,16 +185,9 @@ const shortDate = value => {
 };
 
 const label = job => {
-  const buyer = clean(job?.buyerName);
-  const destination = clean(
-    job?.deliveryLocationName || job?.locationName || job?.destinationName
-  );
-  const place =
-    buyer && destination && !norm(destination).startsWith(norm(buyer))
-      ? `${buyer} ${destination}`
-      : destination || buyer || clean(job?.displayName || job?.jobName) || "Hauling Job";
-
-  const parts = [`${place} — ${jobCustomerName(job)}`];
+  const place = jobPlace(job);
+  const crop = jobCrop(job) || "Crop not set";
+  const parts = [`${place} — ${crop} — ${jobCustomerName(job)}`];
   const starting = startingBushels(job);
   const start = clean(job?.deliveryStartDate || job?.startDate);
   const end = clean(job?.deliveryEndDate || job?.endDate);
@@ -202,6 +200,21 @@ const label = job => {
 
   return parts.join(" • ");
 };
+
+const compareJobs = (a, b) =>
+  jobPlace(a).localeCompare(jobPlace(b), undefined, {
+    numeric: true,
+    sensitivity: "base"
+  }) ||
+  jobCrop(a).localeCompare(jobCrop(b), undefined, {
+    numeric: true,
+    sensitivity: "base"
+  }) ||
+  oldest(a) - oldest(b) ||
+  jobCustomerName(a).localeCompare(jobCustomerName(b), undefined, {
+    numeric: true,
+    sensitivity: "base"
+  });
 
 async function refresh(force = false) {
   if (refreshing && !force) return refreshing;
@@ -233,6 +246,21 @@ async function refresh(force = false) {
   return refreshing;
 }
 
+function syncCrop(job) {
+  if (!job || !E.crop) return;
+
+  const crop = jobCrop(job);
+  if (crop) {
+    const match = Array.from(E.crop.options || []).find(
+      option => option.value && norm(option.value) === norm(crop)
+    );
+
+    if (match) E.crop.value = match.value;
+  }
+
+  E.crop.disabled = true;
+}
+
 function syncCustomer(job) {
   if (!job || !E.customer) return;
 
@@ -243,7 +271,15 @@ function syncCustomer(job) {
 
   E.customer.value = value;
   if (E.customerText) E.customerText.textContent = name;
-  if (E.customerButton) E.customerButton.disabled = false;
+
+  /* Sold Under belongs to the hauling job. It is display-only on Load Out. */
+  if (E.customerButton) {
+    E.customerButton.disabled = true;
+    E.customerButton.setAttribute("aria-disabled", "true");
+  }
+
+  E.customerMenu?.classList.remove("open");
+  E.customerButton?.setAttribute("aria-expanded", "false");
 
   E.customerMenu
     ?.querySelectorAll("[data-customer-value]")
@@ -255,15 +291,27 @@ function syncCustomer(job) {
     });
 }
 
+function lockJobDetails(job) {
+  if (!job) return;
+  syncCrop(job);
+  syncCustomer(job);
+}
+
 function decorate() {
   if (!E.job || !state.jobs.length) return;
 
   const allowed = visibleIds();
   const selected = clean(E.job.value);
+  const special = [];
+  const jobOptions = [];
 
   Array.from(E.job.options || []).forEach(option => {
     const id = clean(option.value);
-    if (!id || id === "__add_new_job__") return;
+
+    if (!id || id === "__add_new__" || id === "__add_new_job__") {
+      special.push(option);
+      return;
+    }
 
     const job = state.jobs.find(item => clean(item.id) === id);
     if (!job) return;
@@ -278,7 +326,24 @@ function decorate() {
     option.disabled = false;
     option.textContent = label(job);
     option.label = option.textContent;
+    jobOptions.push({ option, job });
   });
+
+  /* Native select order: Elevator A-Z, then Crop A-Z, then oldest job. */
+  jobOptions
+    .sort((a, b) => compareJobs(a.job, b.job))
+    .forEach(({ option }) => E.job.appendChild(option));
+
+  /* Keep Add New at the bottom while the blank prompt remains at the top. */
+  special
+    .filter(option => clean(option.value))
+    .forEach(option => E.job.appendChild(option));
+
+  const blank = special.find(option => !clean(option.value));
+  if (blank) E.job.insertBefore(blank, E.job.firstChild);
+
+  const job = state.jobs.find(item => clean(item.id) === clean(E.job.value));
+  if (job) lockJobDetails(job);
 }
 
 const queueDecorate = () => {
@@ -300,12 +365,6 @@ function sourceChoice(value) {
     button => clean(button.getAttribute("data-source-value")) === wanted
   );
 
-  /*
-    Older loads stored Active Harvest as just "active_field_harvest".
-    The current picker stores crop-specific values such as
-    "active_field_harvest:soybeans". Accept that current value when the
-    historical load used the legacy base value.
-  */
   if (!match && wanted === "active_field_harvest") {
     match = choices.find(button =>
       clean(button.getAttribute("data-source-value"))
@@ -408,12 +467,6 @@ async function repeatRun() {
     option.textContent = label(job);
     option.label = option.textContent;
 
-    /*
-      IMPORTANT: the driver-job reset guard intentionally blanks the hauling
-      job while a driver change is rendering. Signal that a valid repeat-load
-      restore has started BEFORE touching the select so that guard stops and
-      does not erase the restored job again.
-    */
     document.documentElement.classList.add("fv-loadout-silent-preload");
 
     E.job.value = id;
@@ -422,17 +475,14 @@ async function repeatRun() {
     E.job.dispatchEvent(new Event("input", { bubbles: true }));
     E.job.dispatchEvent(new Event("change", { bubbles: true }));
 
-    /* Let the page's normal hauling-job change handler populate dependents. */
     await wait(260);
 
     if (mine !== token || key !== driverKey() || !createMode()) return;
 
-    syncCustomer(job);
+    lockJobDetails(job);
 
-    /* Grain Source is intentionally restored last. */
     const sourceRestored = await restoreSource(load);
 
-    /* Keep the reset guard suppressed through the complete restore cycle. */
     await wait(120);
 
     if (E.message) {
@@ -455,8 +505,9 @@ E.job?.addEventListener("change", () => {
   const job = state.jobs.find(item => clean(item.id) === id);
 
   if (job) {
-    setTimeout(() => syncCustomer(job), 0);
-    setTimeout(() => syncCustomer(job), 80);
+    setTimeout(() => lockJobDetails(job), 0);
+    setTimeout(() => lockJobDetails(job), 80);
+    setTimeout(() => lockJobDetails(job), 220);
   }
 
   queueDecorate();
@@ -486,7 +537,7 @@ if (E.backdrop) {
       const job = state.jobs.find(
         item => clean(item.id) === clean(E.job?.value)
       );
-      if (job) syncCustomer(job);
+      if (job) lockJobDetails(job);
     });
   }).observe(E.backdrop, {
     attributes: true,
