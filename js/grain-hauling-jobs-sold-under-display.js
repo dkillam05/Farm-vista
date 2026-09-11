@@ -140,12 +140,6 @@
       return;
     }
 
-    /*
-      This function is called by a MutationObserver watching this same select.
-      If the Add New option is already correct, do nothing. Removing/reinserting
-      it on every callback creates a self-triggering mutation loop that can freeze
-      the Grain Contracts page when the hauling-job modal opens.
-    */
     if (
       existing.length === 1 &&
       select.options[1] === existing[0] &&
@@ -175,10 +169,6 @@
     try {
       select.disabled = true;
       select.setAttribute('aria-busy', 'true');
-      // Do not trigger the core hauling refresh while the edit modal is opening.
-      // That refresh re-renders the hauling workspace during the same tap and can
-      // lock iOS/PWA interaction behind the modal. The modal already has the
-      // current selected buyer; only refresh the buyer options here.
       const buyers = await loadLiveBuyers();
       await delay(700);
 
@@ -607,10 +597,6 @@
     const select = document.getElementById(CUSTOMER_SELECT_ID);
     if (!select) return false;
 
-    // Sold Under is injected dynamically by grain-hauling-jobs.js after the
-    // page-level combo upgrader has already run. Opt it into the exact same
-    // FarmVista combo control used by Buyer / Location / Crop and upgrade it
-    // immediately. The combo's list is scrollable when the customer list is long.
     select.setAttribute('data-fv-combo', '');
     select.setAttribute('data-fv-search', 'false');
 
@@ -631,11 +617,13 @@
 
     if (jobModalObserver) jobModalObserver.disconnect();
     jobModalObserver = new MutationObserver(() => {
-      // Customer/Sold Under can be inserted after this helper boots, so retry
-      // the combo upgrade for both modal-open changes and dynamic child changes.
-      upgradeCustomerCombo();
-
       if (!modal.classList.contains('open')) return;
+
+      // The Sold Under field is dynamic, but by the time the modal opens it is
+      // present. Upgrade it once here without observing the modal subtree. The
+      // previous subtree observer reacted to the combo's own DOM changes and
+      // repeatedly re-ran the buyer refresh, leaving the page stuck on Loading.
+      upgradeCustomerCombo();
       syncBuyerSelect();
       setTimeout(() => {
         putAddLocationAtTop(document.getElementById(LOCATION_SELECT_ID));
@@ -644,9 +632,7 @@
     });
     jobModalObserver.observe(modal, {
       attributes: true,
-      attributeFilter: ['class'],
-      childList: true,
-      subtree: true
+      attributeFilter: ['class']
     });
     return true;
   }
@@ -656,7 +642,7 @@
     const style = document.createElement('style');
     style.id = 'fv-grain-contracts-dark-theme-fix';
     style.textContent = `
-      #${JOB_MODAL_ID} .fv-panel .fv-list {
+      #fv-portal-root .fv-panel .fv-list {
         max-height:min(320px,45vh) !important;
         overflow-y:auto !important;
         overscroll-behavior:contain;
