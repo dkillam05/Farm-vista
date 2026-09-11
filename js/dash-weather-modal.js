@@ -1,5 +1,5 @@
 // /js/dash-weather-modal.js
-// Rev: 2026-09-11-weather-home-restore-fix
+// Rev: 2026-09-11-weather-home-restore-fix-v2
 //
 // Dashboard weather card -> modal wiring.
 // ZIP editing exists ONLY inside Weather details.
@@ -22,6 +22,9 @@
   let zipSyncTimer = null;
   let retryTimer = null;
   let repairQueued = false;
+  let repairSelectorVersion = 0;
+  let activeRepairAttr = "";
+  let activeMainSelector = "#fv-weather";
 
   const style = document.createElement("style");
   style.textContent = `
@@ -127,6 +130,36 @@
     return resolvedWeatherLocationPromise;
   }
 
+  function shellHasWeatherHooks(shell) {
+    return !!(
+      shell &&
+      shell.querySelector('[data-fv="temp"]') &&
+      shell.querySelector('[data-fv="title"]')
+    );
+  }
+
+  function selectorForMainRender(shell) {
+    /*
+      fv-weather.js remembers which selector has already had its card skeleton
+      rendered. index.html can later replace #fv-weather with "Loading weather…".
+      When that happens, calling FVWeather again with #fv-weather only fetches data;
+      it will not rebuild the missing DOM hooks because that selector is still
+      marked as rendered internally.
+
+      Give the same shell a fresh selector only when its weather hooks are gone.
+      That makes FVWeather correctly treat it as a first paint and rebuild the card.
+    */
+    if (shellHasWeatherHooks(shell)) return activeMainSelector;
+
+    if (activeRepairAttr) shell.removeAttribute(activeRepairAttr);
+
+    repairSelectorVersion += 1;
+    activeRepairAttr = `data-fv-weather-repair-${repairSelectorVersion}`;
+    shell.setAttribute(activeRepairAttr, "");
+    activeMainSelector = `#fv-weather[${activeRepairAttr}]`;
+    return activeMainSelector;
+  }
+
   async function renderMain(loc, forceRefresh) {
     const shell = document.getElementById("fv-weather");
     if (!shell || !hasCoords(loc)) return false;
@@ -139,7 +172,7 @@
       lat: Number(loc.lat),
       lon: Number(loc.lon),
       unitsSystem: "IMPERIAL",
-      selector: "#fv-weather",
+      selector: selectorForMainRender(shell),
       showOpenMeteo: true,
       mode: "card",
       locationLabel: loc.locationLabel || ""
@@ -148,7 +181,7 @@
 
     try {
       await window.FVWeather.initWeatherModule(options);
-      return true;
+      return shellHasWeatherHooks(shell);
     } catch (err) {
       console.error("Weather: dashboard tile refresh failed.", err);
       return false;
@@ -179,7 +212,9 @@
     if (!shell || repairQueued) return;
 
     const text = String(shell.textContent || "").trim().toLowerCase();
-    if (text !== "loading weather..." && text !== "loading weather…") return;
+    const missingHooks = !shellHasWeatherHooks(shell);
+    const isLoading = text === "loading weather..." || text === "loading weather…";
+    if (!missingHooks && !isLoading) return;
 
     repairQueued = true;
     setTimeout(function () {
