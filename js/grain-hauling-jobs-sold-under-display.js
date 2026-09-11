@@ -24,6 +24,7 @@
   let locationObserver = null;
   let buyerSelectWired = false;
   let locationSelectWired = false;
+  let addJobResetWired = false;
   let buyerSyncToken = 0;
 
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -607,6 +608,72 @@
     return !!select._fvUpgraded;
   }
 
+  function syncComboButton(select) {
+    if (!select) return;
+    const combo = select.closest('.fv-combo');
+    const button = combo?.querySelector('.fv-buttonish');
+    const option = select.options?.[select.selectedIndex];
+    if (button) button.textContent = option?.textContent || option?.text || '— Select —';
+  }
+
+  function resetAddHaulingJobForm() {
+    const form = document.getElementById('hauling-job-form');
+    if (!form) return;
+
+    form.reset();
+
+    const editId = document.getElementById('hauling-job-edit-id');
+    const buyer = document.getElementById(BUYER_SELECT_ID);
+    const location = document.getElementById(LOCATION_SELECT_ID);
+    const customer = document.getElementById(CUSTOMER_SELECT_ID);
+    const crop = document.getElementById('hauling-job-crop');
+    const bushels = document.getElementById('hauling-job-bushels');
+    const start = document.getElementById('hauling-job-start-date');
+    const end = document.getElementById('hauling-job-end-date');
+    const message = document.getElementById('hauling-job-form-message');
+
+    if (editId) editId.value = '';
+    if (buyer) {
+      buyer.value = '';
+      buyer.dataset.fvPreviousBuyer = '';
+      syncComboButton(buyer);
+    }
+    if (location) {
+      location.innerHTML = '<option value="">Select buyer first</option>';
+      location.value = '';
+      location.disabled = true;
+      location.dataset.fvPreviousLocation = '';
+      syncComboButton(location);
+    }
+    if (customer) {
+      customer.value = '';
+      syncComboButton(customer);
+    }
+    if (crop) {
+      crop.value = '';
+      syncComboButton(crop);
+    }
+    if (bushels) bushels.value = '';
+    if (start) start.value = '';
+    if (end) end.value = '';
+
+    if (message) {
+      message.textContent = '';
+      message.className = 'hauling-form-message';
+    }
+
+    window.FVCombo?.closeAll?.();
+  }
+
+  function wireFreshAddJobReset() {
+    const button = document.getElementById('add-hauling-job-btn');
+    if (!button || addJobResetWired) return false;
+
+    addJobResetWired = true;
+    button.addEventListener('click', resetAddHaulingJobForm, true);
+    return true;
+  }
+
   function layoutHaulingJobModal() {
     const bushelsField = document.getElementById('hauling-job-bushels')?.closest('.field');
     if (bushelsField) bushelsField.classList.add('span-2');
@@ -736,6 +803,7 @@
     wireBuyerSelect();
     wireLocationSelect();
     upgradeCustomerCombo();
+    wireFreshAddJobReset();
     layoutHaulingJobModal();
     watchHaulingJobModal();
 
@@ -744,6 +812,7 @@
         wireBuyerSelect();
         wireLocationSelect();
         upgradeCustomerCombo();
+        wireFreshAddJobReset();
         layoutHaulingJobModal();
         watchHaulingJobModal();
         if (attachToTable()) pageObserver.disconnect();
