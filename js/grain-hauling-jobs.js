@@ -1,8 +1,17 @@
 // /js/grain-hauling-jobs.js
 // FarmVista wrapper: preserve hauling-job implementation, add void-assignment guard,
-// and keep the Sold Under add action scoped only to the Sold Under combo.
+// keep the Sold Under add action scoped only to the Sold Under combo,
+// and propagate contract assignments back to linked hauling jobs.
 import "/js/grain-hauling-jobs-core.js";
-import { ready, getFirestore, collection, getDocs } from "/js/firebase-init.js";
+import {
+  ready,
+  getFirestore,
+  collection,
+  getDocs,
+  doc,
+  updateDoc,
+  serverTimestamp
+} from "/js/firebase-init.js";
 
 await ready;
 const db = getFirestore();
@@ -81,6 +90,148 @@ function installSoldUnderComboScopeGuard() {
   observer.observe(document.body, { childList: true, subtree: true });
 }
 
+/* ============================================================
+   CONTRACT -> HAULING JOB PROPAGATION
+
+   Grain Contracts owns the split-load contract allocation model.
+   Hauling-job totals, however, are intentionally calculated from
+   grain tickets linked to the job. When an unassigned ticket is
+   dragged/assigned to a contract that is already linked to a
+   hauling job, carry that haulingJobId back onto the ticket.
+
+   This also repairs older tickets that were assigned to a linked
+   contract before this propagation existed.
+============================================================ */
+
+let contractJobSyncTimer = null;
+let contractJobSyncRunning = false;
+let contractJobSyncQueued = false;
+
+function ticketContractIds(ticket) {
+  const ids = [];
+
+  if (Array.isArray(ticket?.contractAllocations)) {
+    ticket.contractAllocations.forEach(allocation => {
+      const contractId = clean(allocation?.contractId);
+      const bushels = Number(allocation?.bushels || 0);
+      if (contractId && Number.isFinite(bushels) && bushels > 0) ids.push(contractId);
+    });
+  }
+
+  const legacyContractId = clean(ticket?.contractId);
+  if (!ids.length && legacyContractId) ids.push(legacyContractId);
+
+  return [...new Set(ids)];
+}
+
+async function syncContractAssignedTicketsToHaulingJobs() {
+  if (contractJobSyncRunning) {
+    contractJobSyncQueued = true;
+    return;
+  }
+
+  contractJobSyncRunning = true;
+
+  try {
+    const [contractSnap, ticketSnap] = await Promise.all([
+      getDocs(collection(db, "grain_contracts")),
+      getDocs(collection(db, "grain_tickets"))
+    ]);
+
+    const contractJobById = new Map();
+
+    contractSnap.docs.forEach(snapshot => {
+      const contract = snapshot.data();
+      if (contractIsVoided(contract)) return;
+
+      const haulingJobId = clean(contract?.haulingJobId);
+      if (haulingJobId) contractJobById.set(snapshot.id, haulingJobId);
+    });
+
+    const repairs = [];
+
+    ticketSnap.docs.forEach(snapshot => {
+      const ticket = snapshot.data();
+      if (ticketIsVoided(ticket)) return;
+
+      const contractIds = ticketContractIds(ticket);
+      if (!contractIds.length) return;
+
+      const linkedJobIds = [...new Set(
+        contractIds
+          .map(contractId => contractJobById.get(contractId))
+          .filter(Boolean)
+      )];
+
+      // A ticket can safely inherit only one hauling job. Split-load
+      // tickets spanning different jobs remain untouched for manual review.
+      if (linkedJobIds.length !== 1) return;
+
+      const haulingJobId = linkedJobIds[0];
+      const currentJobId = clean(ticket?.haulingJobId);
+
+      // Never silently move a ticket away from an existing hauling job.
+      // Grain Contracts already blocks mismatched job/contract assignment.
+      if (currentJobId && currentJobId !== haulingJobId) return;
+      if (currentJobId === haulingJobId) return;
+
+      repairs.push(
+        updateDoc(
+          doc(db, "grain_tickets", snapshot.id),
+          {
+            haulingJobId,
+            haulingJobAssignmentSource: "contract_link",
+            haulingJobAssignedAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          }
+        )
+      );
+    });
+
+    if (repairs.length) {
+      await Promise.all(repairs);
+      console.info(`[Hauling Jobs] Propagated linked hauling job to ${repairs.length} contract-assigned ticket(s).`);
+    }
+  } catch (error) {
+    console.warn("[Hauling Jobs] Contract-to-job ticket propagation failed:", error);
+  } finally {
+    contractJobSyncRunning = false;
+
+    if (contractJobSyncQueued) {
+      contractJobSyncQueued = false;
+      setTimeout(syncContractAssignedTicketsToHaulingJobs, 250);
+    }
+  }
+}
+
+function scheduleContractJobSync(delay = 450) {
+  clearTimeout(contractJobSyncTimer);
+  contractJobSyncTimer = setTimeout(syncContractAssignedTicketsToHaulingJobs, delay);
+}
+
+function installContractJobPropagation() {
+  // Repair existing bottom-up assignments as soon as this page loads.
+  scheduleContractJobSync(250);
+
+  // Single drag, group drag, Assign Selected, and Assign All all flow
+  // through the contracts UI. Re-check shortly after those actions save.
+  document.addEventListener("drop", event => {
+    if (event.target.closest?.(".contract-drop-card")) scheduleContractJobSync(700);
+  }, true);
+
+  document.addEventListener("click", event => {
+    if (event.target.closest?.(".assign-selected-btn, .assign-all-btn")) {
+      scheduleContractJobSync(700);
+    }
+  }, true);
+
+  document.addEventListener("touchend", event => {
+    if (event.target.closest?.("[data-touch-ticket-id], [data-ticket][data-contract]")) {
+      scheduleContractJobSync(900);
+    }
+  }, true);
+}
+
 async function assignmentCounts(jobId) {
   const [contractSnap, ticketSnap] = await Promise.all([
     getDocs(collection(db, "grain_contracts")),
@@ -141,6 +292,7 @@ async function syncVoidButton() {
 
 installVoidGuardStyles();
 installSoldUnderComboScopeGuard();
+installContractJobPropagation();
 
 const modal = document.getElementById("hauling-job-modal");
 if (modal) {
