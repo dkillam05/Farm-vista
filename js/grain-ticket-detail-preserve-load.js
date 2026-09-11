@@ -126,6 +126,103 @@
   }
 })();
 
+/*
+  Sept 11, 2026 — Saved destination reconciliation.
+
+  A reviewed/saved FarmVista deliveryLocationId is authoritative. OCR is only
+  supporting evidence and may contain a bad ZIP/state character. The inline
+  Ticket Details matcher can currently reject a correct saved destination when
+  any one OCR location field differs. After the native menus finish rendering,
+  re-select the saved location through the page's own destination button so the
+  private Ticket Details state, hidden IDs, Sold Under choices, hauling jobs,
+  and review status all stay synchronized.
+*/
+(() => {
+  const path = String(location.pathname || '').toLowerCase();
+  if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) return;
+  if (window.__FV_TICKET_DETAIL_SAVED_DESTINATION_20260911) return;
+  window.__FV_TICKET_DETAIL_SAVED_DESTINATION_20260911 = true;
+
+  const clean = value => String(value == null ? '' : value).trim();
+  const ticketId = clean(new URLSearchParams(location.search).get('id'));
+
+  async function readSavedLocationId() {
+    if (!ticketId) return '';
+
+    try {
+      const firebase = await import('/js/firebase-init.js');
+      await firebase.ready;
+
+      const db = firebase.getFirestore();
+      const snap = await firebase.getDoc(
+        firebase.doc(db, 'grain_tickets', ticketId)
+      );
+
+      if (!snap.exists()) return '';
+
+      const ticket = snap.data() || {};
+      return clean(
+        ticket.deliveryLocationId ||
+        ticket.destinationId ||
+        ticket.locationId
+      );
+    } catch (error) {
+      console.warn('[FarmVista] Could not reconcile saved grain ticket destination:', error);
+      return '';
+    }
+  }
+
+  function selectSavedDestination(locationId) {
+    if (!locationId) return true;
+
+    const current = clean(document.getElementById('locationSelect')?.value);
+    if (current === locationId) return true;
+
+    const menu = document.getElementById('destinationMenu');
+    if (!menu) return false;
+
+    const button = Array.from(
+      menu.querySelectorAll('.load-picker-choice[data-location-id]')
+    ).find(item => clean(item.dataset.locationId) === locationId);
+
+    if (!button) return false;
+
+    button.click();
+    return clean(document.getElementById('locationSelect')?.value) === locationId;
+  }
+
+  async function reconcile() {
+    const locationId = await readSavedLocationId();
+    if (!locationId) return;
+
+    let attempts = 0;
+
+    const trySelect = () => {
+      attempts += 1;
+
+      if (selectSavedDestination(locationId)) {
+        console.info('[Grain Ticket Detail] Restored saved FarmVista destination.', {
+          ticketId,
+          deliveryLocationId: locationId
+        });
+        return;
+      }
+
+      if (attempts < 40) {
+        setTimeout(trySelect, 100);
+      }
+    };
+
+    trySelect();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', reconcile, { once: true });
+  } else {
+    reconcile();
+  }
+})();
+
 /* Sept 5, 2026 — Ticket Details mobile viewer + OCR display tools. */
 (() => {
   const path = String(location.pathname || '').toLowerCase();
