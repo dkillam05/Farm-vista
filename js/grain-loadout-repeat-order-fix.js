@@ -333,21 +333,34 @@ function decorate() {
 
     option.hidden = false;
     option.disabled = false;
-    option.textContent = label(job);
-    option.label = option.textContent;
+    const nextLabel = label(job);
+    if (option.textContent !== nextLabel) {
+      option.textContent = nextLabel;
+      option.label = nextLabel;
+    }
     jobOptions.push({ option, job });
   });
 
-  jobOptions
-    .sort((a, b) => compareJobs(a.job, b.job))
-    .forEach(({ option }) => E.job.appendChild(option));
-
-  special
-    .filter(option => clean(option.value))
-    .forEach(option => E.job.appendChild(option));
-
   const blank = special.find(option => !clean(option.value));
-  if (blank) E.job.insertBefore(blank, E.job.firstChild);
+  const addNew = special.filter(option => clean(option.value));
+  const sortedJobs = jobOptions
+    .sort((a, b) => compareJobs(a.job, b.job))
+    .map(({ option }) => option);
+  const desiredOrder = [
+    ...(blank ? [blank] : []),
+    ...sortedJobs,
+    ...addNew
+  ];
+  const currentOrder = Array.from(E.job.options || []);
+  const orderChanged =
+    currentOrder.length !== desiredOrder.length ||
+    currentOrder.some((option, index) => option !== desiredOrder[index]);
+
+  /* Reorder only when necessary. Re-appending every option on every observer
+     callback caused the select's MutationObserver to trigger itself forever. */
+  if (orderChanged) {
+    desiredOrder.forEach(option => E.job.appendChild(option));
+  }
 
   const job = state.jobs.find(item => clean(item.id) === clean(E.job.value));
   if (job) lockJobDetails(job);
