@@ -260,9 +260,8 @@ function syncCrop(job) {
 
   E.crop.disabled = true;
   E.crop.setAttribute("aria-disabled", "true");
-  E.crop.style.backgroundColor = "var(--surface-2, #eef1ef)";
-  E.crop.style.color = "var(--muted, #87908a)";
-  E.crop.style.opacity = "0.72";
+  E.crop.style.backgroundColor = "var(--surface-2, rgba(255,255,255,.04))";
+  E.crop.style.opacity = ".55";
   E.crop.style.cursor = "not-allowed";
 }
 
