@@ -607,6 +607,11 @@
     return !!select._fvUpgraded;
   }
 
+  function layoutHaulingJobModal() {
+    const bushelsField = document.getElementById('hauling-job-bushels')?.closest('.field');
+    if (bushelsField) bushelsField.classList.add('span-2');
+  }
+
   function watchHaulingJobModal() {
     const modal = document.getElementById(JOB_MODAL_ID);
     if (!modal) return false;
@@ -614,20 +619,19 @@
     wireBuyerSelect();
     wireLocationSelect();
     upgradeCustomerCombo();
+    layoutHaulingJobModal();
 
     if (jobModalObserver) jobModalObserver.disconnect();
     jobModalObserver = new MutationObserver(() => {
       if (!modal.classList.contains('open')) return;
 
-      // The Sold Under field is dynamic, but by the time the modal opens it is
-      // present. Upgrade it once here without observing the modal subtree. The
-      // previous subtree observer reacted to the combo's own DOM changes and
-      // repeatedly re-ran the buyer refresh, leaving the page stuck on Loading.
       upgradeCustomerCombo();
+      layoutHaulingJobModal();
       syncBuyerSelect();
       setTimeout(() => {
         putAddLocationAtTop(document.getElementById(LOCATION_SELECT_ID));
         upgradeCustomerCombo();
+        layoutHaulingJobModal();
       }, 800);
     });
     jobModalObserver.observe(modal, {
@@ -642,11 +646,13 @@
     const style = document.createElement('style');
     style.id = 'fv-grain-contracts-dark-theme-fix';
     style.textContent = `
+      #${JOB_MODAL_ID} .fv-panel .fv-list,
       #fv-portal-root .fv-panel .fv-list {
-        max-height:min(320px,45vh) !important;
+        max-height:min(280px,40vh) !important;
         overflow-y:auto !important;
         overscroll-behavior:contain;
         -webkit-overflow-scrolling:touch;
+        scrollbar-gutter:stable;
       }
       html.dark .compact-summary, html[data-theme="dark"] .compact-summary,
       html.dark .hauling-dnd-message, html[data-theme="dark"] .hauling-dnd-message,
@@ -730,6 +736,7 @@
     wireBuyerSelect();
     wireLocationSelect();
     upgradeCustomerCombo();
+    layoutHaulingJobModal();
     watchHaulingJobModal();
 
     if (!attachToTable()) {
@@ -737,6 +744,7 @@
         wireBuyerSelect();
         wireLocationSelect();
         upgradeCustomerCombo();
+        layoutHaulingJobModal();
         watchHaulingJobModal();
         if (attachToTable()) pageObserver.disconnect();
       });
