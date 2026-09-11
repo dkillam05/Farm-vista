@@ -41,42 +41,11 @@ const E = {
 
 function keepCropLocked() {
   if (!E.crop) return;
-
   E.crop.disabled = true;
   E.crop.setAttribute("aria-disabled", "true");
-
-  const combo = E.crop.closest(".fv-combo");
-  const comboButton = combo?.querySelector(".fv-buttonish");
-
-  if (comboButton) {
-    const selected = E.crop.options?.[E.crop.selectedIndex];
-    if (selected) comboButton.textContent = selected.textContent;
-
-    comboButton.disabled = true;
-    comboButton.setAttribute("aria-disabled", "true");
-    comboButton.classList.add("is-disabled");
-    comboButton.style.background = "var(--surface-2, rgba(255,255,255,.04))";
-    comboButton.style.color = "var(--muted, #87908a)";
-    comboButton.style.opacity = ".55";
-    comboButton.style.cursor = "not-allowed";
-
-    /* The custom combo is the visible control. Fully hide the native select
-       so Chrome cannot paint its own tiny second dropdown arrow beside it. */
-    E.crop.style.display = "none";
-  }
-  else {
-    /* Before the FarmVista combo enhancer wraps Crop, keep the native select
-       visually disabled. Once wrapped, the branch above takes over. */
-    E.crop.style.backgroundColor = "var(--surface-2, rgba(255,255,255,.04))";
-    E.crop.style.opacity = ".62";
-    E.crop.style.cursor = "not-allowed";
-  }
-}
-
-const cropFieldHost = E.crop?.closest(".loadout-field") || E.crop?.parentElement;
-if (cropFieldHost) {
-  new MutationObserver(() => keepCropLocked())
-    .observe(cropFieldHost, { childList: true, subtree: true });
+  E.crop.style.backgroundColor = "var(--surface-2, rgba(255,255,255,.04))";
+  E.crop.style.opacity = ".62";
+  E.crop.style.cursor = "not-allowed";
 }
 
 keepCropLocked();
@@ -314,7 +283,6 @@ function syncCustomer(job) {
   E.customer.value = value;
   if (E.customerText) E.customerText.textContent = name;
 
-  /* Sold Under belongs to the hauling job. It is display-only on Load Out. */
   if (E.customerButton) {
     E.customerButton.disabled = true;
     E.customerButton.setAttribute("aria-disabled", "true");
@@ -326,8 +294,7 @@ function syncCustomer(job) {
   E.customerMenu
     ?.querySelectorAll("[data-customer-value]")
     .forEach(button => {
-      const selected =
-        clean(button.getAttribute("data-customer-value")) === value;
+      const selected = clean(button.getAttribute("data-customer-value")) === value;
       button.classList.toggle("selected", selected);
       button.setAttribute("aria-selected", selected ? "true" : "false");
     });
@@ -371,12 +338,10 @@ function decorate() {
     jobOptions.push({ option, job });
   });
 
-  /* Native select order: Elevator A-Z, then Crop A-Z, then oldest job. */
   jobOptions
     .sort((a, b) => compareJobs(a.job, b.job))
     .forEach(({ option }) => E.job.appendChild(option));
 
-  /* Keep Add New at the bottom while the blank prompt remains at the top. */
   special
     .filter(option => clean(option.value))
     .forEach(option => E.job.appendChild(option));
@@ -394,23 +359,18 @@ const queueDecorate = () => {
 };
 
 function sourceChoices() {
-  return Array.from(
-    E.sourceMenu?.querySelectorAll("[data-source-value]") || []
-  );
+  return Array.from(E.sourceMenu?.querySelectorAll("[data-source-value]") || []);
 }
 
 function sourceChoice(value) {
   const wanted = clean(value);
   const choices = sourceChoices();
 
-  let match = choices.find(
-    button => clean(button.getAttribute("data-source-value")) === wanted
-  );
+  let match = choices.find(button => clean(button.getAttribute("data-source-value")) === wanted);
 
   if (!match && wanted === "active_field_harvest") {
     match = choices.find(button =>
-      clean(button.getAttribute("data-source-value"))
-        .startsWith("active_field_harvest:")
+      clean(button.getAttribute("data-source-value")).startsWith("active_field_harvest:")
     );
   }
 
@@ -430,23 +390,17 @@ async function restoreSource(load) {
     return true;
   }
 
-  if (E.sourceMenu?.classList.contains("open")) {
-    E.sourceButton.click();
-  }
-
+  if (E.sourceMenu?.classList.contains("open")) E.sourceButton.click();
   return false;
 }
 
 function driverKey() {
   const value = clean(E.driver?.value);
-
   if (value.startsWith("emp:")) return value;
-
   if (value.startsWith("sub:")) {
     const subdriverId = clean(E.subdriver?.value);
     return subdriverId ? `${value}:${subdriverId}` : "";
   }
-
   return "";
 }
 
@@ -454,22 +408,17 @@ function loadMatches(load, key) {
   if (key.startsWith("emp:")) {
     return clean(load.driverEmployeeId) === clean(key.slice(4));
   }
-
   if (key.startsWith("sub:")) {
     const parts = key.split(":");
-    return (
-      clean(load.driverSubcontractorId) === clean(parts[1]) &&
-      clean(load.driverSubcontractorDriverId) === clean(parts.slice(2).join(":"))
-    );
+    return clean(load.driverSubcontractorId) === clean(parts[1]) &&
+      clean(load.driverSubcontractorDriverId) === clean(parts.slice(2).join(":"));
   }
-
   return false;
 }
 
 async function repeatRun() {
   const mine = ++token;
   const key = driverKey();
-
   if (!createMode() || !key) return;
 
   try {
@@ -481,22 +430,15 @@ async function repeatRun() {
     const load = snapshot.docs
       .map(doc => ({ id: doc.id, ...doc.data() }))
       .filter(item => loadMatches(item, key))
-      .sort(
-        (a, b) =>
-          millis(b.loadedAt || b.createdAt || b.updatedAt) -
-          millis(a.loadedAt || a.createdAt || a.updatedAt)
-      )[0];
+      .sort((a, b) => millis(b.loadedAt || b.createdAt || b.updatedAt) - millis(a.loadedAt || a.createdAt || a.updatedAt))[0];
 
     if (!load) return;
 
     const id = clean(load.haulingJobId);
     const job = state.jobs.find(item => clean(item.id) === id);
-
     if (!id || !job || !visibleIds().has(id)) return;
 
-    let option = Array.from(E.job?.options || [])
-      .find(item => clean(item.value) === id);
-
+    let option = Array.from(E.job?.options || []).find(item => clean(item.value) === id);
     if (!option) {
       option = document.createElement("option");
       option.value = id;
@@ -513,18 +455,14 @@ async function repeatRun() {
 
     E.job.value = id;
     option.selected = true;
-
     E.job.dispatchEvent(new Event("input", { bubbles: true }));
     E.job.dispatchEvent(new Event("change", { bubbles: true }));
 
     await wait(260);
-
     if (mine !== token || key !== driverKey() || !createMode()) return;
 
     lockJobDetails(job);
-
     const sourceRestored = await restoreSource(load);
-
     await wait(120);
 
     if (E.message) {
@@ -567,8 +505,7 @@ E.subdriver?.addEventListener("change", () => {
 });
 
 if (E.job) {
-  new MutationObserver(queueDecorate)
-    .observe(E.job, { childList: true });
+  new MutationObserver(queueDecorate).observe(E.job, { childList: true });
 }
 
 if (E.backdrop) {
@@ -576,16 +513,10 @@ if (E.backdrop) {
     if (!createMode()) return;
 
     keepCropLocked();
-    setTimeout(keepCropLocked, 0);
-    setTimeout(keepCropLocked, 100);
-    setTimeout(keepCropLocked, 300);
-
     refresh(true).then(() => {
       keepCropLocked();
       decorate();
-      const job = state.jobs.find(
-        item => clean(item.id) === clean(E.job?.value)
-      );
+      const job = state.jobs.find(item => clean(item.id) === clean(E.job?.value));
       if (job) lockJobDetails(job);
     });
   }).observe(E.backdrop, {
