@@ -40,9 +40,8 @@ const E = {
 };
 
 /* Crop is controlled entirely by Hauling Job. FarmVista's custom combo
-   enhancer wraps the native select with .fv-buttonish.has-caret. Target that
-   visible button directly so Crop matches the locked fields below it and the
-   custom caret cannot render as a second arrow beside the field. */
+   enhancer wraps the native select with .fv-buttonish. The visible Crop field
+   is display-only, so remove all dropdown-caret treatment from that button. */
 if (!$("fv-loadout-crop-lock-style")) {
   const style = document.createElement("style");
   style.id = "fv-loadout-crop-lock-style";
@@ -56,6 +55,7 @@ if (!$("fv-loadout-crop-lock-style")) {
     .fv-combo:has(#loadout-crop) .fv-buttonish::after {
       content:none !important;
       display:none !important;
+      border:0 !important;
     }
   `;
   document.head.appendChild(style);
@@ -63,11 +63,31 @@ if (!$("fv-loadout-crop-lock-style")) {
 
 function keepCropLocked() {
   if (!E.crop) return;
+
   E.crop.disabled = true;
   E.crop.setAttribute("aria-disabled", "true");
-  E.crop.style.backgroundColor = "var(--surface-2, rgba(255,255,255,.04))";
-  E.crop.style.opacity = ".62";
-  E.crop.style.cursor = "not-allowed";
+
+  const combo = E.crop.closest(".fv-combo");
+  const comboButton = combo?.querySelector(".fv-buttonish");
+
+  if (comboButton) {
+    const selected = E.crop.options?.[E.crop.selectedIndex];
+    if (selected) comboButton.textContent = selected.textContent;
+
+    comboButton.disabled = true;
+    comboButton.setAttribute("aria-disabled", "true");
+    comboButton.classList.add("is-disabled");
+    comboButton.classList.remove("has-caret");
+
+    /* The FarmVista combo button is the only visible Crop field. Fully hide
+       the native select so Chrome cannot paint its own tiny arrow to the right. */
+    E.crop.style.display = "none";
+  }
+  else {
+    E.crop.style.backgroundColor = "var(--surface-2, rgba(255,255,255,.04))";
+    E.crop.style.opacity = ".62";
+    E.crop.style.cursor = "not-allowed";
+  }
 }
 
 keepCropLocked();
