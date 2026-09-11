@@ -4,6 +4,7 @@
 // and propagate contract assignments back to linked hauling jobs.
 import "/js/grain-hauling-jobs-core.js";
 import "/js/grain-contracts-hauling-overview-groups.js?v=20260911-1540";
+import "/js/grain-contracts-ui-followup.js?v=20260911-1558";
 import {
   ready,
   getFirestore,
