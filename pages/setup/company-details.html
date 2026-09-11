@@ -103,7 +103,7 @@
               </div>
               <div class="field">
                 <label for="addrState">State</label>
-                <select id="addrState" class="select" autocomplete="address-level1">
+                <select id="addrState" class="select" autocomplete="off">
                   <option value="">—</option>
                   <option value="AL">AL</option><option value="AK">AK</option><option value="AZ">AZ</option><option value="AR">AR</option>
                   <option value="CA">CA</option><option value="CO">CO</option><option value="CT">CT</option><option value="DC">DC</option>
@@ -251,9 +251,19 @@
 
       function normalizeStateValue(raw){
         if (typeof raw !== 'string') return '';
-        const st = raw.trim().toUpperCase();
-        if (!st) return '';
-        return el.state.querySelector(`option[value="${st}"]`) ? st : '';
+        const value = raw.trim();
+        if (!value) return '';
+
+        const stateNames = {
+          AL:'Alabama', AK:'Alaska', AZ:'Arizona', AR:'Arkansas', CA:'California', CO:'Colorado', CT:'Connecticut', DE:'Delaware', FL:'Florida', GA:'Georgia', HI:'Hawaii', ID:'Idaho', IL:'Illinois', IN:'Indiana', IA:'Iowa', KS:'Kansas', KY:'Kentucky', LA:'Louisiana', ME:'Maine', MD:'Maryland', MA:'Massachusetts', MI:'Michigan', MN:'Minnesota', MS:'Mississippi', MO:'Missouri', MT:'Montana', NE:'Nebraska', NV:'Nevada', NH:'New Hampshire', NJ:'New Jersey', NM:'New Mexico', NY:'New York', NC:'North Carolina', ND:'North Dakota', OH:'Ohio', OK:'Oklahoma', OR:'Oregon', PA:'Pennsylvania', RI:'Rhode Island', SC:'South Carolina', SD:'South Dakota', TN:'Tennessee', TX:'Texas', UT:'Utah', VT:'Vermont', VA:'Virginia', WA:'Washington', WV:'West Virginia', WI:'Wisconsin', WY:'Wyoming', DC:'District of Columbia'
+        };
+
+        const upper = value.toUpperCase();
+        if (Array.from(el.state.options).some(option => option.value === upper)) return upper;
+
+        const lower = value.toLowerCase();
+        const matched = Object.entries(stateNames).find(([, name]) => name.toLowerCase() === lower);
+        return matched ? matched[0] : '';
       }
 
       function stateFromData(d){
@@ -262,14 +272,50 @@
           d?.state ||
           d?.stateCode ||
           d?.state_code ||
+          d?.farmState ||
+          d?.address?.state ||
           ''
         );
       }
 
+      function selectState(raw){
+        const code = normalizeStateValue(raw);
+        const blankOption = el.state.options[0];
+
+        if (!code) {
+          if (blankOption) blankOption.disabled = false;
+          el.state.selectedIndex = 0;
+          el.state.value = '';
+          return '';
+        }
+
+        const index = Array.from(el.state.options).findIndex(option => option.value === code);
+        if (index >= 0) {
+          if (blankOption) {
+            blankOption.selected = false;
+            blankOption.disabled = true;
+          }
+          for (const option of el.state.options) option.selected = false;
+          el.state.options[index].selected = true;
+          el.state.selectedIndex = index;
+          el.state.value = code;
+          el.state.setAttribute('data-loaded-state', code);
+        }
+        return code;
+      }
+
       function applyStoredState(force=false){
         if (!storedState || !el.state) return;
-        if (force || !normalizeStateValue(el.state.value)) {
-          el.state.value = storedState;
+        if (document.activeElement === el.state) return;
+
+        const blankOption = el.state.options[0];
+        if (blankOption) {
+          blankOption.selected = false;
+          blankOption.disabled = true;
+        }
+
+        if (force || el.state.value !== storedState) {
+          selectState(storedState);
         }
       }
 
@@ -282,6 +328,8 @@
       el.state.addEventListener('change',()=>{
         const selected=normalizeStateValue(el.state.value);
         if(selected) storedState=selected;
+        const blankOption = el.state.options[0];
+        if (blankOption) blankOption.disabled = !!selected;
       });
 
       window.addEventListener('pageshow',()=>scheduleStateRestore());
@@ -294,7 +342,7 @@
         el.street.value = d?.addressStreet || "";
         el.city.value   = d?.addressCity || "";
         storedState = stateFromData(d) || storedState;
-        applyStoredState(true);
+        if (storedState) selectState(storedState);
         scheduleStateRestore();
         el.zip.value    = d?.addressZip || "";
         el.phone.value  = d?.phone ? fmtPhoneFinal(d.phone) : "";
@@ -355,6 +403,10 @@
           const snap=await getDoc(REF(db));
           const d=snap.exists()? (snap.data()||{}) : {};
           fillForm(d); cacheWrite(d); el.saveStatus.textContent="";
+          requestAnimationFrame(()=>applyStoredState(true));
+          setTimeout(()=>applyStoredState(true),100);
+          setTimeout(()=>applyStoredState(true),500);
+          setTimeout(()=>applyStoredState(true),1200);
           showErr("");
         }catch(e){
           console.error(e);
