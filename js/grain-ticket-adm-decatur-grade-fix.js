@@ -1,13 +1,13 @@
 /* =====================================================================
    FarmVista — Elevator OCR Template Safety
-   Known layouts: ADM Decatur + Bartlett Jacksonville
+   Known layouts: ADM Decatur + Bartlett Jacksonville + Scoular Waverly
 ===================================================================== */
 (function () {
   'use strict';
   const pagePath = String(window.location.pathname || '').toLowerCase();
   if (!pagePath.endsWith('/pages/grain/grain-ticket-scan.html')) return;
-  if (window.__FV_ADM_DECATUR_GRADE_FIX_20260904) return;
-  window.__FV_ADM_DECATUR_GRADE_FIX_20260904 = true;
+  if (window.__FV_ADM_DECATUR_GRADE_FIX_20260911) return;
+  window.__FV_ADM_DECATUR_GRADE_FIX_20260911 = true;
 
   const originalFetch = window.fetch.bind(window);
   const clean = v => String(v == null ? '' : v).trim();
@@ -37,6 +37,13 @@
     const e = compact([t.elevatorName,t.deliveryStreet,t.deliveryCity,t.deliveryState,t.deliveryZip,text].filter(Boolean).join(' '));
     return e.includes('bartlett') && e.includes('jacksonville') &&
       (e.includes('2350southmain') || e.includes('southmain') || e.includes('unitedstateswarehouseact'));
+  }
+
+  function isScoularWaverly(root, text) {
+    const t = root?.grainTicket || {};
+    const e = compact([t.elevatorName,t.deliveryStreet,t.deliveryCity,t.deliveryState,t.deliveryZip,text].filter(Boolean).join(' '));
+    return e.includes('scoular') && e.includes('waverly') &&
+      (e.includes('wave') || e.includes('15379jasmineroad') || e.includes('jasmineroad'));
   }
 
   function valueBeforeAnchor(text, anchor) {
@@ -70,17 +77,11 @@
   /*
     BARTLETT JACKSONVILLE LAYOUT TEMPLATE
 
-    Do NOT parse these four grade values independently from the whole OCR text.
-    They are one fixed vertical block on every supplied Jacksonville ticket:
-
       GRADE FACTOR
       TW    <value>
       MT    <value>
       DM    <value>
       BCFM  <value>
-
-    Generic OCR had been assigning MT's value to Damage. This parser first
-    isolates the GRADE FACTOR block, then reads each complete label/value row.
   */
   function bartlettGradeBlock(text) {
     const source = String(text || '').replace(/\r/g,'\n');
@@ -92,8 +93,6 @@
     if (stop > 0) block = block.slice(0, stop);
 
     const read = label => {
-      /* Label followed by its number; whitespace/newlines are allowed, but
-         another grade label may not intervene. */
       const re = new RegExp('(?:^|\\n|\\s)' + label + '\\s*[:=-]?\\s*([0-9]{1,3}(?:\\.[0-9]{1,2})?)\\b','i');
       const m = block.match(re);
       if (!m) return null;
@@ -128,7 +127,6 @@
     const grades = bartlettGradeBlock(text) || {};
     let changed = false;
 
-    /* Template values always win over generic structured OCR. */
     changed = patchField(root,'testWeight',grades.testWeight) || changed;
     changed = patchField(root,'moisture',grades.moisture) || changed;
     changed = patchField(root,'damage',grades.damage) || changed;
@@ -154,9 +152,6 @@
     const ticketMatch = text.match(/\bTicket\s*No\.?\s*[:#]?\s*([A-Z0-9-]{3,})\b/i);
     if (ticketMatch) ticket.ticketNumber = clean(ticketMatch[1]);
 
-    /* Bartlett tickets supplied so far explicitly show 0.00 shrink. For that
-       layout, gross/net bushels must equal net pounds / crop divisor. This is
-       more reliable than OCR reading order in the horizontal bottom row. */
     if (ticket.shrinkBushels === 0 && Number.isFinite(ticket.netWeight)) {
       const divisor = ticket.crop === 'Soybeans' ? 60 : ticket.crop === 'Corn' ? 56 : null;
       if (divisor) {
@@ -189,13 +184,161 @@
     return changed;
   }
 
+  /*
+    SCOULAR WAVERLY LAYOUT TEMPLATE
+
+    The two supplied Waverly samples use the same four-row grade order:
+      Test Weight
+      Moisture
+      Damaged Kernels (total)
+      Broken Corn & Foreign Mat
+
+    Document AI sometimes emits those labels and their numeric values out of
+    visual order, and fields={} on both supplied scans. The reliable signal is
+    the first four decimal grade values in the section beginning at Grade and
+    ending before Gross Bushels. Their fixed meaning is TW, MO, DM, FM.
+
+    Scoular also prints BOTH Gross Bushels and Net Bushels. Those printed values
+    must win over pounds/divisor math because Scoular may apply shrink. FarmVista
+    derives shrink as printedGrossBu - printedNetBu.
+  */
+  function scoularGradeValues(text) {
+    const source = String(text || '').replace(/\r/g,'\n');
+    const start = source.search(/Grade\s*:\s*U\.?S\.?/i);
+    if (start < 0) return null;
+    let block = source.slice(start, start + 1300);
+    const stop = block.search(/\bGross\s+Bushels\s*:/i);
+    if (stop > 0) block = block.slice(0, stop);
+
+    const values = [];
+    const re = /(?:^|\s)(\d{1,2}\.\d{1,2})(?=\s|$)/g;
+    let match;
+    while ((match = re.exec(block)) && values.length < 8) {
+      const n = Number(match[1]);
+      if (Number.isFinite(n)) values.push(n);
+    }
+
+    if (values.length < 4) return null;
+    const [tw,mo,dm,fm] = values;
+    if (!(tw >= 35 && tw <= 70)) return null;
+    if (!(mo >= 0 && mo <= 40)) return null;
+    if (!(dm >= 0 && dm <= 50)) return null;
+    if (!(fm >= 0 && fm <= 50)) return null;
+    return {testWeight:tw,moisture:mo,damage:dm,foreignMaterial:fm};
+  }
+
+  function scoularPrintedBushels(text) {
+    const source = String(text || '').replace(/\r/g,'\n');
+    const start = source.search(/Gross\s+Bushels\s*:/i);
+    if (start < 0) return null;
+    const block = source.slice(start, start + 350);
+    const values = [];
+    const re = /([0-9][0-9,]*\.\d{1,2})\s*BU\b/gi;
+    let match;
+    while ((match = re.exec(block)) && values.length < 2) {
+      const n = Number(match[1].replace(/,/g,''));
+      if (Number.isFinite(n)) values.push(n);
+    }
+    if (values.length < 2) return null;
+    return {grossBushels:values[0],netBushels:values[1]};
+  }
+
+  function scoularWeights(text) {
+    const source = String(text || '').replace(/\r/g,'\n');
+    const start = source.search(/GROSS\s+L\.?BS\s*:/i);
+    if (start < 0) return null;
+    let block = source.slice(start, start + 500);
+    const stop = block.search(/Gross\s+Bushels\s*:/i);
+    if (stop > 0) block = block.slice(0, stop);
+    const values = [];
+    const re = /\b([2-9]\d{4,5}|[2-9]\d{1,2},\d{3})\s+L\.?BS\b/gi;
+    let match;
+    while ((match = re.exec(block)) && values.length < 3) {
+      const n = Number(match[1].replace(/,/g,''));
+      if (Number.isFinite(n)) values.push(n);
+    }
+    return values.length >= 3 ? {grossWeight:values[0],tareWeight:values[1],netWeight:values[2]} : null;
+  }
+
+  function patchScoular(data) {
+    const root = responseRoot(data);
+    if (!root?.grainTicket) return false;
+    const text = documentText(data, root);
+    if (!isScoularWaverly(root,text)) return false;
+
+    const ticket = root.grainTicket;
+    const grades = scoularGradeValues(text) || {};
+    const weights = scoularWeights(text);
+    const bushels = scoularPrintedBushels(text);
+    let changed = false;
+
+    changed = patchField(root,'testWeight',grades.testWeight) || changed;
+    changed = patchField(root,'moisture',grades.moisture) || changed;
+    changed = patchField(root,'damage',grades.damage) || changed;
+    changed = patchField(root,'foreignMaterial',grades.foreignMaterial) || changed;
+
+    if (weights) {
+      ticket.grossWeight = weights.grossWeight;
+      ticket.tareWeight = weights.tareWeight;
+      ticket.netWeight = weights.netWeight;
+      changed = true;
+    }
+
+    if (bushels) {
+      ticket.grossBushels = bushels.grossBushels;
+      ticket.printedGrossBushels = bushels.grossBushels;
+      ticket.netBushels = bushels.netBushels;
+      ticket.printedNetBushels = bushels.netBushels;
+      ticket.shrinkBushels = Number(Math.max(0,bushels.grossBushels - bushels.netBushels).toFixed(2));
+      changed = true;
+    }
+
+    const ticketMatch = text.match(/(?:^|\n)\s*(\d{5,8})\s*(?:\n|$)/m);
+    if (ticketMatch) ticket.ticketNumber = ticketMatch[1];
+
+    const customerIdMatch = text.match(/Customer\s+ID\s*:\s*([A-Z0-9-]+)/i);
+    if (customerIdMatch) {
+      ticket.customerText = clean(customerIdMatch[1]);
+      ticket.customerAccountText = clean(customerIdMatch[1]);
+    }
+
+    const truckMatch = text.match(/Truck\s+ID\s*:\s*([A-Z0-9-]+)/i);
+    if (truckMatch) ticket.vehicleId = clean(truckMatch[1]);
+
+    if (/Yellow\s+Corn|Corn\s*\(YC\)/i.test(text)) ticket.crop = 'Corn';
+    else if (/Soybeans?|Soy\s*\(/i.test(text)) ticket.crop = 'Soybeans';
+
+    ticket.elevatorName = 'Scoular - Waverly';
+    ticket.deliveryStreet = '15379 Jasmine Road';
+    ticket.deliveryCity = 'Waverly';
+    ticket.deliveryState = 'IL';
+    ticket.deliveryZip = '62692';
+
+    console.log('[Grain Ticket] Scoular Waverly FIXED-LAYOUT template:', {
+      ticketNumber:ticket.ticketNumber,
+      TW:ticket.testWeight,
+      MO:ticket.moisture,
+      DM:ticket.damage,
+      FM:ticket.foreignMaterial,
+      grossWeight:ticket.grossWeight,
+      tareWeight:ticket.tareWeight,
+      netWeight:ticket.netWeight,
+      grossBushels:ticket.grossBushels,
+      shrinkBushels:ticket.shrinkBushels,
+      netBushels:ticket.netBushels,
+      customerText:ticket.customerText,
+      vehicleId:ticket.vehicleId
+    });
+    return changed;
+  }
+
   window.fetch = async (...args) => {
     const response = await originalFetch(...args);
     try {
       const type = clean(response.headers.get('content-type')).toLowerCase();
       if (!type.includes('application/json')) return response;
       const data = await response.clone().json();
-      const changed = patchAdm(data) || patchBartlett(data);
+      const changed = patchAdm(data) || patchBartlett(data) || patchScoular(data);
       if (!changed) return response;
       const headers = new Headers(response.headers);
       headers.delete('content-length');
