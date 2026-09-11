@@ -39,6 +39,28 @@ const E = {
   message: $("loadout-form-message")
 };
 
+/* Crop is controlled entirely by Hauling Job. FarmVista's custom combo
+   enhancer wraps the native select with .fv-buttonish.has-caret. Target that
+   visible button directly so Crop matches the locked fields below it and the
+   custom caret cannot render as a second arrow beside the field. */
+if (!$("fv-loadout-crop-lock-style")) {
+  const style = document.createElement("style");
+  style.id = "fv-loadout-crop-lock-style";
+  style.textContent = `
+    .fv-combo:has(#loadout-crop) .fv-buttonish {
+      background:var(--surface-2,rgba(255,255,255,.04)) !important;
+      color:var(--muted,#87908a) !important;
+      opacity:.55 !important;
+      cursor:not-allowed !important;
+    }
+    .fv-combo:has(#loadout-crop) .fv-buttonish::after {
+      content:none !important;
+      display:none !important;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 function keepCropLocked() {
   if (!E.crop) return;
   E.crop.disabled = true;
