@@ -191,6 +191,7 @@
       const CACHE_KEY='fv_company_main';
 
       let CID = null;
+      let storedState = '';
 
       function genCID(){
         try {
@@ -255,12 +256,46 @@
         return el.state.querySelector(`option[value="${st}"]`) ? st : '';
       }
 
+      function stateFromData(d){
+        return normalizeStateValue(
+          d?.addressState ||
+          d?.state ||
+          d?.stateCode ||
+          d?.state_code ||
+          ''
+        );
+      }
+
+      function applyStoredState(force=false){
+        if (!storedState || !el.state) return;
+        if (force || !normalizeStateValue(el.state.value)) {
+          el.state.value = storedState;
+        }
+      }
+
+      function scheduleStateRestore(){
+        [0,120,500,1200].forEach(delay=>{
+          setTimeout(()=>applyStoredState(false),delay);
+        });
+      }
+
+      el.state.addEventListener('change',()=>{
+        const selected=normalizeStateValue(el.state.value);
+        if(selected) storedState=selected;
+      });
+
+      window.addEventListener('pageshow',()=>scheduleStateRestore());
+      document.addEventListener('visibilitychange',()=>{
+        if(!document.hidden) scheduleStateRestore();
+      });
+
       function fillForm(d){
         el.name.value   = d?.name || "";
         el.street.value = d?.addressStreet || "";
         el.city.value   = d?.addressCity || "";
-        const st = normalizeStateValue(d?.addressState);
-        el.state.value  = st;
+        storedState = stateFromData(d) || storedState;
+        applyStoredState(true);
+        scheduleStateRestore();
         el.zip.value    = d?.addressZip || "";
         el.phone.value  = d?.phone ? fmtPhoneFinal(d.phone) : "";
         el.email.value  = d?.email || "";
@@ -289,7 +324,7 @@
         return {
           addressStreet:(el.street.value||"").trim(),
           addressCity:(el.city.value||"").trim(),
-          addressState:(el.state.value||"").trim().toUpperCase(),
+          addressState:(el.state.value||storedState||"").trim().toUpperCase(),
           addressZip:(el.zip.value||"").trim(),
           email:normalizeEmail(el.email.value||"")
         };
@@ -372,6 +407,7 @@
 
           await setDoc(REF(db), { ...extras, updatedAt: serverTimestamp(), cid: CID }, { merge:true });
           el.saveStatus.innerHTML += ` <span class="ok">Saved extra fields.</span>`;
+          storedState = extras.addressState || storedState;
 
           const up = await uploadLogoAndUpdateDoc();
           if (!up.ok && up.note){ el.logoNote.textContent = up.note; el.logoNote.style.display='block'; }
