@@ -1,5 +1,6 @@
 // /js/grain-hauling-jobs.js
-// FarmVista wrapper: preserve hauling-job implementation and add void-assignment guard.
+// FarmVista wrapper: preserve hauling-job implementation, add void-assignment guard,
+// and keep the Sold Under add action scoped only to the Sold Under combo.
 import "/js/grain-hauling-jobs-core.js";
 import { ready, getFirestore, collection, getDocs } from "/js/firebase-init.js";
 
@@ -35,6 +36,49 @@ function installVoidGuardStyles() {
     }
   `;
   document.head.appendChild(style);
+}
+
+function comboSelectFromButton(button) {
+  return button?.closest?.(".fv-combo")?.querySelector?.("select") || null;
+}
+
+function removeMisplacedSoldUnderRows() {
+  const customerId = "hauling-job-customer";
+  const visiblePanels = Array.from(document.querySelectorAll(".fv-panel.show"));
+
+  visiblePanels.forEach(panel => {
+    const ownerId = clean(panel.dataset?.fvSelectId || panel.dataset?.selectId || panel.getAttribute?.("data-for"));
+    if (ownerId === customerId) return;
+
+    panel.querySelectorAll(".fv-item").forEach(item => {
+      if (clean(item.textContent) === "+ Add New Sold Under") item.remove();
+    });
+  });
+}
+
+function installSoldUnderComboScopeGuard() {
+  let activeHaulingSelectId = "";
+
+  document.addEventListener("click", event => {
+    const button = event.target.closest?.(".fv-buttonish");
+    const select = comboSelectFromButton(button);
+    if (!select?.id?.startsWith("hauling-job-")) return;
+
+    activeHaulingSelectId = select.id;
+    if (activeHaulingSelectId !== "hauling-job-customer") {
+      queueMicrotask(removeMisplacedSoldUnderRows);
+      setTimeout(removeMisplacedSoldUnderRows, 0);
+      setTimeout(removeMisplacedSoldUnderRows, 50);
+    }
+  }, true);
+
+  const observer = new MutationObserver(() => {
+    if (activeHaulingSelectId && activeHaulingSelectId !== "hauling-job-customer") {
+      removeMisplacedSoldUnderRows();
+    }
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
 }
 
 async function assignmentCounts(jobId) {
@@ -96,6 +140,7 @@ async function syncVoidButton() {
 }
 
 installVoidGuardStyles();
+installSoldUnderComboScopeGuard();
 
 const modal = document.getElementById("hauling-job-modal");
 if (modal) {
