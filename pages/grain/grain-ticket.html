@@ -11674,6 +11674,49 @@ function loResetModalBase(){
 
     loResetModalBase();
 
+
+    /*
+      PREVIOUS LOAD HAULING JOB RESTORE — 2026-09-11
+
+      Copy Previous can restore Crop, Destination, Sold Under and Grain Source,
+      then a dependent rerender clears only the hauling-job select. That is why
+      the correct delivery/remaining note can show while the select is blank.
+    */
+    setTimeout(() => {
+      try {
+        if (loState.mode !== "create") return;
+        if (!loEls.haulingJob || loClean(loEls.haulingJob.value)) return;
+
+        const copyMessage = loClean(loEls.message?.textContent).toLowerCase();
+        if (!copyMessage.includes("copied") || !copyMessage.includes("previous")) return;
+
+        const driver = loSelectedDriver();
+        if (!driver) return;
+
+        const previousLoad = loState.loads
+          .filter(load =>
+            loDriverMatchesLoad(load, driver) &&
+            loClean(load?.haulingJobId)
+          )
+          .sort((a,b) =>
+            loMillis(b.loadedAt || b.createdAt) -
+            loMillis(a.loadedAt || a.createdAt)
+          )[0] || null;
+
+        const previousJobId = loClean(previousLoad?.haulingJobId);
+        if (!previousJobId) return;
+
+        loRenderHaulingJobs(previousJobId);
+        console.log("[Grain Load Out] Restored copied previous hauling job:", {
+          loadNumber: previousLoad?.loadNumber || null,
+          haulingJobId: previousJobId
+        });
+      }
+      catch (error) {
+        console.warn("[Grain Load Out] Could not restore copied hauling job:", error);
+      }
+    }, 0);
+
     loEls.modalTitle.textContent = "Assign Load";
     loEls.modalSub.textContent =
       "Create a FarmVista load number before the truck leaves.";
