@@ -1,11 +1,11 @@
 // /js/dash-weather-modal.js
-// Rev: 2026-09-11-weather-no-flash-v3
+// Rev: 2026-09-11-weather-saved-zip-no-flash-v4
 //
 // Dashboard weather card -> modal wiring.
 // ZIP editing exists ONLY inside Weather details.
 // Saved ZIP remains authoritative for both the modal and main dashboard tile.
-// index.html owns the normal first weather paint; this helper only repairs a
-// missing/loading tile so the dashboard does not visibly render weather twice.
+// index.html owns the normal first weather paint; this helper silently corrects
+// that paint to the saved ZIP if company/main tries to paint its address instead.
 
 (function () {
   "use strict";
@@ -139,6 +139,24 @@
     );
   }
 
+  function normalizeLocationLabel(value) {
+    return String(value || "")
+      .toLowerCase()
+      .replace(/^weather\s*[·:\-]?\s*/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function shellMatchesSavedLocation(shell, saved) {
+    if (!shellHasWeatherHooks(shell) || !saved) return false;
+    const wanted = normalizeLocationLabel(saved.locationLabel || saved.zip);
+    if (!wanted) return true;
+
+    const title = shell.querySelector('[data-fv="title"]');
+    const shown = normalizeLocationLabel(title?.textContent || "");
+    return shown === wanted || shown.includes(wanted);
+  }
+
   function selectorForMainRender(shell) {
     /*
       fv-weather.js remembers which selector has already had its card skeleton
@@ -148,7 +166,8 @@
       marked as rendered internally.
 
       Give the same shell a fresh selector only when its weather hooks are gone.
-      That makes FVWeather correctly treat it as a first paint and rebuild the card.
+      If the hooks are present, keep the same selector so a saved-ZIP correction
+      updates the existing card in place instead of rebuilding/flashing it.
     */
     if (shellHasWeatherHooks(shell)) return activeMainSelector;
 
@@ -196,13 +215,21 @@
     async function run() {
       attempts += 1;
       const saved = readSaved();
-      if (!hasCoords(saved)) return;
+      const shell = document.getElementById("fv-weather");
+      if (!hasCoords(saved)) {
+        if (shell) shell.style.visibility = "";
+        return;
+      }
 
       window.FV_DASH_WEATHER_LOCATION = saved;
       resolvedWeatherLocationPromise = Promise.resolve(saved);
 
-      if (await renderMain(saved, forceRefresh === true)) return;
+      if (await renderMain(saved, forceRefresh === true)) {
+        if (shell) shell.style.visibility = "";
+        return;
+      }
       if (attempts < 30) retryTimer = setTimeout(run, 50);
+      else if (shell) shell.style.visibility = "";
     }
 
     run();
@@ -212,15 +239,29 @@
     const shell = document.getElementById("fv-weather");
     if (!shell || repairQueued) return;
 
+    const saved = readSaved();
     const text = String(shell.textContent || "").trim().toLowerCase();
     const missingHooks = !shellHasWeatherHooks(shell);
     const isLoading = text === "loading weather..." || text === "loading weather…";
-    if (!missingHooks && !isLoading) return;
+    const wrongSavedLocation = hasCoords(saved) && shellHasWeatherHooks(shell) && !shellMatchesSavedLocation(shell, saved);
+
+    if (!missingHooks && !isLoading && !wrongSavedLocation) {
+      shell.style.visibility = "";
+      return;
+    }
+
+    /*
+      If company/main painted Divernon (or another company ZIP) while a user-saved
+      ZIP exists, hide that wrong frame before the browser paints it. Then refresh
+      the existing weather hooks in place with the saved ZIP and reveal the tile.
+      This preserves the no-flash behavior while keeping the saved ZIP authoritative.
+    */
+    if (wrongSavedLocation) shell.style.visibility = "hidden";
 
     repairQueued = true;
     setTimeout(function () {
       repairQueued = false;
-      renderSavedWhenReady(false);
+      renderSavedWhenReady(wrongSavedLocation);
     }, 0);
   }
 
@@ -237,7 +278,10 @@
       if (hasCoords(saved) && savedZip === wantedZip) {
         window.FV_DASH_WEATHER_LOCATION = saved;
         resolvedWeatherLocationPromise = Promise.resolve(saved);
+        const shell = document.getElementById("fv-weather");
+        if (shell) shell.style.visibility = "hidden";
         await renderMain(saved, true);
+        if (shell) shell.style.visibility = "";
         return;
       }
 
@@ -257,23 +301,15 @@
 
     const saved = readSaved();
     if (hasCoords(saved)) {
-      /*
-        Seed the saved location before index.html performs its normal first paint.
-        Do NOT render the dashboard tile here. The inline dashboard initializer
-        already does that, and rendering here too causes the visible weather flash.
-      */
       window.FV_DASH_WEATHER_LOCATION = saved;
       resolvedWeatherLocationPromise = Promise.resolve(saved);
     }
 
     document.addEventListener("fv:company", function () {
-      /* Company loading may reset the shell. Only repair if its weather hooks
-         are actually missing instead of starting a second normal render. */
       setTimeout(repairIfLoading, 0);
     });
 
     window.addEventListener("pageshow", function () {
-      /* pageshow also fires on a normal first load, so keep this conditional. */
       repairIfLoading();
     });
 
