@@ -1,5 +1,5 @@
 /* ==========================================================
-   FarmVista — Core (theme + version) v3.1.4
+   FarmVista — Core (theme + version) v3.1.5
    - Applies saved theme ASAP (prevents flash)
    - Keeps "system" synced with OS changes
    - Exposes App API used by fv-shell.js
@@ -7,6 +7,7 @@
    - Loads the Grain Ticket unresolved-review warning guard
    - Preserves previous-page navigation from Grain Ticket Detail
    - Loads compact Hauling Job cards + overview on Grain Contracts only
+   - Keeps ticket assign / unassign DND working with collapsed job cards
    ========================================================== */
 (function (global, doc) {
   const THEME_KEY = "fv-theme";
@@ -80,13 +81,22 @@
     try{
       const path = String(global.location?.pathname || '').toLowerCase();
       if (!path.endsWith('/pages/grain/grain-contracts.html')) return;
-      if (doc.querySelector('script[data-fv-hauling-job-ux]')) return;
 
-      const script = doc.createElement('script');
-      script.src = '/js/grain-hauling-job-ux.js?v=20260911-2';
-      script.defer = true;
-      script.dataset.fvHaulingJobUx = '1';
-      doc.head.appendChild(script);
+      if (!doc.querySelector('script[data-fv-hauling-job-ux]')) {
+        const script = doc.createElement('script');
+        script.src = '/js/grain-hauling-job-ux.js?v=20260911-2';
+        script.defer = true;
+        script.dataset.fvHaulingJobUx = '1';
+        doc.head.appendChild(script);
+      }
+
+      if (!doc.querySelector('script[data-fv-hauling-job-dnd-guard]')) {
+        const guard = doc.createElement('script');
+        guard.src = '/js/grain-hauling-job-dnd-guard.js?v=20260911-1';
+        guard.defer = true;
+        guard.dataset.fvHaulingJobDndGuard = '1';
+        doc.head.appendChild(guard);
+      }
     }catch{}
   }
 
