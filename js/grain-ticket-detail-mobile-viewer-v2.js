@@ -4,11 +4,17 @@
 
   const path = String(location.pathname || '').toLowerCase();
   if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) return;
-  if (window.__FV_TICKET_DETAIL_MOBILE_VIEWER_V3_20260905) return;
-  window.__FV_TICKET_DETAIL_MOBILE_VIEWER_V3_20260905 = true;
+  if (window.__FV_TICKET_DETAIL_MOBILE_VIEWER_V4_20260911) return;
+  window.__FV_TICKET_DETAIL_MOBILE_VIEWER_V4_20260911 = true;
 
   const $ = id => document.getElementById(id);
-  const isPhoneLayout = () => matchMedia('(pointer:coarse)').matches || innerWidth <= 900;
+
+  /*
+    MOBILE VIEWER MUST NEVER TAKE OVER A MOUSE/TRACKPAD DESKTOP.
+    DevTools docking can make a desktop viewport narrow enough to look like a
+    phone by width alone. A real phone/tablet has a coarse primary pointer.
+  */
+  const isPhoneLayout = () => matchMedia('(pointer:coarse)').matches;
 
   function installStyles() {
     document.getElementById('fv-ticket-detail-mobile-v3-style')?.remove();
@@ -73,7 +79,7 @@
       .fv-ocr-btn[aria-pressed="true"]{border-color:#3B7E46;box-shadow:inset 0 0 0 2px rgba(59,126,70,.25)}
       .fv-ocr-status{min-height:18px;margin:0 0 7px;color:var(--muted,#68716c);font-size:11px;font-weight:750}
 
-      @media (max-width:700px) and (orientation:portrait){
+      @media (pointer:coarse) and (max-width:700px) and (orientation:portrait){
         .layout > aside,.image-card{width:100% !important;min-width:0 !important}
         .image-card{margin-left:auto !important;margin-right:auto !important}
         #ticketImageWrap{
@@ -88,7 +94,7 @@
         .image-actions .btn{flex:1 1 0 !important;min-width:0 !important;padding-left:8px !important;padding-right:8px !important}
       }
 
-      @media (orientation:landscape) and (max-height:700px) and (min-width:701px){
+      @media (pointer:coarse) and (orientation:landscape) and (max-height:700px) and (min-width:701px){
         html,body{overflow-x:hidden !important}
         .page{max-width:none !important;width:100% !important;padding-left:12px !important;padding-right:12px !important}
         .layout{
@@ -136,6 +142,9 @@
   }
 
   function setupPhoneViewer() {
+    /* Fine-pointer desktops use the native viewer in grain-ticket-detail.html. */
+    if (!isPhoneLayout()) return;
+
     const wrap = $('ticketImageWrap');
     const stage = $('ticketImageStage');
     const source = $('ticketImage');
@@ -213,6 +222,11 @@
     }
 
     function syncSource() {
+      if (!isPhoneLayout()) {
+        wrap.classList.remove('fv-phone-viewer', 'fv-touch-panning');
+        return;
+      }
+
       const src = source.currentSrc || source.src || '';
       if (!src) return;
       if (photo.src !== src) photo.src = src;
@@ -437,7 +451,7 @@
   function updateHelp() {
     const help = $('ticketImageWrap')?.closest('.image-card')?.querySelector('.card-sub');
     if (!help) return;
-    help.textContent = matchMedia('(pointer:coarse)').matches
+    help.textContent = isPhoneLayout()
       ? 'Pinch to zoom. Drag the zoomed ticket with one finger.'
       : 'Use the mouse wheel to zoom. Click and drag to move around the ticket.';
   }
