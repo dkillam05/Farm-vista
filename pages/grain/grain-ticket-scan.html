@@ -16,7 +16,7 @@
   (() => {
     'use strict';
 
-    const CORE_URL = '/pages/grain/grain-ticket-scan-core.html?v=20260911-3';
+    const CORE_URL = '/pages/grain/grain-ticket-scan-core.html?v=20260911-4';
 
     function replaceRequired(text, oldValue, newValue, label) {
       if (!text.includes(oldValue)) throw new Error(`Scanner patch marker missing: ${label}`);
@@ -86,6 +86,44 @@
       const oldPostAssist = `  matching =\n    await runDriverAssistQuestions(\n      grainTicket,\n      ocrResult,\n      matching\n    );\n\n\n  /*\n    DUPLICATE PROTECTION\n`;
       const newPostAssist = `  matching =\n    await runDriverAssistQuestions(\n      grainTicket,\n      ocrResult,\n      matching\n    );\n\n\n  if (!matching?.haulingJob && matching?.grainSource && matching?.customerMatch?.customer?.id && matching?.locationMatch?.location?.id && matching?.buyerMatch?.buyer?.id) {\n    const finalHaulingJob = automaticHaulingJobForTicket(grainTicket,matching.customerMatch.customer,matching.locationMatch.location,matching.buyerMatch.buyer);\n    if (finalHaulingJob) {\n      const remainingReasons = (Array.isArray(matching.reviewReasons) ? matching.reviewReasons : []).filter(reason => reason !== "hauling_job_not_assigned" && reason !== "hauling_job_not_auto_assigned");\n      matching = rebuildMatchingAfterDriverAssist(grainTicket,finalHaulingJob,matching.locationMatch.location,matching.buyerMatch.buyer,matching.customerMatch.customer,matching.grainSource,matching,remainingReasons);\n      ocrResult.driverContext = {\n        ...(ocrResult.driverContext || {}),\n        haulingJob:{id:finalHaulingJob.id,name:haulingJobDisplayLabel(finalHaulingJob).label,source:"final_save_reconciliation"}\n      };\n      console.log("[Grain Ticket] Final save-time hauling job reconciliation:",{ticketNumber:grainTicket?.ticketNumber || null,haulingJobId:finalHaulingJob.id,validationStatus:matching.validationStatus});\n    }\n  }\n\n\n  /*\n    DUPLICATE PROTECTION\n`;
       html = replaceRequired(html, oldPostAssist, newPostAssist, 'final save hauling job reconciliation');
+
+      /*
+        Scanner freeze protection.
+
+        The scanner used to wait forever if one Firestore read stalled while
+        loading matching data. It also loaded the entire historical ticket
+        collection even though duplicate protection already performs targeted
+        ticket queries later. Remove that unnecessary read and put hard limits
+        around the non-interactive network stages so the driver gets a retry
+        screen instead of a permanent spinner.
+      */
+      const timeoutHelper = `function withScannerTimeout(promise,timeoutMs,label) {\n  let timer = null;\n  const timeout = new Promise((_,reject) => {\n    timer = setTimeout(() => reject(new Error(label + " took too long. Check your connection and try again.")),timeoutMs);\n  });\n  return Promise.race([promise,timeout]).finally(() => { if (timer) clearTimeout(timer); });\n}\n\n`;
+      html = replaceRequired(html, 'async function loadFarmVistaData() {', timeoutHelper + 'async function loadFarmVistaData() {', 'scanner timeout helper');
+
+      html = replaceRequired(html,
+        `  haulingJobSnapshot,\n  ticketSnapshot,\n  employeeSnapshot,`,
+        `  haulingJobSnapshot,\n  employeeSnapshot,`,
+        'remove full ticket snapshot variable');
+
+      html = replaceRequired(html,
+        `\ngetDocs(\n  collection(\n    db,\n    TICKET_COLLECTION\n  )\n),\n\ngetDocs(\n  collection(\n    db,\n    EMPLOYEE_COLLECTION\n  )\n),`,
+        `\ngetDocs(\n  collection(\n    db,\n    EMPLOYEE_COLLECTION\n  )\n),`,
+        'remove full ticket collection read');
+
+      html = replaceRequired(html,
+        `\n\ngrainTickets =\n  snapshotToArray(\n    ticketSnapshot\n  );\n`,
+        `\n\ngrainTickets = [];\n`,
+        'remove full ticket history assignment');
+
+      html = replaceRequired(html,
+        `  const employee =\n    await loadFarmVistaData();`,
+        `  const employee =\n    await withScannerTimeout(\n      loadFarmVistaData(),\n      25000,\n      "Loading FarmVista grain data"\n    );\n\n  processingText.textContent =\n    "Matching destination…";`,
+        'matching data timeout');
+
+      html = replaceRequired(html,
+        `  const duplicateTicket =\n    await findDuplicateGrainTicket(\n      grainTicket,\n      matching\n    );`,
+        `  const duplicateTicket =\n    await withScannerTimeout(\n      findDuplicateGrainTicket(\n        grainTicket,\n        matching\n      ),\n      15000,\n      "Checking for duplicate ticket"\n    );`,
+        'duplicate check timeout');
 
       const landscapeRuntime = `
 <script>
