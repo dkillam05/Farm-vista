@@ -11,19 +11,34 @@ const path = String(window.location.pathname || '').toLowerCase();
 const params = new URLSearchParams(window.location.search);
 
 /*
-  Signed-in in-app grain ticket scan helper.
-  Guest/load-out token scans intentionally remain untouched here.
+  Signed-in, in-app grain ticket scan helper.
+
+  IMPORTANT:
+  - Never block the scanner waiting on this helper.
+  - The scanner's built-in duplicate guard remains authoritative.
+  - This helper only improves UX when an early duplicate answer is available.
+  - Grain Storage is crop-aware: show it only when that crop has inventory.
+  - Guest/load-out scans remain untouched.
+
+  SEPT 4, 2026 FIELD-PICKER SAFETY:
+  Do NOT programmatically click/open the Field or Grain Storage dropdown after
+  the driver chooses the source type. On iPhone that transition can happen
+  inside the same tap sequence and allow the original tap to fall through to
+  the newly rendered controls, which can resolve Driver Assist before the
+  driver actually chooses a field/site. Keep the second picker closed until
+  the driver deliberately taps it. Also remove Skip on that second picker:
+  choosing "Field" means the driver must choose a field or use Back.
 */
 if (
   !path.endsWith('/pages/grain/grain-ticket-scan.html') ||
   params.has('t') ||
   params.has('token')
 ) {
-  // no-op
+  // Intentionally no-op.
 } else {
   const clean = value => String(value == null ? '' : value).trim();
   const norm = value => clean(value).toLowerCase().replace(/[^a-z0-9]/g, '');
-  const words = value =>
+  const wordTokens = value =>
     clean(value)
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, ' ')
@@ -123,7 +138,7 @@ if (
 
   async function checkDuplicateFromOcr(grainTicket) {
     const ticketNumber = clean(grainTicket?.ticketNumber);
-    const elevatorName = norm(grainTicket?.elevatorName || grainTicket?.ocrElevatorName);
+    const elevatorName = norm(grainTicket?.elevatorName);
     if (!ticketNumber || !elevatorName) return null;
 
     try {
@@ -168,10 +183,7 @@ if (
             lastOcrGrainTicket = grainTicket;
           }
 
-          if (
-            grainTicket?.ticketNumber &&
-            (grainTicket?.elevatorName || grainTicket?.ocrElevatorName)
-          ) {
+          if (grainTicket?.ticketNumber && grainTicket?.elevatorName) {
             duplicateHandled = false;
             duplicateTicket = null;
             duplicateCheckPromise = checkDuplicateFromOcr(grainTicket).then(match => {
@@ -203,6 +215,8 @@ if (
         'This grain ticket is already in FarmVista. No information needs to be entered again.';
     }
     errorScreen?.classList.add('show');
+
+    // Let the scanner's existing flow finish and reach its own duplicate guard.
     document.getElementById('assistSkipBtn')?.click();
   }
 
@@ -223,21 +237,22 @@ if (
   }
 
   /*
-    Resolve the Destination Driver Assist question from OCR before the driver
-    ever has to answer it.
+    SEPT 11, 2026 — DO NOT ASK FOR A DESTINATION FARMVISTA ALREADY KNOWS
 
-    Priority:
-      1. exactly one city/state match -> use it
-      2. if city/state has several matches, narrow by elevator/buyer wording
-      3. otherwise leave the normal question visible rather than guessing
+    The scanner core intentionally uses a conservative first-pass destination
+    threshold. Some tickets can still resolve cleanly once the OCR elevator,
+    city and state are considered together. In that case Driver Assist should
+    not ask a question whose answer FarmVista can already determine.
 
-    This intentionally does NOT require ZIP to match because several elevator
-    printers use a mailing ZIP that differs from FarmVista's physical-address
-    ZIP for the same destination.
+    Safety rule: auto-select ONLY when exactly one rendered FarmVista
+    destination matches all available city/state evidence plus at least one
+    meaningful elevator/buyer token. Ambiguous or incomplete OCR still asks.
   */
-  function destinationMatchesFromOcr() {
+  function resolveDestinationPromptFromOcr(title) {
+    if (!/^where was this load delivered\?$/i.test(clean(title))) return false;
+
     const ticket = lastOcrGrainTicket;
-    if (!ticket) return [];
+    if (!ticket) return false;
 
     const elevator = clean(
       ticket.elevatorName ||
@@ -253,96 +268,45 @@ if (
       ticket.ocrDeliveryState
     );
 
-    if (!city) return [];
-
-    const cityWords = words(city);
-    const stateWords = words(state);
-    if (!cityWords.length) return [];
-
-    const options = Array.from(
-      document.querySelectorAll('#assistBody .assist-dropdown-option')
-    );
-
-    const cityStateMatches = options.filter(option => {
-      const optionWords = new Set(words(option.textContent));
-      const cityMatches = cityWords.every(word => optionWords.has(word));
-      const stateMatches = !stateWords.length || stateWords.every(word => optionWords.has(word));
-      return cityMatches && stateMatches;
-    });
-
-    if (cityStateMatches.length <= 1) {
-      return cityStateMatches;
-    }
+    if (!elevator || !city) return false;
 
     const ignoredElevatorWords = new Set([
       'processing', 'grain', 'grains', 'company', 'co', 'inc', 'llc',
       'elevator', 'terminal', 'terminals', 'facility', 'plant', 'the'
     ]);
 
-    const elevatorWords = words(elevator)
+    const elevatorWords = wordTokens(elevator)
       .filter(word => word.length >= 3 && !ignoredElevatorWords.has(word));
+    const cityWords = wordTokens(city);
+    const stateWords = wordTokens(state);
 
-    if (!elevatorWords.length) return [];
+    if (!elevatorWords.length || !cityWords.length) return false;
 
-    return cityStateMatches.filter(option => {
-      const optionWords = new Set(words(option.textContent));
-      return elevatorWords.some(word => optionWords.has(word));
+    const options = Array.from(
+      document.querySelectorAll('#assistBody .assist-dropdown-option')
+    );
+
+    const matches = options.filter(option => {
+      const optionWords = new Set(wordTokens(option.textContent));
+
+      const cityMatches = cityWords.every(word => optionWords.has(word));
+      const stateMatches = !stateWords.length || stateWords.every(word => optionWords.has(word));
+      const elevatorMatches = elevatorWords.some(word => optionWords.has(word));
+
+      return cityMatches && stateMatches && elevatorMatches;
     });
-  }
 
-  function resolveDestinationPromptFromOcr() {
-    const title = clean(document.getElementById('assistTitle')?.textContent);
-    if (!/^where was this load delivered\?$/i.test(title)) return false;
-
-    const matches = destinationMatchesFromOcr();
     if (matches.length !== 1) return false;
 
-    console.log(
-      '[Grain Ticket Source Flow] Destination resolved from OCR; Driver Assist skipped:',
-      clean(matches[0].textContent)
-    );
+    console.log('[Grain Ticket Source Flow] OCR uniquely resolved destination; skipping Driver Assist.', {
+      elevator,
+      city,
+      state: state || null,
+      destination: clean(matches[0].textContent)
+    });
 
     matches[0].click();
     return true;
-  }
-
-  function resolveDestinationBeforeShowingPrompt(generation) {
-    const screen = document.getElementById('assistScreen');
-    if (!screen) return;
-
-    const title = clean(document.getElementById('assistTitle')?.textContent);
-    if (!/^where was this load delivered\?$/i.test(title) || !lastOcrGrainTicket) {
-      return;
-    }
-
-    /* Hide only this destination prompt while FarmVista resolves known OCR. */
-    screen.classList.remove('show');
-
-    const processingScreen = document.getElementById('processingScreen');
-    const processingText = document.getElementById('processingText');
-    if (processingText) processingText.textContent = 'Matching destination…';
-    processingScreen?.classList.add('show');
-
-    const attempts = [0, 60, 160, 320];
-
-    attempts.forEach((delay, index) => {
-      setTimeout(() => {
-        if (generation !== assistGeneration) return;
-
-        const currentTitle = clean(document.getElementById('assistTitle')?.textContent);
-        if (!/^where was this load delivered\?$/i.test(currentTitle)) return;
-
-        if (resolveDestinationPromptFromOcr()) {
-          processingScreen?.classList.remove('show');
-          return;
-        }
-
-        if (index === attempts.length - 1) {
-          processingScreen?.classList.remove('show');
-          screen.classList.add('show');
-        }
-      }, delay);
-    });
   }
 
   async function improveSourcePrompt(title, textEl) {
@@ -355,7 +319,6 @@ if (
     if (activeButton && clean(activeButton.textContent) !== 'Active Harvest') {
       activeButton.textContent = 'Active Harvest';
     }
-
     if (textEl && clean(textEl.textContent) !== 'Choose where this grain came from.') {
       textEl.textContent = 'Choose where this grain came from.';
     }
@@ -374,7 +337,9 @@ if (
     const isStorage = /^which grain storage site did this .+ come from\?$/i.test(clean(title));
     const skipBtn = document.getElementById('assistSkipBtn');
 
-    if (!isField && !isStorage) return;
+    if (!isField && !isStorage) {
+      return;
+    }
 
     if (textEl) {
       const wantedText = isField
@@ -386,10 +351,20 @@ if (
       }
     }
 
+    /*
+      The second-level source picker must require a real selection.
+      Back remains available if the driver chose Field/Storage by mistake.
+    */
     if (skipBtn) {
       skipBtn.style.display = 'none';
       skipBtn.disabled = true;
     }
+
+    /*
+      Field and Grain Storage now render their searchable choices directly
+      in the scanner. Do not auto-click or synthesize another touch here.
+      This keeps one physical tap equal to one FarmVista action on iPhone.
+    */
   }
 
   function restoreSkipButtonForOtherPrompts(title) {
@@ -400,7 +375,6 @@ if (
     const skipBtn = document.getElementById('assistSkipBtn');
     if (!skipBtn) return;
 
-    skipBtn.style.display = '';
     skipBtn.disabled = false;
   }
 
@@ -416,6 +390,10 @@ if (
     const title = clean(titleEl?.textContent);
     if (!title) return;
 
+    /*
+      Only hold Driver Assist when an early duplicate lookup ALREADY exists.
+      Never wait for a promise to appear: that was the freeze seen on iPhone.
+    */
     const pendingDuplicate = duplicateCheckPromise;
     if (pendingDuplicate) {
       screen.classList.remove('show');
@@ -447,9 +425,19 @@ if (
 
     restoreSkipButtonForOtherPrompts(title);
 
-    if (/^where was this load delivered\?$/i.test(title)) {
-      resolveDestinationBeforeShowingPrompt(generation);
+    if (resolveDestinationPromptFromOcr(title)) {
       return;
+    }
+
+    if (/^where was this load delivered\?$/i.test(title) && lastOcrGrainTicket) {
+      /*
+        The dropdown is normally already rendered when the screen becomes
+        visible. One bounded retry covers Safari's occasional one-frame lag.
+      */
+      setTimeout(() => {
+        const currentTitle = clean(document.getElementById('assistTitle')?.textContent);
+        if (currentTitle === title) resolveDestinationPromptFromOcr(currentTitle);
+      }, 60);
     }
 
     if (/^where did this load of .+ come from\?$/i.test(title)) {
@@ -467,6 +455,11 @@ if (
       return;
     }
 
+    /*
+      Extra capture-phase protection: while the specific Field/Storage picker
+      is active, a stale/ghost click can never activate Skip even if the
+      inline scanner temporarily changes its styles during a rerender.
+    */
     document.addEventListener(
       'click',
       event => {
@@ -495,6 +488,17 @@ if (
       });
     };
 
+    /*
+      PERFORMANCE / iPHONE SAFETY
+
+      Do NOT observe the whole assist popup subtree. Search typing rebuilds the
+      result list on every keystroke; watching that subtree caused the helper to
+      rerun continuously while the driver typed and could make Safari appear to
+      freeze or drop the page.
+
+      We only need to know when a new Driver Assist question is shown. Watch
+      the question title and the screen visibility class, not search results.
+    */
     const titleEl = document.getElementById('assistTitle');
     const titleObserver = new MutationObserver(scheduleEnhancements);
     if (titleEl) {
