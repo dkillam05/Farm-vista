@@ -1,10 +1,10 @@
-# Triggered 2026-09-11
 name: FarmVista ADM scan template
 
 on:
   push:
     paths:
       - '.github/workflows/fv-adm-scan-template.yml'
+  workflow_dispatch:
 
 jobs:
   patch:
@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Wire ADM Decatur grade template into scanner
+      - name: Load ADM Decatur grade parser in scanner
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -22,21 +22,36 @@ jobs:
           p = Path('pages/grain/grain-ticket-scan.html')
           s = p.read_text()
 
-          old = "const CORE_URL = '/pages/grain/grain-ticket-scan-core.html?v=20260911-3';"
-          new = "const CORE_URL = '/pages/grain/grain-ticket-scan-core.html?v=20260911-4';"
-          assert old in s, 'scanner core version marker not found'
-          s = s.replace(old, new, 1)
+          s = s.replace(
+              "const CORE_URL = '/pages/grain/grain-ticket-scan-core.html?v=20260911-3';",
+              "const CORE_URL = '/pages/grain/grain-ticket-scan-core.html?v=20260911-4';",
+              1,
+          )
 
-          marker = "      html = replaceRequired(html, '/js/grain-ticket-ocr-grade-normalizer.js?v=20260909-6', '/js/grain-ticket-ocr-grade-normalizer.js?v=20260909-6', 'grade normalizer version');\n"
-          addition = marker + "\n      /* ADM Processing — Decatur uses stable right-side row codes:\n         AC=TW, GN=MO, OP=DM, IF=HD, CO=FM, SR=SP. Load this BEFORE\n         the scanner module so it can correct the OCR JSON before the\n         generic grade normalizer sees it. */\n      html = replaceRequired(\n        html,\n        '<script type=\"module\">',\n        '<script src=\"/js/grain-ticket-adm-decatur-grade-fix.js?v=20260911-2\"></script>\\n<script type=\"module\">',\n        'ADM Decatur grade template loader'\n      );\n"
-          assert marker in s, 'grade normalizer wrapper marker not found'
-          if 'ADM Decatur grade template loader' not in s:
-              s = s.replace(marker, addition, 1)
+          old = "html = replaceRequired(html, '/js/grain-ticket-ocr-grade-normalizer.js?v=20260909-6', '/js/grain-ticket-ocr-grade-normalizer.js?v=20260909-6', 'grade normalizer version');"
+          new = "html = replaceRequired(html, '/js/grain-ticket-ocr-grade-normalizer.js?v=20260909-6', '/js/grain-ticket-ocr-grade-normalizer.js?v=20260911-7', 'grade normalizer version');"
+          if old in s:
+              s = s.replace(old, new, 1)
+
+          loader = '''
+      /* ADM Processing — Decatur ticket template. The stable right-side row
+         codes are AC=TW, GN=MO, OP=DM, IF=HD, CO=FM, SR=SP. */
+      if (!html.includes('/js/grain-ticket-adm-decatur-grade-fix.js')) {
+        html = html.replace(
+          '<script type="module">',
+          '<script src="/js/grain-ticket-adm-decatur-grade-fix.js?v=20260911-3"></script>\\n<script type="module">'
+        );
+      }
+'''
+          marker = "      const oldAlias = `"
+          if 'ADM Processing — Decatur ticket template' not in s:
+              assert marker in s, 'scanner insertion marker not found'
+              s = s.replace(marker, loader + '\n' + marker, 1)
 
           p.write_text(s)
           PY
 
-      - name: Validate scanner wrapper
+      - name: Validate wrapper JavaScript
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -54,11 +69,14 @@ jobs:
                   raise SystemExit(result.returncode)
           PY
 
-      - name: Commit scanner template wiring
+      - name: Commit scanner wiring
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add pages/grain/grain-ticket-scan.html
-          git diff --cached --quiet && exit 0
-          git commit -m 'Load ADM Decatur OCR grade template before scan parsing'
+          if git diff --cached --quiet; then
+            echo 'No scanner changes required.'
+            exit 0
+          fi
+          git commit -m 'Activate ADM Decatur grade template in scanner'
           git push
