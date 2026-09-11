@@ -1,0 +1,34 @@
+name: FarmVista ADM template live
+on: push
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch scanner
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('pages/grain/grain-ticket-scan.html')
+          s=p.read_text()
+          s=s.replace("const CORE_URL = '/pages/grain/grain-ticket-scan-core.html?v=20260911-3';","const CORE_URL = '/pages/grain/grain-ticket-scan-core.html?v=20260911-4';",1)
+          old="html = replaceRequired(html, '/js/grain-ticket-ocr-grade-normalizer.js?v=20260909-6', '/js/grain-ticket-ocr-grade-normalizer.js?v=20260909-6', 'grade normalizer version');"
+          new="html = replaceRequired(html, '/js/grain-ticket-ocr-grade-normalizer.js?v=20260909-6', '/js/grain-ticket-ocr-grade-normalizer.js?v=20260911-7', 'grade normalizer version');"
+          s=s.replace(old,new,1)
+          if 'grain-ticket-adm-decatur-grade-fix.js?v=20260911-3' not in s:
+              marker='      const oldAlias = `'
+              inject='''      if (!html.includes('/js/grain-ticket-adm-decatur-grade-fix.js')) {\n        html = html.replace('<script type="module">','<script src="/js/grain-ticket-adm-decatur-grade-fix.js?v=20260911-3"></script>\\n<script type="module">');\n      }\n\n'''
+              assert marker in s
+              s=s.replace(marker,inject+marker,1)
+          p.write_text(s)
+          PY
+      - name: Commit
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add pages/grain/grain-ticket-scan.html
+          git diff --cached --quiet && exit 0
+          git commit -m 'Activate ADM Decatur grade template in scanner'
+          git push
