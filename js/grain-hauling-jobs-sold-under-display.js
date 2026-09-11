@@ -1,9 +1,9 @@
-// FarmVista — Hauling Jobs page compatibility helpers
-// Sept. 8, 2026
+// FarmVista — Grain Contracts hauling-job compatibility helpers
+// Sept. 11, 2026
 //
-// Keeps Hauling Jobs buyer/location pickers synchronized with Firestore,
-// provides inline Add New flows, preserves Sold Under display cleanup, and
-// keeps the page-specific dark-theme compatibility fixes.
+// Keeps hauling-job Buyer / Location / Sold Under controls current, provides
+// inline Add New flows, preserves modal layout fixes, contract-card cleanup,
+// voided-status filtering, and dark-theme compatibility.
 
 (() => {
   'use strict';
@@ -13,30 +13,30 @@
   const LOCATION_SELECT_ID = 'hauling-job-destination';
   const CUSTOMER_SELECT_ID = 'hauling-job-customer';
   const JOB_MODAL_ID = 'hauling-job-modal';
+
   const ADD_BUYER_VALUE = '__fv_add_new_buyer__';
   const ADD_LOCATION_VALUE = '__fv_add_new_location__';
+  const ADD_CUSTOMER_VALUE = '__fv_add_new_customer__';
+
   const ADD_BUYER_MODAL_ID = 'fv-hauling-add-buyer-modal';
   const ADD_LOCATION_MODAL_ID = 'fv-hauling-add-location-modal';
+  const ADD_CUSTOMER_MODAL_ID = 'fv-hauling-add-customer-modal';
 
   let firebaseContextPromise = null;
   let tableObserver = null;
   let jobModalObserver = null;
   let locationObserver = null;
+  let customerObserver = null;
   let buyerSelectWired = false;
   let locationSelectWired = false;
+  let customerSelectWired = false;
   let addJobResetWired = false;
   let contractStatusVoidedWired = false;
   let buyerSyncToken = 0;
 
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-
-  function clean(value) {
-    return String(value ?? '').trim();
-  }
-
-  function normalizeName(value) {
-    return clean(value).replace(/\s+/g, ' ');
-  }
+  const clean = value => String(value ?? '').trim();
+  const normalizeName = value => clean(value).replace(/\s+/g, ' ');
 
   function titleCaseName(value) {
     const normalized = normalizeName(value);
@@ -66,23 +66,23 @@
     const { firebase, db } = await getFirebaseContext();
     const snapshot = await firebase.getDocs(firebase.collection(db, 'grain_buyers'));
     return snapshot.docs
-      .map(docSnapshot => ({
-        id: docSnapshot.id,
-        name: normalizeName(docSnapshot.data()?.name)
-      }))
-      .filter(buyer => buyer.name)
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, {
-        numeric: true,
-        sensitivity: 'base'
-      }));
+      .map(docSnapshot => ({ id: docSnapshot.id, name: normalizeName(docSnapshot.data()?.name) }))
+      .filter(item => item.name)
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+  }
+
+  async function loadLiveCustomers() {
+    const { firebase, db } = await getFirebaseContext();
+    const snapshot = await firebase.getDocs(firebase.collection(db, 'grain_customers'));
+    return snapshot.docs
+      .map(docSnapshot => ({ id: docSnapshot.id, name: normalizeName(docSnapshot.data()?.name) }))
+      .filter(item => item.name)
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
   }
 
   async function loadLiveLocations(buyerId = '') {
     const { firebase, db } = await getFirebaseContext();
-    const snapshot = await firebase.getDocs(
-      firebase.collection(db, 'grain_delivery_locations')
-    );
-
+    const snapshot = await firebase.getDocs(firebase.collection(db, 'grain_delivery_locations'));
     return snapshot.docs
       .map(docSnapshot => {
         const data = docSnapshot.data() || {};
@@ -121,80 +121,72 @@
     Array.from(select.options)
       .filter(option => option.value === ADD_BUYER_VALUE)
       .forEach(option => option.remove());
-
     const addOption = makeAddOption(ADD_BUYER_VALUE, '+ Add New Buyer');
-    if (select.options.length > 0) {
-      select.insertBefore(addOption, select.options[1] || null);
-    } else {
-      select.appendChild(addOption);
-    }
+    select.insertBefore(addOption, select.options[1] || null);
   }
 
   function putAddLocationAtTop(select) {
     if (!select) return;
-
     const buyerId = clean(document.getElementById(BUYER_SELECT_ID)?.value);
-    const existing = Array.from(select.options)
-      .filter(option => option.value === ADD_LOCATION_VALUE);
-
-    if (!buyerId || buyerId === ADD_BUYER_VALUE) {
-      existing.forEach(option => option.remove());
-      return;
-    }
-
-    if (
-      existing.length === 1 &&
-      select.options[1] === existing[0] &&
-      existing[0].textContent === '+ Add New Location'
-    ) {
-      return;
-    }
-
-    existing.forEach(option => option.remove());
+    Array.from(select.options)
+      .filter(option => option.value === ADD_LOCATION_VALUE)
+      .forEach(option => option.remove());
+    if (!buyerId || buyerId === ADD_BUYER_VALUE) return;
     const addOption = makeAddOption(ADD_LOCATION_VALUE, '+ Add New Location');
-    if (select.options.length > 0) {
-      select.insertBefore(addOption, select.options[1] || null);
-    } else {
-      select.appendChild(addOption);
-    }
+    select.insertBefore(addOption, select.options[1] || null);
+  }
+
+  function putAddCustomerAtTop(select) {
+    if (!select) return;
+    Array.from(select.options)
+      .filter(option => option.value === ADD_CUSTOMER_VALUE)
+      .forEach(option => option.remove());
+    const addOption = makeAddOption(ADD_CUSTOMER_VALUE, '+ Add New Sold Under');
+    select.insertBefore(addOption, select.options[1] || null);
+  }
+
+  function syncComboButton(select) {
+    if (!select) return;
+    const combo = select.closest('.fv-combo');
+    const button = combo?.querySelector('.fv-buttonish');
+    const option = select.options?.[select.selectedIndex];
+    if (button) button.textContent = option?.textContent || option?.text || '— Select —';
+  }
+
+  function upgradeCustomerCombo() {
+    const select = document.getElementById(CUSTOMER_SELECT_ID);
+    if (!select) return false;
+    putAddCustomerAtTop(select);
+    select.setAttribute('data-fv-combo', '');
+    select.setAttribute('data-fv-search', 'false');
+    window.FVCombo?.upgradeSelect?.(select);
+    return !!select._fvUpgraded;
   }
 
   async function syncBuyerSelect(preferredId = '') {
     const select = document.getElementById(BUYER_SELECT_ID);
     if (!select) return;
-
     const token = ++buyerSyncToken;
-    const previousValue = preferredId || (
-      select.value !== ADD_BUYER_VALUE ? clean(select.value) : ''
-    );
+    const previousValue = preferredId || (select.value !== ADD_BUYER_VALUE ? clean(select.value) : '');
 
     try {
       select.disabled = true;
       select.setAttribute('aria-busy', 'true');
       const buyers = await loadLiveBuyers();
-      await delay(700);
-
+      await delay(500);
       if (token !== buyerSyncToken || !select.isConnected) return;
 
       select.innerHTML = '<option value="">Select buyer</option>';
       select.appendChild(makeAddOption(ADD_BUYER_VALUE, '+ Add New Buyer'));
-
       buyers.forEach(buyer => {
         const option = document.createElement('option');
         option.value = buyer.id;
         option.textContent = buyer.name;
         select.appendChild(option);
       });
-
-      if (previousValue && Array.from(select.options).some(
-        option => option.value === previousValue
-      )) {
-        select.value = previousValue;
-      } else {
-        select.value = '';
-      }
-
+      select.value = buyers.some(buyer => buyer.id === previousValue) ? previousValue : '';
       select.dataset.fvPreviousBuyer = select.value;
+      syncComboButton(select);
     } catch (error) {
       console.warn('[Hauling Jobs] live buyer refresh failed:', error);
       putAddBuyerAtTop(select);
@@ -233,7 +225,6 @@
 
   function installAddBuyerModal() {
     if (document.getElementById(ADD_BUYER_MODAL_ID)) return;
-
     const modal = modalShell(
       ADD_BUYER_MODAL_ID,
       'fv-hauling-add-buyer-title',
@@ -244,23 +235,15 @@
         <input id="fv-hauling-new-buyer-name" type="text" autocomplete="organization" placeholder="Buyer or elevator name" />
       </div>
       <div id="fv-hauling-add-buyer-message" class="hauling-form-message"></div>`,
-      'fv-save-hauling-add-buyer',
-      'Add Buyer',
-      'fv-close-hauling-add-buyer',
-      'fv-cancel-hauling-add-buyer'
+      'fv-save-hauling-add-buyer', 'Add Buyer', 'fv-close-hauling-add-buyer', 'fv-cancel-hauling-add-buyer'
     );
-
     document.body.appendChild(modal);
 
     const close = () => {
       modal.classList.remove('open');
       const input = document.getElementById('fv-hauling-new-buyer-name');
-      const message = document.getElementById('fv-hauling-add-buyer-message');
       if (input) input.value = '';
-      if (message) {
-        message.textContent = '';
-        message.className = 'hauling-form-message';
-      }
+      showBuyerMessage('');
     };
 
     document.getElementById('fv-close-hauling-add-buyer')?.addEventListener('click', close);
@@ -277,15 +260,9 @@
 
   function openAddBuyerModal() {
     installAddBuyerModal();
-    const modal = document.getElementById(ADD_BUYER_MODAL_ID);
-    const input = document.getElementById('fv-hauling-new-buyer-name');
-    const message = document.getElementById('fv-hauling-add-buyer-message');
-    if (message) {
-      message.textContent = '';
-      message.className = 'hauling-form-message';
-    }
-    modal?.classList.add('open');
-    setTimeout(() => { input?.focus(); input?.select(); }, 0);
+    showBuyerMessage('');
+    document.getElementById(ADD_BUYER_MODAL_ID)?.classList.add('open');
+    setTimeout(() => document.getElementById('fv-hauling-new-buyer-name')?.focus(), 0);
   }
 
   function showBuyerMessage(message) {
@@ -299,59 +276,152 @@
     const input = document.getElementById('fv-hauling-new-buyer-name');
     const saveButton = document.getElementById('fv-save-hauling-add-buyer');
     const name = titleCaseName(input?.value);
-
     if (!name) {
       showBuyerMessage('Enter the buyer or elevator name.');
       input?.focus();
       return;
     }
 
-    if (saveButton) {
-      saveButton.disabled = true;
-      saveButton.textContent = 'Adding...';
-    }
-
+    if (saveButton) { saveButton.disabled = true; saveButton.textContent = 'Adding...'; }
     try {
       const buyers = await loadLiveBuyers();
       const duplicate = buyers.find(buyer => buyer.name.toLowerCase() === name.toLowerCase());
       let buyerId = duplicate?.id || '';
-
       if (!buyerId) {
         const { firebase, db } = await getFirebaseContext();
-        const ref = await firebase.addDoc(firebase.collection(db, 'grain_buyers'), {
+        buyerId = (await firebase.addDoc(firebase.collection(db, 'grain_buyers'), {
           name,
           createdAt: firebase.serverTimestamp(),
           updatedAt: firebase.serverTimestamp()
-        });
-        buyerId = ref.id;
+        })).id;
       }
-
       requestCoreHaulingRefresh();
-      await delay(900);
+      await delay(800);
       await syncBuyerSelect(buyerId);
-
       const select = document.getElementById(BUYER_SELECT_ID);
-      if (select && buyerId) {
+      if (select) {
         select.value = buyerId;
         select.dataset.fvPreviousBuyer = buyerId;
         select.dispatchEvent(new Event('change', { bubbles: true }));
+        syncComboButton(select);
       }
-
       document.getElementById(ADD_BUYER_MODAL_ID)?.classList.remove('open');
     } catch (error) {
       console.error('[Hauling Jobs] add buyer failed:', error);
       showBuyerMessage(error?.message || 'FarmVista could not add that buyer. Please try again.');
     } finally {
-      if (saveButton) {
-        saveButton.disabled = false;
-        saveButton.textContent = 'Add Buyer';
+      if (saveButton) { saveButton.disabled = false; saveButton.textContent = 'Add Buyer'; }
+    }
+  }
+
+  function installAddCustomerModal() {
+    if (document.getElementById(ADD_CUSTOMER_MODAL_ID)) return;
+    const modal = modalShell(
+      ADD_CUSTOMER_MODAL_ID,
+      'fv-hauling-add-customer-title',
+      'Add Sold Under',
+      'Add a customer / sold-under name and use it on this hauling job.',
+      `<div class="field">
+        <label for="fv-hauling-new-customer-name">Sold Under <span class="required">*</span></label>
+        <input id="fv-hauling-new-customer-name" type="text" autocomplete="organization" placeholder="Customer or sold-under name" />
+      </div>
+      <div id="fv-hauling-add-customer-message" class="hauling-form-message"></div>`,
+      'fv-save-hauling-add-customer', 'Add Sold Under', 'fv-close-hauling-add-customer', 'fv-cancel-hauling-add-customer'
+    );
+    document.body.appendChild(modal);
+
+    const close = () => {
+      modal.classList.remove('open');
+      const input = document.getElementById('fv-hauling-new-customer-name');
+      if (input) input.value = '';
+      showCustomerMessage('');
+    };
+
+    document.getElementById('fv-close-hauling-add-customer')?.addEventListener('click', close);
+    document.getElementById('fv-cancel-hauling-add-customer')?.addEventListener('click', close);
+    modal.addEventListener('click', event => { if (event.target === modal) close(); });
+    document.getElementById('fv-hauling-new-customer-name')?.addEventListener('keydown', event => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        document.getElementById('fv-save-hauling-add-customer')?.click();
       }
+    });
+    document.getElementById('fv-save-hauling-add-customer')?.addEventListener('click', saveNewCustomerFromHauling);
+  }
+
+  function openAddCustomerModal() {
+    installAddCustomerModal();
+    showCustomerMessage('');
+    window.FVCombo?.closeAll?.();
+    document.getElementById(ADD_CUSTOMER_MODAL_ID)?.classList.add('open');
+    setTimeout(() => document.getElementById('fv-hauling-new-customer-name')?.focus(), 0);
+  }
+
+  function showCustomerMessage(message) {
+    const element = document.getElementById('fv-hauling-add-customer-message');
+    if (!element) return;
+    element.textContent = message || '';
+    element.className = `hauling-form-message${message ? ' show error' : ''}`;
+  }
+
+  async function saveNewCustomerFromHauling() {
+    const input = document.getElementById('fv-hauling-new-customer-name');
+    const saveButton = document.getElementById('fv-save-hauling-add-customer');
+    const name = titleCaseName(input?.value);
+    if (!name) {
+      showCustomerMessage('Enter the Sold Under / customer name.');
+      input?.focus();
+      return;
+    }
+
+    if (saveButton) { saveButton.disabled = true; saveButton.textContent = 'Adding...'; }
+    try {
+      const customers = await loadLiveCustomers();
+      const duplicate = customers.find(customer => customer.name.toLowerCase() === name.toLowerCase());
+      let customerId = duplicate?.id || '';
+
+      if (!customerId) {
+        const { firebase, db } = await getFirebaseContext();
+        customerId = (await firebase.addDoc(firebase.collection(db, 'grain_customers'), {
+          name,
+          createdAt: firebase.serverTimestamp(),
+          updatedAt: firebase.serverTimestamp()
+        })).id;
+      }
+
+      // Refresh the core hauling-job module so its private customer cache knows
+      // about the new record before this job is submitted.
+      requestCoreHaulingRefresh();
+      await delay(900);
+
+      const select = document.getElementById(CUSTOMER_SELECT_ID);
+      if (select) {
+        putAddCustomerAtTop(select);
+        let option = Array.from(select.options).find(item => item.value === customerId);
+        if (!option) {
+          option = document.createElement('option');
+          option.value = customerId;
+          option.textContent = name;
+          select.appendChild(option);
+        }
+        select.value = customerId;
+        select.dataset.fvPreviousCustomer = customerId;
+        window.FVCombo?.upgradeSelect?.(select);
+        syncComboButton(select);
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+      document.getElementById(ADD_CUSTOMER_MODAL_ID)?.classList.remove('open');
+    } catch (error) {
+      console.error('[Hauling Jobs] add Sold Under failed:', error);
+      showCustomerMessage(error?.message || 'FarmVista could not add that Sold Under. Please try again.');
+    } finally {
+      if (saveButton) { saveButton.disabled = false; saveButton.textContent = 'Add Sold Under'; }
     }
   }
 
   function installAddLocationModal() {
     if (document.getElementById(ADD_LOCATION_MODAL_ID)) return;
-
     const modal = modalShell(
       ADD_LOCATION_MODAL_ID,
       'fv-hauling-add-location-title',
@@ -366,26 +436,13 @@
         <input id="fv-hauling-location-street" type="text" autocomplete="street-address" placeholder="Street address" />
       </div>
       <div class="form-grid">
-        <div class="field">
-          <label for="fv-hauling-location-zip">ZIP <span class="required">*</span></label>
-          <input id="fv-hauling-location-zip" type="text" inputmode="numeric" autocomplete="postal-code" maxlength="5" placeholder="ZIP" />
-        </div>
-        <div class="field">
-          <label for="fv-hauling-location-city">City <span class="required">*</span></label>
-          <input id="fv-hauling-location-city" type="text" autocomplete="address-level2" placeholder="City" />
-        </div>
-        <div class="field">
-          <label for="fv-hauling-location-state">State <span class="required">*</span></label>
-          <input id="fv-hauling-location-state" type="text" autocomplete="address-level1" maxlength="2" placeholder="IL" />
-        </div>
+        <div class="field"><label for="fv-hauling-location-zip">ZIP <span class="required">*</span></label><input id="fv-hauling-location-zip" type="text" inputmode="numeric" autocomplete="postal-code" maxlength="5" placeholder="ZIP" /></div>
+        <div class="field"><label for="fv-hauling-location-city">City <span class="required">*</span></label><input id="fv-hauling-location-city" type="text" autocomplete="address-level2" placeholder="City" /></div>
+        <div class="field"><label for="fv-hauling-location-state">State <span class="required">*</span></label><input id="fv-hauling-location-state" type="text" autocomplete="address-level1" maxlength="2" placeholder="IL" /></div>
       </div>
       <div id="fv-hauling-add-location-message" class="hauling-form-message"></div>`,
-      'fv-save-hauling-add-location',
-      'Add Location',
-      'fv-close-hauling-add-location',
-      'fv-cancel-hauling-add-location'
+      'fv-save-hauling-add-location', 'Add Location', 'fv-close-hauling-add-location', 'fv-cancel-hauling-add-location'
     );
-
     document.body.appendChild(modal);
 
     const close = () => {
@@ -400,11 +457,9 @@
     document.getElementById('fv-close-hauling-add-location')?.addEventListener('click', close);
     document.getElementById('fv-cancel-hauling-add-location')?.addEventListener('click', close);
     modal.addEventListener('click', event => { if (event.target === modal) close(); });
-
     document.getElementById('fv-hauling-location-state')?.addEventListener('input', event => {
       event.target.value = event.target.value.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase();
     });
-
     document.getElementById('fv-hauling-location-zip')?.addEventListener('input', async event => {
       const input = event.target;
       input.value = input.value.replace(/\D/g, '').slice(0, 5);
@@ -423,7 +478,6 @@
         console.warn('[Hauling Jobs] ZIP lookup failed:', error);
       }
     });
-
     document.getElementById('fv-save-hauling-add-location')?.addEventListener('click', saveNewLocationFromHauling);
   }
 
@@ -432,7 +486,6 @@
     const buyerId = clean(buyerSelect?.value);
     const buyerName = clean(buyerSelect?.selectedOptions?.[0]?.textContent);
     if (!buyerId || buyerId === ADD_BUYER_VALUE) return;
-
     installAddLocationModal();
     const label = document.getElementById('fv-hauling-location-buyer-label');
     if (label) label.textContent = `Add a delivery location for ${buyerName}.`;
@@ -453,70 +506,38 @@
     const buyerId = clean(buyerSelect?.value);
     const buyerName = clean(buyerSelect?.selectedOptions?.[0]?.textContent);
     const saveButton = document.getElementById('fv-save-hauling-add-location');
-
     const locationName = titleCaseName(document.getElementById('fv-hauling-location-name')?.value);
     const street = titleCaseName(document.getElementById('fv-hauling-location-street')?.value);
     const zip = clean(document.getElementById('fv-hauling-location-zip')?.value);
     const city = titleCaseName(document.getElementById('fv-hauling-location-city')?.value);
     const state = clean(document.getElementById('fv-hauling-location-state')?.value).toUpperCase();
 
-    if (!buyerId || buyerId === ADD_BUYER_VALUE) {
-      showLocationMessage('Select Buyer / Elevator first.');
-      return;
-    }
-    if (!locationName || !street || !zip || !city || !state) {
-      showLocationMessage('Complete all delivery location fields.');
-      return;
-    }
-    if (!/^\d{5}$/.test(zip)) {
-      showLocationMessage('ZIP Code must contain 5 numbers.');
-      document.getElementById('fv-hauling-location-zip')?.focus();
-      return;
-    }
-    if (!/^[A-Z]{2}$/.test(state)) {
-      showLocationMessage('State must contain a 2-letter abbreviation.');
-      document.getElementById('fv-hauling-location-state')?.focus();
-      return;
-    }
+    if (!buyerId || buyerId === ADD_BUYER_VALUE) { showLocationMessage('Select Buyer / Elevator first.'); return; }
+    if (!locationName || !street || !zip || !city || !state) { showLocationMessage('Complete all delivery location fields.'); return; }
+    if (!/^\d{5}$/.test(zip)) { showLocationMessage('ZIP Code must contain 5 numbers.'); return; }
+    if (!/^[A-Z]{2}$/.test(state)) { showLocationMessage('State must contain a 2-letter abbreviation.'); return; }
 
-    if (saveButton) {
-      saveButton.disabled = true;
-      saveButton.textContent = 'Adding...';
-    }
-
+    if (saveButton) { saveButton.disabled = true; saveButton.textContent = 'Adding...'; }
     try {
       const locations = await loadLiveLocations(buyerId);
-      const duplicate = locations.find(location => (
-        location.locationName.toLowerCase() === locationName.toLowerCase()
-      ));
+      const duplicate = locations.find(location => location.locationName.toLowerCase() === locationName.toLowerCase());
       let locationId = duplicate?.id || '';
-
       if (!locationId) {
         const { firebase, db } = await getFirebaseContext();
-        const ref = await firebase.addDoc(firebase.collection(db, 'grain_delivery_locations'), {
-          buyerId,
-          buyerName,
-          locationName,
-          street,
-          city,
-          state,
-          zip,
-          createdAt: firebase.serverTimestamp(),
-          updatedAt: firebase.serverTimestamp()
-        });
-        locationId = ref.id;
+        locationId = (await firebase.addDoc(firebase.collection(db, 'grain_delivery_locations'), {
+          buyerId, buyerName, locationName, street, city, state, zip,
+          createdAt: firebase.serverTimestamp(), updatedAt: firebase.serverTimestamp()
+        })).id;
       }
 
       requestCoreHaulingRefresh();
       await delay(900);
-
       const currentBuyer = document.getElementById(BUYER_SELECT_ID);
       if (currentBuyer && currentBuyer.value !== buyerId) {
         currentBuyer.value = buyerId;
         currentBuyer.dispatchEvent(new Event('change', { bubbles: true }));
-        await delay(300);
+        await delay(250);
       }
-
       const locationSelect = document.getElementById(LOCATION_SELECT_ID);
       if (locationSelect) {
         putAddLocationAtTop(locationSelect);
@@ -524,18 +545,15 @@
           locationSelect.value = locationId;
           locationSelect.dataset.fvPreviousLocation = locationId;
           locationSelect.dispatchEvent(new Event('change', { bubbles: true }));
+          syncComboButton(locationSelect);
         }
       }
-
       document.getElementById(ADD_LOCATION_MODAL_ID)?.classList.remove('open');
     } catch (error) {
       console.error('[Hauling Jobs] add delivery location failed:', error);
       showLocationMessage(error?.message || 'FarmVista could not add that location. Please try again.');
     } finally {
-      if (saveButton) {
-        saveButton.disabled = false;
-        saveButton.textContent = 'Add Location';
-      }
+      if (saveButton) { saveButton.disabled = false; saveButton.textContent = 'Add Location'; }
     }
   }
 
@@ -543,7 +561,6 @@
     const select = document.getElementById(BUYER_SELECT_ID);
     if (!select) return false;
     putAddBuyerAtTop(select);
-
     if (!buyerSelectWired) {
       buyerSelectWired = true;
       select.addEventListener('change', event => {
@@ -551,6 +568,7 @@
           event.preventDefault();
           event.stopImmediatePropagation();
           event.target.value = clean(event.target.dataset.fvPreviousBuyer);
+          syncComboButton(event.target);
           openAddBuyerModal();
           return;
         }
@@ -565,7 +583,6 @@
     const select = document.getElementById(LOCATION_SELECT_ID);
     if (!select) return false;
     putAddLocationAtTop(select);
-
     if (!locationSelectWired) {
       locationSelectWired = true;
       select.addEventListener('change', event => {
@@ -573,6 +590,7 @@
           event.preventDefault();
           event.stopImmediatePropagation();
           event.target.value = clean(event.target.dataset.fvPreviousLocation);
+          syncComboButton(event.target);
           openAddLocationModal();
           return;
         }
@@ -583,44 +601,51 @@
     if (locationObserver) locationObserver.disconnect();
     locationObserver = new MutationObserver(() => {
       locationObserver.disconnect();
-      try {
-        putAddLocationAtTop(select);
-      } finally {
-        if (select.isConnected) {
-          locationObserver.observe(select, { childList: true });
-        }
-      }
+      try { putAddLocationAtTop(select); }
+      finally { if (select.isConnected) locationObserver.observe(select, { childList: true }); }
     });
     locationObserver.observe(select, { childList: true });
     return true;
   }
 
-  function upgradeCustomerCombo() {
+  function wireCustomerSelect() {
     const select = document.getElementById(CUSTOMER_SELECT_ID);
     if (!select) return false;
+    putAddCustomerAtTop(select);
+    upgradeCustomerCombo();
 
-    select.setAttribute('data-fv-combo', '');
-    select.setAttribute('data-fv-search', 'false');
-
-    if (window.FVCombo && typeof window.FVCombo.upgradeSelect === 'function') {
-      window.FVCombo.upgradeSelect(select);
+    if (!customerSelectWired) {
+      customerSelectWired = true;
+      select.addEventListener('change', event => {
+        if (event.target.value === ADD_CUSTOMER_VALUE) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          event.target.value = clean(event.target.dataset.fvPreviousCustomer);
+          syncComboButton(event.target);
+          openAddCustomerModal();
+          return;
+        }
+        event.target.dataset.fvPreviousCustomer = event.target.value;
+      }, true);
     }
 
-    return !!select._fvUpgraded;
-  }
-
-  function syncComboButton(select) {
-    if (!select) return;
-    const combo = select.closest('.fv-combo');
-    const button = combo?.querySelector('.fv-buttonish');
-    const option = select.options?.[select.selectedIndex];
-    if (button) button.textContent = option?.textContent || option?.text || '— Select —';
+    if (customerObserver) customerObserver.disconnect();
+    customerObserver = new MutationObserver(() => {
+      customerObserver.disconnect();
+      try {
+        putAddCustomerAtTop(select);
+        window.FVCombo?.upgradeSelect?.(select);
+      } finally {
+        if (select.isConnected) customerObserver.observe(select, { childList: true });
+      }
+    });
+    customerObserver.observe(select, { childList: true });
+    return true;
   }
 
   function resetAddHaulingJobForm() {
     const form = document.getElementById('hauling-job-form');
     if (!form) return;
-
     form.reset();
 
     const editId = document.getElementById('hauling-job-edit-id');
@@ -634,11 +659,7 @@
     const message = document.getElementById('hauling-job-form-message');
 
     if (editId) editId.value = '';
-    if (buyer) {
-      buyer.value = '';
-      buyer.dataset.fvPreviousBuyer = '';
-      syncComboButton(buyer);
-    }
+    if (buyer) { buyer.value = ''; buyer.dataset.fvPreviousBuyer = ''; syncComboButton(buyer); }
     if (location) {
       location.innerHTML = '<option value="">Select buyer first</option>';
       location.value = '';
@@ -648,28 +669,21 @@
     }
     if (customer) {
       customer.value = '';
+      customer.dataset.fvPreviousCustomer = '';
+      putAddCustomerAtTop(customer);
       syncComboButton(customer);
     }
-    if (crop) {
-      crop.value = '';
-      syncComboButton(crop);
-    }
+    if (crop) { crop.value = ''; syncComboButton(crop); }
     if (bushels) bushels.value = '';
     if (start) start.value = '';
     if (end) end.value = '';
-
-    if (message) {
-      message.textContent = '';
-      message.className = 'hauling-form-message';
-    }
-
+    if (message) { message.textContent = ''; message.className = 'hauling-form-message'; }
     window.FVCombo?.closeAll?.();
   }
 
   function wireFreshAddJobReset() {
     const button = document.getElementById('add-hauling-job-btn');
     if (!button || addJobResetWired) return false;
-
     addJobResetWired = true;
     button.addEventListener('click', resetAddHaulingJobForm, true);
     return true;
@@ -685,9 +699,7 @@
     const actions = group?.querySelector(':scope > .workflow-group-head .page-heading-actions');
     const firstBlock = group?.querySelector(':scope > .workflow-block');
     const firstBlockHead = firstBlock?.querySelector(':scope > .workflow-block-head');
-
     if (!actions || !firstBlock || !firstBlockHead) return false;
-
     actions.classList.add('fv-contract-card-actions');
     firstBlockHead.insertAdjacentElement('afterend', actions);
     return true;
@@ -706,10 +718,7 @@
     }
 
     const oldToggle = checkbox.closest('.show-voided-toggle');
-    if (oldToggle) {
-      oldToggle.style.display = 'none';
-      oldToggle.setAttribute('aria-hidden', 'true');
-    }
+    if (oldToggle) { oldToggle.style.display = 'none'; oldToggle.setAttribute('aria-hidden', 'true'); }
 
     const syncVoidedState = () => {
       const wantsVoided = status.value === 'voided';
@@ -722,7 +731,6 @@
       contractStatusVoidedWired = true;
       status.addEventListener('change', syncVoidedState);
     }
-
     syncVoidedState();
     return true;
   }
@@ -733,26 +741,22 @@
 
     wireBuyerSelect();
     wireLocationSelect();
-    upgradeCustomerCombo();
+    wireCustomerSelect();
     layoutHaulingJobModal();
 
     if (jobModalObserver) jobModalObserver.disconnect();
     jobModalObserver = new MutationObserver(() => {
       if (!modal.classList.contains('open')) return;
-
-      upgradeCustomerCombo();
+      wireCustomerSelect();
       layoutHaulingJobModal();
       syncBuyerSelect();
       setTimeout(() => {
         putAddLocationAtTop(document.getElementById(LOCATION_SELECT_ID));
-        upgradeCustomerCombo();
+        wireCustomerSelect();
         layoutHaulingJobModal();
-      }, 800);
+      }, 700);
     });
-    jobModalObserver.observe(modal, {
-      attributes: true,
-      attributeFilter: ['class']
-    });
+    jobModalObserver.observe(modal, { attributes: true, attributeFilter: ['class'] });
     return true;
   }
 
@@ -811,7 +815,9 @@
       html.dark #${ADD_BUYER_MODAL_ID} .modal-card,
       html[data-theme="dark"] #${ADD_BUYER_MODAL_ID} .modal-card,
       html.dark #${ADD_LOCATION_MODAL_ID} .modal-card,
-      html[data-theme="dark"] #${ADD_LOCATION_MODAL_ID} .modal-card {
+      html[data-theme="dark"] #${ADD_LOCATION_MODAL_ID} .modal-card,
+      html.dark #${ADD_CUSTOMER_MODAL_ID} .modal-card,
+      html[data-theme="dark"] #${ADD_CUSTOMER_MODAL_ID} .modal-card {
         background:#111a14 !important; color:#eef4ef !important; border-color:#314137 !important;
       }
     `;
@@ -852,9 +858,10 @@
     installContractsDarkThemeFix();
     installAddBuyerModal();
     installAddLocationModal();
+    installAddCustomerModal();
     wireBuyerSelect();
     wireLocationSelect();
-    upgradeCustomerCombo();
+    wireCustomerSelect();
     wireFreshAddJobReset();
     layoutHaulingJobModal();
     moveContractActionsIntoCard();
@@ -865,7 +872,7 @@
       const pageObserver = new MutationObserver(() => {
         wireBuyerSelect();
         wireLocationSelect();
-        upgradeCustomerCombo();
+        wireCustomerSelect();
         wireFreshAddJobReset();
         layoutHaulingJobModal();
         moveContractActionsIntoCard();
