@@ -1,4 +1,4 @@
-name: Fix hauling job not assigned warning
+name: Fix unmatched hauling job warning
 
 on:
   push:
@@ -18,7 +18,12 @@ jobs:
         run: python .github/scripts/fix-ticket-warning-not-assigned.py
 
       - name: Verify patch
-        run: grep -q '"hauling_job_not_assigned"' pages/grain/grain-ticket.html
+        run: |
+          grep -q 'const noOpenMatchingHaulingJob' pages/grain/grain-ticket.html
+          if grep -A20 'const warningReasons = new Set' pages/grain/grain-ticket.html | grep -q '"hauling_job_not_assigned"'; then
+            echo 'Generic hauling_job_not_assigned is still in warningReasons'
+            exit 1
+          fi
 
       - name: Commit fix
         run: |
@@ -29,6 +34,6 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add pages/grain/grain-ticket.html
-          git commit -m 'Classify hauling job not assigned as warning'
+          git commit -m 'Warn only when no matching hauling job exists'
           git pull --rebase origin main
           git push origin main
