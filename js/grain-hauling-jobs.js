@@ -2682,6 +2682,69 @@ function populateJobBuyerSelect(
 }
 
 
+function ensureJobCustomerField() {
+
+  if (
+    $(
+      "hauling-job-customer"
+    )
+  ) {
+
+    return;
+
+  }
+
+
+  const cropSelect =
+    $(
+      "hauling-job-crop"
+    );
+
+
+  const cropField =
+    cropSelect?.closest(
+      ".field"
+    );
+
+
+  if (
+    !cropField ||
+    !cropField.parentNode
+  ) {
+
+    return;
+
+  }
+
+
+  const field =
+    document.createElement(
+      "div"
+    );
+
+
+  field.className =
+    "field";
+
+
+  field.innerHTML = `
+    <label for="hauling-job-customer">
+      Sold Under <span class="required">*</span>
+    </label>
+    <select id="hauling-job-customer" required>
+      <option value="">Select customer</option>
+    </select>
+  `;
+
+
+  cropField.parentNode.insertBefore(
+    field,
+    cropField
+  );
+
+}
+
+
 function populateJobCustomerSelect(
   selectedId =
     ""
@@ -3357,6 +3420,15 @@ async function saveJob(
     );
 
 
+  const customerId =
+    clean(
+      $(
+        "hauling-job-customer"
+      )
+        ?.value
+    );
+
+
   const crop =
     clean(
       $(
@@ -3405,9 +3477,16 @@ async function saveJob(
     );
 
 
+  const customer =
+    matchingCustomer(
+      customerId
+    );
+
+
 if (
   !buyer ||
   !location ||
+  !customer ||
   !crop ||
   !(startingBushels > 0) ||
   !deliveryStartDate ||
@@ -3415,7 +3494,7 @@ if (
 ) {
 
   setJobMessage(
-    "Select Buyer, Location, Crop, starting bushels, and both delivery dates."
+    "Select Buyer, Location, Sold Under, Crop, starting bushels, and both delivery dates."
   );
 
 
@@ -3543,6 +3622,11 @@ setJobMessage(
 
     deliveryLocationName:
       location.locationName,
+
+    customerId,
+
+    customerName:
+      customer.name,
 
     crop,
 
@@ -6732,6 +6816,9 @@ function observeContractTable() {
 ============================================================ */
 
 function setupEvents() {
+
+  ensureJobCustomerField();
+
 
   setupLiveBushelFormatting();
 
