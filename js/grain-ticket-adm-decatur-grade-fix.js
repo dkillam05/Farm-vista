@@ -1,21 +1,32 @@
 /* =====================================================================
-   FarmVista — ADM Decatur Grade Factor Safety
+   FarmVista — Elevator OCR Template Safety
 
-   ADM Processing — Decatur currently prints the left-side grade labels close
-   enough to the paper edge that OCR can lose the first character (DM -> OM,
-   FM -> M, etc.). The right-side ADM row codes remain stable and the rows are
-   consistently ordered on these tickets:
+   This helper patches known elevator layouts after fvOcr returns JSON but
+   before grain-ticket-scan.html validates/saves the ticket.
 
-     AC = Test Weight
-     GN = Moisture
-     OP = Damage
-     IF = Heat Damage (not stored by FarmVista yet)
-     CO = Foreign Material / FM
-     SR = Splits (not stored by FarmVista yet)
+   Templates currently handled here:
 
-   Apply this only to ADM Processing, 4666 Fairies Parkway, Decatur, IL.
-   Patch both grainTicket and fields so grain-ticket-scan.html cannot later
-   overwrite the corrected value with the structured OCR value.
+   1) ADM Processing — Decatur, IL
+      AC = Test Weight
+      GN = Moisture
+      OP = Damage
+      IF = Heat Damage (not stored by FarmVista yet)
+      CO = Foreign Material / FM
+      SR = Splits (not stored by FarmVista yet)
+
+   2) Bartlett Grain — Jacksonville, IL
+      Stable printed labels:
+        TW   = Test Weight
+        MT   = Moisture
+        DM   = Damage
+        BCFM = Foreign Material / BCFM
+
+      The Bartlett layout also prints explicit GROSS, TARE, NET, GROSS BU,
+      NET BU and SHRINK BU labels, so those values are re-anchored when they
+      can be read confidently from the document text.
+
+   Patch both grainTicket and fields for grade factors so the scanner's
+   structured-field safety pass cannot overwrite a corrected template value.
 ===================================================================== */
 
 (function () {
@@ -66,19 +77,28 @@
     return adm && decatur && fairies;
   }
 
+  function isBartlettJacksonville(root, text) {
+    const ticket = root?.grainTicket || {};
+    const evidence = compact([
+      ticket.elevatorName,
+      ticket.deliveryStreet,
+      ticket.deliveryCity,
+      ticket.deliveryState,
+      ticket.deliveryZip,
+      text
+    ].filter(Boolean).join(' '));
+
+    const bartlett = evidence.includes('bartlett');
+    const jacksonville = evidence.includes('jacksonvilleil') || evidence.includes('jacksonville');
+    const southMain = evidence.includes('2350southmain') || evidence.includes('southmain');
+    const warehouseCertificate = evidence.includes('unitedstateswarehouseact');
+
+    return bartlett && jacksonville && (southMain || warehouseCertificate);
+  }
+
   function valueBeforeAnchor(text, anchor) {
     if (!text || !anchor) return null;
 
-    /*
-      Read the numeric value immediately before the stable ADM row code.
-      Examples from the current Decatur printer:
-        57.0 AC
-        10.4 GN
-        00.8 OP
-        0.0  IF
-        00.6 CO
-        08.0 SR
-    */
     const pattern = new RegExp(
       '(?:^|\\n)\\s*([0-9]{1,3}(?:\\.[0-9]+)?)\\s+' + anchor + '\\b',
       'im'
@@ -91,6 +111,34 @@
     return Number.isFinite(value) ? value : null;
   }
 
+  function numericAfterLabel(text, labelPattern, options = {}) {
+    if (!text) return null;
+
+    const { allowCommas = false, suffixPattern = '' } = options;
+    const numberPattern = allowCommas
+      ? '([0-9]{1,3}(?:,[0-9]{3})*(?:\\.[0-9]+)?|[0-9]+(?:\\.[0-9]+)?)'
+      : '([0-9]+(?:\\.[0-9]+)?)';
+
+    const pattern = new RegExp(
+      '(?:^|\\n|\\s)' + labelPattern + '\\s*:?[\\s\\r\\n]*' + numberPattern + suffixPattern,
+      'im'
+    );
+
+    const match = String(text).match(pattern);
+    if (!match) return null;
+
+    const value = Number(String(match[1]).replace(/,/g, ''));
+    return Number.isFinite(value) ? value : null;
+  }
+
+  function firstNumericAfterLabel(text, labels, options = {}) {
+    for (const label of labels) {
+      const value = numericAfterLabel(text, label, options);
+      if (value !== null) return value;
+    }
+    return null;
+  }
+
   function patchField(root, fieldName, value) {
     if (value === null || !Number.isFinite(value)) return false;
 
@@ -99,6 +147,32 @@
 
     root.grainTicket[fieldName] = value;
     root.fields[fieldName] = value;
+    return true;
+  }
+
+  function patchTicketNumber(root, text) {
+    const match = String(text || '').match(/\bTicket\s*No\.?\s*[:#]?\s*([A-Z0-9-]{3,})\b/i);
+    if (!match) return false;
+
+    const value = clean(match[1]);
+    if (!value) return false;
+
+    root.grainTicket.ticketNumber = value;
+    return true;
+  }
+
+  function patchBartlettCrop(root, text) {
+    const match = String(text || '').match(/\bKind\s+of\s+Grain\s*:\s*([^\n\r]+)/i);
+    if (!match) return false;
+
+    const raw = clean(match[1]);
+    if (!raw) return false;
+
+    if (/corn/i.test(raw)) root.grainTicket.crop = 'Corn';
+    else if (/soy/i.test(raw)) root.grainTicket.crop = 'Soybeans';
+    else if (/wheat/i.test(raw)) root.grainTicket.crop = 'Wheat';
+    else return false;
+
     return true;
   }
 
@@ -139,6 +213,104 @@
     return changed;
   }
 
+  function patchBartlettJacksonville(data) {
+    const root = responseRoot(data);
+    if (!root?.grainTicket) return false;
+
+    const text = documentText(data, root);
+    if (!isBartlettJacksonville(root, text)) return false;
+
+    const values = {
+      testWeight: firstNumericAfterLabel(text, ['TW']),
+      moisture: firstNumericAfterLabel(text, ['MT', 'MO']),
+      damage: firstNumericAfterLabel(text, ['DM']),
+      foreignMaterial: firstNumericAfterLabel(text, ['BCFM', 'FM']),
+      grossWeight: firstNumericAfterLabel(text, ['GROSS'], {
+        allowCommas: true,
+        suffixPattern: '\\s*(?:lb|lbs)\\b'
+      }),
+      tareWeight: firstNumericAfterLabel(text, ['TARE'], {
+        allowCommas: true,
+        suffixPattern: '\\s*(?:lb|lbs)\\b'
+      }),
+      netWeight: firstNumericAfterLabel(text, ['NET'], {
+        allowCommas: true,
+        suffixPattern: '\\s*(?:lb|lbs)\\b'
+      }),
+      grossBushels: firstNumericAfterLabel(text, ['GROSS\\s+BU']),
+      netBushels: firstNumericAfterLabel(text, ['NET\\s+BU']),
+      shrinkBushels: firstNumericAfterLabel(text, ['SHRINK\\s+BU'])
+    };
+
+    let changed = false;
+
+    changed = patchField(root, 'testWeight', values.testWeight) || changed;
+    changed = patchField(root, 'moisture', values.moisture) || changed;
+    changed = patchField(root, 'damage', values.damage) || changed;
+    changed = patchField(root, 'foreignMaterial', values.foreignMaterial) || changed;
+
+    const ticket = root.grainTicket;
+
+    if (values.grossWeight !== null) {
+      ticket.grossWeight = values.grossWeight;
+      changed = true;
+    }
+    if (values.tareWeight !== null) {
+      ticket.tareWeight = values.tareWeight;
+      changed = true;
+    }
+    if (values.netWeight !== null) {
+      ticket.netWeight = values.netWeight;
+      changed = true;
+    }
+    if (values.grossBushels !== null) {
+      ticket.grossBushels = values.grossBushels;
+      changed = true;
+    }
+    if (values.netBushels !== null) {
+      ticket.netBushels = values.netBushels;
+      changed = true;
+    }
+    if (values.shrinkBushels !== null) {
+      ticket.shrinkBushels = values.shrinkBushels;
+      changed = true;
+    }
+
+    changed = patchTicketNumber(root, text) || changed;
+    changed = patchBartlettCrop(root, text) || changed;
+
+    /*
+      Bartlett Jacksonville prints this stable warehouse address. Keep the OCR
+      evidence normalized so FarmVista's existing destination matcher has the
+      strongest possible clues without hard-coding a Firestore document ID.
+    */
+    ticket.elevatorName = ticket.elevatorName || 'Bartlett Grain';
+    ticket.deliveryStreet = ticket.deliveryStreet || '2350 South Main';
+    ticket.deliveryCity = ticket.deliveryCity || 'Jacksonville';
+    ticket.deliveryState = ticket.deliveryState || 'IL';
+    ticket.deliveryZip = ticket.deliveryZip || '62650';
+
+    if (changed) {
+      console.log('[Grain Ticket] Bartlett Jacksonville template correction:', {
+        ticketNumber: ticket.ticketNumber,
+        crop: ticket.crop,
+        testWeight: values.testWeight,
+        moisture: values.moisture,
+        damage: values.damage,
+        foreignMaterial: values.foreignMaterial,
+        grossWeight: values.grossWeight,
+        tareWeight: values.tareWeight,
+        netWeight: values.netWeight,
+        grossBushels: values.grossBushels,
+        shrinkBushels: values.shrinkBushels,
+        netBushels: values.netBushels,
+        mapping: 'TW=TW, MT=MO, DM=DM, BCFM=FM'
+      });
+    }
+
+    return changed;
+  }
+
   window.fetch = async (...args) => {
     const response = await originalFetch(...args);
 
@@ -147,7 +319,8 @@
       if (!contentType.includes('application/json')) return response;
 
       const data = await response.clone().json();
-      if (!patchAdmDecaturGrades(data)) return response;
+      const changed = patchAdmDecaturGrades(data) || patchBartlettJacksonville(data);
+      if (!changed) return response;
 
       const headers = new Headers(response.headers);
       headers.delete('content-length');
@@ -160,7 +333,7 @@
       });
     }
     catch (error) {
-      console.warn('[Grain Ticket] ADM Decatur grade correction skipped:', error);
+      console.warn('[Grain Ticket] Elevator OCR template correction skipped:', error);
       return response;
     }
   };
