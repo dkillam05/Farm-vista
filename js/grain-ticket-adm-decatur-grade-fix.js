@@ -21,9 +21,11 @@
         DM   = Damage
         BCFM = Foreign Material / BCFM
 
-      The Bartlett layout also prints explicit GROSS, TARE, NET, GROSS BU,
-      NET BU and SHRINK BU labels, so those values are re-anchored when they
-      can be read confidently from the document text.
+      Bartlett OCR sometimes returns the bottom bushel row in visual rather
+      than reading order (for example "939.29 ... NET BU ... GROSS BU").
+      This template accepts values either before or after the printed bushel
+      labels and safely falls back to the net-pound crop divisor when shrink
+      is zero and both printed gross/net bushels are the same.
 
    Patch both grainTicket and fields for grade factors so the scanner's
    structured-field safety pass cannot overwrite a corrected template value.
@@ -131,10 +133,41 @@
     return Number.isFinite(value) ? value : null;
   }
 
+  function numericBeforeLabel(text, labelPattern, options = {}) {
+    if (!text) return null;
+
+    const { allowCommas = false } = options;
+    const numberPattern = allowCommas
+      ? '([0-9]{1,3}(?:,[0-9]{3})*(?:\\.[0-9]+)?|[0-9]+(?:\\.[0-9]+)?)'
+      : '([0-9]+(?:\\.[0-9]+)?)';
+
+    const pattern = new RegExp(
+      '(?:^|\\n|\\s)' + numberPattern + '\\s*' + labelPattern + '(?:\\b|\\s|$)',
+      'im'
+    );
+
+    const match = String(text).match(pattern);
+    if (!match) return null;
+
+    const value = Number(String(match[1]).replace(/,/g, ''));
+    return Number.isFinite(value) ? value : null;
+  }
+
   function firstNumericAfterLabel(text, labels, options = {}) {
     for (const label of labels) {
       const value = numericAfterLabel(text, label, options);
       if (value !== null) return value;
+    }
+    return null;
+  }
+
+  function firstNumericNearLabel(text, labels, options = {}) {
+    for (const label of labels) {
+      const after = numericAfterLabel(text, label, options);
+      if (after !== null) return after;
+
+      const before = numericBeforeLabel(text, label, options);
+      if (before !== null) return before;
     }
     return null;
   }
@@ -237,10 +270,45 @@
         allowCommas: true,
         suffixPattern: '\\s*(?:lb|lbs)\\b'
       }),
-      grossBushels: firstNumericAfterLabel(text, ['GROSS\\s+BU']),
-      netBushels: firstNumericAfterLabel(text, ['NET\\s+BU']),
-      shrinkBushels: firstNumericAfterLabel(text, ['SHRINK\\s+BU'])
+      grossBushels: firstNumericNearLabel(text, ['GROSS\\s+BU']),
+      netBushels: firstNumericNearLabel(text, ['NET\\s+BU']),
+      shrinkBushels: firstNumericNearLabel(text, ['SHRINK\\s+BU'])
     };
+
+    const ticket = root.grainTicket;
+
+    /*
+      The bottom row is a multi-column print block. Google OCR may flatten it
+      into a sequence that makes GROSS BU and NET BU ambiguous. When Bartlett
+      explicitly shows zero shrink, its printed gross and net bushels are the
+      same. Use net pounds / crop divisor as a final sanity anchor instead of
+      trusting a neighboring number from the flattened row.
+    */
+    const cropText = clean(ticket.crop || text).toLowerCase();
+    const divisor = cropText.includes('soy') ? 60 : cropText.includes('corn') ? 56 : null;
+    const calculatedUnshrunkBushels =
+      divisor && Number.isFinite(values.netWeight)
+        ? Number((values.netWeight / divisor).toFixed(2))
+        : null;
+
+    if (
+      values.shrinkBushels === 0 &&
+      calculatedUnshrunkBushels !== null
+    ) {
+      if (
+        values.grossBushels === null ||
+        Math.abs(values.grossBushels - calculatedUnshrunkBushels) > 0.05
+      ) {
+        values.grossBushels = calculatedUnshrunkBushels;
+      }
+
+      if (
+        values.netBushels === null ||
+        Math.abs(values.netBushels - calculatedUnshrunkBushels) > 0.05
+      ) {
+        values.netBushels = calculatedUnshrunkBushels;
+      }
+    }
 
     let changed = false;
 
@@ -248,8 +316,6 @@
     changed = patchField(root, 'moisture', values.moisture) || changed;
     changed = patchField(root, 'damage', values.damage) || changed;
     changed = patchField(root, 'foreignMaterial', values.foreignMaterial) || changed;
-
-    const ticket = root.grainTicket;
 
     if (values.grossWeight !== null) {
       ticket.grossWeight = values.grossWeight;
@@ -279,11 +345,6 @@
     changed = patchTicketNumber(root, text) || changed;
     changed = patchBartlettCrop(root, text) || changed;
 
-    /*
-      Bartlett Jacksonville prints this stable warehouse address. Keep the OCR
-      evidence normalized so FarmVista's existing destination matcher has the
-      strongest possible clues without hard-coding a Firestore document ID.
-    */
     ticket.elevatorName = ticket.elevatorName || 'Bartlett Grain';
     ticket.deliveryStreet = ticket.deliveryStreet || '2350 South Main';
     ticket.deliveryCity = ticket.deliveryCity || 'Jacksonville';
