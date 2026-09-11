@@ -95,6 +95,19 @@
     );
   }
 
+  function buttonLabel(button, count) {
+    const expanded = button?.getAttribute('aria-expanded') === 'true';
+    return `${count.toLocaleString('en-US')} assigned ${count === 1 ? 'ticket' : 'tickets'} — ${expanded ? 'Hide' : 'View'}`;
+  }
+
+  function syncButtonLabel(button, count) {
+    const label = button?.querySelector('.fv-job-ticket-collapse-label');
+    if (!label) return;
+
+    const next = buttonLabel(button, count);
+    if (label.textContent !== next) label.textContent = next;
+  }
+
   function syncJobTicketCollapse(card) {
     if (!card) return;
 
@@ -140,15 +153,11 @@
 
         button.setAttribute('aria-expanded', next ? 'true' : 'false');
         linked.dataset.fvJobTicketsCollapsed = next ? '0' : '1';
+        syncButtonLabel(button, assignedTickets(linked).length);
       });
 
       row.appendChild(button);
       linked.insertAdjacentElement('beforebegin', row);
-    }
-
-    const label = button.querySelector('.fv-job-ticket-collapse-label');
-    if (label) {
-      label.textContent = `${tickets.length.toLocaleString('en-US')} assigned ${tickets.length === 1 ? 'ticket' : 'tickets'} — ${button.getAttribute('aria-expanded') === 'true' ? 'Hide' : 'View'}`;
     }
 
     if (!button.dataset.fvInitialized) {
@@ -156,6 +165,8 @@
       button.setAttribute('aria-expanded', 'false');
       linked.dataset.fvJobTicketsCollapsed = '1';
     }
+
+    syncButtonLabel(button, tickets.length);
   }
 
   function syncAllContractJobCards() {
@@ -170,8 +181,14 @@
     ensureStyle();
     syncAllContractJobCards();
 
+    let renderQueued = false;
     const observer = new MutationObserver(() => {
-      requestAnimationFrame(syncAllContractJobCards);
+      if (renderQueued) return;
+      renderQueued = true;
+      requestAnimationFrame(() => {
+        renderQueued = false;
+        syncAllContractJobCards();
+      });
     });
 
     observer.observe(document.body, {
