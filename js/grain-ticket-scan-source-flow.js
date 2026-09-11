@@ -38,10 +38,18 @@ if (
 } else {
   const clean = value => String(value == null ? '' : value).trim();
   const norm = value => clean(value).toLowerCase().replace(/[^a-z0-9]/g, '');
+  const wordTokens = value =>
+    clean(value)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
 
   let duplicateCheckPromise = null;
   let duplicateTicket = null;
   let duplicateHandled = false;
+  let lastOcrGrainTicket = null;
 
   let binSites = [];
   let grainBagEvents = [];
@@ -171,6 +179,10 @@ if (
             data?.ocrResult?.grainTicket ||
             null;
 
+          if (grainTicket) {
+            lastOcrGrainTicket = grainTicket;
+          }
+
           if (grainTicket?.ticketNumber && grainTicket?.elevatorName) {
             duplicateHandled = false;
             duplicateTicket = null;
@@ -222,6 +234,79 @@ if (
   function promptCrop(title) {
     const match = clean(title).match(/load of\s+(.+?)\s+come from\?/i);
     return match ? clean(match[1]) : '';
+  }
+
+  /*
+    SEPT 11, 2026 — DO NOT ASK FOR A DESTINATION FARMVISTA ALREADY KNOWS
+
+    The scanner core intentionally uses a conservative first-pass destination
+    threshold. Some tickets can still resolve cleanly once the OCR elevator,
+    city and state are considered together. In that case Driver Assist should
+    not ask a question whose answer FarmVista can already determine.
+
+    Safety rule: auto-select ONLY when exactly one rendered FarmVista
+    destination matches all available city/state evidence plus at least one
+    meaningful elevator/buyer token. Ambiguous or incomplete OCR still asks.
+  */
+  function resolveDestinationPromptFromOcr(title) {
+    if (!/^where was this load delivered\?$/i.test(clean(title))) return false;
+
+    const ticket = lastOcrGrainTicket;
+    if (!ticket) return false;
+
+    const elevator = clean(
+      ticket.elevatorName ||
+      ticket.ocrElevatorName ||
+      ticket.buyerName
+    );
+    const city = clean(
+      ticket.deliveryCity ||
+      ticket.ocrDeliveryCity
+    );
+    const state = clean(
+      ticket.deliveryState ||
+      ticket.ocrDeliveryState
+    );
+
+    if (!elevator || !city) return false;
+
+    const ignoredElevatorWords = new Set([
+      'processing', 'grain', 'grains', 'company', 'co', 'inc', 'llc',
+      'elevator', 'terminal', 'terminals', 'facility', 'plant', 'the'
+    ]);
+
+    const elevatorWords = wordTokens(elevator)
+      .filter(word => word.length >= 3 && !ignoredElevatorWords.has(word));
+    const cityWords = wordTokens(city);
+    const stateWords = wordTokens(state);
+
+    if (!elevatorWords.length || !cityWords.length) return false;
+
+    const options = Array.from(
+      document.querySelectorAll('#assistBody .assist-dropdown-option')
+    );
+
+    const matches = options.filter(option => {
+      const optionWords = new Set(wordTokens(option.textContent));
+
+      const cityMatches = cityWords.every(word => optionWords.has(word));
+      const stateMatches = !stateWords.length || stateWords.every(word => optionWords.has(word));
+      const elevatorMatches = elevatorWords.some(word => optionWords.has(word));
+
+      return cityMatches && stateMatches && elevatorMatches;
+    });
+
+    if (matches.length !== 1) return false;
+
+    console.log('[Grain Ticket Source Flow] OCR uniquely resolved destination; skipping Driver Assist.', {
+      elevator,
+      city,
+      state: state || null,
+      destination: clean(matches[0].textContent)
+    });
+
+    matches[0].click();
+    return true;
   }
 
   async function improveSourcePrompt(title, textEl) {
@@ -339,6 +424,21 @@ if (
     }
 
     restoreSkipButtonForOtherPrompts(title);
+
+    if (resolveDestinationPromptFromOcr(title)) {
+      return;
+    }
+
+    if (/^where was this load delivered\?$/i.test(title) && lastOcrGrainTicket) {
+      /*
+        The dropdown is normally already rendered when the screen becomes
+        visible. One bounded retry covers Safari's occasional one-frame lag.
+      */
+      setTimeout(() => {
+        const currentTitle = clean(document.getElementById('assistTitle')?.textContent);
+        if (currentTitle === title) resolveDestinationPromptFromOcr(currentTitle);
+      }, 60);
+    }
 
     if (/^where did this load of .+ come from\?$/i.test(title)) {
       await improveSourcePrompt(title, textEl);
