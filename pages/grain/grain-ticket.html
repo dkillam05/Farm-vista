@@ -3145,9 +3145,45 @@ function ticketHasHaulingJob(
       "sold_under_requires_review",
       "elevator_mismatch",
       "buyer_mismatch",
-      "customer_mismatch",
-      "hauling_job_not_assigned"
+      "customer_mismatch"
     ]);
+
+    /*
+      RED WARNING RULE — NO OPEN MATCHING HAULING JOB
+
+      Do not make a ticket red merely because it is unassigned.
+      Make it red when the assignment engine definitively found ZERO
+      hauling jobs matching this ticket's operational combination.
+
+      For scanned elevator tickets customerName/customerId is the Sold Under
+      party. buyer/delivery location is the destination. matchingHaulingJobIds
+      is populated by the hauling-job matcher after checking destination,
+      crop, Sold Under and active/open job eligibility.
+    */
+    const soldUnderKnown = !!String(
+      ticket?.customerId || ticket?.customerName || ""
+    ).trim();
+
+    const destinationKnown = !!String(
+      ticket?.deliveryLocationId || ticket?.buyerId ||
+      ticket?.deliveryLocationName || ticket?.buyerName || ""
+    ).trim();
+
+    const cropKnown = !!String(ticket?.crop || "").trim();
+
+    const matchingJobIds = Array.isArray(ticket?.matchingHaulingJobIds)
+      ? ticket.matchingHaulingJobIds.filter(value => String(value || "").trim())
+      : null;
+
+    const noOpenMatchingHaulingJob =
+      ticket?.haulingJobMatched === false &&
+      matchingJobIds !== null &&
+      matchingJobIds.length === 0 &&
+      soldUnderKnown &&
+      destinationKnown &&
+      cropKnown;
+
+    if (noOpenMatchingHaulingJob) return true;
 
     return reasons.some(reason => {
 
