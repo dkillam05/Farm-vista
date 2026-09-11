@@ -163,6 +163,56 @@
     return !!select._fvUpgraded;
   }
 
+  function ensureAddSoldUnderRowInOpenCombo() {
+    const select = document.getElementById(CUSTOMER_SELECT_ID);
+    const combo = select?.closest('.fv-combo');
+    const button = combo?.querySelector('.fv-buttonish');
+    if (!select || !combo || !button) return;
+
+    putAddCustomerAtTop(select);
+
+    const panel = document.querySelector('#fv-portal-root .fv-panel.show') ||
+      combo.querySelector('.fv-panel.show') ||
+      document.querySelector('.fv-panel.show');
+    const list = panel?.querySelector('.fv-list');
+    if (!list) return;
+
+    const existing = Array.from(list.querySelectorAll('.fv-item')).find(item =>
+      clean(item.textContent) === '+ Add New Sold Under'
+    );
+    if (existing) return;
+
+    const row = document.createElement('div');
+    row.className = 'fv-item fv-add-sold-under-row';
+    row.textContent = '+ Add New Sold Under';
+    row.setAttribute('role', 'option');
+    row.addEventListener('mousedown', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      window.FVCombo?.closeAll?.();
+      openAddCustomerModal();
+    });
+
+    const firstItem = list.querySelector('.fv-item');
+    if (firstItem && /select customer/i.test(clean(firstItem.textContent))) {
+      firstItem.insertAdjacentElement('afterend', row);
+    } else {
+      list.prepend(row);
+    }
+  }
+
+  function wireCustomerComboOpenGuard() {
+    const select = document.getElementById(CUSTOMER_SELECT_ID);
+    const button = select?.closest('.fv-combo')?.querySelector('.fv-buttonish');
+    if (!select || !button || button.dataset.fvSoldUnderAddGuard === '1') return;
+    button.dataset.fvSoldUnderAddGuard = '1';
+    button.addEventListener('click', () => {
+      putAddCustomerAtTop(select);
+      setTimeout(ensureAddSoldUnderRowInOpenCombo, 0);
+      setTimeout(ensureAddSoldUnderRowInOpenCombo, 40);
+    }, true);
+  }
+
   async function syncBuyerSelect(preferredId = '') {
     const select = document.getElementById(BUYER_SELECT_ID);
     if (!select) return;
@@ -611,6 +661,7 @@
     if (!select) return false;
     putAddCustomerAtTop(select);
     upgradeCustomerCombo();
+    wireCustomerComboOpenGuard();
 
     if (!customerSelectWired) {
       customerSelectWired = true;
@@ -633,6 +684,8 @@
       try {
         putAddCustomerAtTop(select);
         window.FVCombo?.upgradeSelect?.(select);
+        wireCustomerComboOpenGuard();
+        setTimeout(ensureAddSoldUnderRowInOpenCombo, 0);
       } finally {
         if (select.isConnected) customerObserver.observe(select, { childList: true });
       }
