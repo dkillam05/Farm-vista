@@ -1,12 +1,18 @@
 /* FarmVista — saved grain ticket image download/share
-   Rev 2026-09-09g
+   Rev 2026-09-11h
    Uniform support for Ticket Detail, Grain Inventory drill-down,
    and Grain Contract Report ticket popup.
+
+   Sept 11, 2026:
+   Ticket Detail must never use a document-wide MutationObserver for this
+   helper. The old observer called enhance() for every subtree mutation while
+   enhance() itself added/removed DOM, which could keep the main thread busy
+   during Ticket Detail startup. Ticket Detail now watches only ticketImage src.
 */
 (() => {
   'use strict';
-  if (window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260909G) return;
-  window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260909G = true;
+  if (window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260911H) return;
+  window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260911H = true;
 
   const style = document.createElement('style');
   style.id = 'fv-ticket-image-download-style';
@@ -17,7 +23,7 @@
     .fv-ticket-download-row{display:flex;justify-content:flex-start;gap:8px;padding:10px 0 12px;width:100%}
     @media(max-width:560px){.fv-ticket-download-row .fv-ticket-download-btn{width:100%}}
   `;
-  document.head.appendChild(style);
+  if (!document.getElementById(style.id)) document.head.appendChild(style);
 
   const clean = value => String(value || '').trim();
   const prepared = new WeakMap();
@@ -117,21 +123,14 @@
   function sharePreparedFile(image,button){
     const state=prepared.get(image);
     const file=state?.file;
-
     if(!file){
-      if(state?.error){
-        prepareForShare(image,button,{force:true});
-        return;
-      }
-      prepareForShare(image,button);
-      return;
+      if(state?.error){prepareForShare(image,button,{force:true});return;}
+      prepareForShare(image,button);return;
     }
-
     if(navigator.canShare && !navigator.canShare({files:[file]})){
       alert('This device cannot save this ticket image as a file from the share sheet.');
       return;
     }
-
     navigator.share({files:[file],title:'Grain Ticket Image'}).catch(error=>{
       if(error?.name==='AbortError') return;
       console.warn('[FarmVista] Native ticket-image file share failed:',error);
@@ -164,10 +163,7 @@
   }
 
   function activateImage(image,button){
-    if(isMobileShareDevice()&&navigator.share){
-      sharePreparedFile(image,button);
-      return;
-    }
+    if(isMobileShareDevice()&&navigator.share){sharePreparedFile(image,button);return;}
     downloadDesktop(image,button);
   }
 
@@ -212,6 +208,11 @@
     const card=image.closest('.image-card')||image.closest('.card');
     const wrap=document.getElementById('ticketImageWrap')||image.parentElement;
     if(!card||!wrap)return;
+
+    // Remove only an old legacy button once. Never repeatedly mutate the page.
+    const legacy=card.querySelector('.image-actions [data-fv-ticket-download]');
+    if(legacy) legacy.remove();
+
     let row=card.querySelector('[data-fv-ticket-download-row="detail"]');
     if(!row){
       row=makeRow(image,'detail');
@@ -248,18 +249,38 @@
     refreshPreparation(image,row.querySelector('.fv-ticket-download-btn'));
   }
 
-  function removeOldDetailButton(){
-    document.querySelectorAll('.image-actions [data-fv-ticket-download]').forEach(button=>button.remove());
+  const path=String(location.pathname||'').toLowerCase();
+  const isDetail=path.endsWith('/pages/grain/grain-ticket-detail.html');
+
+  if(isDetail){
+    enhanceDetail();
+
+    const image=document.getElementById('ticketImage');
+    if(image){
+      const observer=new MutationObserver(()=>enhanceDetail());
+      observer.observe(image,{attributes:true,attributeFilter:['src']});
+      image.addEventListener('load',enhanceDetail,{passive:true});
+      window.addEventListener('pagehide',()=>observer.disconnect(),{once:true});
+    }
+    return;
   }
 
-  function enhance(){
-    removeOldDetailButton();
-    enhanceDetail();
+  // Inventory/report dialogs are created dynamically. Keep a bounded,
+  // throttled child-list observer there, but never observe attributes or run
+  // synchronously for every mutation.
+  let timer=0;
+  const runDynamicEnhance=()=>{
+    timer=0;
     enhanceInventory();
     enhanceContractReport();
-  }
+  };
+  const scheduleDynamicEnhance=()=>{
+    if(timer)return;
+    timer=window.setTimeout(runDynamicEnhance,100);
+  };
 
-  enhance();
-  const observer=new MutationObserver(enhance);
-  observer.observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['src']});
+  runDynamicEnhance();
+  const observer=new MutationObserver(scheduleDynamicEnhance);
+  observer.observe(document.body||document.documentElement,{childList:true,subtree:true});
+  window.addEventListener('pagehide',()=>observer.disconnect(),{once:true});
 })();
