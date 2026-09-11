@@ -1,10 +1,11 @@
 // /js/dash-weather-modal.js
-// Rev: 2026-09-11-weather-home-restore-fix-v2
+// Rev: 2026-09-11-weather-no-flash-v3
 //
 // Dashboard weather card -> modal wiring.
 // ZIP editing exists ONLY inside Weather details.
 // Saved ZIP remains authoritative for both the modal and main dashboard tile.
-// Also repairs the main tile any time index.html replaces it with Loading weather.
+// index.html owns the normal first weather paint; this helper only repairs a
+// missing/loading tile so the dashboard does not visibly render weather twice.
 
 (function () {
   "use strict";
@@ -256,19 +257,24 @@
 
     const saved = readSaved();
     if (hasCoords(saved)) {
+      /*
+        Seed the saved location before index.html performs its normal first paint.
+        Do NOT render the dashboard tile here. The inline dashboard initializer
+        already does that, and rendering here too causes the visible weather flash.
+      */
       window.FV_DASH_WEATHER_LOCATION = saved;
       resolvedWeatherLocationPromise = Promise.resolve(saved);
-      renderSavedWhenReady(false);
     }
 
     document.addEventListener("fv:company", function () {
-      setTimeout(function () {
-        renderSavedWhenReady(false);
-      }, 0);
+      /* Company loading may reset the shell. Only repair if its weather hooks
+         are actually missing instead of starting a second normal render. */
+      setTimeout(repairIfLoading, 0);
     });
 
     window.addEventListener("pageshow", function () {
-      renderSavedWhenReady(false);
+      /* pageshow also fires on a normal first load, so keep this conditional. */
+      repairIfLoading();
     });
 
     window.addEventListener("focus", repairIfLoading);
