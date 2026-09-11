@@ -1,14 +1,15 @@
 // /js/dash-weather-modal.js
-// Rev: 2026-09-11-weather-zip-persistent-sync
+// Rev: 2026-09-11-weather-zip-persistent-sync-v2
 //
 // Dashboard weather card -> modal wiring.
-// ZIP editing is intentionally available ONLY inside the weather details modal.
-// A ZIP entered there is persisted by fv-weather.js and remains the location used
-// by both the details modal and the dashboard weather tile on future page loads.
+// ZIP editing exists ONLY inside Weather details.
+// The selected ZIP is persisted by fv-weather.js and is always reused by both
+// the modal and the main dashboard weather tile on future page loads.
 
 (function () {
   "use strict";
 
+  const WEATHER_GOOGLE_KEY = "AIzaSyD5qLrXZch_rM4sVXmBrpGDH3Zp7RgfVHc";
   const DEFAULT_ZIP = "62530";
   const LS_KEYS = {
     zip: "fv_weather_zip",
@@ -20,54 +21,39 @@
   let resolvedWeatherLocationPromise = null;
   let zipSyncTimer = null;
 
-  const weatherModalStyle = document.createElement("style");
-  weatherModalStyle.textContent = `
+  const style = document.createElement("style");
+  style.textContent = `
     #fv-weather-modal,
     #fv-weather-modal-body {
-      scrollbar-width: none;
-      -ms-overflow-style: none;
+      scrollbar-width:none;
+      -ms-overflow-style:none;
     }
-
     #fv-weather-modal::-webkit-scrollbar,
     #fv-weather-modal-body::-webkit-scrollbar {
-      display: none;
-      width: 0;
-      height: 0;
+      display:none;
+      width:0;
+      height:0;
     }
-
-    /* ZIP belongs in Weather details only, never on the main dashboard tile. */
+    /* ZIP belongs in Weather details only. */
     #fv-weather .fv-weather-loc {
-      display: none !important;
+      display:none !important;
     }
   `;
-  document.head.appendChild(weatherModalStyle);
+  document.head.appendChild(style);
 
   function onReady(fn) {
     if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", fn, { once: true });
+      document.addEventListener("DOMContentLoaded", fn, { once:true });
     } else {
       fn();
     }
   }
 
-  function getWeatherApiKey() {
-    try {
-      return typeof WEATHER_GOOGLE_KEY !== "undefined" ? WEATHER_GOOGLE_KEY : "";
-    } catch (_) {
-      return "";
-    }
-  }
-
-  function hasValidCoordinates(location) {
-    if (!location) return false;
-    const lat = Number(location.lat);
-    const lon = Number(location.lon);
-    return (
-      Number.isFinite(lat) &&
-      Number.isFinite(lon) &&
-      Math.abs(lat) <= 90 &&
-      Math.abs(lon) <= 180
-    );
+  function hasValidCoordinates(loc) {
+    if (!loc) return false;
+    const lat = Number(loc.lat);
+    const lon = Number(loc.lon);
+    return Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
   }
 
   function readSavedWeatherLocation() {
@@ -75,74 +61,27 @@
       const lat = Number(localStorage.getItem(LS_KEYS.lat));
       const lon = Number(localStorage.getItem(LS_KEYS.lon));
       const zip = String(localStorage.getItem(LS_KEYS.zip) || "").trim();
-      const locationLabel = String(localStorage.getItem(LS_KEYS.label) || "").trim();
-
+      const label = String(localStorage.getItem(LS_KEYS.label) || "").trim();
       if (Number.isFinite(lat) && Number.isFinite(lon) && lat !== 0 && lon !== 0) {
-        return {
-          lat,
-          lon,
-          zip,
-          locationLabel: locationLabel || zip
-        };
+        return { lat, lon, zip, locationLabel: label || zip };
       }
     } catch (err) {
-      console.warn("Weather: unable to read saved dashboard location.", err);
+      console.warn("Weather: unable to read saved location.", err);
     }
     return null;
   }
 
-  function getFirestoreDb() {
-    if (window.db && typeof window.db.collection === "function") return window.db;
-
-    if (window.firebase && typeof window.firebase.firestore === "function") {
-      try {
-        return window.firebase.firestore();
-      } catch (err) {
-        console.warn("Weather: unable to access Firebase Firestore.", err);
-      }
-    }
-    return null;
-  }
-
-  async function getCompanyWeatherInfo() {
-    const fallback = {
-      addressZip: DEFAULT_ZIP,
-      addressCity: "Divernon",
-      addressState: "IL"
-    };
-
-    const db = getFirestoreDb();
-    if (!db) return fallback;
-
-    try {
-      const snap = await db.collection("company").doc("main").get();
-      if (!snap.exists) return fallback;
-
-      const company = snap.data() || {};
-      return {
-        addressZip: String(company.addressZip || DEFAULT_ZIP).trim(),
-        addressCity: String(company.addressCity || "").trim(),
-        addressState: String(company.addressState || "").trim()
-      };
-    } catch (err) {
-      console.error("Weather: failed reading company address.", err);
-      return fallback;
-    }
-  }
-
-  async function geocodeZip(zip, city, state) {
+  async function geocodeZip(zip) {
     const cleanZip = String(zip || DEFAULT_ZIP).replace(/\D/g, "").slice(0, 5);
-    if (cleanZip.length !== 5) throw new Error("A valid 5-digit weather ZIP is required.");
+    if (cleanZip.length !== 5) throw new Error("A valid 5-digit ZIP is required.");
 
-    const response = await fetch(
-      `https://api.zippopotam.us/us/${encodeURIComponent(cleanZip)}`,
-      { cache: "no-store" }
-    );
-
-    if (!response.ok) throw new Error(`ZIP geocoding failed with HTTP ${response.status}.`);
+    const response = await fetch(`https://api.zippopotam.us/us/${encodeURIComponent(cleanZip)}`, {
+      cache: "no-store"
+    });
+    if (!response.ok) throw new Error(`ZIP lookup failed with HTTP ${response.status}.`);
 
     const data = await response.json();
-    const place = Array.isArray(data && data.places) ? data.places[0] : null;
+    const place = Array.isArray(data?.places) ? data.places[0] : null;
     if (!place) throw new Error(`No weather location found for ZIP ${cleanZip}.`);
 
     const lat = Number(place.latitude);
@@ -151,14 +90,10 @@
       throw new Error(`Invalid coordinates returned for ZIP ${cleanZip}.`);
     }
 
-    const resolvedCity = String(place["place name"] || city || "").trim();
-    const resolvedState = String(place["state abbreviation"] || state || "").trim();
-    const locationLabel =
-      resolvedCity && resolvedState
-        ? `${resolvedCity}, ${resolvedState}`
-        : resolvedCity || cleanZip;
-
-    return { lat, lon, zip: cleanZip, locationLabel };
+    const city = String(place["place name"] || "").trim();
+    const state = String(place["state abbreviation"] || "").trim();
+    const locationLabel = city && state ? `${city}, ${state}` : city || cleanZip;
+    return { lat, lon, zip:cleanZip, locationLabel };
   }
 
   async function resolveWeatherLocation() {
@@ -169,34 +104,25 @@
     }
 
     const configured = window.FV_DASH_WEATHER_LOCATION || null;
-    if (hasValidCoordinates(configured)) {
-      return {
-        lat: Number(configured.lat),
-        lon: Number(configured.lon),
-        zip: String(configured.zip || ""),
-        locationLabel: String(configured.locationLabel || "")
-      };
-    }
+    if (hasValidCoordinates(configured)) return configured;
 
-    const company = await getCompanyWeatherInfo();
+    const company = window.FV_COMPANY || {};
+    const companyZip = String(company.addressZip || DEFAULT_ZIP).replace(/\D/g, "").slice(0, 5);
+
     try {
-      const location = await geocodeZip(
-        company.addressZip,
-        company.addressCity,
-        company.addressState
-      );
-      window.FV_DASH_WEATHER_LOCATION = location;
-      return location;
+      const loc = await geocodeZip(companyZip || DEFAULT_ZIP);
+      window.FV_DASH_WEATHER_LOCATION = loc;
+      return loc;
     } catch (err) {
-      console.error("Weather: company ZIP geocoding failed.", err);
+      console.error("Weather: company ZIP lookup failed.", err);
     }
 
     try {
-      const fallback = await geocodeZip(DEFAULT_ZIP, "Divernon", "IL");
-      window.FV_DASH_WEATHER_LOCATION = fallback;
-      return fallback;
+      const loc = await geocodeZip(DEFAULT_ZIP);
+      window.FV_DASH_WEATHER_LOCATION = loc;
+      return loc;
     } catch (err) {
-      console.error("Weather: default ZIP geocoding failed.", err);
+      console.error("Weather: fallback ZIP lookup failed.", err);
       return null;
     }
   }
@@ -208,26 +134,23 @@
     return resolvedWeatherLocationPromise;
   }
 
-  async function renderMainWeather(location) {
+  async function renderMainWeather(loc) {
     const shell = document.getElementById("fv-weather");
-    if (!shell || !hasValidCoordinates(location)) return;
+    if (!shell || !hasValidCoordinates(loc)) return;
     if (!window.FVWeather || typeof window.FVWeather.initWeatherModule !== "function") return;
 
-    const apiKey = getWeatherApiKey();
-    if (!apiKey) return;
-
-    window.FV_DASH_WEATHER_LOCATION = location;
+    window.FV_DASH_WEATHER_LOCATION = loc;
 
     try {
       await window.FVWeather.initWeatherModule({
-        googleApiKey: apiKey,
-        lat: Number(location.lat),
-        lon: Number(location.lon),
+        googleApiKey: WEATHER_GOOGLE_KEY,
+        lat: Number(loc.lat),
+        lon: Number(loc.lon),
         unitsSystem: "IMPERIAL",
         selector: "#fv-weather",
         showOpenMeteo: true,
         mode: "card",
-        locationLabel: location.locationLabel || "",
+        locationLabel: loc.locationLabel || "",
         __forceRefresh: true
       });
     } catch (err) {
@@ -238,44 +161,40 @@
   async function forceSavedLocationOntoDashboard() {
     const saved = readSavedWeatherLocation();
     if (!hasValidCoordinates(saved)) return;
-
     window.FV_DASH_WEATHER_LOCATION = saved;
     resolvedWeatherLocationPromise = Promise.resolve(saved);
     await renderMainWeather(saved);
   }
 
   function queueSavedLocationOverride() {
-    /*
-      index.html also initializes weather from company/main after fv:company.
-      Run after it so a user-selected ZIP always wins over the company ZIP.
-    */
+    // index.html may initialize company weather after DOM ready/fv:company.
+    // Reapply the user's saved ZIP after that initialization completes.
     setTimeout(forceSavedLocationOntoDashboard, 0);
-    setTimeout(forceSavedLocationOntoDashboard, 350);
+    setTimeout(forceSavedLocationOntoDashboard, 250);
+    setTimeout(forceSavedLocationOntoDashboard, 750);
   }
 
   function syncSavedZipToDashboard(expectedZip) {
     if (zipSyncTimer) clearTimeout(zipSyncTimer);
-
     const wantedZip = String(expectedZip || "").replace(/\D/g, "").slice(0, 5);
     let attempts = 0;
 
-    const check = async function () {
+    async function check() {
       attempts += 1;
-
       const saved = readSavedWeatherLocation();
-      const savedZip = String((saved && saved.zip) || "").replace(/\D/g, "").slice(0, 5);
+      const savedZip = String(saved?.zip || "").replace(/\D/g, "").slice(0, 5);
 
-      if (hasValidCoordinates(saved) && (!wantedZip || savedZip === wantedZip)) {
+      if (hasValidCoordinates(saved) && savedZip === wantedZip) {
         window.FV_DASH_WEATHER_LOCATION = saved;
         resolvedWeatherLocationPromise = Promise.resolve(saved);
         await renderMainWeather(saved);
         return;
       }
 
-      if (attempts < 12) zipSyncTimer = setTimeout(check, 250);
-    };
+      if (attempts < 16) zipSyncTimer = setTimeout(check, 250);
+    }
 
-    zipSyncTimer = setTimeout(check, 750);
+    zipSyncTimer = setTimeout(check, 450);
   }
 
   onReady(function () {
@@ -289,14 +208,10 @@
       return;
     }
 
-    const savedAtLoad = readSavedWeatherLocation();
-    if (hasValidCoordinates(savedAtLoad)) {
-      window.FV_DASH_WEATHER_LOCATION = savedAtLoad;
-      resolvedWeatherLocationPromise = Promise.resolve(savedAtLoad);
+    if (hasValidCoordinates(readSavedWeatherLocation())) {
       queueSavedLocationOverride();
     }
 
-    /* Company initialization can happen after DOM ready; saved ZIP must still win. */
     document.addEventListener("fv:company", queueSavedLocationOverride);
 
     async function openModal() {
@@ -306,42 +221,31 @@
 
       if (!window.FVWeather || typeof window.FVWeather.initWeatherModule !== "function") {
         modalBody.innerHTML = shell.innerHTML;
-        console.warn("Weather modal: FVWeather.initWeatherModule is unavailable.");
         return;
       }
 
       const saved = readSavedWeatherLocation();
-      if (hasValidCoordinates(saved)) {
-        window.FV_DASH_WEATHER_LOCATION = saved;
-        resolvedWeatherLocationPromise = Promise.resolve(saved);
-      }
+      const loc = hasValidCoordinates(saved) ? saved : await getWeatherLocation();
 
-      const weatherLocation = saved || (await getWeatherLocation());
-      if (!hasValidCoordinates(weatherLocation)) {
-        modalBody.innerHTML =
-          '<div class="fv-weather-card">Weather location could not be loaded.</div>';
+      if (!hasValidCoordinates(loc)) {
+        modalBody.innerHTML = '<div class="fv-weather-card">Weather location could not be loaded.</div>';
         return;
       }
 
-      const apiKey = getWeatherApiKey();
-      if (!apiKey) {
-        modalBody.innerHTML = '<div class="fv-weather-card">Weather could not be loaded.</div>';
-        console.warn("Weather modal: dashboard API key is unavailable.");
-        return;
-      }
-
+      window.FV_DASH_WEATHER_LOCATION = loc;
+      resolvedWeatherLocationPromise = Promise.resolve(loc);
       modalBody.innerHTML = "";
 
       try {
         await window.FVWeather.initWeatherModule({
-          googleApiKey: apiKey,
-          lat: Number(weatherLocation.lat),
-          lon: Number(weatherLocation.lon),
+          googleApiKey: WEATHER_GOOGLE_KEY,
+          lat: Number(loc.lat),
+          lon: Number(loc.lon),
           unitsSystem: "IMPERIAL",
           selector: "#fv-weather-modal-body",
           showOpenMeteo: true,
           mode: "modal",
-          locationLabel: weatherLocation.locationLabel || ""
+          locationLabel: loc.locationLabel || ""
         });
       } catch (err) {
         console.error("Weather modal: FVWeather initialization failed.", err);
@@ -353,21 +257,15 @@
       if (zipInput && !zipInput.__fvDashboardSyncWired) {
         zipInput.__fvDashboardSyncWired = true;
 
-        zipInput.addEventListener("input", function () {
+        const sync = function () {
           const zip = String(zipInput.value || "").replace(/\D/g, "").slice(0, 5);
           if (zip.length === 5) syncSavedZipToDashboard(zip);
-        });
+        };
 
+        zipInput.addEventListener("input", sync);
+        zipInput.addEventListener("blur", sync);
         zipInput.addEventListener("keydown", function (evt) {
-          if (evt.key === "Enter") {
-            const zip = String(zipInput.value || "").replace(/\D/g, "").slice(0, 5);
-            if (zip.length === 5) syncSavedZipToDashboard(zip);
-          }
-        });
-
-        zipInput.addEventListener("blur", function () {
-          const zip = String(zipInput.value || "").replace(/\D/g, "").slice(0, 5);
-          if (zip.length === 5) syncSavedZipToDashboard(zip);
+          if (evt.key === "Enter") sync();
         });
       }
     }
@@ -383,11 +281,9 @@
     });
 
     closeBtn.addEventListener("click", closeModal);
-
     modal.addEventListener("click", function (evt) {
       if (evt.target === modal) closeModal();
     });
-
     document.addEventListener("keydown", function (evt) {
       if (evt.key === "Escape") closeModal();
     });
