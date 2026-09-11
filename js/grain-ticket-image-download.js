@@ -1,5 +1,5 @@
 /* FarmVista — saved grain ticket image download/share
-   Rev 2026-09-11k
+   Rev 2026-09-11l
    Uniform support for Ticket Detail, Grain Inventory drill-down,
    and Grain Contract Report ticket popup.
 
@@ -12,11 +12,12 @@
    Rev i adds the compact Active Hauling Jobs overview to Grain Inventory.
    Rev j adds Sold Under as the second column so duplicate destinations are clear.
    Rev k lists upcoming hauling jobs directly below the active jobs.
+   Rev l matches Grain Tickets grade alert rings in hauling-job ticket drill-downs.
 */
 (() => {
   'use strict';
-  if (window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260911K) return;
-  window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260911K = true;
+  if (window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260911L) return;
+  window.__FV_GRAIN_TICKET_IMAGE_DOWNLOAD_20260911L = true;
 
   const style = document.createElement('style');
   style.id = 'fv-ticket-image-download-style';
@@ -212,11 +213,8 @@
     const card=image.closest('.image-card')||image.closest('.card');
     const wrap=document.getElementById('ticketImageWrap')||image.parentElement;
     if(!card||!wrap)return;
-
-    // Remove only an old legacy button once. Never repeatedly mutate the page.
     const legacy=card.querySelector('.image-actions [data-fv-ticket-download]');
     if(legacy) legacy.remove();
-
     let row=card.querySelector('[data-fv-ticket-download-row="detail"]');
     if(!row){
       row=makeRow(image,'detail');
@@ -253,9 +251,6 @@
     refreshPreparation(image,row.querySelector('.fv-ticket-download-btn'));
   }
 
-  /* ============================================================
-     Grain Inventory — Active Hauling Jobs overview
-  ============================================================ */
   async function installActiveHaulingJobs(){
     if(!String(location.pathname||'').toLowerCase().endsWith('/pages/grain/index.html')) return;
     if(document.getElementById('fv-active-hauling-jobs-section')) return;
@@ -284,6 +279,9 @@
       #fv-ahj-modal-backdrop{z-index:12500}
       .fv-ahj-ticket-link{color:#3B7E46;font-weight:850;text-decoration:none}
       .fv-ahj-ticket-link:hover{text-decoration:underline}
+      .fv-ahj-grade{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:30px;padding:0 5px;border:2px solid transparent;border-radius:999px;box-sizing:border-box;font-weight:900;line-height:1}
+      .fv-ahj-grade.elevated{border-color:#C18413;background:rgba(193,132,19,.08)}
+      .fv-ahj-grade.severe{border-color:#C9444D;background:rgba(201,68,77,.10);color:#B52F38}
       @media(max-width:560px){#fv-active-hauling-jobs-section .inventory-head{padding-bottom:13px}}
     `;
     document.head.appendChild(extraStyle);
@@ -376,6 +374,26 @@
       return{bushels:total,loads:tickets.length,moisture:moW?mo/moW:null,fm:fmW?fm/fmW:null,damage:daW?da/daW:null};
     };
 
+    const DEFAULT_GRAIN_ALERT_SETTINGS={enabled:true,crops:{corn:{damage:{severe:{enabled:true,threshold:8},trend:{enabled:true,threshold:5}},foreignMaterial:{severe:{enabled:true,threshold:5},trend:{enabled:true,threshold:3}},moisture:{severe:{enabled:true,threshold:20},trend:{enabled:true,threshold:17}}},soybeans:{damage:{severe:{enabled:true,threshold:5},trend:{enabled:true,threshold:3}},foreignMaterial:{severe:{enabled:true,threshold:3},trend:{enabled:true,threshold:2}},moisture:{severe:{enabled:true,threshold:16},trend:{enabled:true,threshold:14}}}}};
+    let grainAlertSettings=DEFAULT_GRAIN_ALERT_SETTINGS;
+    const cropAlertKey=crop=>{const value=norm(crop);if(value.includes('soy'))return 'soybeans';if(value.includes('corn'))return 'corn';return ''};
+    const gradeLevel=(ticket,metric)=>{
+      if(grainAlertSettings?.enabled===false)return '';
+      const cropKey=cropAlertKey(ticket?.crop||ticket?.commodity);if(!cropKey)return '';
+      const rules=grainAlertSettings?.crops?.[cropKey]?.[metric];if(!rules)return '';
+      const raw=metric==='foreignMaterial'?(ticket?.foreignMaterial??ticket?.fm):metric==='damage'?(ticket?.damage??ticket?.dm):(ticket?.moisture??ticket?.mo);
+      const value=Number(raw);if(!Number.isFinite(value))return '';
+      const severe=Number(rules.severe?.threshold);if(rules.severe?.enabled!==false&&Number.isFinite(severe)&&value>=severe)return 'severe';
+      const elevated=Number(rules.trend?.threshold);if(rules.trend?.enabled!==false&&Number.isFinite(elevated)&&value>=elevated)return 'elevated';
+      return '';
+    };
+    const gradeMarkup=(ticket,metric)=>{
+      const raw=metric==='foreignMaterial'?(ticket?.foreignMaterial??ticket?.fm):metric==='damage'?(ticket?.damage??ticket?.dm):(ticket?.moisture??ticket?.mo);
+      const level=gradeLevel(ticket,metric);
+      const label=level==='severe'?'Severe':level==='elevated'?'Elevated':'';
+      return `<span class="fv-ahj-grade ${level}"${label?` title="${label} grain alert level"`:''}>${fmtGrade(raw)}</span>`;
+    };
+
     const closeModal=()=>{modal.classList.remove('open');modal.setAttribute('aria-hidden','true');document.body.style.overflow=''};
     modal.querySelector('#fv-ahj-modal-close').addEventListener('click',closeModal);
     modal.querySelector('#fv-ahj-modal-done').addEventListener('click',closeModal);
@@ -385,10 +403,15 @@
       const firebase=await import('/js/firebase-init.js');
       await firebase.ready;
       const db=firebase.getFirestore();
-      const [jobSnap,ticketSnap]=await Promise.all([
+      const [jobSnap,ticketSnap,alertSnap]=await Promise.all([
         firebase.getDocs(firebase.collection(db,'grain_hauling_jobs')),
-        firebase.getDocs(firebase.collection(db,'grain_tickets'))
+        firebase.getDocs(firebase.collection(db,'grain_tickets')),
+        firebase.getDoc(firebase.doc(db,'settings','grainTicketAlerts')).catch(()=>null)
       ]);
+      if(alertSnap?.exists?.()){
+        const saved=alertSnap.data()||{};
+        grainAlertSettings={...DEFAULT_GRAIN_ALERT_SETTINGS,...saved,crops:{...DEFAULT_GRAIN_ALERT_SETTINGS.crops,...(saved.crops||{}),corn:{...DEFAULT_GRAIN_ALERT_SETTINGS.crops.corn,...(saved.crops?.corn||{})},soybeans:{...DEFAULT_GRAIN_ALERT_SETTINGS.crops.soybeans,...(saved.crops?.soybeans||{})}}};
+      }
       const jobs=jobSnap.docs.map(ds=>({id:ds.id,...(ds.data()||{})}));
       const tickets=ticketSnap.docs.map(ds=>({id:ds.id,...(ds.data()||{})}));
       const active=jobs.filter(j=>['active','past_due'].includes(status(tickets,j))).sort((a,b)=>{
@@ -414,10 +437,7 @@
           <td>${g.loads.toLocaleString('en-US')}</td><td>${fmtGrade(g.moisture)}</td><td>${fmtGrade(g.fm)}</td><td>${fmtGrade(g.damage)}</td>
         </tr>`;
       };
-      tbody.innerHTML=[
-        active.map(renderJob).join(''),
-        upcoming.length?`<tr class="fv-ahj-group-row"><td colspan="11">Upcoming Hauling Jobs</td></tr>${upcoming.map(renderJob).join('')}`:''
-      ].join('');
+      tbody.innerHTML=[active.map(renderJob).join(''),upcoming.length?`<tr class="fv-ahj-group-row"><td colspan="11">Upcoming Hauling Jobs</td></tr>${upcoming.map(renderJob).join('')}`:''].join('');
 
       tbody.querySelectorAll('[data-job-id]').forEach(row=>row.addEventListener('click',()=>{
         const job=visible.find(j=>j.id===row.dataset.jobId);if(!job)return;
@@ -435,7 +455,7 @@
           <div class="detail-box"><div class="detail-label">Avg FM / Damage</div><div class="detail-value">${fmtGrade(g.fm)} / ${fmtGrade(g.damage)}</div></div>`;
         modal.querySelector('#fv-ahj-ticket-list').innerHTML=jt.length?`
           <div class="table-wrap"><table class="harvest-drill-table"><thead><tr><th>Ticket #</th><th>Date</th><th>Driver</th><th>Bushels</th><th>MO</th><th>FM</th><th>Damage</th></tr></thead><tbody>
-          ${jt.map(t=>`<tr><td><a class="fv-ahj-ticket-link" href="/pages/grain/grain-ticket-detail.html?id=${encodeURIComponent(t.id)}">${esc(ticketNumber(t))}</a></td><td>${esc(dateValue(t)||'—')}</td><td>${esc(driver(t))}</td><td>${fmtBu(ticketBushels(t))}</td><td>${fmtGrade(t?.moisture??t?.mo)}</td><td>${fmtGrade(t?.foreignMaterial??t?.fm)}</td><td>${fmtGrade(t?.damage??t?.dm)}</td></tr>`).join('')}
+          ${jt.map(t=>`<tr><td><a class="fv-ahj-ticket-link" href="/pages/grain/grain-ticket-detail.html?id=${encodeURIComponent(t.id)}">${esc(ticketNumber(t))}</a></td><td>${esc(dateValue(t)||'—')}</td><td>${esc(driver(t))}</td><td>${fmtBu(ticketBushels(t))}</td><td>${gradeMarkup(t,'moisture')}</td><td>${gradeMarkup(t,'foreignMaterial')}</td><td>${gradeMarkup(t,'damage')}</td></tr>`).join('')}
           </tbody></table></div>`:'<div class="fv-ahj-empty">No tickets are linked to this hauling job yet.</div>';
         modal.classList.add('open');modal.setAttribute('aria-hidden','false');document.body.style.overflow='hidden';
       }));
@@ -453,7 +473,6 @@
 
   if(isDetail){
     enhanceDetail();
-
     const image=document.getElementById('ticketImage');
     if(image){
       const observer=new MutationObserver(()=>enhanceDetail());
@@ -464,9 +483,6 @@
     return;
   }
 
-  // Inventory/report dialogs are created dynamically. Keep a bounded,
-  // throttled child-list observer there, but never observe attributes or run
-  // synchronously for every mutation.
   let timer=0;
   const runDynamicEnhance=()=>{
     timer=0;
