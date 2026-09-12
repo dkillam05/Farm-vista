@@ -12,7 +12,7 @@ import "/js/grain-hauling-ticket-sequence.js?v=20260912-0748";
 import "/js/grain-hauling-split-portion-dnd.js?v=20260912-0922";
 import "/js/grain-hauling-left-drop-zone.js?v=20260912-0915";
 import "/js/grain-hauling-effective-totals.js?v=20260912-0928";
-import "/js/grain-hauling-partial-checkboxes.js?v=20260912-0932";
+import "/js/grain-hauling-partial-checkboxes.js?v=20260912-0940";
 import {
   ready,
   getFirestore,
