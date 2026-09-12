@@ -9306,6 +9306,46 @@ function loRenderCustomerPicker(){
     );
 
 
+  if (
+    loHaulingJobIsOverhaulEligible(
+      haulingJob
+    )
+  ) {
+
+    const jobCustomerId =
+      loHaulingJobCustomerId(
+        haulingJob
+      );
+
+    const masterCustomer =
+      loState.customers.find(
+        customer =>
+          customer.id ===
+          jobCustomerId
+      ) ||
+      null;
+
+    const jobCustomerName =
+      loClean(
+        masterCustomer?.name ||
+        haulingJob.customerName
+      );
+
+    if (
+      jobCustomerId &&
+      jobCustomerName
+    ) {
+      customerMap.set(
+        jobCustomerId,
+        {
+          id:jobCustomerId,
+          name:jobCustomerName
+        }
+      );
+    }
+  }
+
+
   const linkedCustomers =
     Array.from(
       customerMap.values()
@@ -11066,6 +11106,177 @@ function loSelectedCustomer(){
     );
   }
 
+  function loHaulingJobCompletionISO(job){
+    if (!job) return "";
+
+    const explicitCandidates = [
+      job.completedDate,
+      job.completionDate,
+      job.completedAt,
+      job.completionAt,
+      job.closedDate,
+      job.closedAt
+    ];
+
+    for (const value of explicitCandidates) {
+      if (!value) continue;
+
+      if (typeof value === "string") {
+        const isoMatch = value.match(/^(\d{4}-\d{2}-\d{2})/);
+        if (isoMatch) return isoMatch[1];
+      }
+
+      const millis = loMillis(value);
+      if (millis > 0) {
+        return loLocalISO(new Date(millis));
+      }
+    }
+
+    const starting = loHaulingJobStartingBushels(job);
+    const jobId = loClean(job.id);
+
+    if (!(starting > 0) || !jobId) {
+      return "";
+    }
+
+    let accumulated = 0;
+
+    const jobTickets = loState.tickets
+      .filter(ticket => {
+        const status = loNorm(ticket?.status);
+        const voided =
+          ticket?.voided === true ||
+          status.includes("void");
+
+        const ticketJobId = loClean(
+          ticket?.haulingJobId ||
+          ticket?.grainHaulingJobId
+        );
+
+        return !voided && ticketJobId === jobId;
+      })
+      .map(ticket => {
+        const ticketDate = loClean(ticket.ticketDate);
+        const dateMillis = loDateFromISO(ticketDate)?.getTime() || 0;
+        const eventMillis =
+          loMillis(
+            ticket.ticketLinkedAt ||
+            ticket.linkedAt ||
+            ticket.createdAt ||
+            ticket.updatedAt
+          ) || dateMillis;
+
+        const rawBushels = Number(
+          ticket?.netBushels ??
+          ticket?.netBu ??
+          ticket?.bushels ??
+          0
+        );
+
+        return {
+          ticketDate,
+          eventMillis,
+          bushels:Number.isFinite(rawBushels) ? Math.max(0,rawBushels) : 0
+        };
+      })
+      .filter(item => item.bushels > 0)
+      .sort((a,b) =>
+        a.eventMillis - b.eventMillis ||
+        a.ticketDate.localeCompare(b.ticketDate)
+      );
+
+    for (const item of jobTickets) {
+      accumulated += item.bushels;
+
+      if (accumulated + 0.005 >= starting) {
+        if (item.eventMillis > 0) {
+          return loLocalISO(new Date(item.eventMillis));
+        }
+
+        return item.ticketDate;
+      }
+    }
+
+    /*
+      Existing completed jobs may pre-date a dedicated completedAt field.
+      If Firestore already marks the job complete, updatedAt is the safest
+      final fallback for the two-calendar-day dispatch grace period.
+    */
+    const status = loNorm(job.status || "");
+    if (status.includes("complete")) {
+      const updatedMillis = loMillis(job.updatedAt);
+      if (updatedMillis > 0) {
+        return loLocalISO(new Date(updatedMillis));
+      }
+    }
+
+    return "";
+  }
+
+  function loHaulingJobIsCompleted(job){
+    if (!job) return false;
+
+    const status = loNorm(job.status || "");
+
+    if (
+      status.includes("cancel") ||
+      status.includes("void")
+    ) {
+      return false;
+    }
+
+    if (status.includes("complete")) {
+      return true;
+    }
+
+    const starting = loHaulingJobStartingBushels(job);
+
+    return (
+      starting > 0 &&
+      loHaulingJobRemainingBushels(job) <= 0.005
+    );
+  }
+
+  function loHaulingJobIsOverhaulEligible(job){
+    if (!loHaulingJobIsCompleted(job)) {
+      return false;
+    }
+
+    const completionISO = loHaulingJobCompletionISO(job);
+    const todayISO = loLocalISO();
+
+    if (!completionISO || !todayISO) {
+      return false;
+    }
+
+    const completed = loDateFromISO(completionISO);
+    const today = loDateFromISO(todayISO);
+
+    if (!completed || !today) {
+      return false;
+    }
+
+    const completedDay = Date.UTC(
+      completed.getFullYear(),
+      completed.getMonth(),
+      completed.getDate()
+    );
+
+    const todayDay = Date.UTC(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate()
+    );
+
+    const calendarDaysSinceCompletion =
+      Math.round((todayDay - completedDay) / 86400000);
+
+    return (
+      calendarDaysSinceCompletion >= 0 &&
+      calendarDaysSinceCompletion <= 2
+    );
+  }
+
   function loHaulingJobContractedBushels(job){
     const jobId = loClean(job?.id);
 
@@ -11136,12 +11347,20 @@ function loHaulingJobMatchesSelection(job){
     );
 
 
+  const overhaulAllowed =
+    loHaulingJobIsOverhaulEligible(
+      job
+    );
+
   if (
     !destination ||
     !customer ||
     !crop ||
-    !loHaulingJobIsActive(
-      job
+    (
+      !loHaulingJobIsActive(
+        job
+      ) &&
+      !overhaulAllowed
     )
   ) {
 
@@ -11183,6 +11402,20 @@ function loHaulingJobMatchesSelection(job){
 
     return true;
 
+  }
+
+
+  /*
+    A dispatcher can deliberately select a just-completed hauling job
+    for two calendar days.  In that case its saved Sold Under remains
+    valid even though the underlying contract/job is already complete.
+  */
+  if (
+    overhaulAllowed &&
+    loClean(customer.id) ===
+      loHaulingJobCustomerId(job)
+  ) {
+    return true;
   }
 
 
@@ -11252,6 +11485,50 @@ function loHaulingJobMatchesSelection(job){
     return `${place} — ${starting.toLocaleString("en-US")} bu`;
   }
 
+  function loHaulingJobOverhaulLabel(job){
+    const destination =
+      loClean(
+        job.deliveryLocationName ||
+        job.locationName ||
+        job.destinationName
+      ) ||
+      loClean(job.buyerName) ||
+      "Hauling Job";
+
+    const buyer = loClean(job.buyerName);
+    const place =
+      buyer && !loNorm(destination).startsWith(loNorm(buyer))
+        ? `${buyer} ${destination}`
+        : destination;
+
+    const crop =
+      loClean(
+        job.crop ||
+        job.commodity
+      ) ||
+      "Crop";
+
+    const customerId =
+      loHaulingJobCustomerId(job);
+
+    const masterCustomer =
+      loState.customers.find(
+        customer =>
+          customer.id ===
+          customerId
+      ) ||
+      null;
+
+    const customerName =
+      loClean(
+        masterCustomer?.name ||
+        job.customerName
+      ) ||
+      "Unknown";
+
+    return `${place} — ${crop} — ${customerName} • COMPLETED • Overhaul Allowed`;
+  }
+
   function loHaulingJobNote(job){
     if (!job) return "";
 
@@ -11286,6 +11563,8 @@ function loHaulingJobMatchesSelection(job){
     const wanted = loClean(preferredJobId || loEls.haulingJob.value);
     loEls.haulingJob.innerHTML = "";
     loEls.haulingJob.disabled = false;
+    loEls.haulingJob.style.color = "";
+    loEls.haulingJob.style.fontWeight = "";
     loEls.haulingJobNote.className = "loadout-contract-note";
     loEls.haulingJobNote.textContent = "";
 
@@ -11299,9 +11578,30 @@ function loHaulingJobMatchesSelection(job){
         );
       });
 
+    const overhaulJobs = loState.haulingJobs
+      .filter(job =>
+        !loHaulingJobIsActive(job) &&
+        loHaulingJobIsOverhaulEligible(job)
+      )
+      .sort((a,b) =>
+        loHaulingJobCompletionISO(b).localeCompare(
+          loHaulingJobCompletionISO(a)
+        ) ||
+        loHaulingJobOverhaulLabel(a).localeCompare(
+          loHaulingJobOverhaulLabel(b),
+          undefined,
+          {numeric:true,sensitivity:"base"}
+        )
+      );
+
+    const selectableJobs = [
+      ...activeJobs,
+      ...overhaulJobs
+    ];
+
     const blank = document.createElement("option");
     blank.value = "";
-    blank.textContent = activeJobs.length ? "Select hauling job" : "No active hauling jobs yet";
+    blank.textContent = selectableJobs.length ? "Select hauling job" : "No active hauling jobs yet";
     loEls.haulingJob.appendChild(blank);
 
     activeJobs.forEach(job => {
@@ -11311,16 +11611,48 @@ function loHaulingJobMatchesSelection(job){
       loEls.haulingJob.appendChild(option);
     });
 
+    overhaulJobs.forEach(job => {
+      const option = document.createElement("option");
+      option.value = job.id;
+      option.textContent = loHaulingJobOverhaulLabel(job);
+      option.dataset.overhaul = "true";
+      option.style.color = "#C9444D";
+      option.style.fontWeight = "900";
+      loEls.haulingJob.appendChild(option);
+    });
+
     const addNew = document.createElement("option");
     addNew.value = "__add_new__";
     addNew.textContent = "+ Add New Hauling Job";
     loEls.haulingJob.appendChild(addNew);
 
-    if (wanted && activeJobs.some(job => job.id === wanted)) {
+    if (wanted && selectableJobs.some(job => job.id === wanted)) {
       loEls.haulingJob.value = wanted;
       const selected = loSelectedHaulingJob();
-      loEls.haulingJobNote.className = "loadout-contract-note good";
-      loEls.haulingJobNote.textContent = loHaulingJobNote(selected);
+      const overhaulSelected =
+        selected &&
+        !loHaulingJobIsActive(selected) &&
+        loHaulingJobIsOverhaulEligible(selected);
+
+      loEls.haulingJob.style.color =
+        overhaulSelected
+          ? "#C9444D"
+          : "";
+
+      loEls.haulingJob.style.fontWeight =
+        overhaulSelected
+          ? "900"
+          : "";
+
+      loEls.haulingJobNote.className =
+        overhaulSelected
+          ? "loadout-contract-note warn"
+          : "loadout-contract-note good";
+
+      loEls.haulingJobNote.textContent =
+        overhaulSelected
+          ? "COMPLETED • Overhaul Allowed"
+          : loHaulingJobNote(selected);
     }
   }
 
@@ -11342,6 +11674,12 @@ function loApplyHaulingJobToLoad(job){
   if (
     !job
   ) {
+
+    loEls.haulingJob.style.color =
+      "";
+
+    loEls.haulingJob.style.fontWeight =
+      "";
 
     loEls.destination.value =
       "";
@@ -11457,14 +11795,19 @@ function loApplyHaulingJobToLoad(job){
 
 
   /*
-    Sold Under does NOT come from the hauling job.
+    Normal active jobs build Sold Under dynamically from linked contracts.
 
-    It is built dynamically from contracts linked
-    to this hauling job.
-
-    Start a new selection at Unknown.
+    A completed job selected during the two-calendar-day overhaul grace
+    period keeps the Sold Under saved on that hauling job so the explicit
+    Load Out assignment remains the source of truth for the later scan.
   */
+  const overhaulCustomerId =
+    loHaulingJobIsOverhaulEligible(job)
+      ? loHaulingJobCustomerId(job)
+      : "";
+
   loEls.customer.value =
+    overhaulCustomerId ||
     "__unknown__";
 
 
@@ -11536,14 +11879,35 @@ function loApplyHaulingJobToLoad(job){
   }
 
 
+  const overhaulSelected =
+    !loHaulingJobIsActive(job) &&
+    loHaulingJobIsOverhaulEligible(job);
+
+
+  loEls.haulingJob.style.color =
+    overhaulSelected
+      ? "#C9444D"
+      : "";
+
+
+  loEls.haulingJob.style.fontWeight =
+    overhaulSelected
+      ? "900"
+      : "";
+
+
   loEls.haulingJobNote.className =
-    "loadout-contract-note good";
+    overhaulSelected
+      ? "loadout-contract-note warn"
+      : "loadout-contract-note good";
 
 
   loEls.haulingJobNote.textContent =
-    loHaulingJobNote(
-      job
-    );
+    overhaulSelected
+      ? "COMPLETED • Overhaul Allowed"
+      : loHaulingJobNote(
+          job
+        );
 
 }
 
