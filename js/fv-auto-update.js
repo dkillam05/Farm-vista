@@ -1,7 +1,15 @@
 /* FarmVista automatic PWA update checker
    Keeps installed/mobile sessions current without asking users to force-close
-   or manually refresh. Version checks are network-only and reload only when
-   the current page is safe to refresh.
+   or manually hard-refresh.
+
+   Sept. 12, 2026 update behavior:
+   - detect the new FarmVista version network-only;
+   - wait briefly and verify the same version again so GitHub Pages has time
+     to finish publishing all files before we reload;
+   - update/activate the service worker first;
+   - reload once with a harmless version query so normal browser caches cannot
+     hand the app an old HTML shell;
+   - preserve the user's current path/query/hash.
 */
 (function () {
   'use strict';
@@ -11,12 +19,16 @@
 
   const CHECK_INTERVAL_MS = 5 * 60 * 1000;
   const MIN_CHECK_GAP_MS = 30 * 1000;
+  const DEPLOY_SETTLE_MS = 4500;
   const VERSION_URL = '/js/version.js';
+  const UPDATE_PARAM = 'fv_release';
 
   let lastCheckAt = 0;
   let updatePending = false;
   let reloadStarted = false;
   let pageDirty = false;
+  let pendingVersion = '';
+  let settleTimer = 0;
 
   const initialVersion = String(
     window.FV_VERSION?.number ||
@@ -33,13 +45,28 @@
     return match ? String(match[1]).trim() : '';
   }
 
+  async function fetchDeployedVersion() {
+    const now = Date.now();
+    const response = await fetch(
+      VERSION_URL + '?fv_update_check=' + now,
+      {
+        cache: 'no-store',
+        credentials: 'same-origin',
+        headers: { 'Cache-Control': 'no-cache' }
+      }
+    );
+
+    if (!response.ok) return '';
+    return parseVersion(await response.text());
+  }
+
   function isSafeToReload() {
     if (document.visibilityState !== 'visible') return false;
 
     const active = document.activeElement;
     if (
       active &&
-      (active.matches?.('input, textarea, select, [contenteditable="true"]'))
+      active.matches?.('input, textarea, select, [contenteditable="true"]')
     ) {
       return false;
     }
@@ -58,6 +85,23 @@
     return true;
   }
 
+  async function waitForControllerChange(timeoutMs = 2500) {
+    if (!('serviceWorker' in navigator)) return;
+
+    await new Promise(resolve => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        navigator.serviceWorker.removeEventListener('controllerchange', finish);
+        resolve();
+      };
+
+      navigator.serviceWorker.addEventListener('controllerchange', finish, { once: true });
+      setTimeout(finish, timeoutMs);
+    });
+  }
+
   async function prepareServiceWorker() {
     if (!('serviceWorker' in navigator)) return;
 
@@ -65,14 +109,39 @@
       const reg = await navigator.serviceWorker.getRegistration();
       if (!reg) return;
 
+      const beforeController = navigator.serviceWorker.controller;
       await reg.update().catch(() => {});
 
       if (reg.waiting?.postMessage) {
         reg.waiting.postMessage('SKIP_WAITING');
       }
+
+      if (reg.installing) {
+        await new Promise(resolve => {
+          const worker = reg.installing;
+          const done = () => {
+            if (worker.state === 'activated' || worker.state === 'redundant') resolve();
+          };
+          worker.addEventListener('statechange', done);
+          done();
+          setTimeout(resolve, 2500);
+        });
+      }
+
+      if (beforeController && navigator.serviceWorker.controller === beforeController) {
+        await waitForControllerChange(1800);
+      }
     } catch (err) {
       console.warn('[FarmVista Update] Service worker update check failed:', err);
     }
+  }
+
+  function freshReload(version) {
+    const url = new URL(location.href);
+    url.searchParams.set(UPDATE_PARAM, version || Date.now().toString());
+
+    // replace() avoids adding a useless update-only history entry.
+    location.replace(url.toString());
   }
 
   async function reloadWhenSafe() {
@@ -84,11 +153,40 @@
     try {
       await prepareServiceWorker();
     } finally {
-      // Give a waiting worker a brief moment to activate before reloading.
-      setTimeout(() => {
-        location.reload();
-      }, 350);
+      freshReload(pendingVersion);
     }
+  }
+
+  async function confirmSettledUpdate(version) {
+    clearTimeout(settleTimer);
+
+    settleTimer = window.setTimeout(async () => {
+      try {
+        const confirmed = await fetchDeployedVersion();
+
+        // If another version landed during the short settle window, restart
+        // the wait for that newest version rather than reloading mid-deploy.
+        if (!confirmed || confirmed === initialVersion) return;
+        if (confirmed !== version) {
+          pendingVersion = confirmed;
+          confirmSettledUpdate(confirmed);
+          return;
+        }
+
+        console.info(
+          '[FarmVista Update] Release ready:',
+          initialVersion,
+          '→',
+          confirmed
+        );
+
+        pendingVersion = confirmed;
+        updatePending = true;
+        await reloadWhenSafe();
+      } catch (err) {
+        console.debug('[FarmVista Update] Release verification skipped:', err);
+      }
+    }, DEPLOY_SETTLE_MS);
   }
 
   async function checkForUpdate(force) {
@@ -99,39 +197,27 @@
     lastCheckAt = now;
 
     try {
-      const response = await fetch(
-        VERSION_URL + '?fv_update_check=' + now,
-        {
-          cache: 'no-store',
-          credentials: 'same-origin',
-          headers: { 'Cache-Control': 'no-cache' }
-        }
-      );
-
-      if (!response.ok) return;
-
-      const deployedVersion = parseVersion(await response.text());
+      const deployedVersion = await fetchDeployedVersion();
       if (!deployedVersion || !initialVersion) return;
 
       if (deployedVersion !== initialVersion) {
-        console.info(
-          '[FarmVista Update] New version detected:',
-          initialVersion,
-          '→',
-          deployedVersion
-        );
-        updatePending = true;
-        await reloadWhenSafe();
+        if (deployedVersion !== pendingVersion) {
+          console.info(
+            '[FarmVista Update] New version detected:',
+            initialVersion,
+            '→',
+            deployedVersion,
+            '(waiting for deploy to settle)'
+          );
+          pendingVersion = deployedVersion;
+          confirmSettledUpdate(deployedVersion);
+        }
       }
     } catch (err) {
-      // Offline/poor-signal users should keep working normally.
       console.debug('[FarmVista Update] Version check skipped:', err);
     }
   }
 
-  // Do not interrupt a user who has begun editing a form. A normal page
-  // navigation will pick up the new version; otherwise the next safe page
-  // focus will refresh automatically.
   document.addEventListener('input', () => { pageDirty = true; }, true);
   document.addEventListener('change', () => { pageDirty = true; }, true);
 
@@ -155,8 +241,6 @@
     checkForUpdate(true);
   });
 
-  // If an update was deferred only because a control had focus, retry as soon
-  // as the user leaves that control.
   document.addEventListener('focusout', () => {
     setTimeout(reloadWhenSafe, 0);
   }, true);
@@ -166,6 +250,5 @@
     reloadWhenSafe();
   }, CHECK_INTERVAL_MS);
 
-  // First check shortly after boot so normal page rendering is never delayed.
   setTimeout(() => checkForUpdate(true), 2500);
 })();
