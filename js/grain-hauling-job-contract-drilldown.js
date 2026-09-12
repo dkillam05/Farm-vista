@@ -1,5 +1,5 @@
 // FarmVista — Grain Inventory hauling-job contract drill-down
-// Updated 2026-09-11
+// Updated 2026-09-12
 // Detailed mode: hauling job -> linked contracts -> contract tickets.
 // Simple mode: hauling job -> tickets directly, with no warning-style header.
 // Also restores grade alert rings in hauling-job and Active Harvest drill-downs.
@@ -303,8 +303,11 @@ if (String(location.pathname || "").toLowerCase().endsWith("/pages/grain/index.h
   function patchRows(section) {
     section.querySelectorAll("[data-job-id]").forEach(row => {
       const job = jobs.find(item => item.id === row.dataset.jobId);
-      if (!job) return;
-      if (row.children[1]) row.children[1].textContent = soldUnderNamesForJob(job);
+      if (!job || !row.children[1]) return;
+      const next = soldUnderNamesForJob(job);
+      if (clean(row.children[1].textContent) !== clean(next)) {
+        row.children[1].textContent = next;
+      }
     });
   }
 
