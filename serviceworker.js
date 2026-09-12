@@ -1,20 +1,19 @@
 /* FarmVista SW — robust 404-friendly fetch (auto scope)
-   FIXES:
-   - Do NOT fetch version.js on every request (was causing unstable cache names on mobile).
-   - Do NOT cache firebase-init/firebase-config/theme-boot/startup (must be network-fresh).
-   - Keep version.js network-only.
+   UPDATE BEHAVIOR:
+   - version.js and boot-critical files are always network-fresh.
+   - HTML navigations are network-first.
+   - JS/CSS app code is network-first with cached offline fallback so a normal
+     reload cannot keep running yesterday's helper after a deployment.
+   - Images/fonts/other static assets remain stale-while-revalidate.
 */
 
 const SCOPE_PREFIX = self.location.pathname.replace(/serviceworker\.js$/, "");
 
-// ---------------- Version + cache names (computed once per SW lifetime) ----------------
 let NAMES_PROMISE = null;
 let NAMES = null;
 
 async function readVersionNumberOnce() {
   try {
-    // IMPORTANT: no Date.now() here; we only need "fresh enough" at SW startup.
-    // Also avoid cache-busting every request.
     const r = await fetch(`${SCOPE_PREFIX}js/version.js`, { cache: "no-store" });
     const t = await r.text();
     const m = t.match(/number\s*:\s*["']([\d.]+)["']/) || t.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
@@ -60,7 +59,6 @@ async function fetchAndPut(cache, url){
   } catch {}
 }
 
-// ---------------- Install / Activate ----------------
 self.addEventListener("install", (e)=>{
   e.waitUntil((async()=>{
     const { CACHE_STATIC, PRECACHE_URLS } = await makeNamesOnce();
@@ -80,9 +78,7 @@ self.addEventListener("activate", (e)=>{
   })());
 });
 
-// ---------------- Fetch rules ----------------
 function isBypassPath(pathname){
-  // Never cache boot-critical JS or live grain-ticket OCR templates. Always network-fresh.
   const p = pathname;
   return (
     p === `${SCOPE_PREFIX}js/version.js` ||
@@ -93,6 +89,10 @@ function isBypassPath(pathname){
     p === `${SCOPE_PREFIX}js/startup.js` ||
     p === `${SCOPE_PREFIX}js/grain-ticket-adm-decatur-grade-fix.js`
   );
+}
+
+function isAppCode(pathname){
+  return /\.(?:js|mjs|css)$/i.test(pathname);
 }
 
 self.addEventListener("fetch", (e)=>{
@@ -106,15 +106,16 @@ self.addEventListener("fetch", (e)=>{
   if (url.origin !== self.location.origin) return;
   if (!url.pathname.startsWith(SCOPE_PREFIX)) return;
 
-  // Always network-only for boot-critical stuff (prevents stale stub builds on iOS)
   if (isBypassPath(url.pathname)) {
     e.respondWith(
       fetch(req, { cache: "no-store" }).catch(async ()=>{
-        // fallback: if offline, try cache (but do NOT promote cache over network)
         try{
-          const { CACHE_STATIC } = await makeNamesOnce();
-          const cached = await (await caches.open(CACHE_STATIC)).match(req);
-          return cached || new Response("Offline", { status: 503 });
+          const { CACHE_STATIC, RUNTIME_ASSETS } = await makeNamesOnce();
+          return (
+            await (await caches.open(RUNTIME_ASSETS)).match(req) ||
+            await (await caches.open(CACHE_STATIC)).match(req) ||
+            new Response("Offline", { status: 503 })
+          );
         }catch{
           return new Response("Offline", { status: 503 });
         }
@@ -125,23 +126,24 @@ self.addEventListener("fetch", (e)=>{
 
   if (req.mode === "navigate") {
     e.respondWith(networkFirstAllow404(req));
+  } else if (isAppCode(url.pathname)) {
+    e.respondWith(networkFirstAsset(req));
   } else {
     e.respondWith(staleWhileRevalidateAllow404(req));
   }
 });
 
-// ---------------- Strategies ----------------
 async function networkFirstAllow404(request){
   const { CACHE_STATIC } = await makeNamesOnce();
   const cache = await caches.open(CACHE_STATIC);
   try {
     const ctrl = new AbortController();
-    const t=setTimeout(()=>ctrl.abort(),6000);
-    const res = await fetch(request, { signal: ctrl.signal });
+    const t = setTimeout(()=>ctrl.abort(),6000);
+    const res = await fetch(request, { signal: ctrl.signal, cache: "no-cache" });
     clearTimeout(t);
 
     if (res) {
-      if (res.ok) { cache.put(request, res.clone()); }
+      if (res.ok) cache.put(request, res.clone());
       return res;
     }
   } catch {
@@ -153,6 +155,32 @@ async function networkFirstAllow404(request){
   return fallback || new Response("Offline", { status: 503, headers:{ "Content-Type":"text/plain" }});
 }
 
+async function networkFirstAsset(request){
+  const { RUNTIME_ASSETS, CACHE_STATIC } = await makeNamesOnce();
+  const runtime = await caches.open(RUNTIME_ASSETS);
+
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 5000);
+    const response = await fetch(request, {
+      signal: ctrl.signal,
+      cache: "no-cache"
+    });
+    clearTimeout(timer);
+
+    if (response && response.ok) {
+      runtime.put(request, response.clone());
+    }
+    if (response) return response;
+  } catch {}
+
+  return (
+    await runtime.match(request) ||
+    await (await caches.open(CACHE_STATIC)).match(request) ||
+    new Response("Offline", { status: 503, headers:{ "Content-Type":"text/plain" }})
+  );
+}
+
 async function staleWhileRevalidateAllow404(request){
   const { RUNTIME_ASSETS, CACHE_STATIC } = await makeNamesOnce();
   const runtime = await caches.open(RUNTIME_ASSETS);
@@ -161,7 +189,7 @@ async function staleWhileRevalidateAllow404(request){
   const networkPromise = (async()=>{
     try {
       const res = await fetch(request);
-      if (res && res.ok) { runtime.put(request, res.clone()); }
+      if (res && res.ok) runtime.put(request, res.clone());
       return res || null;
     } catch { return null; }
   })();
@@ -175,7 +203,6 @@ async function staleWhileRevalidateAllow404(request){
   return stat || new Response("Offline", { status: 503, headers:{ "Content-Type":"text/plain" }});
 }
 
-// ---------------- Messages ----------------
 self.addEventListener('message', async (e)=>{
   const msg = e && e.data;
   if (msg === 'SKIP_WAITING') {
@@ -191,7 +218,6 @@ self.addEventListener('message', async (e)=>{
   }
 });
 
-// Push handlers unchanged (keep yours as-is)
 self.addEventListener('push', (event) => {
   let data = {};
   try {
