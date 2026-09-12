@@ -7,6 +7,7 @@ import "/js/grain-contracts-hauling-overview-groups.js?v=20260911-1540";
 import "/js/grain-contracts-ui-followup.js?v=20260912-0624";
 import "/js/grain-ticket-alert-table-sync.js?v=20260912-0624";
 import "/js/grain-hauling-status-dnd.js?v=20260912-0715";
+import "/js/grain-hauling-status-dnd-followup.js?v=20260912-0727";
 import {
   ready,
   getFirestore,
