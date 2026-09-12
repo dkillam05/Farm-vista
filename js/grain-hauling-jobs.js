@@ -27,7 +27,7 @@ function ticketIsVoided(ticket) {
 }
 
 function contractIsVoided(contract) {
-  return ticket?.voided === true || norm(contract?.status || contract?.contractStatus).includes("void");
+  return contract?.voided === true || norm(contract?.status || contract?.contractStatus).includes("void");
 }
 
 function installVoidGuardStyles() {
