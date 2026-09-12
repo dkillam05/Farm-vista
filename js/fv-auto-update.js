@@ -9,7 +9,8 @@
    - update/activate the service worker first;
    - reload once with a harmless version query so normal browser caches cannot
      hand the app an old HTML shell;
-   - preserve the user's current path/query/hash.
+   - NEVER reload the same release repeatedly if an old controlled page still
+     reports a stale in-memory version. One automatic reload attempt per release.
 */
 (function () {
   'use strict';
@@ -22,6 +23,7 @@
   const DEPLOY_SETTLE_MS = 4500;
   const VERSION_URL = '/js/version.js';
   const UPDATE_PARAM = 'fv_release';
+  const ATTEMPT_KEY = 'fv:auto-update-attempted-release';
 
   let lastCheckAt = 0;
   let updatePending = false;
@@ -36,6 +38,35 @@
     window.FV_BUILD ||
     ''
   ).trim();
+
+  const releaseFromUrl = (() => {
+    try {
+      return String(new URL(location.href).searchParams.get(UPDATE_PARAM) || '').trim();
+    } catch {
+      return '';
+    }
+  })();
+
+  function getAttemptedRelease() {
+    try { return String(sessionStorage.getItem(ATTEMPT_KEY) || '').trim(); }
+    catch { return ''; }
+  }
+
+  function setAttemptedRelease(version) {
+    try { sessionStorage.setItem(ATTEMPT_KEY, String(version || '')); }
+    catch {}
+  }
+
+  function clearAttemptedRelease() {
+    try { sessionStorage.removeItem(ATTEMPT_KEY); }
+    catch {}
+  }
+
+  // Once the page actually boots the requested release, clear the one-shot
+  // protection so a future release can update normally.
+  if (releaseFromUrl && initialVersion === releaseFromUrl) {
+    clearAttemptedRelease();
+  }
 
   function parseVersion(text) {
     const source = String(text || '');
@@ -58,6 +89,12 @@
 
     if (!response.ok) return '';
     return parseVersion(await response.text());
+  }
+
+  function alreadyAttempted(version) {
+    const wanted = String(version || '').trim();
+    if (!wanted) return false;
+    return releaseFromUrl === wanted || getAttemptedRelease() === wanted;
   }
 
   function isSafeToReload() {
@@ -137,8 +174,11 @@
   }
 
   function freshReload(version) {
+    const wanted = String(version || Date.now());
+    setAttemptedRelease(wanted);
+
     const url = new URL(location.href);
-    url.searchParams.set(UPDATE_PARAM, version || Date.now().toString());
+    url.searchParams.set(UPDATE_PARAM, wanted);
 
     // replace() avoids adding a useless update-only history entry.
     location.replace(url.toString());
@@ -147,6 +187,10 @@
   async function reloadWhenSafe() {
     if (!updatePending || reloadStarted) return;
     if (!isSafeToReload()) return;
+    if (alreadyAttempted(pendingVersion)) {
+      updatePending = false;
+      return;
+    }
 
     reloadStarted = true;
 
@@ -164,9 +208,11 @@
       try {
         const confirmed = await fetchDeployedVersion();
 
+        if (!confirmed || confirmed === initialVersion) return;
+        if (alreadyAttempted(confirmed)) return;
+
         // If another version landed during the short settle window, restart
         // the wait for that newest version rather than reloading mid-deploy.
-        if (!confirmed || confirmed === initialVersion) return;
         if (confirmed !== version) {
           pendingVersion = confirmed;
           confirmSettledUpdate(confirmed);
@@ -201,6 +247,11 @@
       if (!deployedVersion || !initialVersion) return;
 
       if (deployedVersion !== initialVersion) {
+        // Critical loop guard: if this browser already attempted this exact
+        // release, do not flash/reload every DEPLOY_SETTLE_MS. A normal later
+        // navigation or manual refresh can still pick up fresh assets.
+        if (alreadyAttempted(deployedVersion)) return;
+
         if (deployedVersion !== pendingVersion) {
           console.info(
             '[FarmVista Update] New version detected:',
