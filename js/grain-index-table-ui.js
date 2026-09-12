@@ -3,15 +3,15 @@
 
    - Adds the same compact three-line sort icon used on Grain Contracts.
    - Underlines the active sort header instead of swapping arrow icons.
-   - Applies to Grain Index main tables and Active Harvest drill-down tables.
+   - Applies to Grain Index main tables, Active Hauling Jobs, and Active Harvest drill-down tables.
    - Reads settings/grainTicketAlerts so MO/FM/Damage colors follow the
      company's saved Corn/Soybean alert thresholds instead of hard-coded values.
 */
 (() => {
   'use strict';
 
-  if (window.__FV_GRAIN_INDEX_TABLE_UI_20260912_V1) return;
-  window.__FV_GRAIN_INDEX_TABLE_UI_20260912_V1 = true;
+  if (window.__FV_GRAIN_INDEX_TABLE_UI_20260912_V2) return;
+  window.__FV_GRAIN_INDEX_TABLE_UI_20260912_V2 = true;
 
   const clean = value => String(value ?? '').trim();
   const norm = value => clean(value).toLowerCase();
@@ -36,13 +36,15 @@
     style.id = 'fv-grain-index-table-ui-style';
     style.textContent = `
       .inventory-table th.fv-sortable,
-      .harvest-drill-table th.fv-sortable{
+      .harvest-drill-table th.fv-sortable,
+      .fv-ahj-table th.fv-sortable{
         cursor:pointer;
         user-select:none;
       }
 
       .inventory-table th.fv-sortable::after,
-      .harvest-drill-table th.fv-sortable::after{
+      .harvest-drill-table th.fv-sortable::after,
+      .fv-ahj-table th.fv-sortable::after{
         content:"";
         display:inline-block;
         width:15px;
@@ -56,14 +58,16 @@
       }
 
       .inventory-table th.fv-sortable.fv-sort-active,
-      .harvest-drill-table th.fv-sortable.fv-sort-active{
+      .harvest-drill-table th.fv-sortable.fv-sort-active,
+      .fv-ahj-table th.fv-sortable.fv-sort-active{
         text-decoration:underline;
         text-decoration-thickness:2px;
         text-underline-offset:4px;
       }
 
       .inventory-table th.fv-sortable.fv-sort-active::after,
-      .harvest-drill-table th.fv-sortable.fv-sort-active::after{
+      .harvest-drill-table th.fv-sortable.fv-sort-active::after,
+      .fv-ahj-table th.fv-sortable.fv-sort-active::after{
         opacity:.8;
       }
 
@@ -126,7 +130,7 @@
   function sortTypeForHeader(header) {
     const text = norm(header.textContent);
     if (/date/.test(text)) return 'date';
-    if (/bushel|loads?|bags?|moisture|\bfm\b|foreign|damage|on hand/.test(text)) return 'number';
+    if (/bushel|loads?|bags?|moisture|\bfm\b|foreign|damage|on hand|starting|ticketed|remaining|avg mo|avg fm/.test(text)) return 'number';
     return 'text';
   }
 
@@ -158,6 +162,42 @@
     });
   }
 
+  function sortRows(rows, column, type, direction) {
+    return [...rows].sort((rowA, rowB) => {
+      const valueA = rowA.cells[column]?.textContent || '';
+      const valueB = rowB.cells[column]?.textContent || '';
+      const result = compareValues(valueA, valueB, type);
+      return direction === 'asc' ? result : -result;
+    });
+  }
+
+  function applyHaulingJobSort(table, tbody, headers, current) {
+    const allRows = Array.from(tbody.children).filter(row => row.tagName === 'TR');
+    const type = sortTypeForHeader(headers[current.column]);
+    const rebuilt = [];
+    let segment = [];
+
+    const flush = () => {
+      if (!segment.length) return;
+      rebuilt.push(...sortRows(segment, current.column, type, current.direction));
+      segment = [];
+    };
+
+    allRows.forEach(row => {
+      const isDataRow = row.cells.length === headers.length && !row.querySelector('.fv-ahj-empty');
+      if (isDataRow) {
+        segment.push(row);
+      }
+      else {
+        flush();
+        rebuilt.push(row);
+      }
+    });
+    flush();
+
+    rebuilt.forEach(row => tbody.appendChild(row));
+  }
+
   function applySort(table) {
     const key = tableKey(table);
     const current = sortState.get(key);
@@ -166,6 +206,11 @@
     const headers = Array.from(table.querySelectorAll('thead th'));
     const tbody = table.querySelector('tbody');
     if (!tbody || current.column < 0 || current.column >= headers.length) return;
+
+    if (table.classList.contains('fv-ahj-table')) {
+      applyHaulingJobSort(table, tbody, headers, current);
+      return;
+    }
 
     const rows = Array.from(tbody.children).filter(row =>
       row.tagName === 'TR' &&
@@ -176,12 +221,7 @@
     if (rows.length < 2) return;
 
     const type = sortTypeForHeader(headers[current.column]);
-    const sorted = [...rows].sort((rowA, rowB) => {
-      const valueA = rowA.cells[current.column]?.textContent || '';
-      const valueB = rowB.cells[current.column]?.textContent || '';
-      const result = compareValues(valueA, valueB, type);
-      return current.direction === 'asc' ? result : -result;
-    });
+    const sorted = sortRows(rows, current.column, type, current.direction);
 
     const alreadySorted = sorted.every((row, index) => row === rows[index]);
     if (alreadySorted) return;
@@ -230,7 +270,7 @@
 
   function metricFromHeader(text) {
     const key = norm(text);
-    if (key.includes('moisture')) return 'moisture';
+    if (key.includes('moisture') || key.includes('avg mo')) return 'moisture';
     if (key === 'fm' || key.includes('avg fm') || key.includes('foreign')) return 'foreignMaterial';
     if (key.includes('damage')) return 'damage';
     return '';
@@ -364,7 +404,7 @@
   }
 
   function applyUi() {
-    document.querySelectorAll('table.inventory-table, table.harvest-drill-table')
+    document.querySelectorAll('table.inventory-table, table.harvest-drill-table, table.fv-ahj-table')
       .forEach(table => {
         decorateSortTable(table);
         colorTableGrades(table);
