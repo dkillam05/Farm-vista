@@ -6,12 +6,13 @@
    - Applies to Grain Index main tables, Active Hauling Jobs, and Active Harvest drill-down tables.
    - Reads settings/grainTicketAlerts so MO/FM/Damage colors follow the
      company's saved Corn/Soybean alert thresholds instead of hard-coded values.
+   - V3 prevents the MutationObserver from repeatedly rebuilding normal grade cells.
 */
 (() => {
   'use strict';
 
-  if (window.__FV_GRAIN_INDEX_TABLE_UI_20260912_V2) return;
-  window.__FV_GRAIN_INDEX_TABLE_UI_20260912_V2 = true;
+  if (window.__FV_GRAIN_INDEX_TABLE_UI_20260912_V3) return;
+  window.__FV_GRAIN_INDEX_TABLE_UI_20260912_V3 = true;
 
   const clean = value => String(value ?? '').trim();
   const norm = value => clean(value).toLowerCase();
@@ -21,6 +22,7 @@
   let firebaseApi = null;
   let refreshTimer = null;
   let mutationQueued = false;
+  let applyingUi = false;
 
   function cropKey(value) {
     const key = norm(value).replace(/[^a-z]/g, '');
@@ -195,6 +197,9 @@
     });
     flush();
 
+    const unchanged = rebuilt.length === allRows.length && rebuilt.every((row, index) => row === allRows[index]);
+    if (unchanged) return;
+
     rebuilt.forEach(row => tbody.appendChild(row));
   }
 
@@ -345,11 +350,23 @@
     let pill = cell.querySelector(':scope > .fv-grade-alert');
 
     if (value === null) {
-      pill?.replaceWith(document.createTextNode(clean(pill.textContent)));
+      if (pill) pill.replaceWith(document.createTextNode(clean(pill.textContent)));
       return;
     }
 
     const level = gradeLevel(crop, metric, value);
+
+    // Critical: normal values stay as plain text. The older helper briefly
+    // wrapped every normal value in a pill and immediately unwrapped it.
+    // Its MutationObserver saw those DOM changes and repeated forever,
+    // which could leave Grain Inventory stuck on the loading screen.
+    if (!level) {
+      if (pill) {
+        const text = pill.textContent;
+        pill.replaceWith(document.createTextNode(text));
+      }
+      return;
+    }
 
     if (!pill) {
       const text = clean(cell.textContent);
@@ -360,13 +377,8 @@
       cell.appendChild(pill);
     }
 
-    pill.classList.remove('warn', 'severe');
-    if (level) pill.classList.add(level);
-
-    if (!level) {
-      const text = pill.textContent;
-      pill.replaceWith(document.createTextNode(text));
-    }
+    pill.classList.toggle('warn', level === 'warn');
+    pill.classList.toggle('severe', level === 'severe');
   }
 
   function colorTableGrades(table) {
@@ -404,14 +416,22 @@
   }
 
   function applyUi() {
-    document.querySelectorAll('table.inventory-table, table.harvest-drill-table, table.fv-ahj-table')
-      .forEach(table => {
-        decorateSortTable(table);
-        colorTableGrades(table);
-      });
+    if (applyingUi) return;
+    applyingUi = true;
 
-    colorDetailGrades(document.getElementById('harvest-modal-summary'));
-    colorDetailGrades(document.querySelector('#edit-modal-backdrop .detail-grid'));
+    try {
+      document.querySelectorAll('table.inventory-table, table.harvest-drill-table, table.fv-ahj-table')
+        .forEach(table => {
+          decorateSortTable(table);
+          colorTableGrades(table);
+        });
+
+      colorDetailGrades(document.getElementById('harvest-modal-summary'));
+      colorDetailGrades(document.querySelector('#edit-modal-backdrop .detail-grid'));
+    }
+    finally {
+      applyingUi = false;
+    }
   }
 
   async function loadSettings() {
@@ -436,7 +456,7 @@
   }
 
   function queueApply() {
-    if (mutationQueued) return;
+    if (applyingUi || mutationQueued) return;
     mutationQueued = true;
     requestAnimationFrame(() => {
       mutationQueued = false;
