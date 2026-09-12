@@ -145,7 +145,7 @@ pattern = re.compile(
     re.S,
 )
 
-updated, count = pattern.subn(new_function, text, count=1)
+updated, count = pattern.subn(lambda _: new_function, text, count=1)
 if count != 1:
     raise SystemExit(f'Expected to replace 1 completion helper, replaced {count}')
 
