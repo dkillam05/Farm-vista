@@ -10,6 +10,7 @@ import "/js/grain-hauling-status-dnd.js?v=20260912-0715";
 import "/js/grain-hauling-status-dnd-followup.js?v=20260912-0744";
 import "/js/grain-hauling-ticket-sequence.js?v=20260912-0748";
 import "/js/grain-hauling-split-portion-dnd.js?v=20260912-0913";
+import "/js/grain-hauling-left-drop-zone.js?v=20260912-0915";
 import {
   ready,
   getFirestore,
