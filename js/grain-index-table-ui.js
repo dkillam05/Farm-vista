@@ -4,15 +4,16 @@
    - Adds the same compact three-line sort icon used on Grain Contracts.
    - Underlines the active sort header instead of swapping arrow icons.
    - Applies to Grain Index main tables, Active Hauling Jobs, and Active Harvest drill-down tables.
+   - Matches Grain Contracts remaining-bushel color cues and hover percentage helper text.
    - Reads settings/grainTicketAlerts so MO/FM/Damage colors follow the
      company's saved Corn/Soybean alert thresholds instead of hard-coded values.
-   - V3 prevents the MutationObserver from repeatedly rebuilding normal grade cells.
+   - V4 preserves the V3 MutationObserver guard while adding remaining-bushel cues.
 */
 (() => {
   'use strict';
 
-  if (window.__FV_GRAIN_INDEX_TABLE_UI_20260912_V3) return;
-  window.__FV_GRAIN_INDEX_TABLE_UI_20260912_V3 = true;
+  if (window.__FV_GRAIN_INDEX_TABLE_UI_20260912_V4) return;
+  window.__FV_GRAIN_INDEX_TABLE_UI_20260912_V4 = true;
 
   const clean = value => String(value ?? '').trim();
   const norm = value => clean(value).toLowerCase();
@@ -98,8 +99,44 @@
         color:#9d241e;
       }
 
+      .inventory-table td.fv-grain-remaining-green,
+      .fv-ahj-table td.fv-grain-remaining-green{
+        background:rgba(59,126,70,.15)!important;
+        color:#2d6937!important;
+        font-weight:900!important;
+      }
+
+      .inventory-table td.fv-grain-remaining-orange,
+      .fv-ahj-table td.fv-grain-remaining-orange{
+        background:rgba(230,126,34,.17)!important;
+        color:#a65300!important;
+        font-weight:900!important;
+      }
+
+      .inventory-table td.fv-grain-remaining-red,
+      .fv-ahj-table td.fv-grain-remaining-red{
+        background:rgba(179,38,30,.14)!important;
+        color:#9d241e!important;
+        font-weight:900!important;
+      }
+
+      .inventory-table td.fv-grain-remaining-green,
+      .inventory-table td.fv-grain-remaining-orange,
+      .inventory-table td.fv-grain-remaining-red,
+      .fv-ahj-table td.fv-grain-remaining-green,
+      .fv-ahj-table td.fv-grain-remaining-orange,
+      .fv-ahj-table td.fv-grain-remaining-red{
+        box-shadow:inset 0 0 0 1px rgba(0,0,0,.035);
+      }
+
       [data-theme="dark"] .fv-grade-alert.warn{color:#f4bb78}
       [data-theme="dark"] .fv-grade-alert.severe{color:#ffaaa4}
+      [data-theme="dark"] .inventory-table td.fv-grain-remaining-green,
+      [data-theme="dark"] .fv-ahj-table td.fv-grain-remaining-green{color:#b9e4bf!important}
+      [data-theme="dark"] .inventory-table td.fv-grain-remaining-orange,
+      [data-theme="dark"] .fv-ahj-table td.fv-grain-remaining-orange{color:#f4bb78!important}
+      [data-theme="dark"] .inventory-table td.fv-grain-remaining-red,
+      [data-theme="dark"] .fv-ahj-table td.fv-grain-remaining-red{color:#ffaaa4!important}
     `;
     document.head.appendChild(style);
   }
@@ -288,6 +325,73 @@
     return Number.isFinite(number) ? number : null;
   }
 
+  function remainingClassForPercent(percent) {
+    if (percent < 5) return 'fv-grain-remaining-red';
+    if (percent < 35) return 'fv-grain-remaining-orange';
+    return 'fv-grain-remaining-green';
+  }
+
+  function clearRemainingClasses(cell) {
+    cell?.classList.remove(
+      'fv-grain-remaining-green',
+      'fv-grain-remaining-orange',
+      'fv-grain-remaining-red'
+    );
+  }
+
+  function remainingTotalIndex(headers, remainingIndex) {
+    const labels = headers.map(header => norm(header.textContent).replace(/\s+/g, ' '));
+
+    const preferred = labels.findIndex((label, index) =>
+      index !== remainingIndex &&
+      /(starting|job|contract|total)/.test(label) &&
+      /(bushel|\bbu\b)/.test(label)
+    );
+    if (preferred >= 0) return preferred;
+
+    return labels.findIndex((label, index) =>
+      index !== remainingIndex &&
+      /^(bushels?|bu\.?|bushels? total|total bu\.?)$/.test(label)
+    );
+  }
+
+  function decorateRemainingBushels(table) {
+    if (!table) return;
+
+    const headers = Array.from(table.querySelectorAll('thead th'));
+    if (!headers.length) return;
+
+    const remainingColumns = headers
+      .map((header, index) => ({ index, label: norm(header.textContent) }))
+      .filter(item => item.label.includes('remaining'));
+
+    if (!remainingColumns.length) return;
+
+    remainingColumns.forEach(({ index: remainingIndex }) => {
+      const totalIndex = remainingTotalIndex(headers, remainingIndex);
+      if (totalIndex < 0) return;
+
+      Array.from(table.querySelectorAll('tbody tr')).forEach(row => {
+        if (row.cells.length !== headers.length) return;
+
+        const remainingCell = row.cells[remainingIndex];
+        const totalCell = row.cells[totalIndex];
+        if (!remainingCell || !totalCell) return;
+
+        clearRemainingClasses(remainingCell);
+        remainingCell.removeAttribute('title');
+
+        const total = valueFromText(totalCell.textContent);
+        const remaining = valueFromText(remainingCell.textContent);
+        if (!(total > 0) || remaining === null) return;
+
+        const percent = Math.max(0, (remaining / total) * 100);
+        remainingCell.classList.add(remainingClassForPercent(percent));
+        remainingCell.title = `${percent.toFixed(1)}% of bushels remaining`;
+      });
+    });
+  }
+
   function cropFromTableRow(table, row) {
     const headers = Array.from(table.querySelectorAll('thead th'));
     const cropIndex = headers.findIndex(header => norm(header.textContent) === 'crop');
@@ -423,6 +527,7 @@
       document.querySelectorAll('table.inventory-table, table.harvest-drill-table, table.fv-ahj-table')
         .forEach(table => {
           decorateSortTable(table);
+          decorateRemainingBushels(table);
           colorTableGrades(table);
         });
 
