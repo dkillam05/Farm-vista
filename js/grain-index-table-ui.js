@@ -4,16 +4,16 @@
    - Adds the same compact three-line sort icon used on Grain Contracts.
    - Underlines the active sort header instead of swapping arrow icons.
    - Applies to Grain Index main tables, Active Hauling Jobs, and Active Harvest drill-down tables.
-   - Matches Grain Contracts remaining-bushel color cues and hover percentage helper text.
+   - Matches Grain Contracts hauling-job remaining-bushel FONT cues and hover percentage helper text.
    - Reads settings/grainTicketAlerts so MO/FM/Damage colors follow the
      company's saved Corn/Soybean alert thresholds instead of hard-coded values.
-   - V4 preserves the V3 MutationObserver guard while adding remaining-bushel cues.
+   - V5 keeps remaining-cell backgrounds completely untouched; only the font changes color.
 */
 (() => {
   'use strict';
 
-  if (window.__FV_GRAIN_INDEX_TABLE_UI_20260912_V4) return;
-  window.__FV_GRAIN_INDEX_TABLE_UI_20260912_V4 = true;
+  if (window.__FV_GRAIN_INDEX_TABLE_UI_20260912_V5) return;
+  window.__FV_GRAIN_INDEX_TABLE_UI_20260912_V5 = true;
 
   const clean = value => String(value ?? '').trim();
   const norm = value => clean(value).toLowerCase();
@@ -33,10 +33,13 @@
   }
 
   function installStyles() {
-    if (document.getElementById('fv-grain-index-table-ui-style')) return;
+    // Remove the V4 style block if it is already on the page. V4 painted the
+    // entire Remaining cell; V5 intentionally colors only the text.
+    document.getElementById('fv-grain-index-table-ui-style')?.remove();
+    if (document.getElementById('fv-grain-index-table-ui-style-v5')) return;
 
     const style = document.createElement('style');
-    style.id = 'fv-grain-index-table-ui-style';
+    style.id = 'fv-grain-index-table-ui-style-v5';
     style.textContent = `
       .inventory-table th.fv-sortable,
       .harvest-drill-table th.fv-sortable,
@@ -99,34 +102,36 @@
         color:#9d241e;
       }
 
+      /* Remaining bushels: EXACTLY like the Grain Contracts hauling-job table.
+         Do not tint the cell. Only change the number's font color/weight. */
       .inventory-table td.fv-grain-remaining-green,
       .fv-ahj-table td.fv-grain-remaining-green{
-        background:rgba(59,126,70,.15)!important;
+        background:transparent!important;
+        background-color:transparent!important;
+        background-image:none!important;
+        box-shadow:none!important;
         color:#2d6937!important;
         font-weight:900!important;
       }
 
       .inventory-table td.fv-grain-remaining-orange,
       .fv-ahj-table td.fv-grain-remaining-orange{
-        background:rgba(230,126,34,.17)!important;
+        background:transparent!important;
+        background-color:transparent!important;
+        background-image:none!important;
+        box-shadow:none!important;
         color:#a65300!important;
         font-weight:900!important;
       }
 
       .inventory-table td.fv-grain-remaining-red,
       .fv-ahj-table td.fv-grain-remaining-red{
-        background:rgba(179,38,30,.14)!important;
+        background:transparent!important;
+        background-color:transparent!important;
+        background-image:none!important;
+        box-shadow:none!important;
         color:#9d241e!important;
         font-weight:900!important;
-      }
-
-      .inventory-table td.fv-grain-remaining-green,
-      .inventory-table td.fv-grain-remaining-orange,
-      .inventory-table td.fv-grain-remaining-red,
-      .fv-ahj-table td.fv-grain-remaining-green,
-      .fv-ahj-table td.fv-grain-remaining-orange,
-      .fv-ahj-table td.fv-grain-remaining-red{
-        box-shadow:inset 0 0 0 1px rgba(0,0,0,.035);
       }
 
       [data-theme="dark"] .fv-grade-alert.warn{color:#f4bb78}
