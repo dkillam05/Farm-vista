@@ -1,10 +1,24 @@
 /* FarmVista Grain Ticket dashboard destination / hauling-job warning
-   Rev 2026-09-11a
+   Rev 2026-09-12a
 
-   Resolved tickets that are already assigned to a valid hauling job must show
-   Good on the dashboard even when an older OCR/review flag is still stored on
-   the ticket. Historical assigned tickets are not reclassified as Warning just
-   because their hauling job is no longer the current open job.
+   Office dashboard status helper only. This file never runs in the driver
+   scanner, never blocks a save, and never changes hauling-job assignment.
+
+   Resolved tickets that are already assigned to a valid hauling job normally
+   show Good on the dashboard even when an older OCR/review flag is still stored
+   on the ticket. However, office-only sanity checks may still mark that linked
+   ticket Review so the ticket image can be verified without interrupting the
+   driver's workflow.
+
+   Sanity-review ranges:
+     - Gross weight: Review over 95,000 lb
+     - Tare weight: Review below 20,000 or above 35,000 lb
+     - Gross bushels: Review at 1,200 bu or more
+     - Net bushels: Review when more than 15% different from gross bushels
+     - Test weight (TW): 45 through 70
+     - Moisture (MO): 7 through 35
+     - Damage (DM): 0 through 20
+     - Foreign material (FM): 0 through 20
 
    Unassigned review tickets can still become Warning when their resolved
    destination + crop have no current open hauling job. Missing contract alone
@@ -40,6 +54,15 @@
     return !!v&&v!=='unknown'&&v!=='none'&&v!=='not selected'&&v!=='notselected';
   };
 
+  const numeric=(...values)=>{
+    for(const raw of values){
+      if(raw===null||raw===undefined||clean(raw)==='') continue;
+      const value=Number(clean(raw).replace(/,/g,'').replace(/%/g,''));
+      if(Number.isFinite(value)) return value;
+    }
+    return null;
+  };
+
   const cropKey=value=>{
     const v=norm(value);
     if(v.includes('soy')) return 'soybeans';
@@ -51,6 +74,99 @@
     const d=new Date();
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   };
+
+  function ticketSanityReviewReasons(ticket){
+    const reasons=[];
+
+    const grossWeight=numeric(
+      ticket?.grossWeight,
+      ticket?.gross,
+      ticket?.grossLbs,
+      ticket?.grossLb
+    );
+
+    const tareWeight=numeric(
+      ticket?.tareWeight,
+      ticket?.tare,
+      ticket?.tareLbs,
+      ticket?.tareLb
+    );
+
+    const grossBushels=numeric(
+      ticket?.grossBushels,
+      ticket?.grossBu,
+      ticket?.grossBushel
+    );
+
+    const netBushels=numeric(
+      ticket?.netBushels,
+      ticket?.netBu,
+      ticket?.netBushel
+    );
+
+    const testWeight=numeric(
+      ticket?.testWeight,
+      ticket?.tw,
+      ticket?.TW
+    );
+
+    const moisture=numeric(
+      ticket?.moisture,
+      ticket?.mo,
+      ticket?.MO
+    );
+
+    const damage=numeric(
+      ticket?.damage,
+      ticket?.dm,
+      ticket?.DM
+    );
+
+    const foreignMaterial=numeric(
+      ticket?.foreignMaterial,
+      ticket?.fm,
+      ticket?.FM
+    );
+
+    if(grossWeight!==null&&grossWeight>95000){
+      reasons.push('gross_weight_over_95000');
+    }
+
+    if(tareWeight!==null&&(tareWeight<20000||tareWeight>35000)){
+      reasons.push('tare_weight_outside_20000_35000');
+    }
+
+    if(grossBushels!==null&&grossBushels>=1200){
+      reasons.push('gross_bushels_1200_or_more');
+    }
+
+    if(
+      grossBushels!==null&&
+      grossBushels>0&&
+      netBushels!==null&&
+      Math.abs(netBushels-grossBushels)/grossBushels>0.15
+    ){
+      reasons.push('net_bushels_over_15_percent_from_gross');
+    }
+
+    if(testWeight!==null&&(testWeight<45||testWeight>70)){
+      reasons.push('test_weight_outside_45_70');
+    }
+
+    if(moisture!==null&&(moisture<7||moisture>35)){
+      reasons.push('moisture_outside_7_35');
+    }
+
+    if(damage!==null&&(damage<0||damage>20)){
+      reasons.push('damage_outside_0_20');
+    }
+
+    if(foreignMaterial!==null&&(foreignMaterial<0||foreignMaterial>20)){
+      reasons.push('foreign_material_outside_0_20');
+    }
+
+    return reasons;
+  }
 
   function jobIsOpen(job){
     if(!job||job.active===false||job.isActive===false) return false;
@@ -200,6 +316,18 @@
     if(badge.textContent!=='Good') badge.textContent='Good';
     badge.removeAttribute('title');
     delete badge.dataset.fvDestinationJobWarning;
+    delete badge.dataset.fvSanityReview;
+  }
+
+  function makeReview(row,badge){
+    row.classList.remove('ticket-warning-row');
+    row.classList.add('ticket-review-row');
+    badge.classList.remove('warning','job','good');
+    badge.classList.add('review');
+    if(badge.textContent!=='Review') badge.textContent='Review';
+    badge.removeAttribute('title');
+    delete badge.dataset.fvDestinationJobWarning;
+    badge.dataset.fvSanityReview='1';
   }
 
   function resetBadge(row,badge){
@@ -228,6 +356,7 @@
     if(badge.textContent!=='Warning') badge.textContent='Warning';
     badge.title='No current open hauling job matches this ticket destination and crop.';
     badge.dataset.fvDestinationJobWarning='1';
+    delete badge.dataset.fvSanityReview;
   }
 
   function apply(){
@@ -248,27 +377,48 @@
         const badge=row.querySelector('.ticket-status');
         if(!badge) return;
 
+        const sanityReviewReasons=ticketSanityReviewReasons(ticket);
+        const sanityNeedsReview=sanityReviewReasons.length>0;
+
         /*
-          Once the ticket has a real hauling job and the load context is fully
-          resolved, the dashboard must agree with Ticket Detail and show Good.
-          Do this before checking stale validationStatus/reviewReasons.
+          A real hauling-job assignment remains fully active. The sanity checks
+          below are only an office dashboard Review marker and never undo,
+          delay, or block that assignment.
         */
         if(ticketHasResolvedAssignment(ticket)){
-          makeGood(row,badge);
+          if(sanityNeedsReview){
+            makeReview(row,badge);
+          }else{
+            makeGood(row,badge);
+          }
+          return;
+        }
+
+        /*
+          Preserve the existing operational Warning behavior. If a ticket has
+          no current open hauling job for its resolved destination/crop, that
+          remains Warning rather than being downgraded to a sanity Review.
+        */
+        if(!hasOpenHaulingJobForTicket(ticket)){
+          const unresolved=
+            norm(ticket.validationStatus)==='needs review'||
+            badge.classList.contains('review')||
+            badge.dataset.fvDestinationJobWarning==='1';
+
+          if(unresolved){
+            makeWarning(row,badge);
+            return;
+          }
+        }
+
+        if(sanityNeedsReview){
+          makeReview(row,badge);
           return;
         }
 
         if(hasOpenHaulingJobForTicket(ticket)){
           resetBadge(row,badge);
-          return;
         }
-
-        const unresolved=
-          norm(ticket.validationStatus)==='needs review'||
-          badge.classList.contains('review')||
-          badge.dataset.fvDestinationJobWarning==='1';
-
-        if(unresolved) makeWarning(row,badge);
       });
     }finally{
       applying=false;
