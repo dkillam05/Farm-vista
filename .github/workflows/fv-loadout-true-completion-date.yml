@@ -1,0 +1,53 @@
+name: Strengthen hauling job completion date
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fv-loadout-true-completion-date.yml'
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch Grain Tickets load-out completion logic
+        run: python .github/scripts/fix-loadout-true-completion-date.py
+
+      - name: Syntax check inline JavaScript
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re, subprocess, tempfile
+
+          text = Path('pages/grain/grain-ticket.html').read_text(encoding='utf-8')
+          scripts = re.findall(r'<script(?:\s+type="module")?>(.*?)</script>', text, re.S)
+          for i, script in enumerate(scripts):
+              if not script.strip():
+                  continue
+              suffix = '.mjs' if 'import ' in script or 'await ready' in script else '.js'
+              with tempfile.NamedTemporaryFile('w', suffix=suffix, delete=False, encoding='utf-8') as f:
+                  f.write(script)
+                  name = f.name
+              result = subprocess.run(['node', '--check', name], capture_output=True, text=True)
+              if result.returncode:
+                  print(result.stdout)
+                  print(result.stderr)
+                  raise SystemExit(f'Inline script {i} failed syntax check')
+          print('Inline JavaScript syntax check passed')
+          PY
+
+      - name: Commit strengthened completion logic
+        run: |
+          if git diff --quiet -- pages/grain/grain-ticket.html; then
+            echo 'No grain-ticket change needed.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pages/grain/grain-ticket.html
+          git commit -m 'Use true hauling job completion date for overhaul window'
+          git pull --rebase origin main
+          git push origin main
