@@ -9,7 +9,7 @@ import "/js/grain-ticket-alert-table-sync.js?v=20260912-0624";
 import "/js/grain-hauling-status-dnd.js?v=20260912-0715";
 import "/js/grain-hauling-status-dnd-followup.js?v=20260912-0744";
 import "/js/grain-hauling-ticket-sequence.js?v=20260912-0748";
-import "/js/grain-hauling-split-portion-dnd.js?v=20260912-0845";
+import "/js/grain-hauling-split-portion-dnd.js?v=20260912-0902";
 import {
   ready,
   getFirestore,
@@ -31,7 +31,7 @@ function ticketIsVoided(ticket) {
 }
 
 function contractIsVoided(contract) {
-  return contract?.voided === true || norm(contract?.status || contract?.contractStatus).includes("void");
+  return ticket?.voided === true || norm(contract?.status || contract?.contractStatus).includes("void");
 }
 
 function installVoidGuardStyles() {
@@ -99,15 +99,6 @@ function installSoldUnderComboScopeGuard() {
 
 /* ============================================================
    CONTRACT -> HAULING JOB PROPAGATION
-
-   Grain Contracts owns the split-load contract allocation model.
-   Hauling-job totals, however, are intentionally calculated from
-   grain tickets linked to the job. When an unassigned ticket is
-   dragged/assigned to a contract that is already linked to a
-   hauling job, carry that haulingJobId back onto the ticket.
-
-   This also repairs older tickets that were assigned to a linked
-   contract before this propagation existed.
 ============================================================ */
 
 let contractJobSyncTimer = null;
