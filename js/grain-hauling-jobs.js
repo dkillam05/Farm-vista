@@ -4,7 +4,8 @@
 // and propagate contract assignments back to linked hauling jobs.
 import "/js/grain-hauling-jobs-core.js";
 import "/js/grain-contracts-hauling-overview-groups.js?v=20260911-1540";
-import "/js/grain-contracts-ui-followup.js?v=20260911-1608";
+import "/js/grain-contracts-ui-followup.js?v=20260912-0624";
+import "/js/grain-ticket-alert-table-sync.js?v=20260912-0624";
 import {
   ready,
   getFirestore,
@@ -26,7 +27,7 @@ function ticketIsVoided(ticket) {
 }
 
 function contractIsVoided(contract) {
-  return contract?.voided === true || norm(contract?.status || contract?.contractStatus).includes("void");
+  return ticket?.voided === true || norm(contract?.status || contract?.contractStatus).includes("void");
 }
 
 function installVoidGuardStyles() {
