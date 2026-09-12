@@ -11109,6 +11109,20 @@ function loSelectedCustomer(){
   function loHaulingJobCompletionISO(job){
     if (!job) return "";
 
+    /*
+      TRUE COMPLETION DATE PRIORITY
+
+      1) A dedicated completion field wins when FarmVista has already
+         stored one.
+      2) Otherwise derive the date from the assigned ticket history:
+         the calendar date on which cumulative ticket bushels first
+         reached/exceeded the hauling-job starting bushels.
+      3) Never use hauling-job updatedAt as a completion fallback.
+
+      That last rule is important: editing a completed job later (for
+      example correcting 50,000 bu to 5,000 bu) must NOT create a fresh
+      two-day overhaul window.
+    */
     const explicitCandidates = [
       job.completedDate,
       job.completionDate,
@@ -11157,14 +11171,17 @@ function loSelectedCustomer(){
       })
       .map(ticket => {
         const ticketDate = loClean(ticket.ticketDate);
-        const dateMillis = loDateFromISO(ticketDate)?.getTime() || 0;
+        const ticketDateMillis =
+          loDateFromISO(ticketDate)?.getTime() ||
+          0;
+
         const eventMillis =
           loMillis(
             ticket.ticketLinkedAt ||
             ticket.linkedAt ||
             ticket.createdAt ||
             ticket.updatedAt
-          ) || dateMillis;
+          );
 
         const rawBushels = Number(
           ticket?.netBushels ??
@@ -11173,14 +11190,22 @@ function loSelectedCustomer(){
           0
         );
 
+        /*
+          The scale-ticket date is the operational date grain was hauled.
+          Use it as the primary completion chronology. Timestamps are only
+          a same-day/fallback tie-breaker for legacy tickets without a date.
+        */
         return {
           ticketDate,
+          ticketDateMillis,
           eventMillis,
+          sortMillis:ticketDateMillis || eventMillis || 0,
           bushels:Number.isFinite(rawBushels) ? Math.max(0,rawBushels) : 0
         };
       })
       .filter(item => item.bushels > 0)
       .sort((a,b) =>
+        a.sortMillis - b.sortMillis ||
         a.eventMillis - b.eventMillis ||
         a.ticketDate.localeCompare(b.ticketDate)
       );
@@ -11189,27 +11214,23 @@ function loSelectedCustomer(){
       accumulated += item.bushels;
 
       if (accumulated + 0.005 >= starting) {
+        if (item.ticketDate) {
+          return item.ticketDate;
+        }
+
         if (item.eventMillis > 0) {
           return loLocalISO(new Date(item.eventMillis));
         }
 
-        return item.ticketDate;
+        return "";
       }
     }
 
     /*
-      Existing completed jobs may pre-date a dedicated completedAt field.
-      If Firestore already marks the job complete, updatedAt is the safest
-      final fallback for the two-calendar-day dispatch grace period.
+      No reliable completion date means no overhaul grace period.
+      Failing closed here is intentional and safer than treating a later
+      edit/update timestamp as if the hauling job just completed.
     */
-    const status = loNorm(job.status || "");
-    if (status.includes("complete")) {
-      const updatedMillis = loMillis(job.updatedAt);
-      if (updatedMillis > 0) {
-        return loLocalISO(new Date(updatedMillis));
-      }
-    }
-
     return "";
   }
 
