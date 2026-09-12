@@ -231,15 +231,6 @@ var cropMatch = null;
         if (customerButtonText) {
           customerButtonText.textContent = savedCustomerName || 'Sold Under';
         }
-
-        /*
-          Do not dispatch a synthetic change event here.
-          The loadout page treats customer changes as a user selection and
-          rebuilds dependent controls, including the Hauling Job selector.
-          Edit restore is only restoring the saved snapshot, so updating the
-          hidden value and visible label is sufficient and preserves the
-          saved hauling-job selection.
-        */
       }
       catch (error) {
         console.warn('[grain loadout] could not restore saved Sold Under:', error);
@@ -258,16 +249,6 @@ var cropMatch = null;
       });
     }
 
-    /*
-      Capture the load ID before the page's own bubble-phase row click.
-      The zero-delay callback runs after that handler has filled the modal.
-
-      IMPORTANT:
-      The page defaults Sold Under to Unknown while applying the hauling job.
-      For an existing load we must then restore the customer saved on the
-      grain_loadouts document. Otherwise opening Edit can display/save
-      Unknown even though the load originally went out under a real customer.
-    */
     tbody.addEventListener(
       'click',
       event => {
@@ -485,7 +466,7 @@ var cropMatch = null;
   window.__FV_GRAIN_INDEX_TABLE_UI_LOADER_20260912 = true;
 
   const script = document.createElement('script');
-  script.src = '/js/grain-index-table-ui.js?v=20260912-1';
+  script.src = '/js/grain-index-table-ui.js?v=20260912-3';
   script.dataset.fvGrainIndexTableUi = '1';
   document.head.appendChild(script);
 })();
