@@ -9,7 +9,7 @@ import "/js/grain-ticket-alert-table-sync.js?v=20260912-0624";
 import "/js/grain-hauling-status-dnd.js?v=20260912-0715";
 import "/js/grain-hauling-status-dnd-followup.js?v=20260912-0744";
 import "/js/grain-hauling-ticket-sequence.js?v=20260912-0748";
-import "/js/grain-hauling-split-portion-dnd.js?v=20260912-0902";
+import "/js/grain-hauling-split-portion-dnd.js?v=20260912-0910";
 import {
   ready,
   getFirestore,
