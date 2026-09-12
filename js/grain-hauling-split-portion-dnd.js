@@ -1,19 +1,21 @@
 /* FarmVista — hauling-job split portion DND
    Sept. 12, 2026
 
-   Makes the ticket that fills a hauling job and spills over behave like the
-   contract split-load workspace: the Job portion stays in Job Fill and the
-   remainder becomes its own draggable tile in Spot Loads.
+   Stable split-load renderer for the hauling-job DND workspace.
+   The physical ticket that crosses a hauling-job target is hidden and replaced
+   with two derived tiles:
+     • Job Fill portion inside Job Fill
+     • Spot Portion inside Spot Loads
 
-   Moving only the split Spot portion does NOT move the whole grain ticket.
-   The physical ticket keeps its original haulingJobId for compatibility; the
-   moved partial bushels are stored in haulingJobSplitAllocations on the ticket.
+   Only the Spot Portion is independently draggable. Moving that portion stores
+   haulingJobSplitAllocations on the physical grain ticket; the original ticket
+   remains traceable by elevator ticket number.
 */
 (() => {
   'use strict';
 
-  if (window.__FV_HAULING_SPLIT_PORTION_DND_20260912_V1) return;
-  window.__FV_HAULING_SPLIT_PORTION_DND_20260912_V1 = true;
+  if (window.__FV_HAULING_SPLIT_PORTION_DND_20260912_V3) return;
+  window.__FV_HAULING_SPLIT_PORTION_DND_20260912_V3 = true;
   if (!String(location.pathname || '').toLowerCase().endsWith('/pages/grain/grain-contracts.html')) return;
 
   const clean = value => String(value ?? '').trim();
@@ -35,48 +37,40 @@
   let tickets = new Map();
   let jobs = new Map();
   let loading = null;
-  let decorating = false;
   let queued = false;
-  let rootObserver = null;
-  let observedRoot = null;
+  let rendering = false;
 
   function installStyle() {
-    if (document.getElementById('fv-hauling-split-portion-style')) return;
+    if (document.getElementById('fv-hauling-split-portion-style-v3')) return;
     const style = document.createElement('style');
-    style.id = 'fv-hauling-split-portion-style';
+    style.id = 'fv-hauling-split-portion-style-v3';
     style.textContent = `
-      .fv-split-portion-card{
-        margin-top:8px;
-        padding:10px 11px;
-        border:1px solid var(--border,#d8d8d8);
-        border-radius:9px;
-        background:var(--surface,#fff);
-        cursor:grab;
+      #fv-ticket-status-job-list [data-fv-split-source-hidden="1"]{display:none!important}
+      .fv-split-derived-card{
+        margin-top:8px;padding:10px 11px;border:1px solid var(--border,#d8d8d8);
+        border-radius:9px;background:var(--surface,#fff)
       }
-      .fv-split-portion-card.dragging{opacity:.48}
-      .fv-split-portion-title{
-        display:flex;align-items:center;justify-content:space-between;gap:10px;
-        font-weight:900;
+      .fv-split-derived-card.spot{cursor:grab}
+      .fv-split-derived-card.spot.dragging{opacity:.48}
+      .fv-split-derived-title{
+        display:flex;align-items:center;justify-content:space-between;gap:10px;font-weight:900
       }
-      .fv-split-portion-title-left{min-width:0}
-      .fv-split-portion-badge{
+      .fv-split-derived-left{min-width:0}
+      .fv-split-derived-badge{
         display:inline-flex;margin-left:7px;padding:2px 7px;border-radius:999px;
-        font-size:.67rem;font-weight:900;vertical-align:middle;
-        background:rgba(179,38,30,.11);color:#9d241e;
+        font-size:.67rem;font-weight:900;vertical-align:middle
       }
-      .fv-split-portion-badge.job{
-        background:rgba(59,126,70,.12);color:#2d6937;
-      }
-      .fv-split-portion-meta{margin-top:5px;font-size:.72rem;line-height:1.4;opacity:.72}
-      .fv-split-portion-detail{margin-top:5px;font-size:.72rem;font-weight:900;color:#9d241e}
-      .fv-split-portion-card.job .fv-split-portion-detail{color:#2d6937}
-      .fv-split-portion-note{margin-top:5px;font-size:.7rem;font-weight:750;opacity:.63}
-      .fv-split-portion-drop.drag-over,
-      [data-fv-status-job].fv-split-portion-drop-target{
-        outline:2px solid #4f718f!important;outline-offset:1px;background:rgba(79,113,143,.08)!important;
-      }
-      [data-theme="dark"] .fv-split-portion-badge{color:#ffaaa4}
-      [data-theme="dark"] .fv-split-portion-badge.job{color:#b9e4bf}
+      .fv-split-derived-badge.job{background:rgba(59,126,70,.12);color:#2d6937}
+      .fv-split-derived-badge.spot{background:rgba(179,38,30,.11);color:#9d241e}
+      .fv-split-derived-meta{margin-top:5px;font-size:.72rem;line-height:1.4;opacity:.72}
+      .fv-split-derived-sold{margin-top:5px;font-size:.72rem;font-weight:800}
+      .fv-split-derived-detail{margin-top:5px;font-size:.72rem;font-weight:900}
+      .fv-split-derived-card.job .fv-split-derived-detail{color:#2d6937}
+      .fv-split-derived-card.spot .fv-split-derived-detail{color:#9d241e}
+      .fv-split-derived-note{margin-top:5px;font-size:.7rem;font-weight:750;opacity:.64}
+      .fv-split-drop-target{outline:2px solid #4f718f!important;outline-offset:1px;background:rgba(79,113,143,.08)!important}
+      [data-theme="dark"] .fv-split-derived-badge.job{color:#b9e4bf}
+      [data-theme="dark"] .fv-split-derived-badge.spot{color:#ffaaa4}
     `;
     document.head.appendChild(style);
   }
@@ -99,23 +93,19 @@
     return loading;
   }
 
-  function splitAllocations(ticket) {
-    const raw = Array.isArray(ticket?.haulingJobSplitAllocations)
-      ? ticket.haulingJobSplitAllocations
-      : [];
-    return raw
-      .map((item,index) => ({
-        id:clean(item?.id) || `split-${index}`,
-        sourceJobId:clean(item?.sourceJobId || ticket?.haulingJobId),
-        haulingJobId:clean(item?.haulingJobId || item?.jobId),
-        bushels:round2(item?.bushels),
-        allocationType:clean(item?.allocationType || item?.type || 'job').toLowerCase() === 'spot' ? 'spot' : 'job',
-        createdAt:item?.createdAt || null
-      }))
-      .filter(item => item.haulingJobId && item.bushels > .005);
+  function ticketNo(ticket) {
+    return clean(ticket?.ticketNumber || ticket?.ticketNo || ticket?.ticket || ticket?.number || ticket?.scaleTicketNumber || ticket?.id);
   }
-
-  function parseSplitDetail(card) {
+  function ticketMeta(ticket) {
+    const date = clean(ticket?.ticketDate || ticket?.date || ticket?.deliveryDate) || 'No date';
+    const crop = clean(ticket?.crop || ticket?.commodity || ticket?.grain || ticket?.cropName) || 'Unknown crop';
+    const destination = clean(ticket?.deliveryLocationName || ticket?.destinationName || ticket?.destination || ticket?.buyerName || ticket?.elevatorName) || 'Unknown destination';
+    return `${esc(date)} • ${esc(crop)}<br>${esc(destination)}`;
+  }
+  function soldUnder(ticket) {
+    return clean(ticket?.customerName || ticket?.soldUnderName || ticket?.soldUnder || ticket?.customer) || '—';
+  }
+  function parseSplit(card) {
     const detail = clean(card.querySelector('.fv-seq-detail.split')?.textContent);
     const jobMatch = detail.match(/Job:\s*([\d,.]+)\s*bu/i);
     const spotMatch = detail.match(/Spot:\s*([\d,.]+)\s*bu/i);
@@ -125,98 +115,70 @@
     };
   }
 
+  function splitAllocations(ticket) {
+    const raw = Array.isArray(ticket?.haulingJobSplitAllocations) ? ticket.haulingJobSplitAllocations : [];
+    return raw.map((item,index) => ({
+      id:clean(item?.id) || `split-${index}`,
+      sourceJobId:clean(item?.sourceJobId || ticket?.haulingJobId),
+      haulingJobId:clean(item?.haulingJobId || item?.jobId),
+      bushels:round2(item?.bushels),
+      allocationType:clean(item?.allocationType || item?.type || 'job').toLowerCase()==='spot' ? 'spot' : 'job'
+    })).filter(item => item.haulingJobId && item.bushels>.005);
+  }
   function movedFromSource(ticket,sourceJobId) {
     return splitAllocations(ticket)
-      .filter(item => item.sourceJobId === sourceJobId && item.haulingJobId !== sourceJobId)
-      .reduce((sum,item) => sum + item.bushels,0);
+      .filter(item => item.sourceJobId===sourceJobId && item.haulingJobId!==sourceJobId)
+      .reduce((sum,item) => sum+item.bushels,0);
   }
 
-  function ticketMeta(ticket) {
-    const date = clean(ticket?.ticketDate || ticket?.date || ticket?.deliveryDate) || 'No date';
-    const crop = clean(ticket?.crop || ticket?.commodity || ticket?.grain || ticket?.cropName) || 'Unknown crop';
-    const destination = clean(ticket?.deliveryLocationName || ticket?.destinationName || ticket?.destination || ticket?.buyerName || ticket?.elevatorName) || 'Unknown destination';
-    return `${date} • ${crop}<br>${destination}`;
-  }
-
-  function partialTile({ticket,sourceJobId,currentJobId,bushels,type='spot',origin='automatic'}) {
-    const ticketNo = clean(ticket?.ticketNumber || ticket?.ticketNo || ticket?.ticket || ticket?.number || ticket?.scaleTicketNumber || ticket?.id);
-    const badge = type === 'spot' ? 'SPOT PORTION' : 'SPLIT PORTION';
-    const detail = type === 'spot'
-      ? `Spot: ${fmt(bushels)} bu`
-      : `Assigned to this hauling job: ${fmt(bushels)} bu`;
-    const note = type === 'spot'
-      ? 'Drag this portion onto another hauling job to move only these bushels. The rest of the ticket stays where it is.'
-      : 'This is only part of the original elevator ticket. Drag it to another hauling job if needed.';
+  function derivedTile({ticket,sourceJobId,currentJobId,bushels,type,origin}) {
+    const isSpot = type==='spot';
     return `
-      <div class="fv-split-portion-card ${type==='job'?'job':''}" draggable="true"
-           data-fv-split-portion="1"
+      <div class="fv-split-derived-card ${isSpot?'spot':'job'}"
+           ${isSpot?'draggable="true"':''}
+           data-fv-split-derived="1"
            data-ticket-id="${esc(ticket.id)}"
            data-source-job-id="${esc(sourceJobId)}"
            data-current-job-id="${esc(currentJobId)}"
-           data-portion-bushels="${esc(bushels)}"
+           data-portion-bushels="${esc(round2(bushels))}"
            data-portion-type="${esc(type)}"
            data-portion-origin="${esc(origin)}">
-        <div class="fv-split-portion-title">
-          <span class="fv-split-portion-title-left">Ticket ${esc(ticketNo)}<span class="fv-split-portion-badge ${type==='job'?'job':''}">${badge}</span></span>
+        <div class="fv-split-derived-title">
+          <span class="fv-split-derived-left">Ticket ${esc(ticketNo(ticket))}<span class="fv-split-derived-badge ${isSpot?'spot':'job'}">${isSpot?'SPOT PORTION':'JOB FILL'}</span></span>
           <span>${fmt(bushels)} bu</span>
         </div>
-        <div class="fv-split-portion-meta">${ticketMeta(ticket)}</div>
-        <div class="fv-split-portion-detail">${detail}</div>
-        <div class="fv-split-portion-note">${note}</div>
+        <div class="fv-split-derived-meta">${ticketMeta(ticket)}</div>
+        <div class="fv-split-derived-sold"><strong>Sold Under:</strong> ${esc(soldUnder(ticket))}</div>
+        <div class="fv-split-derived-detail">${isSpot?'Spot':'Job'}: ${fmt(bushels)} bu</div>
+        <div class="fv-split-derived-note">${isSpot
+          ? 'Drag this Spot portion onto another hauling job to move only these bushels.'
+          : 'This portion remains on the hauling job that the ticket filled.'}</div>
       </div>`;
   }
 
-  function clearInjected() {
-    document.querySelectorAll('.fv-split-portion-card').forEach(node => node.remove());
+  function removeSummaryText(spotZone) {
+    spotZone?.querySelectorAll('.fv-job-spot-empty').forEach(node => {
+      if (/split-load\s+spot\s+portion/i.test(clean(node.textContent))) node.remove();
+    });
   }
 
-  function adjustSourceSplitCard(card,ticket,sourceJobId) {
-    const parts = parseSplitDetail(card);
-    if (!(parts.spot > .005)) return;
-
-    const moved = movedFromSource(ticket,sourceJobId);
-    const remainingSpot = Math.max(0,round2(parts.spot - moved));
-
-    const amount = card.querySelector('.fv-hauling-ticket-title > span:last-child');
-    if (amount) amount.textContent = `${fmt(parts.fill)} bu`;
-
-    const badge = card.querySelector('.fv-seq-badge.split');
-    if (badge) {
-      badge.textContent = 'JOB FILL';
-      badge.classList.remove('split');
-      badge.classList.add('job');
-    }
-
-    const detail = card.querySelector('.fv-seq-detail.split');
-    if (detail) {
-      detail.classList.remove('split');
-      detail.textContent = `Job: ${fmt(parts.fill)} bu`;
-    }
-
-    const jobCard = card.closest('[data-fv-status-job][data-fv-ticket-job-id]');
-    const spotZone = jobCard?.querySelector(`[data-fv-spot-job-id="${CSS.escape(sourceJobId)}"]`);
-    if (spotZone && remainingSpot > .005) {
-      spotZone.insertAdjacentHTML('beforeend',partialTile({
-        ticket,
-        sourceJobId,
-        currentJobId:sourceJobId,
-        bushels:remainingSpot,
-        type:'spot',
-        origin:'automatic'
-      }));
-    }
+  function clearDerived(root) {
+    root.querySelectorAll('.fv-split-derived-card').forEach(node => node.remove());
+    root.querySelectorAll('[data-fv-split-source-hidden="1"]').forEach(node => {
+      node.removeAttribute('data-fv-split-source-hidden');
+    });
   }
 
-  function injectMovedPortions(ticket) {
+  function injectMovedPortions(root,ticket) {
     splitAllocations(ticket).forEach(item => {
-      if (!item.haulingJobId || item.haulingJobId === item.sourceJobId) return;
-      const jobCard = document.querySelector(`#fv-ticket-status-job-list [data-fv-status-job][data-fv-ticket-job-id="${CSS.escape(item.haulingJobId)}"]`);
+      if (!item.haulingJobId || item.haulingJobId===item.sourceJobId) return;
+      const jobCard = root.querySelector(`[data-fv-status-job][data-fv-ticket-job-id="${CSS.escape(item.haulingJobId)}"]`);
       if (!jobCard) return;
-      const target = item.allocationType === 'spot'
+      const target = item.allocationType==='spot'
         ? jobCard.querySelector(`[data-fv-spot-job-id="${CSS.escape(item.haulingJobId)}"]`)
         : jobCard.querySelector(`[data-fv-fill-job-id="${CSS.escape(item.haulingJobId)}"]`);
       if (!target) return;
-      target.insertAdjacentHTML('beforeend',partialTile({
+      target.insertAdjacentHTML('beforeend',derivedTile({
         ticket,
         sourceJobId:item.sourceJobId,
         currentJobId:item.haulingJobId,
@@ -227,113 +189,128 @@
     });
   }
 
-  async function decorate(forceLoad=false) {
+  async function render(forceLoad=false) {
     const root = document.getElementById('fv-ticket-status-job-list');
-    if (!root || root.hidden || decorating) return;
-    decorating = true;
+    if (!root || root.hidden || rendering) return;
+    rendering = true;
     try {
       installStyle();
       await load(forceLoad);
-      clearInjected();
+      clearDerived(root);
 
       root.querySelectorAll('[data-fv-status-job][data-fv-ticket-job-id]').forEach(jobCard => {
         const sourceJobId = clean(jobCard.dataset.fvTicketJobId);
+        const spotZone = jobCard.querySelector(`[data-fv-spot-job-id="${CSS.escape(sourceJobId)}"]`);
+        removeSummaryText(spotZone);
+
         jobCard.querySelectorAll('[data-fv-status-ticket][data-ticket-id]').forEach(card => {
-          const badge = card.querySelector('.fv-seq-badge.split');
-          if (!badge) return;
+          if (!card.querySelector('.fv-seq-badge.split')) return;
           const ticket = tickets.get(clean(card.dataset.ticketId));
           if (!ticket) return;
-          adjustSourceSplitCard(card,ticket,sourceJobId);
+          const parts = parseSplit(card);
+          if (!(parts.fill>.005) || !(parts.spot>.005)) return;
+
+          const moved = movedFromSource(ticket,sourceJobId);
+          const remainingSpot = Math.max(0,round2(parts.spot-moved));
+          card.dataset.fvSplitSourceHidden='1';
+
+          const fillZone = jobCard.querySelector(`[data-fv-fill-job-id="${CSS.escape(sourceJobId)}"]`);
+          if (fillZone) {
+            fillZone.insertAdjacentHTML('beforeend',derivedTile({
+              ticket,
+              sourceJobId,
+              currentJobId:sourceJobId,
+              bushels:parts.fill,
+              type:'job',
+              origin:'automatic'
+            }));
+          }
+          if (spotZone && remainingSpot>.005) {
+            spotZone.insertAdjacentHTML('beforeend',derivedTile({
+              ticket,
+              sourceJobId,
+              currentJobId:sourceJobId,
+              bushels:remainingSpot,
+              type:'spot',
+              origin:'automatic'
+            }));
+          }
         });
       });
 
-      tickets.forEach(ticket => injectMovedPortions(ticket));
-      bindPartialCards();
+      tickets.forEach(ticket => injectMovedPortions(root,ticket));
+      bindDerivedCards(root);
     } finally {
-      decorating = false;
+      rendering=false;
     }
   }
 
-  function payloadFromCard(card) {
+  function payload(card) {
     return {
       ticketId:clean(card.dataset.ticketId),
       sourceJobId:clean(card.dataset.sourceJobId),
       currentJobId:clean(card.dataset.currentJobId),
       bushels:round2(card.dataset.portionBushels),
-      portionType:clean(card.dataset.portionType || 'spot'),
-      origin:clean(card.dataset.portionOrigin || 'automatic')
+      portionType:clean(card.dataset.portionType || 'spot')
     };
   }
 
-  function bindPartialCards() {
-    document.querySelectorAll('.fv-split-portion-card[data-fv-split-portion="1"]').forEach(card => {
-      if (card.dataset.fvSplitBound === '1') return;
-      card.dataset.fvSplitBound = '1';
+  function bindDerivedCards(root) {
+    root.querySelectorAll('.fv-split-derived-card.spot[draggable="true"]').forEach(card => {
+      if (card.dataset.fvSplitBound==='1') return;
+      card.dataset.fvSplitBound='1';
       card.addEventListener('dragstart',event => {
-        const payload = payloadFromCard(card);
+        const data=payload(card);
         card.classList.add('dragging');
+        event.dataTransfer.effectAllowed='move';
         try {
-          event.dataTransfer.effectAllowed = 'move';
-          event.dataTransfer.setData('application/x-fv-hauling-portion',JSON.stringify(payload));
-          event.dataTransfer.setData('text/plain',`FVPORTION:${JSON.stringify(payload)}`);
+          event.dataTransfer.setData('application/x-fv-hauling-portion',JSON.stringify(data));
+          event.dataTransfer.setData('text/plain',`FVPORTION:${JSON.stringify(data)}`);
         } catch(_) {}
       });
       card.addEventListener('dragend',() => card.classList.remove('dragging'));
     });
   }
 
-  function dropPayload(event) {
-    let raw = '';
-    try { raw = event.dataTransfer?.getData('application/x-fv-hauling-portion') || ''; } catch(_) {}
+  function readPayload(event) {
+    let raw='';
+    try { raw=event.dataTransfer?.getData('application/x-fv-hauling-portion') || ''; } catch(_) {}
     if (!raw) {
       try {
-        const plain = event.dataTransfer?.getData('text/plain') || '';
-        if (plain.startsWith('FVPORTION:')) raw = plain.slice('FVPORTION:'.length);
+        const text=event.dataTransfer?.getData('text/plain') || '';
+        if (text.startsWith('FVPORTION:')) raw=text.slice('FVPORTION:'.length);
       } catch(_) {}
     }
     if (!raw) return null;
     try { return JSON.parse(raw); } catch(_) { return null; }
   }
 
-  async function movePortion(payload,destinationJobId,{spot=false}={}) {
+  async function movePortion(data,destinationJobId,{spot=false}={}) {
     await load(true);
-    const ticket = tickets.get(clean(payload?.ticketId));
-    const destination = jobs.get(clean(destinationJobId));
-    if (!ticket || !destination) return;
+    const ticket=tickets.get(clean(data?.ticketId));
+    if (!ticket || !jobs.has(clean(destinationJobId))) return;
+    const amount=round2(data?.bushels);
+    if (!(amount>.005)) return;
 
-    const amount = round2(payload?.bushels);
-    if (!(amount > .005)) return;
-
-    const sourceJobId = clean(payload?.sourceJobId || ticket?.haulingJobId);
-    const currentJobId = clean(payload?.currentJobId || sourceJobId);
-
-    const existing = splitAllocations(ticket);
-    let next = existing.filter(item => !(
-      item.sourceJobId === sourceJobId &&
-      item.haulingJobId === currentJobId &&
-      Math.abs(item.bushels - amount) < .01
+    const sourceJobId=clean(data?.sourceJobId || ticket?.haulingJobId);
+    const currentJobId=clean(data?.currentJobId || sourceJobId);
+    let next=splitAllocations(ticket).filter(item => !(
+      item.sourceJobId===sourceJobId &&
+      item.haulingJobId===currentJobId &&
+      Math.abs(item.bushels-amount)<.01
     ));
 
-    if (clean(destinationJobId) !== sourceJobId) {
+    if (clean(destinationJobId)!==sourceJobId) {
       next.push({
         id:`${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
         sourceJobId,
         haulingJobId:clean(destinationJobId),
         bushels:amount,
-        allocationType:spot ? 'spot' : 'job',
+        allocationType:spot?'spot':'job',
         source:'manual_split_dnd',
         createdAt:new Date().toISOString()
       });
     }
-
-    const merged = new Map();
-    next.forEach(item => {
-      const key = `${item.sourceJobId}|${item.haulingJobId}|${item.allocationType}`;
-      const prior = merged.get(key);
-      if (prior) prior.bushels = round2(prior.bushels + item.bushels);
-      else merged.set(key,{...item,bushels:round2(item.bushels)});
-    });
-    next = [...merged.values()].filter(item => item.bushels > .005);
 
     try {
       await firebase.updateDoc(firebase.doc(db,'grain_tickets',ticket.id),{
@@ -342,8 +319,7 @@
         updatedAt:firebase.serverTimestamp()
       });
       await load(true);
-      await decorate(false);
-      document.getElementById('fv-refresh-ticket-hauling')?.click();
+      await render(false);
     } catch(error) {
       console.error('[FarmVista] Could not move hauling split portion:',error);
       alert(error?.message || 'FarmVista could not move that split-load portion.');
@@ -351,63 +327,78 @@
   }
 
   document.addEventListener('dragover',event => {
-    const hasPartial = [...document.querySelectorAll('.fv-split-portion-card.dragging')].length > 0;
-    if (!hasPartial) return;
-    const target = event.target.closest?.('[data-fv-spot-job-id],[data-fv-status-job][data-fv-ticket-job-id]');
+    const dragging=document.querySelector('.fv-split-derived-card.spot.dragging');
+    if (!dragging) return;
+    const target=event.target.closest?.('[data-fv-spot-job-id],[data-fv-status-job][data-fv-ticket-job-id]');
     if (!target) return;
     event.preventDefault();
-    target.classList.add(target.hasAttribute('data-fv-spot-job-id') ? 'drag-over' : 'fv-split-portion-drop-target');
+    target.classList.add('fv-split-drop-target');
   },true);
 
   document.addEventListener('dragleave',event => {
-    const target = event.target.closest?.('[data-fv-spot-job-id],[data-fv-status-job][data-fv-ticket-job-id]');
-    if (!target) return;
-    target.classList.remove('drag-over','fv-split-portion-drop-target');
+    const target=event.target.closest?.('[data-fv-spot-job-id],[data-fv-status-job][data-fv-ticket-job-id]');
+    target?.classList.remove('fv-split-drop-target');
   },true);
 
   document.addEventListener('drop',event => {
-    const payload = dropPayload(event);
-    if (!payload) return;
-    const spotZone = event.target.closest?.('[data-fv-spot-job-id]');
-    const jobCard = event.target.closest?.('[data-fv-status-job][data-fv-ticket-job-id]');
-    const destinationJobId = clean(spotZone?.dataset?.fvSpotJobId || jobCard?.dataset?.fvTicketJobId);
+    const data=readPayload(event);
+    if (!data) return;
+    const spotZone=event.target.closest?.('[data-fv-spot-job-id]');
+    const jobCard=event.target.closest?.('[data-fv-status-job][data-fv-ticket-job-id]');
+    const destinationJobId=clean(spotZone?.dataset?.fvSpotJobId || jobCard?.dataset?.fvTicketJobId);
     if (!destinationJobId) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    spotZone?.classList.remove('drag-over');
-    jobCard?.classList.remove('fv-split-portion-drop-target');
-    movePortion(payload,destinationJobId,{spot:!!spotZone});
+    spotZone?.classList.remove('fv-split-drop-target');
+    jobCard?.classList.remove('fv-split-drop-target');
+    movePortion(data,destinationJobId,{spot:!!spotZone});
   },true);
 
-  function queue(force=false,delay=80) {
+  function queue(force=false,delay=60) {
     if (queued) return;
-    queued = true;
+    queued=true;
     setTimeout(() => requestAnimationFrame(async() => {
-      queued = false;
-      ensureRootObserver();
-      await decorate(force);
+      queued=false;
+      await render(force);
     }),delay);
   }
 
-  function ensureRootObserver() {
-    const root = document.getElementById('fv-ticket-status-job-list');
-    if (!root || root === observedRoot) return;
+  // Only top-level list replacement is observed. Internal derived-tile changes
+  // are ignored, so this renderer cannot trigger itself.
+  const observer=new MutationObserver(records => {
+    const root=document.getElementById('fv-ticket-status-job-list');
+    if (!root || root.hidden || rendering) return;
+    const relevant=records.some(record => record.target===root && record.type==='childList');
+    if (relevant) queue(false,40);
+  });
 
-    rootObserver?.disconnect();
-    observedRoot = root;
-    rootObserver = new MutationObserver(() => {
-      if (!decorating) queue(false,80);
-    });
-    rootObserver.observe(root,{childList:true});
+  function attachObserver() {
+    const root=document.getElementById('fv-ticket-status-job-list');
+    if (!root) return false;
+    observer.disconnect();
+    observer.observe(root,{childList:true});
+    return true;
   }
 
-  document.addEventListener('change',event => {
-    if (event.target?.id === 'fv-ticket-job-status-filter') queue(true,180);
-  },true);
   document.addEventListener('click',event => {
-    if (event.target.closest?.('[data-fv-job-toggle],#fv-refresh-ticket-hauling')) queue(true,180);
+    if (event.target.closest?.('[data-fv-job-toggle],#fv-refresh-ticket-hauling')) queue(true,120);
+  },true);
+  document.addEventListener('change',event => {
+    if (event.target?.id==='fv-ticket-job-status-filter') queue(true,160);
   },true);
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded',() => queue(true,120),{once:true});
-  else queue(true,120);
+  function start() {
+    installStyle();
+    const tryAttach=() => {
+      if (attachObserver()) {
+        queue(true,100);
+        return;
+      }
+      setTimeout(tryAttach,100);
+    };
+    tryAttach();
+  }
+
+  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',start,{once:true});
+  else start();
 })();
