@@ -37,6 +37,8 @@
   let loading = null;
   let decorating = false;
   let queued = false;
+  let rootObserver = null;
+  let observedRoot = null;
 
   function installStyle() {
     if (document.getElementById('fv-hauling-split-portion-style')) return;
@@ -305,8 +307,6 @@
     const sourceJobId = clean(payload?.sourceJobId || ticket?.haulingJobId);
     const currentJobId = clean(payload?.currentJobId || sourceJobId);
 
-    // Dropping the moved portion back on its original hauling job removes the
-    // explicit split assignment and lets ticket-number sequencing own it again.
     const existing = splitAllocations(ticket);
     let next = existing.filter(item => !(
       item.sourceJobId === sourceJobId &&
@@ -326,7 +326,6 @@
       });
     }
 
-    // Merge same source/destination/type records so repeated moves stay clean.
     const merged = new Map();
     next.forEach(item => {
       const key = `${item.sourceJobId}|${item.haulingJobId}|${item.allocationType}`;
@@ -385,18 +384,22 @@
     queued = true;
     setTimeout(() => requestAnimationFrame(async() => {
       queued = false;
+      ensureRootObserver();
       await decorate(force);
     }),delay);
   }
 
-  new MutationObserver(records => {
-    if (decorating) return;
-    const relevant = records.some(record => {
-      const target = record.target instanceof Element ? record.target : record.target?.parentElement;
-      return target?.closest?.('#fv-ticket-status-job-list') || [...record.addedNodes].some(node => node instanceof Element && (node.id === 'fv-ticket-status-job-list' || node.querySelector?.('#fv-ticket-status-job-list')));
+  function ensureRootObserver() {
+    const root = document.getElementById('fv-ticket-status-job-list');
+    if (!root || root === observedRoot) return;
+
+    rootObserver?.disconnect();
+    observedRoot = root;
+    rootObserver = new MutationObserver(() => {
+      if (!decorating) queue(false,80);
     });
-    if (relevant) queue(false,60);
-  }).observe(document.documentElement,{childList:true,subtree:true});
+    rootObserver.observe(root,{childList:true});
+  }
 
   document.addEventListener('change',event => {
     if (event.target?.id === 'fv-ticket-job-status-filter') queue(true,180);
