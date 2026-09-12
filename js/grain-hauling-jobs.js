@@ -6,6 +6,7 @@ import "/js/grain-hauling-jobs-core.js";
 import "/js/grain-contracts-hauling-overview-groups.js?v=20260911-1540";
 import "/js/grain-contracts-ui-followup.js?v=20260912-0624";
 import "/js/grain-ticket-alert-table-sync.js?v=20260912-0624";
+import "/js/grain-hauling-ticket-review.js?v=20260912-0635";
 import {
   ready,
   getFirestore,
@@ -172,6 +173,13 @@ async function syncContractAssignedTicketsToHaulingJobs() {
 
       const haulingJobId = linkedJobIds[0];
       const currentJobId = clean(ticket?.haulingJobId);
+      const manuallyUnassignedFromJobId = clean(ticket?.haulingJobManualUnassignedFromJobId);
+
+      // A manual office unassignment is deliberate. Do not immediately
+      // put the ticket back onto the same job simply because its current
+      // contract is linked there. If the ticket is later moved to a contract
+      // linked to a DIFFERENT hauling job, normal propagation resumes.
+      if (!currentJobId && manuallyUnassignedFromJobId === haulingJobId) return;
 
       // Never silently move a ticket away from an existing hauling job.
       // Grain Contracts already blocks mismatched job/contract assignment.
@@ -185,6 +193,10 @@ async function syncContractAssignedTicketsToHaulingJobs() {
             haulingJobId,
             haulingJobAssignmentSource: "contract_link",
             haulingJobAssignedAt: serverTimestamp(),
+            haulingJobManualUnassignedFromJobId: null,
+            haulingJobManualUnassignedAt: null,
+            haulingJobManualUnassignedByUid: null,
+            haulingJobManualUnassignedByName: null,
             updatedAt: serverTimestamp()
           }
         )
