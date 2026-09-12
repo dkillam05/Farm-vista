@@ -2,19 +2,18 @@
    Sept. 12, 2026
 
    Keeps JOB FILL / SPOT PORTION / UNASSIGNED PORTION tiles visually consistent
-   with normal grain-ticket cards by giving each partial tile the same checkbox
-   treatment. This helper is intentionally presentation-only and does not change
-   hauling allocation, DND, dropdown, or accounting behavior.
+   with normal grain-ticket cards by giving every partial tile the same checkbox
+   treatment. Presentation-only: no allocation, totals, DND, or dropdown changes.
 */
 (() => {
   'use strict';
 
-  if (window.__FV_HAULING_PARTIAL_CHECKBOXES_20260912_V1) return;
-  window.__FV_HAULING_PARTIAL_CHECKBOXES_20260912_V1 = true;
+  if (window.__FV_HAULING_PARTIAL_CHECKBOXES_20260912_V2) return;
+  window.__FV_HAULING_PARTIAL_CHECKBOXES_20260912_V2 = true;
 
   if (!String(location.pathname || '').toLowerCase().endsWith('/pages/grain/grain-contracts.html')) return;
 
-  const STYLE_ID = 'fv-hauling-partial-checkbox-style-v1';
+  const STYLE_ID = 'fv-hauling-partial-checkbox-style-v2';
 
   function installStyle() {
     if (document.getElementById(STYLE_ID)) return;
@@ -23,15 +22,19 @@
     style.textContent = `
       .fv-hauling-partial-tile{
         display:grid !important;
-        grid-template-columns:auto minmax(0,1fr) !important;
+        grid-template-columns:20px minmax(0,1fr) !important;
         align-items:start !important;
         column-gap:10px !important;
       }
       .fv-hauling-partial-tile > .fv-hauling-partial-select{
         grid-column:1 !important;
-        grid-row:1 / span 5 !important;
+        grid-row:1 / span 6 !important;
+        width:16px !important;
+        height:16px !important;
         margin:2px 0 0 0 !important;
+        padding:0 !important;
         cursor:pointer !important;
+        align-self:start !important;
       }
       .fv-hauling-partial-tile > :not(.fv-hauling-partial-select){
         grid-column:2 !important;
@@ -46,51 +49,46 @@
 
   function decorate(root = document) {
     installStyle();
-    root.querySelectorAll?.('.fv-hauling-partial-tile[data-fv-hauling-partial="1"]').forEach(tile => {
-      if (tile.querySelector(':scope > .fv-hauling-partial-select')) return;
+    root.querySelectorAll?.('.fv-hauling-partial-tile').forEach(tile => {
+      let box = tile.querySelector(':scope > .fv-hauling-partial-select');
+      if (!box) {
+        box = document.createElement('input');
+        box.type = 'checkbox';
+        box.className = 'fv-ticket-select fv-hauling-partial-select';
+        box.draggable = false;
+        box.setAttribute('aria-label', `Select ${tile.dataset.portionType || 'ticket'} portion`);
 
-      const box = document.createElement('input');
-      box.type = 'checkbox';
-      box.className = 'fv-ticket-select fv-hauling-partial-select';
-      box.draggable = false;
-      box.setAttribute('aria-label', `Select ${tile.dataset.portionType || 'ticket'} portion`);
+        box.addEventListener('pointerdown', event => event.stopPropagation());
+        box.addEventListener('mousedown', event => event.stopPropagation());
+        box.addEventListener('click', event => event.stopPropagation());
+        box.addEventListener('dragstart', event => event.preventDefault());
+        box.addEventListener('change', () => {
+          tile.classList.toggle('fv-partial-selected', box.checked);
+        });
 
-      box.addEventListener('pointerdown', event => event.stopPropagation());
-      box.addEventListener('dragstart', event => event.preventDefault());
-      box.addEventListener('change', () => {
-        tile.classList.toggle('fv-partial-selected', box.checked);
-      });
-
-      tile.prepend(box);
+        tile.prepend(box);
+      }
     });
   }
 
-  const roots = [
-    document.getElementById('fv-ticket-status-job-list'),
-    document.getElementById('fv-unassigned-ticket-list')
-  ].filter(Boolean);
-
-  roots.forEach(root => {
-    decorate(root);
-    new MutationObserver(records => {
-      const added = records.some(record => record.addedNodes?.length);
-      if (added) queueMicrotask(() => decorate(root));
-    }).observe(root, { childList:true, subtree:true });
-  });
-
-  if (!roots.length) {
-    const timer = setInterval(() => {
-      const right = document.getElementById('fv-ticket-status-job-list');
-      const left = document.getElementById('fv-unassigned-ticket-list');
-      if (!right && !left) return;
-      clearInterval(timer);
-      [right,left].filter(Boolean).forEach(root => {
-        decorate(root);
-        new MutationObserver(records => {
-          const added = records.some(record => record.addedNodes?.length);
-          if (added) queueMicrotask(() => decorate(root));
-        }).observe(root, { childList:true, subtree:true });
-      });
-    },100);
+  function decorateAll() {
+    decorate(document);
   }
+
+  installStyle();
+  decorateAll();
+
+  // The hauling DND renderer can synchronously rebuild its derived split tiles.
+  // Keep the visual checkbox attached after any such rebuild. This only inspects
+  // the small split-tile selector and never rewrites dropdowns or allocation data.
+  const observer = new MutationObserver(records => {
+    if (records.some(record => record.addedNodes?.length || record.removedNodes?.length)) {
+      queueMicrotask(decorateAll);
+    }
+  });
+  observer.observe(document.body, { childList:true, subtree:true });
+
+  // Safety net for renderers that replace a hooked innerHTML tree in the same turn.
+  // Idempotent: existing checkboxes are left untouched.
+  setInterval(decorateAll, 500);
 })();
