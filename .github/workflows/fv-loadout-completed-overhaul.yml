@@ -1,0 +1,49 @@
+name: Allow completed hauling job overhaul from Load Out
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fv-loadout-completed-overhaul.yml'
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch Load Out completed hauling jobs
+        run: python .github/scripts/fix-loadout-completed-overhaul.py
+
+      - name: Syntax-check inline module scripts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re, subprocess, tempfile
+
+          text = Path('pages/grain/grain-ticket.html').read_text(encoding='utf-8')
+          modules = re.findall(r'<script\s+type="module"[^>]*>(.*?)</script>', text, flags=re.S | re.I)
+          if not modules:
+              raise SystemExit('No inline module scripts found')
+
+          for index, source in enumerate(modules, 1):
+              with tempfile.NamedTemporaryFile('w', suffix='.mjs', encoding='utf-8', delete=False) as handle:
+                  handle.write(source)
+                  name = handle.name
+              subprocess.run(['node', '--check', name], check=True)
+              print(f'Checked inline module {index}')
+          PY
+
+      - name: Commit completed-job overhaul support
+        run: |
+          if git diff --quiet -- pages/grain/grain-ticket.html; then
+            echo 'No Grain Ticket change needed.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pages/grain/grain-ticket.html
+          git commit -m 'Allow two-day completed hauling job overhaul'
+          git pull --rebase origin main
+          git push origin main
