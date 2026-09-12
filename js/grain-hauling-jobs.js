@@ -9,6 +9,7 @@ import "/js/grain-ticket-alert-table-sync.js?v=20260912-0624";
 import "/js/grain-hauling-status-dnd.js?v=20260912-0715";
 import "/js/grain-hauling-status-dnd-followup.js?v=20260912-0744";
 import "/js/grain-hauling-ticket-sequence.js?v=20260912-0748";
+import "/js/grain-hauling-split-portion-dnd.js?v=20260912-0845";
 import {
   ready,
   getFirestore,
@@ -169,22 +170,13 @@ async function syncContractAssignedTicketsToHaulingJobs() {
           .filter(Boolean)
       )];
 
-      // A ticket can safely inherit only one hauling job. Split-load
-      // tickets spanning different jobs remain untouched for manual review.
       if (linkedJobIds.length !== 1) return;
 
       const haulingJobId = linkedJobIds[0];
       const currentJobId = clean(ticket?.haulingJobId);
       const manuallyUnassignedFromJobId = clean(ticket?.haulingJobManualUnassignedFromJobId);
 
-      // A manual office unassignment is deliberate. Do not immediately
-      // put the ticket back onto the same job simply because its current
-      // contract is linked there. If the ticket is later moved to a contract
-      // linked to a DIFFERENT hauling job, normal propagation resumes.
       if (!currentJobId && manuallyUnassignedFromJobId === haulingJobId) return;
-
-      // Never silently move a ticket away from an existing hauling job.
-      // Grain Contracts already blocks mismatched job/contract assignment.
       if (currentJobId && currentJobId !== haulingJobId) return;
       if (currentJobId === haulingJobId) return;
 
@@ -227,11 +219,8 @@ function scheduleContractJobSync(delay = 450) {
 }
 
 function installContractJobPropagation() {
-  // Repair existing bottom-up assignments as soon as this page loads.
   scheduleContractJobSync(250);
 
-  // Single drag, group drag, Assign Selected, and Assign All all flow
-  // through the contracts UI. Re-check shortly after those actions save.
   document.addEventListener("drop", event => {
     if (event.target.closest?.(".contract-drop-card")) scheduleContractJobSync(700);
   }, true);
