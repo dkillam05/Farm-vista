@@ -465,3 +465,27 @@ var cropMatch = null;
     });
   }, { once:true });
 })();
+
+
+/* ============================================================
+   GRAIN INDEX TABLE SORTING + ALERT-LINKED GRADE COLORS
+============================================================ */
+(function loadGrainIndexTableUi() {
+  'use strict';
+
+  if (typeof window === 'undefined') return;
+
+  const path = String(window.location.pathname || '').toLowerCase();
+  const isGrainIndex =
+    path.endsWith('/pages/grain/index.html') ||
+    path === '/pages/grain/' ||
+    path === '/pages/grain';
+
+  if (!isGrainIndex || window.__FV_GRAIN_INDEX_TABLE_UI_LOADER_20260912) return;
+  window.__FV_GRAIN_INDEX_TABLE_UI_LOADER_20260912 = true;
+
+  const script = document.createElement('script');
+  script.src = '/js/grain-index-table-ui.js?v=20260912-1';
+  script.dataset.fvGrainIndexTableUi = '1';
+  document.head.appendChild(script);
+})();
