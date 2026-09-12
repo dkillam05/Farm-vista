@@ -304,7 +304,8 @@
         if (meta) meta.insertAdjacentElement('afterend', row);
         else content.appendChild(row);
       }
-      row.innerHTML = `<strong>Sold Under:</strong> ${escapeHtml(name)}`;
+      const desired = `<strong>Sold Under:</strong> ${escapeHtml(name)}`;
+      if (row.innerHTML !== desired) row.innerHTML = desired;
     });
   }
 
@@ -322,7 +323,8 @@
         if (meta) meta.insertAdjacentElement('afterend', row);
         else card.appendChild(row);
       }
-      row.innerHTML = `<strong>Sold Under:</strong> ${escapeHtml(name)}`;
+      const desired = `<strong>Sold Under:</strong> ${escapeHtml(name)}`;
+      if (row.innerHTML !== desired) row.innerHTML = desired;
     });
   }
 
