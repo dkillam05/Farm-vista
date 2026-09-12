@@ -17,6 +17,7 @@
 
   <script>
     (() => {
+      "use strict";
 
       const params =
         new URLSearchParams(
@@ -47,21 +48,15 @@
       const scanPage =
         "/pages/grain/grain-ticket-scan.html";
 
-      if (!token) {
+      const guestSaveUrl =
+        "https://farmvista-guest-grain-ticket-300398089669.us-central1.run.app";
 
-        /*
-          IMPORTANT:
+      const originalFetch =
+        window.fetch.bind(
+          window
+        );
 
-          Previously this redirected to grain-ticket-scan.html with no
-          token. That changed an assigned load-out scan into a normal
-          FarmVista scan, causing Driver Assist to ask questions such as:
-
-            "Where did this load come from?"
-
-          Never silently fall back. If an SMS/load-out link is malformed
-          or expired, stop here so the driver cannot accidentally create a
-          ticket detached from the office-assigned load information.
-        */
+      function showMissingToken() {
         document.addEventListener(
           "DOMContentLoaded",
           () => {
@@ -89,19 +84,694 @@
             `;
           }
         );
-
-        return;
       }
 
-      /*
-        Normalize every supported token name to ?t= before handing off
-        to grain-ticket-scan.html. That page recognizes ?t= as a secure
-        linked load-out scan and intentionally skips Driver Assist; the
-        backend then applies the load-out's authoritative grain source.
-      */
-      window.location.replace(
-        `${scanPage}?t=${encodeURIComponent(token)}`
-      );
+      function clean(
+        value
+      ) {
+        return String(
+          value ?? ""
+        ).trim();
+      }
+
+      function uniqueStrings(
+        values
+      ) {
+        return Array.from(
+          new Set(
+            (Array.isArray(values) ? values : [])
+              .map(clean)
+              .filter(Boolean)
+          )
+        );
+      }
+
+      function normalizeMismatchFields(
+        result
+      ) {
+        if (
+          !result ||
+          typeof result !== "object"
+        ) {
+          return [];
+        }
+
+        const direct =
+          uniqueStrings(
+            result.mismatchFields ||
+            result.loadoutMismatchFields ||
+            result.mismatchedFields ||
+            result.mismatches
+          );
+
+        if (
+          direct.length
+        ) {
+          return direct;
+        }
+
+        const comparison =
+          result.loadoutComparison ||
+          result.comparison ||
+          result.matches ||
+          null;
+
+        if (
+          comparison &&
+          typeof comparison === "object" &&
+          !Array.isArray(comparison)
+        ) {
+          const fields = [];
+
+          [
+            ["buyer", "buyer"],
+            ["location", "location"],
+            ["destination", "location"],
+            ["crop", "crop"]
+          ].forEach(
+            ([key,label]) => {
+              const value =
+                comparison[key];
+
+              if (
+                value === false ||
+                value?.match === false ||
+                value?.matches === false
+              ) {
+                fields.push(
+                  label
+                );
+              }
+            }
+          );
+
+          return uniqueStrings(
+            fields
+          );
+        }
+
+        return [];
+      }
+
+      function preflightIsSupported(
+        result
+      ) {
+        return !!(
+          result &&
+          typeof result === "object" &&
+          (
+            result.preflightSupported === true ||
+            result.preview === true ||
+            result.previewOnly === true ||
+            result.action === "validate_loadout_ticket" ||
+            result.action === "guest_loadout_preflight" ||
+            typeof result.requiresConfirmation === "boolean" ||
+            typeof result.loadoutMatches === "boolean" ||
+            Array.isArray(result.mismatchFields) ||
+            Array.isArray(result.loadoutMismatchFields) ||
+            result.loadoutComparison
+          )
+        );
+      }
+
+      function requiresMismatchConfirmation(
+        result,
+        fields
+      ) {
+        if (
+          !preflightIsSupported(
+            result
+          )
+        ) {
+          return false;
+        }
+
+        if (
+          result.requiresConfirmation === true ||
+          result.loadoutMatches === false ||
+          result.match === false
+        ) {
+          return true;
+        }
+
+        return fields.length >
+          0;
+      }
+
+      function showMismatchChoice(
+        mismatchFields
+      ) {
+        return new Promise(
+          resolve => {
+            const existing =
+              document.getElementById(
+                "fv-guest-loadout-mismatch"
+              );
+
+            existing?.remove();
+
+            const backdrop =
+              document.createElement(
+                "div"
+              );
+
+            backdrop.id =
+              "fv-guest-loadout-mismatch";
+
+            Object.assign(
+              backdrop.style,
+              {
+                position:"fixed",
+                inset:"0",
+                zIndex:"2147483647",
+                display:"grid",
+                placeItems:"center",
+                padding:"20px",
+                boxSizing:"border-box",
+                background:"rgba(0,0,0,.68)",
+                fontFamily:"system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
+              }
+            );
+
+            const card =
+              document.createElement(
+                "div"
+              );
+
+            Object.assign(
+              card.style,
+              {
+                width:"min(440px,100%)",
+                boxSizing:"border-box",
+                borderRadius:"16px",
+                background:"#fff",
+                color:"#151815",
+                padding:"22px",
+                boxShadow:"0 24px 70px rgba(0,0,0,.38)",
+                textAlign:"left"
+              }
+            );
+
+            const title =
+              document.createElement(
+                "div"
+              );
+
+            title.textContent =
+              "Load Out Does Not Match";
+
+            Object.assign(
+              title.style,
+              {
+                fontSize:"21px",
+                lineHeight:"1.2",
+                fontWeight:"900",
+                marginBottom:"10px"
+              }
+            );
+
+            const message =
+              document.createElement(
+                "div"
+              );
+
+            message.textContent =
+              "This ticket doesn’t appear to match the Load Out information. Do you want to continue scanning this ticket or scan another ticket?";
+
+            Object.assign(
+              message.style,
+              {
+                fontSize:"15px",
+                lineHeight:"1.45",
+                color:"#454b46"
+              }
+            );
+
+            if (
+              mismatchFields.length
+            ) {
+              const note =
+                document.createElement(
+                  "div"
+                );
+
+              note.textContent =
+                `FarmVista found a mismatch in: ${mismatchFields.join(", ")}.`;
+
+              Object.assign(
+                note.style,
+                {
+                  marginTop:"10px",
+                  fontSize:"12px",
+                  lineHeight:"1.4",
+                  color:"#737a74"
+                }
+              );
+
+              card.appendChild(
+                title
+              );
+
+              card.appendChild(
+                message
+              );
+
+              card.appendChild(
+                note
+              );
+            }
+            else {
+              card.appendChild(
+                title
+              );
+
+              card.appendChild(
+                message
+              );
+            }
+
+            const actions =
+              document.createElement(
+                "div"
+              );
+
+            Object.assign(
+              actions.style,
+              {
+                display:"grid",
+                gridTemplateColumns:"1fr 1fr",
+                gap:"10px",
+                marginTop:"18px"
+              }
+            );
+
+            const another =
+              document.createElement(
+                "button"
+              );
+
+            another.type =
+              "button";
+
+            another.textContent =
+              "Scan Another Ticket";
+
+            Object.assign(
+              another.style,
+              {
+                minHeight:"48px",
+                border:"1px solid #cfd5d0",
+                borderRadius:"11px",
+                background:"#fff",
+                color:"#263028",
+                font:"inherit",
+                fontWeight:"850",
+                cursor:"pointer"
+              }
+            );
+
+            const proceed =
+              document.createElement(
+                "button"
+              );
+
+            proceed.type =
+              "button";
+
+            proceed.textContent =
+              "Continue Scan";
+
+            Object.assign(
+              proceed.style,
+              {
+                minHeight:"48px",
+                border:"1px solid #3B7E46",
+                borderRadius:"11px",
+                background:"#3B7E46",
+                color:"#fff",
+                font:"inherit",
+                fontWeight:"900",
+                cursor:"pointer"
+              }
+            );
+
+            const finish =
+              choice => {
+                backdrop.remove();
+                resolve(
+                  choice
+                );
+              };
+
+            another.addEventListener(
+              "click",
+              () => finish(
+                "rescan"
+              ),
+              {
+                once:true
+              }
+            );
+
+            proceed.addEventListener(
+              "click",
+              () => finish(
+                "continue"
+              ),
+              {
+                once:true
+              }
+            );
+
+            actions.appendChild(
+              another
+            );
+
+            actions.appendChild(
+              proceed
+            );
+
+            card.appendChild(
+              actions
+            );
+
+            backdrop.appendChild(
+              card
+            );
+
+            document.body.appendChild(
+              backdrop
+            );
+          }
+        );
+      }
+
+      async function guestLoadoutPreflight(
+        requestBody
+      ) {
+        try {
+          const response =
+            await originalFetch(
+              guestSaveUrl,
+              {
+                method:"POST",
+                headers:{
+                  "Content-Type":"application/json"
+                },
+                body:JSON.stringify({
+                  action:"validate_loadout_ticket",
+                  previewOnly:true,
+                  token:
+                    requestBody.token ||
+                    token,
+                  ocrResult:
+                    requestBody.ocrResult ||
+                    null
+                })
+              }
+            );
+
+          if (
+            !response.ok
+          ) {
+            return null;
+          }
+
+          const result =
+            await response.json();
+
+          return preflightIsSupported(
+            result
+          )
+            ? result
+            : null;
+        }
+        catch (
+          error
+        ) {
+          console.warn(
+            "[FarmVista guest scan] Load-out preflight unavailable; using current guest-save flow.",
+            error
+          );
+
+          return null;
+        }
+      }
+
+      function scheduleRescan() {
+        window.setTimeout(
+          () => {
+            const tryAgain =
+              document.getElementById(
+                "tryAgainBtn"
+              );
+
+            const retake =
+              document.getElementById(
+                "retakeBtn"
+              );
+
+            if (
+              tryAgain
+            ) {
+              tryAgain.click();
+              return;
+            }
+
+            retake?.click();
+          },
+          120
+        );
+      }
+
+      function installGuestFetchGuard() {
+        window.fetch =
+          async function farmVistaGuestGuardedFetch(
+            input,
+            init
+          ) {
+            const url =
+              typeof input === "string"
+                ? input
+                : input?.url ||
+                  "";
+
+            const method =
+              String(
+                init?.method ||
+                "GET"
+              )
+                .trim()
+                .toUpperCase();
+
+            if (
+              url !== guestSaveUrl ||
+              method !== "POST" ||
+              !init?.body
+            ) {
+              return originalFetch(
+                input,
+                init
+              );
+            }
+
+            let requestBody =
+              null;
+
+            try {
+              requestBody =
+                JSON.parse(
+                  String(
+                    init.body
+                  )
+                );
+            }
+            catch (_) {
+              return originalFetch(
+                input,
+                init
+              );
+            }
+
+            /*
+              Never intercept our own preflight request if this gateway is
+              changed later to use the guarded fetch by mistake.
+            */
+            if (
+              requestBody?.action ===
+              "validate_loadout_ticket" ||
+              requestBody?.previewOnly ===
+              true
+            ) {
+              return originalFetch(
+                input,
+                init
+              );
+            }
+
+            const preflight =
+              await guestLoadoutPreflight(
+                requestBody
+              );
+
+            if (
+              !preflight
+            ) {
+              /*
+                Backward compatibility: today's secure guest service may not
+                yet expose preflight validation. Do not break a driver's scan.
+              */
+              return originalFetch(
+                input,
+                init
+              );
+            }
+
+            const mismatchFields =
+              normalizeMismatchFields(
+                preflight
+              );
+
+            if (
+              !requiresMismatchConfirmation(
+                preflight,
+                mismatchFields
+              )
+            ) {
+              return originalFetch(
+                input,
+                init
+              );
+            }
+
+            const choice =
+              await showMismatchChoice(
+                mismatchFields
+              );
+
+            if (
+              choice ===
+              "rescan"
+            ) {
+              scheduleRescan();
+
+              return new Response(
+                JSON.stringify({
+                  ok:false,
+                  error:"Scan another ticket selected."
+                }),
+                {
+                  status:409,
+                  headers:{
+                    "Content-Type":"application/json"
+                  }
+                }
+              );
+            }
+
+            const confirmedBody = {
+              ...requestBody,
+              loadoutMismatchConfirmed:true,
+              loadoutMismatchFields:
+                mismatchFields,
+              loadoutMismatchExpected:
+                preflight.expected ||
+                preflight.loadout ||
+                preflight.expectedLoadout ||
+                null,
+              loadoutMismatchActual:
+                preflight.actual ||
+                preflight.ticket ||
+                preflight.actualTicket ||
+                null,
+              warningReason:
+                "loadout_ticket_mismatch",
+              forceWarning:true,
+              skipHaulingJobAutoLink:true
+            };
+
+            return originalFetch(
+              input,
+              {
+                ...init,
+                body:JSON.stringify(
+                  confirmedBody
+                )
+              }
+            );
+          };
+      }
+
+      async function openGuestScanner() {
+        if (
+          !token
+        ) {
+          showMissingToken();
+          return;
+        }
+
+        installGuestFetchGuard();
+
+        const scannerUrl =
+          `${scanPage}?t=${encodeURIComponent(token)}&guest=1`;
+
+        let scannerHtml =
+          "";
+
+        try {
+          const response =
+            await originalFetch(
+              scanPage,
+              {
+                cache:"no-store"
+              }
+            );
+
+          if (
+            !response.ok
+          ) {
+            throw new Error(
+              `Scanner page returned ${response.status}.`
+            );
+          }
+
+          scannerHtml =
+            await response.text();
+        }
+        catch (
+          error
+        ) {
+          console.error(
+            "[FarmVista guest scan] Scanner gateway load failed:",
+            error
+          );
+
+          window.location.replace(
+            scannerUrl
+          );
+
+          return;
+        }
+
+        /*
+          Keep the browser address on the real scanner route so every existing
+          scanner pathname/query check behaves exactly as it does today.
+          replaceState does not reload the page or lose the installed guard.
+        */
+        window.history.replaceState(
+          null,
+          "",
+          scannerUrl
+        );
+
+        document.open();
+        document.write(
+          scannerHtml
+        );
+        document.close();
+      }
+
+      openGuestScanner();
 
     })();
   </script>
