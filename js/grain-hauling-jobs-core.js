@@ -2589,6 +2589,114 @@ row.className =
    ADD / EDIT / VOID HAULING JOB
 ============================================================ */
 
+function confirmSpotLoadOnly(message) {
+
+  return new Promise(resolve => {
+
+    const existing =
+      document.getElementById("fv-spot-load-confirm");
+
+    existing?.remove();
+
+    const backdrop =
+      document.createElement("div");
+
+    backdrop.id =
+      "fv-spot-load-confirm";
+
+    Object.assign(backdrop.style, {
+      position: "fixed",
+      inset: "0",
+      zIndex: "20000",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: "18px",
+      background: "rgba(0,0,0,.58)"
+    });
+
+    const card =
+      document.createElement("div");
+
+    Object.assign(card.style, {
+      width: "min(460px, 100%)",
+      border: "1px solid var(--border)",
+      borderRadius: "16px",
+      background: "var(--surface)",
+      color: "var(--text)",
+      boxShadow: "0 22px 60px rgba(0,0,0,.35)",
+      padding: "18px"
+    });
+
+    const title =
+      document.createElement("div");
+
+    title.textContent =
+      "Spot Loads Only";
+
+    Object.assign(title.style, {
+      fontSize: "20px",
+      fontWeight: "950",
+      marginBottom: "8px"
+    });
+
+    const body =
+      document.createElement("div");
+
+    body.textContent =
+      message;
+
+    Object.assign(body.style, {
+      lineHeight: "1.45",
+      marginBottom: "18px"
+    });
+
+    const actions =
+      document.createElement("div");
+
+    Object.assign(actions.style, {
+      display: "flex",
+      justifyContent: "flex-end",
+      gap: "10px"
+    });
+
+    const finish = value => {
+      backdrop.remove();
+      resolve(value);
+    };
+
+    const cancel =
+      document.createElement("button");
+
+    cancel.type = "button";
+    cancel.textContent = "Cancel";
+    cancel.className = "btn";
+    cancel.addEventListener("click", () => finish(false));
+
+    const proceed =
+      document.createElement("button");
+
+    proceed.type = "button";
+    proceed.textContent = "Continue";
+    proceed.className = "btn btn-primary";
+    proceed.addEventListener("click", () => finish(true));
+
+    backdrop.addEventListener("click", event => {
+      if (event.target === backdrop) finish(false);
+    });
+
+    actions.append(cancel, proceed);
+    card.append(title, body, actions);
+    backdrop.appendChild(card);
+    document.body.appendChild(backdrop);
+
+    proceed.focus();
+
+  });
+
+}
+
+
 function setJobMessage(
   message,
   type =
@@ -3438,13 +3546,29 @@ async function saveJob(
     );
 
 
-  const startingBushels =
-    num(
+  const startingBushelsRaw =
+    clean(
       $(
         "hauling-job-bushels"
       )
         ?.value
-    );
+    )
+      .replace(/,/g, "");
+
+
+  const startingBushels =
+    Number(startingBushelsRaw);
+
+
+  const bushelsEntered =
+    startingBushelsRaw !== "" &&
+    Number.isFinite(startingBushels) &&
+    startingBushels >= 0;
+
+
+  const spotLoadOnly =
+    bushelsEntered &&
+    startingBushels === 0;
 
 
   const deliveryStartDate =
@@ -3488,7 +3612,7 @@ if (
   !location ||
   !customer ||
   !crop ||
-  !(startingBushels > 0) ||
+  !bushelsEntered ||
   !deliveryStartDate ||
   !deliveryEndDate
 ) {
@@ -3514,6 +3638,23 @@ if (
 
 
     return;
+
+  }
+
+
+  if (
+    !editId &&
+    spotLoadOnly
+  ) {
+
+    const proceed =
+      await confirmSpotLoadOnly(
+        "This hauling job is for spot loads only. Destination, Sold Under, and delivery dates must match for tickets to be assigned to it."
+      );
+
+    if (!proceed) {
+      return;
+    }
 
   }
 
@@ -3586,21 +3727,31 @@ setJobMessage(
 
 
   const jobNameValue =
-    `${
-      clean(
-        location?.buyerName ||
-        buyer.name
-      )
-    } ${
-      location.locationName
-    } — ${
-      Math.round(
-        startingBushels
-      ).toLocaleString(
-        "en-US"
-      )
-    } bu`
-      .trim();
+    spotLoadOnly
+      ? `${
+          clean(
+            location?.buyerName ||
+            buyer.name
+          )
+        } ${
+          location.locationName
+        } — Spot Loads`
+          .trim()
+      : `${
+          clean(
+            location?.buyerName ||
+            buyer.name
+          )
+        } ${
+          location.locationName
+        } — ${
+          Math.round(
+            startingBushels
+          ).toLocaleString(
+            "en-US"
+          )
+        } bu`
+          .trim();
 
 
   const who =
@@ -3636,6 +3787,8 @@ setJobMessage(
       crop,
 
     startingBushels,
+
+    spotLoadOnly,
 
     deliveryStartDate,
 

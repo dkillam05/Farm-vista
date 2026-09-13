@@ -5050,6 +5050,71 @@ function validateSelections() {
 
 
 /* ============================================================
+   SPOT LOAD CONFIRMATION
+============================================================ */
+
+function confirmSpotLoadOnly(message) {
+
+  return new Promise(resolve => {
+
+    document.getElementById("fv-spot-load-confirm")?.remove();
+
+    const backdrop = document.createElement("div");
+    backdrop.id = "fv-spot-load-confirm";
+    Object.assign(backdrop.style, {
+      position:"fixed", inset:"0", zIndex:"20000",
+      display:"flex", alignItems:"center", justifyContent:"center",
+      padding:"18px", background:"rgba(0,0,0,.58)"
+    });
+
+    const card = document.createElement("div");
+    Object.assign(card.style, {
+      width:"min(460px, 100%)", border:"1px solid var(--border)",
+      borderRadius:"16px", background:"var(--surface)", color:"var(--text)",
+      boxShadow:"0 22px 60px rgba(0,0,0,.35)", padding:"18px"
+    });
+
+    const title = document.createElement("div");
+    title.textContent = "Spot Loads Only";
+    Object.assign(title.style, {fontSize:"20px", fontWeight:"950", marginBottom:"8px"});
+
+    const body = document.createElement("div");
+    body.textContent = message;
+    Object.assign(body.style, {lineHeight:"1.45", marginBottom:"18px"});
+
+    const actions = document.createElement("div");
+    Object.assign(actions.style, {display:"flex", justifyContent:"flex-end", gap:"10px"});
+
+    const finish = value => { backdrop.remove(); resolve(value); };
+
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.textContent = "Cancel";
+    cancel.className = "btn";
+    cancel.addEventListener("click", () => finish(false));
+
+    const proceed = document.createElement("button");
+    proceed.type = "button";
+    proceed.textContent = "Continue";
+    proceed.className = "btn btn-primary";
+    proceed.addEventListener("click", () => finish(true));
+
+    backdrop.addEventListener("click", event => {
+      if (event.target === backdrop) finish(false);
+    });
+
+    actions.append(cancel, proceed);
+    card.append(title, body, actions);
+    backdrop.appendChild(card);
+    document.body.appendChild(backdrop);
+    proceed.focus();
+
+  });
+
+}
+
+
+/* ============================================================
    SAVE
 ============================================================ */
 
@@ -5072,17 +5137,30 @@ async function handleSaveContract(
   validateDates();
 
 
+  const bushelRawValue =
+    $("contract-bushels")
+      ?.dataset
+      .rawValue ??
+      "";
+
+
   const bushels =
-    Number(
-      $("contract-bushels")
-        ?.dataset
-        .rawValue
-    );
+    Number(bushelRawValue);
+
+
+  const bushelsEntered =
+    bushelRawValue !== "" &&
+    Number.isFinite(bushels) &&
+    bushels >= 0;
+
+
+  const spotLoadOnly =
+    bushelsEntered &&
+    bushels === 0;
 
 
   if (
-    !Number.isFinite(bushels) ||
-    bushels <= 0
+    !bushelsEntered
   ) {
 
     $("contract-bushels")
@@ -5103,6 +5181,20 @@ async function handleSaveContract(
   if (!form.reportValidity()) {
 
     return;
+
+  }
+
+
+  if (spotLoadOnly) {
+
+    const proceed =
+      await confirmSpotLoadOnly(
+        "This contract is for spot loads only. Destination, Sold Under, and delivery dates must match for tickets to be assigned to it."
+      );
+
+    if (!proceed) {
+      return;
+    }
 
   }
 
@@ -5256,6 +5348,9 @@ function getFormData() {
 
     contractBushels:
       bushels,
+
+    spotLoadOnly:
+      bushels === 0,
 
     deliveredBushels:
       0,

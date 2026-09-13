@@ -7906,6 +7906,53 @@ crop: $lo("loadout-crop"),
     );
   }
 
+  function loContractStartingBushels(contract){
+    const value = Number(
+      contract?.contractBushels ??
+      contract?.bushels ??
+      contract?.quantity ??
+      contract?.totalBushels ??
+      0
+    );
+
+    return Number.isFinite(value)
+      ? Math.max(0,value)
+      : 0;
+  }
+
+  function loContractIsSpot(contract){
+    return (
+      contract?.spotLoadOnly === true ||
+      loContractStartingBushels(contract) === 0
+    );
+  }
+
+  function loContractIsSpotEligible(contract){
+    if (!contract || !loContractIsSpot(contract)) return false;
+    if (contract.isActive === false || contract.active === false) return false;
+
+    const status = loNorm(contract.status || contract.contractStatus);
+    if (
+      status.includes("closed") ||
+      status.includes("cancel") ||
+      status.includes("void")
+    ) {
+      return false;
+    }
+
+    const deliveryDate = loDeliveryDateForForm();
+    const start = loClean(contract.deliveryStart || contract.deliveryStartDate || contract.startDate);
+    const end = loClean(contract.deliveryEnd || contract.deliveryEndDate || contract.endDate);
+
+    return (
+      !!deliveryDate &&
+      !!start &&
+      !!end &&
+      deliveryDate >= start &&
+      deliveryDate <= end
+    );
+  }
+
   function loOpenContracts(){
     return loState.contracts.filter(loContractIsOpen);
   }
@@ -7933,6 +7980,10 @@ crop: $lo("loadout-crop"),
   }
 
   function loContractIsOpen(contract){
+    if (loContractIsSpot(contract)) {
+      return loContractIsSpotEligible(contract);
+    }
+
     if (contract.isActive === false || contract.active === false) {
       return false;
     }
@@ -7982,6 +8033,10 @@ crop: $lo("loadout-crop"),
         contract.referenceNumber
       ) ||
       `Contract ${contract.id.slice(0,6)}`;
+
+    if (loContractIsSpot(contract)) {
+      return `${number} • Spot Loads`;
+    }
 
     const remainingRaw =
       contract.remainingBushels ??
@@ -9308,6 +9363,9 @@ function loRenderCustomerPicker(){
 
   if (
     loHaulingJobIsOverhaulEligible(
+      haulingJob
+    ) ||
+    loHaulingJobIsSpotEligible(
       haulingJob
     )
   ) {
@@ -10995,6 +11053,10 @@ function loSelectedCustomer(){
   function loHaulingJobIsActive(job){
     if (!job || job.active === false || job.isActive === false) return false;
 
+    if (loHaulingJobIsSpot(job)) {
+      return loHaulingJobIsSpotEligible(job);
+    }
+
     const status = loNorm(job.status || "active");
 
     if (
@@ -11046,6 +11108,39 @@ function loSelectedCustomer(){
       0
     );
     return Number.isFinite(value) ? Math.max(0,value) : 0;
+  }
+
+  function loHaulingJobIsSpot(job){
+    return (
+      job?.spotLoadOnly === true ||
+      loHaulingJobStartingBushels(job) === 0
+    );
+  }
+
+  function loHaulingJobIsSpotEligible(job){
+    if (!job || !loHaulingJobIsSpot(job)) return false;
+    if (job.active === false || job.isActive === false) return false;
+
+    const status = loNorm(job.status || "active");
+    if (
+      status.includes("closed") ||
+      status.includes("cancel") ||
+      status.includes("void")
+    ) {
+      return false;
+    }
+
+    const deliveryDate = loDeliveryDateForForm();
+    const start = loClean(job.deliveryStartDate || job.startDate);
+    const end = loClean(job.deliveryEndDate || job.endDate);
+
+    return (
+      !!deliveryDate &&
+      !!start &&
+      !!end &&
+      deliveryDate >= start &&
+      deliveryDate <= end
+    );
   }
 
   function loHaulingJobTicketedBushels(job){
@@ -11432,7 +11527,10 @@ function loHaulingJobMatchesSelection(job){
     valid even though the underlying contract/job is already complete.
   */
   if (
-    overhaulAllowed &&
+    (
+      overhaulAllowed ||
+      loHaulingJobIsSpotEligible(job)
+    ) &&
     loClean(customer.id) ===
       loHaulingJobCustomerId(job)
   ) {
@@ -11502,6 +11600,14 @@ function loHaulingJobMatchesSelection(job){
         ? `${buyer} ${destination}`
         : destination;
 
+    if (loHaulingJobIsSpot(job)) {
+      const crop = loClean(job.crop || job.commodity) || "Crop";
+      const customerId = loHaulingJobCustomerId(job);
+      const customer = loState.customers.find(item => item.id === customerId) || null;
+      const customerName = loClean(customer?.name || job.customerName) || "Unknown";
+      return `${place} — ${crop} — ${customerName} • Spot Loads`;
+    }
+
     const starting = loHaulingJobStartingBushels(job);
     return `${place} — ${starting.toLocaleString("en-US")} bu`;
   }
@@ -11567,6 +11673,15 @@ function loHaulingJobMatchesSelection(job){
       start && end
         ? `${start}–${end}`
         : start || end || "";
+
+    if (loHaulingJobIsSpot(job)) {
+      return [
+        dates ? `Delivery ${dates}` : "",
+        "Spot Loads"
+      ]
+        .filter(Boolean)
+        .join(" • ");
+    }
 
     const remaining = loHaulingJobRemainingBushels(job);
 
