@@ -1,0 +1,48 @@
+name: Fix hauling job touch modal lock v2
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fv-hauling-job-touch-lock-v2.yml'
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch hauling job modal touch behavior
+        run: python .github/scripts/fix-hauling-job-modal-touch-lock.py
+
+      - name: Verify touch-lock CSS exists
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('pages/grain/grain-contracts.html').read_text(encoding='utf-8')
+          required = [
+            'FV hauling job touch-lock v2',
+            '#hauling-job-modal {',
+            'touch-action: pan-y;',
+            'overflow-x: hidden !important;',
+            'width: 100dvw !important;'
+          ]
+          missing = [x for x in required if x not in text]
+          if missing:
+            raise SystemExit(f'Missing expected CSS: {missing}')
+          print('Verified hauling-job touch-lock CSS')
+          PY
+
+      - name: Commit touch modal fix
+        run: |
+          if git diff --quiet -- pages/grain/grain-contracts.html; then
+            echo 'No Grain Contracts change needed.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pages/grain/grain-contracts.html
+          git commit -m 'Lock hauling job modal to touch viewport'
+          git pull --rebase origin main
+          git push origin main
