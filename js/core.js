@@ -1,5 +1,5 @@
 /* ==========================================================
-   FarmVista — Core (theme + version) v3.1.5
+   FarmVista — Core (theme + version) v3.1.6
    - Applies saved theme ASAP (prevents flash)
    - Keeps "system" synced with OS changes
    - Exposes App API used by fv-shell.js
@@ -8,6 +8,7 @@
    - Preserves previous-page navigation from Grain Ticket Detail
    - Loads compact Hauling Job cards + overview on Grain Contracts only
    - Keeps ticket assign / unassign DND working with collapsed job cards
+   - Loads Active + Upcoming hauling jobs (including Spot Loads) on Grain Index
    ========================================================== */
 (function (global, doc) {
   const THEME_KEY = "fv-theme";
@@ -100,6 +101,24 @@
     }catch{}
   }
 
+  function loadGrainIndexHaulingJobs(){
+    try{
+      const path = String(global.location?.pathname || '').toLowerCase();
+      const isGrainIndex =
+        path.endsWith('/pages/grain/index.html') ||
+        path === '/pages/grain/' ||
+        path === '/pages/grain';
+
+      if (!isGrainIndex || doc.querySelector('script[data-fv-grain-index-hauling-jobs]')) return;
+
+      const script = doc.createElement('script');
+      script.type = 'module';
+      script.src = '/js/grain-index-hauling-jobs.js?v=20260913-1';
+      script.dataset.fvGrainIndexHaulingJobs = '1';
+      doc.head.appendChild(script);
+    }catch{}
+  }
+
   function initGrainTicketDetailBackNavigation(){
     try{
       const path = String(global.location?.pathname || '').toLowerCase();
@@ -137,6 +156,7 @@
   readVersion();
   loadPageGuards();
   loadHaulingJobUx();
+  loadGrainIndexHaulingJobs();
   initGrainTicketDetailBackNavigation();
 
   if (document.readyState === 'loading') {
