@@ -17,7 +17,7 @@
   if (!document.querySelector('script[data-fv-hauling-local-picker="1"]')) {
     const pickerScript = document.createElement('script');
     pickerScript.type = 'module';
-    pickerScript.src = '/js/grain-hauling-job-form-pickers-v9.js?v=20260913-2225';
+    pickerScript.src = '/js/grain-hauling-job-form-pickers-v9.js?v=20260913-2232';
     pickerScript.dataset.fvHaulingLocalPicker = '1';
     document.head.appendChild(pickerScript);
   }
