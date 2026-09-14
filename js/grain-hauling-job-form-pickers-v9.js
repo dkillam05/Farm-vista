@@ -1,5 +1,6 @@
-// FarmVista — Hauling Job field-local pickers v9
+// FarmVista — Hauling Job field-local pickers v9.1
 // ALL four fields use the exact same local picker implementation.
+// IMPORTANT: no subtree MutationObserver; it caused a self-triggering repair loop.
 import { ready, getFirestore, collection, getDocs } from '/js/firebase-init.js';
 await ready;
 const db=getFirestore();
@@ -15,7 +16,6 @@ const cache={buyers:[],locations:[],customers:[]};
 const state=new Map();
 let loadPromise=null;
 let modalObserver=null;
-let repairQueued=false;
 
 function installStyles(){
   if(document.getElementById('fv-hauling-picker-v9-style')) return;
@@ -49,7 +49,7 @@ async function loadData(force=false){
     cache.buyers=b.docs.map(d=>({id:d.id,...d.data()})).filter(displayName).sort((a,b)=>displayName(a).localeCompare(displayName(b)));
     cache.locations=l.docs.map(d=>({id:d.id,...d.data()})).filter(displayName).sort((a,b)=>displayName(a).localeCompare(displayName(b)));
     cache.customers=c.docs.map(d=>({id:d.id,...d.data()})).filter(displayName).sort((a,b)=>displayName(a).localeCompare(displayName(b)));
-  })().catch(e=>console.warn('[Hauling Job Picker v9] load failed',e));
+  })().catch(e=>console.warn('[Hauling Job Picker v9.1] load failed',e));
   return loadPromise;
 }
 function choicesFor(key){
@@ -109,11 +109,20 @@ function makePicker(key,config){
   sync(entry);
 }
 function repairAll(){Object.entries(CONFIG).forEach(([k,c])=>makePicker(k,c));syncAll();}
-function queueRepair(){if(repairQueued)return;repairQueued=true;queueMicrotask(()=>{repairQueued=false;repairAll();});}
 function init(){
   installStyles();repairAll();loadData();
   const modal=document.getElementById('hauling-job-modal');
-  if(modal&&!modalObserver){modalObserver=new MutationObserver(records=>{if(records.some(r=>r.type==='attributes'&&r.attributeName==='class')){if(modal.classList.contains('open')){repairAll();loadData(true).then(syncAll);}else closeAll();}else if(modal.classList.contains('open'))queueRepair();});modalObserver.observe(modal,{attributes:true,attributeFilter:['class'],childList:true,subtree:true});}
+  if(modal&&!modalObserver){
+    modalObserver=new MutationObserver(()=>{
+      if(modal.classList.contains('open')){
+        repairAll();
+        loadData(true).then(syncAll);
+      }else{
+        closeAll();
+      }
+    });
+    modalObserver.observe(modal,{attributes:true,attributeFilter:['class']});
+  }
   document.addEventListener('click',e=>{if(!e.target.closest?.('.hj9-picker'))closeAll();},true);
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
