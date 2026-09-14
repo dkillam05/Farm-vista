@@ -1,0 +1,49 @@
+name: Fix hauling job dropdown anchoring v3
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fv-hauling-job-dropdown-anchor-v3.yml'
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch hauling job dropdown anchoring
+        run: python .github/scripts/fix-hauling-job-dropdown-anchor-v3.py
+
+      - name: Verify dropdown anchor CSS exists
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('pages/grain/grain-contracts.html').read_text(encoding='utf-8')
+          required = [
+            'FV_HAULING_JOB_DROPDOWN_ANCHOR_V3',
+            '#hauling-job-modal {',
+            'overflow: hidden !important;',
+            '#hauling-job-modal .modal-card {',
+            'overflow-y: auto !important;',
+            'touch-action: pan-y !important;'
+          ]
+          missing = [item for item in required if item not in text]
+          if missing:
+            raise SystemExit(f'Missing expected CSS: {missing}')
+          print('Verified hauling job dropdown anchor CSS')
+          PY
+
+      - name: Commit dropdown anchor fix
+        run: |
+          if git diff --quiet -- pages/grain/grain-contracts.html; then
+            echo 'No Grain Contracts change needed.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pages/grain/grain-contracts.html
+          git commit -m 'Anchor hauling job dropdowns to fields on touch'
+          git pull --rebase origin main
+          git push origin main
