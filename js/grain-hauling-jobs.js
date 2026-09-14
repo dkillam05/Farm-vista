@@ -286,15 +286,166 @@ async function syncVoidButton() {
   }
 }
 
+function installHaulingModalTouchRepair() {
+  if (document.getElementById("fv-hauling-modal-touch-repair")) return;
+
+  const style = document.createElement("style");
+  style.id = "fv-hauling-modal-touch-repair";
+  style.textContent = `
+    @media (max-width: 900px), (pointer: coarse) {
+      #hauling-job-modal {
+        position: fixed !important;
+        inset: 0 !important;
+        width: 100dvw !important;
+        height: 100dvh !important;
+        max-width: 100dvw !important;
+        max-height: 100dvh !important;
+        padding: max(8px, env(safe-area-inset-top, 0px)) 8px max(8px, env(safe-area-inset-bottom, 0px)) !important;
+        margin: 0 !important;
+        overflow: hidden !important;
+        justify-content: center !important;
+        align-items: flex-start !important;
+        touch-action: none !important;
+      }
+
+      #hauling-job-modal > .modal-card {
+        width: min(100%, 900px) !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        height: auto !important;
+        max-height: calc(100dvh - max(16px, env(safe-area-inset-top, 0px)) - max(16px, env(safe-area-inset-bottom, 0px))) !important;
+        margin: 0 auto !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        overscroll-behavior: contain !important;
+        touch-action: pan-y !important;
+        border-radius: 14px !important;
+      }
+
+      #hauling-job-modal .modal-actions {
+        position: relative !important;
+        bottom: auto !important;
+        padding-bottom: max(16px, env(safe-area-inset-bottom, 0px)) !important;
+      }
+
+      #hauling-job-modal .edit-grid,
+      #hauling-job-modal .field,
+      #hauling-job-modal .fv-combo,
+      #hauling-job-modal input,
+      #hauling-job-modal select,
+      #hauling-job-modal textarea,
+      #hauling-job-modal button {
+        min-width: 0 !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+      }
+
+      .fv-panel.fv-hauling-job-panel {
+        position: fixed !important;
+        right: auto !important;
+        margin: 0 !important;
+        z-index: 12000 !important;
+        max-height: min(46dvh, 420px) !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        -webkit-overflow-scrolling: touch !important;
+        overscroll-behavior: contain !important;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+
+  let activeSelectId = "";
+  let frame = 0;
+
+  const ownerIdForPanel = panel =>
+    clean(
+      panel?.dataset?.fvSelectId ||
+      panel?.dataset?.selectId ||
+      panel?.getAttribute?.("data-for") ||
+      activeSelectId
+    );
+
+  const positionPanel = panel => {
+    if (!panel?.classList?.contains("show")) return;
+    if (!document.getElementById("hauling-job-modal")?.classList.contains("open")) return;
+
+    const selectId = ownerIdForPanel(panel);
+    if (!selectId.startsWith("hauling-job-")) return;
+
+    const select = document.getElementById(selectId);
+    const combo = select?.closest?.(".fv-combo");
+    const anchor = combo?.querySelector?.(".fv-buttonish") || combo;
+    if (!anchor) return;
+
+    const rect = anchor.getBoundingClientRect();
+    const viewportHeight = window.visualViewport?.height || window.innerHeight;
+    const gap = 4;
+    const availableBelow = Math.max(120, viewportHeight - rect.bottom - gap - 8);
+
+    panel.classList.add("fv-hauling-job-panel");
+    panel.style.setProperty("top", `${Math.round(rect.bottom + gap)}px`, "important");
+    panel.style.setProperty("left", `${Math.round(rect.left)}px`, "important");
+    panel.style.setProperty("width", `${Math.round(rect.width)}px`, "important");
+    panel.style.setProperty("max-width", `${Math.round(rect.width)}px`, "important");
+    panel.style.setProperty("max-height", `${Math.min(420, availableBelow)}px`, "important");
+  };
+
+  const repositionVisiblePanels = () => {
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(() => {
+      document.querySelectorAll(".fv-panel.show").forEach(positionPanel);
+    });
+  };
+
+  document.addEventListener("pointerdown", event => {
+    const button = event.target.closest?.("#hauling-job-modal .fv-buttonish");
+    if (!button) return;
+    const select = comboSelectFromButton(button);
+    if (!select?.id?.startsWith("hauling-job-")) return;
+    activeSelectId = select.id;
+  }, true);
+
+  document.addEventListener("click", event => {
+    const button = event.target.closest?.("#hauling-job-modal .fv-buttonish");
+    if (!button) return;
+    const select = comboSelectFromButton(button);
+    if (!select?.id?.startsWith("hauling-job-")) return;
+    activeSelectId = select.id;
+    setTimeout(repositionVisiblePanels, 0);
+    setTimeout(repositionVisiblePanels, 24);
+    setTimeout(repositionVisiblePanels, 80);
+  }, true);
+
+  const bodyObserver = new MutationObserver(repositionVisiblePanels);
+  bodyObserver.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["class"]
+  });
+
+  const modalCard = document.querySelector("#hauling-job-modal > .modal-card");
+  modalCard?.addEventListener("scroll", repositionVisiblePanels, { passive: true });
+  window.addEventListener("resize", repositionVisiblePanels, { passive: true });
+  window.visualViewport?.addEventListener("resize", repositionVisiblePanels, { passive: true });
+}
+
 installVoidGuardStyles();
 installSoldUnderComboScopeGuard();
 installContractJobPropagation();
+installHaulingModalTouchRepair();
 
 const modal = document.getElementById("hauling-job-modal");
 if (modal) {
   new MutationObserver(() => {
     if (modal.classList.contains("open")) {
       queueMicrotask(syncVoidButton);
+      requestAnimationFrame(() => {
+        const card = modal.querySelector(":scope > .modal-card");
+        if (card) card.scrollTop = 0;
+      });
     }
   }).observe(modal, { attributes: true, attributeFilter: ["class"] });
 }
