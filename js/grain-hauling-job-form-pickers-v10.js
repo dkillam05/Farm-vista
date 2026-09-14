@@ -61,6 +61,10 @@ function displayName(x){
   return clean(x?.name || x?.customerName || x?.buyerName || x?.locationName || x?.companyName || x?.displayName);
 }
 
+function locationName(x){
+  return clean(x?.locationName || x?.deliveryLocationName || x?.destinationName || x?.name || x?.displayName);
+}
+
 async function loadData(force=false){
   if(loadPromise && !force) return loadPromise;
   loadPromise = (async()=>{
@@ -70,7 +74,7 @@ async function loadData(force=false){
       getDocs(collection(db,'grain_customers'))
     ]);
     cache.buyers = buyers.docs.map(d=>({id:d.id,...d.data()})).filter(displayName).sort((a,b)=>displayName(a).localeCompare(displayName(b)));
-    cache.locations = locations.docs.map(d=>({id:d.id,...d.data()})).filter(displayName).sort((a,b)=>displayName(a).localeCompare(displayName(b)));
+    cache.locations = locations.docs.map(d=>({id:d.id,...d.data()})).filter(x=>locationName(x)).sort((a,b)=>locationName(a).localeCompare(locationName(b)));
     cache.customers = customers.docs.map(d=>({id:d.id,...d.data()})).filter(displayName).sort((a,b)=>displayName(a).localeCompare(displayName(b)));
   })().catch(err=>console.warn('[Hauling Job Picker v10] load failed',err));
   return loadPromise;
@@ -85,7 +89,7 @@ function choicesFor(key){
     if(!buyerId) return [];
     return cache.locations
       .filter(x=>clean(x.buyerId || x.grainBuyerId)===buyerId)
-      .map(x=>({value:x.id,label:displayName(x)}));
+      .map(x=>({value:x.id,label:locationName(x)}));
   }
   return [];
 }
