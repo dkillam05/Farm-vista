@@ -13,6 +13,16 @@
 
   if (!String(location.pathname || '').toLowerCase().endsWith('/pages/grain/grain-contracts.html')) return;
 
+  // Load the hauling-job field-local picker as a normal classic script.
+  // This avoids module-startup failures and does not block Grain Contracts startup.
+  if (!document.querySelector('script[data-fv-hauling-local-picker="1"]')) {
+    const pickerScript = document.createElement('script');
+    pickerScript.src = '/js/grain-hauling-job-form-pickers.js?v=20260913-1945';
+    pickerScript.defer = true;
+    pickerScript.dataset.fvHaulingLocalPicker = '1';
+    document.head.appendChild(pickerScript);
+  }
+
   const STYLE_ID = 'fv-hauling-partial-checkbox-style-v2';
 
   function installStyle() {
@@ -78,9 +88,6 @@
   installStyle();
   decorateAll();
 
-  // The hauling DND renderer can synchronously rebuild its derived split tiles.
-  // Keep the visual checkbox attached after any such rebuild. This only inspects
-  // the small split-tile selector and never rewrites dropdowns or allocation data.
   const observer = new MutationObserver(records => {
     if (records.some(record => record.addedNodes?.length || record.removedNodes?.length)) {
       queueMicrotask(decorateAll);
@@ -88,7 +95,5 @@
   });
   observer.observe(document.body, { childList:true, subtree:true });
 
-  // Safety net for renderers that replace a hooked innerHTML tree in the same turn.
-  // Idempotent: existing checkboxes are left untouched.
   setInterval(decorateAll, 500);
 })();
