@@ -1287,6 +1287,41 @@ function getContractStatus(
     return "complete";
   }
 
+  // Zero-bushel contracts are Spot contracts. Keep them Pending before
+  // the delivery window, Open during it, and Completed after it.
+  const spotContractBushels =
+    numberValue(
+      contract?.contractBushels ??
+      contract?.bushels ??
+      contract?.quantity ??
+      contract?.totalBushels
+    );
+
+  if (spotContractBushels <= EPSILON) {
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const start = clean(
+      contract?.deliveryStart ??
+      contract?.deliveryStartDate ??
+      contract?.startDate
+    );
+    const end = clean(
+      contract?.deliveryEnd ??
+      contract?.deliveryEndDate ??
+      contract?.endDate
+    );
+
+    if (start && start > today) {
+      return "pending";
+    }
+
+    if (end && end < today) {
+      return "complete";
+    }
+
+    return "open";
+  }
+
   if (
     contract?.voided
   ) {

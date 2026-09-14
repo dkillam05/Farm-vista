@@ -754,13 +754,35 @@ function jobStatus(
   if (
     end &&
     end <
-    localISO() &&
-    jobRemainingBushels(
-      job
-    ) > 0.005
+    localISO()
   ) {
 
-    return "past_due";
+    // Zero-bushel hauling jobs are Spot Loads. Their status is driven
+    // only by the delivery window: Upcoming before, Active during,
+    // Completed after. Regular unfilled jobs remain Past Due.
+    if (
+      jobStartingBushels(
+        job
+      ) <= 0.005
+    ) {
+
+      return "complete";
+
+    }
+
+
+    if (
+      jobRemainingBushels(
+        job
+      ) > 0.005
+    ) {
+
+      return "past_due";
+
+    }
+
+
+    return "complete";
 
   }
 
