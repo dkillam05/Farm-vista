@@ -1,5 +1,3 @@
-import "/js/grain-hauling-job-form-pickers.js?v=20260913-1925";
-
 /* FarmVista — hauling split portion checkbox styling
    Sept. 12, 2026
 
@@ -9,6 +7,17 @@ import "/js/grain-hauling-job-form-pickers.js?v=20260913-1925";
 */
 (() => {
   'use strict';
+
+  // Load the hauling-job field-local pickers without turning this legacy script
+  // into an ES module. grain-hauling-partial-checkboxes.js is loaded as a classic
+  // script on Grain Contracts, so a top-level `import` here breaks page startup.
+  if (!document.querySelector('script[data-fv-hauling-job-form-pickers]')) {
+    const pickerScript = document.createElement('script');
+    pickerScript.src = '/js/grain-hauling-job-form-pickers.js?v=20260913-1934';
+    pickerScript.defer = true;
+    pickerScript.dataset.fvHaulingJobFormPickers = '1';
+    document.head.appendChild(pickerScript);
+  }
 
   if (window.__FV_HAULING_PARTIAL_CHECKBOXES_20260912_V2) return;
   window.__FV_HAULING_PARTIAL_CHECKBOXES_20260912_V2 = true;
@@ -80,9 +89,6 @@ import "/js/grain-hauling-job-form-pickers.js?v=20260913-1925";
   installStyle();
   decorateAll();
 
-  // The hauling DND renderer can synchronously rebuild its derived split tiles.
-  // Keep the visual checkbox attached after any such rebuild. This only inspects
-  // the small split-tile selector and never rewrites dropdowns or allocation data.
   const observer = new MutationObserver(records => {
     if (records.some(record => record.addedNodes?.length || record.removedNodes?.length)) {
       queueMicrotask(decorateAll);
@@ -90,7 +96,5 @@ import "/js/grain-hauling-job-form-pickers.js?v=20260913-1925";
   });
   observer.observe(document.body, { childList:true, subtree:true });
 
-  // Safety net for renderers that replace a hooked innerHTML tree in the same turn.
-  // Idempotent: existing checkboxes are left untouched.
   setInterval(decorateAll, 500);
 })();
