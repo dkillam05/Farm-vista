@@ -17,7 +17,7 @@
   // This avoids module-startup failures and does not block Grain Contracts startup.
   if (!document.querySelector('script[data-fv-hauling-local-picker="1"]')) {
     const pickerScript = document.createElement('script');
-    pickerScript.src = '/js/grain-hauling-job-form-pickers.js?v=20260913-2012';
+    pickerScript.src = '/js/grain-hauling-job-form-pickers-v4.js?v=20260913-2030';
     pickerScript.defer = true;
     pickerScript.dataset.fvHaulingLocalPicker = '1';
     document.head.appendChild(pickerScript);
