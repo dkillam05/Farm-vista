@@ -287,10 +287,10 @@ async function syncVoidButton() {
 }
 
 function installHaulingModalTouchRepair() {
-  if (document.getElementById("fv-hauling-modal-touch-repair")) return;
+  if (document.getElementById("fv-hauling-modal-touch-repair-v5")) return;
 
   const style = document.createElement("style");
-  style.id = "fv-hauling-modal-touch-repair";
+  style.id = "fv-hauling-modal-touch-repair-v5";
   style.textContent = `
     @media (max-width: 900px), (pointer: coarse) {
       #hauling-job-modal {
@@ -300,8 +300,8 @@ function installHaulingModalTouchRepair() {
         height: 100dvh !important;
         max-width: 100dvw !important;
         max-height: 100dvh !important;
-        padding: max(8px, env(safe-area-inset-top, 0px)) 8px max(8px, env(safe-area-inset-bottom, 0px)) !important;
         margin: 0 !important;
+        padding: max(8px, env(safe-area-inset-top, 0px)) 8px max(8px, env(safe-area-inset-bottom, 0px)) !important;
         overflow: hidden !important;
         justify-content: center !important;
         align-items: flex-start !important;
@@ -325,8 +325,8 @@ function installHaulingModalTouchRepair() {
 
       #hauling-job-modal .modal-actions {
         position: relative !important;
-        bottom: auto !important;
-        padding-bottom: max(16px, env(safe-area-inset-bottom, 0px)) !important;
+        inset: auto !important;
+        padding-bottom: max(18px, env(safe-area-inset-bottom, 0px)) !important;
       }
 
       #hauling-job-modal .edit-grid,
@@ -341,14 +341,34 @@ function installHaulingModalTouchRepair() {
         box-sizing: border-box !important;
       }
 
-      .fv-panel.fv-hauling-job-panel {
-        position: fixed !important;
+      #hauling-job-modal .fv-combo {
+        position: relative !important;
+        overflow: visible !important;
+      }
+
+      #hauling-job-modal .fv-combo > select {
+        position: absolute !important;
+        width: 1px !important;
+        height: 1px !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        left: 0 !important;
+        top: 0 !important;
+      }
+
+      #hauling-job-modal .fv-panel.fv-hauling-job-local-panel {
+        position: absolute !important;
+        top: calc(100% + 4px) !important;
+        left: 0 !important;
         right: auto !important;
+        bottom: auto !important;
+        width: 100% !important;
+        max-width: 100% !important;
         margin: 0 !important;
-        z-index: 12000 !important;
-        max-height: min(46dvh, 420px) !important;
-        overflow-y: auto !important;
+        z-index: 20000 !important;
+        max-height: min(42dvh, 360px) !important;
         overflow-x: hidden !important;
+        overflow-y: auto !important;
         -webkit-overflow-scrolling: touch !important;
         overscroll-behavior: contain !important;
       }
@@ -357,69 +377,68 @@ function installHaulingModalTouchRepair() {
   document.head.appendChild(style);
 
   let activeSelectId = "";
-  let frame = 0;
+  let localizeFrame = 0;
 
-  const ownerIdForPanel = panel =>
-    clean(
-      panel?.dataset?.fvSelectId ||
-      panel?.dataset?.selectId ||
-      panel?.getAttribute?.("data-for") ||
-      activeSelectId
-    );
+  const localizeVisiblePanel = () => {
+    cancelAnimationFrame(localizeFrame);
+    localizeFrame = requestAnimationFrame(() => {
+      const modal = document.getElementById("hauling-job-modal");
+      if (!modal?.classList.contains("open") || !activeSelectId) return;
 
-  const positionPanel = panel => {
-    if (!panel?.classList?.contains("show")) return;
-    if (!document.getElementById("hauling-job-modal")?.classList.contains("open")) return;
+      const select = document.getElementById(activeSelectId);
+      const combo = select?.closest?.(".fv-combo");
+      if (!combo) return;
 
-    const selectId = ownerIdForPanel(panel);
-    if (!selectId.startsWith("hauling-job-")) return;
+      const visible = Array.from(document.querySelectorAll(".fv-panel.show"));
+      const panel = visible.find(item => {
+        const owner = clean(
+          item.dataset?.fvSelectId ||
+          item.dataset?.selectId ||
+          item.getAttribute?.("data-for")
+        );
+        return !owner || owner === activeSelectId;
+      });
 
-    const select = document.getElementById(selectId);
-    const combo = select?.closest?.(".fv-combo");
-    const anchor = combo?.querySelector?.(".fv-buttonish") || combo;
-    if (!anchor) return;
+      if (!panel) return;
 
-    const rect = anchor.getBoundingClientRect();
-    const viewportHeight = window.visualViewport?.height || window.innerHeight;
-    const gap = 4;
-    const availableBelow = Math.max(120, viewportHeight - rect.bottom - gap - 8);
+      if (panel.parentElement !== combo) combo.appendChild(panel);
+      panel.classList.add("fv-hauling-job-local-panel");
+      panel.style.removeProperty("transform");
+      panel.style.setProperty("position", "absolute", "important");
+      panel.style.setProperty("top", "calc(100% + 4px)", "important");
+      panel.style.setProperty("left", "0", "important");
+      panel.style.setProperty("right", "auto", "important");
+      panel.style.setProperty("bottom", "auto", "important");
+      panel.style.setProperty("width", "100%", "important");
+      panel.style.setProperty("max-width", "100%", "important");
+      panel.style.setProperty("margin", "0", "important");
+      panel.style.setProperty("z-index", "20000", "important");
 
-    panel.classList.add("fv-hauling-job-panel");
-    panel.style.setProperty("top", `${Math.round(rect.bottom + gap)}px`, "important");
-    panel.style.setProperty("left", `${Math.round(rect.left)}px`, "important");
-    panel.style.setProperty("width", `${Math.round(rect.width)}px`, "important");
-    panel.style.setProperty("max-width", `${Math.round(rect.width)}px`, "important");
-    panel.style.setProperty("max-height", `${Math.min(420, availableBelow)}px`, "important");
-  };
-
-  const repositionVisiblePanels = () => {
-    cancelAnimationFrame(frame);
-    frame = requestAnimationFrame(() => {
-      document.querySelectorAll(".fv-panel.show").forEach(positionPanel);
+      if (activeSelectId !== "hauling-job-customer") {
+        panel.querySelectorAll(".fv-item").forEach(item => {
+          if (clean(item.textContent) === "+ Add New Sold Under") item.remove();
+        });
+      }
     });
   };
 
-  document.addEventListener("pointerdown", event => {
+  const rememberActiveCombo = event => {
     const button = event.target.closest?.("#hauling-job-modal .fv-buttonish");
     if (!button) return;
     const select = comboSelectFromButton(button);
     if (!select?.id?.startsWith("hauling-job-")) return;
     activeSelectId = select.id;
-  }, true);
+    queueMicrotask(localizeVisiblePanel);
+    setTimeout(localizeVisiblePanel, 0);
+    setTimeout(localizeVisiblePanel, 20);
+    setTimeout(localizeVisiblePanel, 70);
+  };
 
-  document.addEventListener("click", event => {
-    const button = event.target.closest?.("#hauling-job-modal .fv-buttonish");
-    if (!button) return;
-    const select = comboSelectFromButton(button);
-    if (!select?.id?.startsWith("hauling-job-")) return;
-    activeSelectId = select.id;
-    setTimeout(repositionVisiblePanels, 0);
-    setTimeout(repositionVisiblePanels, 24);
-    setTimeout(repositionVisiblePanels, 80);
-  }, true);
+  document.addEventListener("pointerdown", rememberActiveCombo, true);
+  document.addEventListener("click", rememberActiveCombo, true);
 
-  const bodyObserver = new MutationObserver(repositionVisiblePanels);
-  bodyObserver.observe(document.body, {
+  const observer = new MutationObserver(localizeVisiblePanel);
+  observer.observe(document.body, {
     childList: true,
     subtree: true,
     attributes: true,
@@ -427,9 +446,10 @@ function installHaulingModalTouchRepair() {
   });
 
   const modalCard = document.querySelector("#hauling-job-modal > .modal-card");
-  modalCard?.addEventListener("scroll", repositionVisiblePanels, { passive: true });
-  window.addEventListener("resize", repositionVisiblePanels, { passive: true });
-  window.visualViewport?.addEventListener("resize", repositionVisiblePanels, { passive: true });
+  modalCard?.addEventListener("scroll", () => {
+    const panel = modalCard.querySelector(".fv-panel.show.fv-hauling-job-local-panel");
+    if (panel) panel.classList.remove("show");
+  }, { passive: true });
 }
 
 installVoidGuardStyles();
