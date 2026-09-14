@@ -1,3 +1,5 @@
+import "/js/grain-hauling-job-form-pickers.js?v=20260913-1925";
+
 /* FarmVista — hauling split portion checkbox styling
    Sept. 12, 2026
 
