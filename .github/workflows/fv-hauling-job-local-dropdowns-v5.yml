@@ -1,0 +1,53 @@
+name: Fix hauling job local dropdowns v5
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fv-hauling-job-local-dropdowns-v5.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply local dropdown repair
+        run: python .github/scripts/fix-hauling-job-local-dropdowns-v5.py
+
+      - name: Verify repair
+        run: |
+          node --check js/grain-hauling-jobs.js
+          python - <<'PY'
+          from pathlib import Path
+          js = Path('js/grain-hauling-jobs.js').read_text(encoding='utf-8')
+          html = Path('pages/grain/grain-contracts.html').read_text(encoding='utf-8')
+          required = [
+            'fv-hauling-modal-touch-repair-v5',
+            'fv-hauling-job-local-panel',
+            'combo.appendChild(panel)',
+            'top: calc(100% + 4px)',
+            'pointer-events: none !important'
+          ]
+          missing = [x for x in required if x not in js]
+          if missing:
+              raise SystemExit(f'Missing local dropdown repair pieces: {missing}')
+          if '/js/grain-hauling-jobs.js?v=20260913-1914' not in html:
+              raise SystemExit('Fresh module version not found')
+          print('Verified hauling job local dropdown v5')
+          PY
+
+      - name: Commit repair
+        run: |
+          if git diff --quiet -- js/grain-hauling-jobs.js pages/grain/grain-contracts.html; then
+            echo 'No change needed.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add js/grain-hauling-jobs.js pages/grain/grain-contracts.html
+          git commit -m 'Keep hauling job dropdowns attached to their fields'
+          git pull --rebase origin main
+          git push origin main
