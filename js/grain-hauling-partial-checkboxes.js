@@ -13,12 +13,13 @@
 
   if (!String(location.pathname || '').toLowerCase().endsWith('/pages/grain/grain-contracts.html')) return;
 
-  // Load the hauling-job field-local picker as a normal classic script.
-  // This avoids module-startup failures and does not block Grain Contracts startup.
+  // Load the field-local hauling-job picker as an isolated ES module.
+  // It reads the hauling form's Firestore collections directly and does not
+  // depend on the legacy floating combo panel for normal selection.
   if (!document.querySelector('script[data-fv-hauling-local-picker="1"]')) {
     const pickerScript = document.createElement('script');
-    pickerScript.src = '/js/grain-hauling-job-form-pickers-v4.js?v=20260913-2030';
-    pickerScript.defer = true;
+    pickerScript.type = 'module';
+    pickerScript.src = '/js/grain-hauling-job-form-pickers-v5.js?v=20260913-2045';
     pickerScript.dataset.fvHaulingLocalPicker = '1';
     document.head.appendChild(pickerScript);
   }
