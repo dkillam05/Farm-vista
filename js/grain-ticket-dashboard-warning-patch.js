@@ -1,5 +1,5 @@
 /* FarmVista Grain Ticket dashboard destination / hauling-job warning
-   Rev 2026-09-12a
+   Rev 2026-09-14a
 
    Office dashboard status helper only. This file never runs in the driver
    scanner, never blocks a save, and never changes hauling-job assignment.
@@ -17,8 +17,8 @@
      - Net bushels: Review when more than 15% different from gross bushels
      - Test weight (TW): 45 through 70
      - Moisture (MO): 7 through 35
-     - Damage (DM): 0 through 20
-     - Foreign material (FM): 0 through 20
+     - Damage (DM): 0 through 20; blank/unreadable also Review
+     - Foreign material (FM): 0 through 20; blank/unreadable also Review
 
    Unassigned review tickets can still become Warning when their resolved
    destination + crop have no current open hauling job. Missing contract alone
@@ -157,11 +157,23 @@
       reasons.push('moisture_outside_7_35');
     }
 
-    if(damage!==null&&(damage<0||damage>20)){
+    /*
+      Zero is a valid grade value for Damage and Foreign Material.
+      A null numeric result means OCR saved no usable value at all
+      (blank, hyphen, em dash, unreadable text, etc.), which should be
+      verified by the office against the ticket image.
+    */
+    if(damage===null){
+      reasons.push('damage_missing_or_unreadable');
+    }
+    else if(damage<0||damage>20){
       reasons.push('damage_outside_0_20');
     }
 
-    if(foreignMaterial!==null&&(foreignMaterial<0||foreignMaterial>20)){
+    if(foreignMaterial===null){
+      reasons.push('foreign_material_missing_or_unreadable');
+    }
+    else if(foreignMaterial<0||foreignMaterial>20){
       reasons.push('foreign_material_outside_0_20');
     }
 
