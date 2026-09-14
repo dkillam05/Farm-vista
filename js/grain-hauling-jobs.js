@@ -287,10 +287,10 @@ async function syncVoidButton() {
 }
 
 function installHaulingModalTouchRepair() {
-  if (document.getElementById("fv-hauling-modal-touch-repair-v5")) return;
+  if (document.getElementById("fv-hauling-modal-touch-repair-v6")) return;
 
   const style = document.createElement("style");
-  style.id = "fv-hauling-modal-touch-repair-v5";
+  style.id = "fv-hauling-modal-touch-repair-v6";
   style.textContent = `
     @media (max-width: 900px), (pointer: coarse) {
       #hauling-job-modal {
@@ -390,25 +390,24 @@ function installHaulingModalTouchRepair() {
       if (!combo) return;
 
       const visible = Array.from(document.querySelectorAll(".fv-panel.show"));
-      const panel = visible.find(item => {
-        const owner = clean(
-          item.dataset?.fvSelectId ||
-          item.dataset?.selectId ||
-          item.getAttribute?.("data-for")
-        );
-        return !owner || owner === activeSelectId;
-      });
-
+      const panel = visible[visible.length - 1];
       if (!panel) return;
 
       if (panel.parentElement !== combo) combo.appendChild(panel);
       panel.classList.add("fv-hauling-job-local-panel");
-      panel.style.removeProperty("transform");
+
+      ["top","right","bottom","left","inset","transform","translate","margin","width","max-width","position"].forEach(prop => {
+        panel.style.removeProperty(prop);
+      });
+
       panel.style.setProperty("position", "absolute", "important");
+      panel.style.setProperty("inset", "auto auto auto 0", "important");
       panel.style.setProperty("top", "calc(100% + 4px)", "important");
       panel.style.setProperty("left", "0", "important");
       panel.style.setProperty("right", "auto", "important");
       panel.style.setProperty("bottom", "auto", "important");
+      panel.style.setProperty("transform", "none", "important");
+      panel.style.setProperty("translate", "none", "important");
       panel.style.setProperty("width", "100%", "important");
       panel.style.setProperty("max-width", "100%", "important");
       panel.style.setProperty("margin", "0", "important");
