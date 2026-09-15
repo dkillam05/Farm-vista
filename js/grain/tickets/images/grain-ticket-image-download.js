@@ -400,7 +400,7 @@
     modal.addEventListener('click',e=>{if(e.target===modal)closeModal()});
 
     try{
-      const firebase=await import('/js/firebase-init.js');
+      const firebase=await import('/js/core/firebase/firebase-init.js');
       await firebase.ready;
       const db=firebase.getFirestore();
       const [jobSnap,ticketSnap,alertSnap]=await Promise.all([
@@ -471,7 +471,7 @@
 
   if(path.endsWith('/pages/grain/index.html')) {
     installActiveHaulingJobs();
-    import('/js/grain-hauling-job-contract-drilldown.js?v=20260911-1').catch(error=>{
+    import('/js/grain/hauling-jobs/grain-hauling-job-contract-drilldown.js?v=20260911-1').catch(error=>{
       console.error('[FarmVista] Hauling job contract drill-down loader failed:',error);
     });
   }

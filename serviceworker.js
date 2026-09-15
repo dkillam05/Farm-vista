@@ -14,7 +14,7 @@ let NAMES = null;
 
 async function readVersionNumberOnce() {
   try {
-    const r = await fetch(`${SCOPE_PREFIX}js/version.js`, { cache: "no-store" });
+    const r = await fetch(`${SCOPE_PREFIX}js/core/version/version.js`, { cache: "no-store" });
     const t = await r.text();
     const m = t.match(/number\s*:\s*["']([\d.]+)["']/) || t.match(/FV_NUMBER\s*=\s*["']([\d.]+)["']/);
     return (m && m[1]) || "0.0.0";
@@ -38,8 +38,8 @@ async function makeNamesOnce() {
         `${SCOPE_PREFIX}manifest.webmanifest`,
         `${SCOPE_PREFIX}assets/css/theme.css?rev=${REV}`,
         `${SCOPE_PREFIX}assets/css/app.css?rev=${REV}`,
-        `${SCOPE_PREFIX}js/core.js?rev=${REV}`,
-        `${SCOPE_PREFIX}js/fv-shell.js?rev=${REV}`,
+        `${SCOPE_PREFIX}js/core/core.js?rev=${REV}`,
+        `${SCOPE_PREFIX}js/core/shell/fv-shell.js?rev=${REV}`,
         `${SCOPE_PREFIX}assets/icons/icon-192.png`,
         `${SCOPE_PREFIX}assets/icons/icon-512.png`,
         `${SCOPE_PREFIX}assets/icons/apple-touch-icon.png`
@@ -81,13 +81,13 @@ self.addEventListener("activate", (e)=>{
 function isBypassPath(pathname){
   const p = pathname;
   return (
-    p === `${SCOPE_PREFIX}js/version.js` ||
-    p === `${SCOPE_PREFIX}js/firebase-init.js` ||
-    p === `${SCOPE_PREFIX}js/firebase-config.js` ||
-    p === `${SCOPE_PREFIX}js/theme-boot.js` ||
+    p === `${SCOPE_PREFIX}js/core/version/version.js` ||
+    p === `${SCOPE_PREFIX}js/core/firebase/firebase-init.js` ||
+    p === `${SCOPE_PREFIX}js/core/firebase/firebase-config.js` ||
+    p === `${SCOPE_PREFIX}js/core/theme/theme-boot.js` ||
     p === `${SCOPE_PREFIX}js/app/login.js` ||
     p === `${SCOPE_PREFIX}js/startup.js` ||
-    p === `${SCOPE_PREFIX}js/grain-ticket-adm-decatur-grade-fix.js`
+    p === `${SCOPE_PREFIX}js/grain/tickets/ocr/grain-ticket-adm-decatur-grade-fix.js`
   );
 }
 

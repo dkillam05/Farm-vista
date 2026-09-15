@@ -1,4 +1,4 @@
-// /js/firebase-config.js
+// /js/core/firebase/firebase-config.js
 // FarmVista multi-farm Firebase configuration loader.
 //
 // No farm is hard-coded as the default.
@@ -33,7 +33,7 @@
 
     const helperScript = document.createElement('script');
     helperScript.type = 'module';
-    helperScript.src = '/js/grain-ticket-scan-source-flow.js?v=20260904-5';
+    helperScript.src = '/js/grain/tickets/scan/grain-ticket-scan-source-flow.js?v=20260904-5';
     helperScript.dataset.fvGrainTicketScanSourceFlowDirect = '1';
     document.head.appendChild(helperScript);
   }

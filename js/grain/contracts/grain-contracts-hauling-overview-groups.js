@@ -232,7 +232,7 @@
   async function loadData(force = false) {
     if (state.dataPromise && !force) return state.dataPromise;
 
-    state.dataPromise = import('/js/firebase-init.js').then(async firebase => {
+    state.dataPromise = import('/js/core/firebase/firebase-init.js').then(async firebase => {
       await firebase.ready;
       const db = firebase.getFirestore();
       const [contractSnap, ticketSnap, customerSnap] = await Promise.all([

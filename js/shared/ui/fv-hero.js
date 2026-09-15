@@ -1,4 +1,4 @@
-/* /js/fv-hero.js — FULL REPLACEMENT (no Firestore, no SW changes)
+/* /js/shared/ui/fv-hero.js — FULL REPLACEMENT (no Firestore, no SW changes)
    FarmVista – Dashboard hero grid + local Message Board (📢)
    Update: four section cards now use MULTILINE subtitles (each bullet on its own line).
 */

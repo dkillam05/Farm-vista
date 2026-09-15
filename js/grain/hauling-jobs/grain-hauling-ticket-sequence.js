@@ -7,7 +7,7 @@
   'use strict';
   if (window.__FV_HAULING_TICKET_SEQUENCE_COMPAT_20260912_V5) return;
   window.__FV_HAULING_TICKET_SEQUENCE_COMPAT_20260912_V5 = true;
-  import('/js/grain-hauling-split-portion-dnd.js?v=20260912-0838').catch(error => {
+  import('/js/grain/hauling-jobs/grain-hauling-split-portion-dnd.js?v=20260912-0838').catch(error => {
     console.warn('[FarmVista] Could not load hauling split-portion DND:', error);
   });
 })();

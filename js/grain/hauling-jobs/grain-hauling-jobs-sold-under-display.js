@@ -54,7 +54,7 @@
 
   async function getFirebaseContext() {
     if (!firebaseContextPromise) {
-      firebaseContextPromise = import('/js/firebase-init.js').then(async firebase => {
+      firebaseContextPromise = import('/js/core/firebase/firebase-init.js').then(async firebase => {
         await firebase.ready;
         return { firebase, db: firebase.getFirestore() };
       });

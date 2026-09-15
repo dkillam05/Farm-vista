@@ -1,6 +1,6 @@
 /**
  * FarmVista — Grain Transfers
- * /js/grain-transfers.js
+ * /js/grain/transfers/grain-transfers.js
  *
  * PURPOSE
  * ============================================================
@@ -85,7 +85,7 @@ import {
   getDocs,
   setDoc,
   serverTimestamp
-} from "/js/firebase-init.js";
+} from "/js/core/firebase/firebase-init.js";
 
 
 // ============================================================
@@ -4441,7 +4441,7 @@ async function getTransactionRunner() {
 
   const module =
     await import(
-      "/js/firebase-init.js"
+      "/js/core/firebase/firebase-init.js"
     );
 
 

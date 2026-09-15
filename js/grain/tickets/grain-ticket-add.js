@@ -1,4 +1,4 @@
-// /js/grain-ticket-add.js
+// /js/grain/tickets/grain-ticket-add.js
 // FarmVista — Manual Grain Ticket Entry
 //
 // Matches the CURRENT grain-ticket-add.html IDs.
@@ -23,7 +23,7 @@ import {
   doc,
   updateDoc,
   serverTimestamp
-} from "/js/firebase-init.js";
+} from "/js/core/firebase/firebase-init.js";
 
 await ready;
 

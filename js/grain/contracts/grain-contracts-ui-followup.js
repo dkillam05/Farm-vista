@@ -1,4 +1,4 @@
-import "/js/fv-combo.js";
+import "/js/shared/ui/fv-combo.js";
 
 /* FarmVista — Grain Contracts UI follow-up — Sept. 12, 2026 */
 (() => {

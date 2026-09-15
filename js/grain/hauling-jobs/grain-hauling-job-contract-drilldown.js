@@ -11,7 +11,7 @@ import {
   getDocs,
   getDoc,
   doc
-} from "/js/firebase-init.js";
+} from "/js/core/firebase/firebase-init.js";
 
 await ready;
 

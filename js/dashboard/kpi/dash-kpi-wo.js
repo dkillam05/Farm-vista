@@ -1,4 +1,4 @@
-// /js/dash-kpi-wo.js
+// /js/dashboard/kpi/dash-kpi-wo.js
 // Rev: 2026-01-27-dash-kpi-wo-v1
 //
 // KPI: Work orders needing approval (fieldMaintenance.status == "needs approved").

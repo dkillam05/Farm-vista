@@ -153,7 +153,7 @@
     if (!ticketId) return null;
 
     try {
-      const firebase = await import('/js/firebase-init.js');
+      const firebase = await import('/js/core/firebase/firebase-init.js');
       await firebase.ready;
 
       const db = firebase.getFirestore();
@@ -274,12 +274,12 @@
   window.__FV_TICKET_DETAIL_MOBILE_VIEWER_LOADER_V6_20260911 = true;
 
   const script = document.createElement('script');
-  script.src = '/js/grain-ticket-detail-mobile-viewer-v2.js?v=20260911-6';
+  script.src = '/js/grain/tickets/detail/grain-ticket-detail-mobile-viewer-v2.js?v=20260911-6';
   script.dataset.fvTicketDetailMobileViewer = '1';
   document.head.appendChild(script);
 
   const firstLoadWake = document.createElement('script');
-  firstLoadWake.src = '/js/grain-ticket-detail-first-load-wake.js?v=20260911-3';
+  firstLoadWake.src = '/js/grain/tickets/detail/grain-ticket-detail-first-load-wake.js?v=20260911-3';
   firstLoadWake.dataset.fvTicketDetailFirstLoadWake = '1';
   document.head.appendChild(firstLoadWake);
 })();

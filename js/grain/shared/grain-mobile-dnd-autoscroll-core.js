@@ -436,7 +436,7 @@
 
   async function resolveUser() {
     try {
-      const firebase = await import('/js/firebase-init.js');
+      const firebase = await import('/js/core/firebase/firebase-init.js');
       await firebase.ready;
       ui.uid = clean(firebase.getAuth()?.currentUser?.uid) || 'local';
     } catch (_) {
@@ -528,7 +528,7 @@
 
     ui.dataPromise = (async () => {
       try {
-        const firebase = await import('/js/firebase-init.js');
+        const firebase = await import('/js/core/firebase/firebase-init.js');
         await firebase.ready;
         const db = firebase.getFirestore();
         const [contracts, jobs, tickets] = await Promise.all([
@@ -831,7 +831,7 @@
 
     ui.ticketBusy = true;
     try {
-      const firebase = await import('/js/firebase-init.js');
+      const firebase = await import('/js/core/firebase/firebase-init.js');
       await firebase.ready;
       const db = firebase.getFirestore();
       await Promise.all(ticketIds.map(id => firebase.updateDoc(
@@ -868,7 +868,7 @@
 
     ui.ticketBusy = true;
     try {
-      const firebase = await import('/js/firebase-init.js');
+      const firebase = await import('/js/core/firebase/firebase-init.js');
       await firebase.ready;
       const db = firebase.getFirestore();
       await Promise.all(ticketIds.map(id => firebase.updateDoc(

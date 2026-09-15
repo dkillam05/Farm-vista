@@ -1,4 +1,4 @@
-/* /js/menu.js — FarmVista navigation config (ROOT-ABSOLUTE HREFs)
+/* /js/shared/navigation/menu.js — FarmVista navigation config (ROOT-ABSOLUTE HREFs)
    All hrefs begin with / so links work from ANY page depth.
 
    Permissions:

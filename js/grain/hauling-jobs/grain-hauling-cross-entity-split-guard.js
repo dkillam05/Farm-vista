@@ -29,7 +29,7 @@
   async function ensureData(force = false) {
     if (loading && !force) return loading;
     loading = (async () => {
-      firebase = firebase || await import('/js/firebase-init.js');
+      firebase = firebase || await import('/js/core/firebase/firebase-init.js');
       await firebase.ready;
       db = db || firebase.getFirestore();
       const [ticketSnap, jobSnap] = await Promise.all([

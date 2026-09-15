@@ -547,7 +547,7 @@
   async function loadSettings() {
     try {
       if (!firebaseApi) {
-        firebaseApi = await import('/js/firebase-init.js');
+        firebaseApi = await import('/js/core/firebase/firebase-init.js');
         await firebaseApi.ready;
       }
 

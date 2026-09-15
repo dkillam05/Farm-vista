@@ -70,7 +70,7 @@
       const path = String(global.location?.pathname || '').toLowerCase();
       if (path.endsWith('/pages/grain/grain-ticket.html') && !doc.querySelector('script[data-fv-grain-warning-guard]')) {
         const script = doc.createElement('script');
-        script.src = '/js/grain-ticket-dashboard-warning-patch.js?v=20260911-2';
+        script.src = '/js/grain/tickets/alerts/grain-ticket-dashboard-warning-patch.js?v=20260911-2';
         script.defer = true;
         script.dataset.fvGrainWarningGuard = '1';
         doc.head.appendChild(script);
@@ -85,7 +85,7 @@
 
       if (!doc.querySelector('script[data-fv-hauling-job-ux]')) {
         const script = doc.createElement('script');
-        script.src = '/js/grain-hauling-job-ux.js?v=20260911-2';
+        script.src = '/js/grain/hauling-jobs/grain-hauling-job-ux.js?v=20260911-2';
         script.defer = true;
         script.dataset.fvHaulingJobUx = '1';
         doc.head.appendChild(script);
@@ -93,7 +93,7 @@
 
       if (!doc.querySelector('script[data-fv-hauling-job-dnd-guard]')) {
         const guard = doc.createElement('script');
-        guard.src = '/js/grain-hauling-job-dnd-guard.js?v=20260911-1';
+        guard.src = '/js/grain/hauling-jobs/grain-hauling-job-dnd-guard.js?v=20260911-1';
         guard.defer = true;
         guard.dataset.fvHaulingJobDndGuard = '1';
         doc.head.appendChild(guard);
@@ -113,7 +113,7 @@
 
       const script = doc.createElement('script');
       script.type = 'module';
-      script.src = '/js/grain-index-hauling-jobs.js?v=20260913-1';
+      script.src = '/js/grain/index/grain-index-hauling-jobs.js?v=20260913-1';
       script.dataset.fvGrainIndexHaulingJobs = '1';
       doc.head.appendChild(script);
     }catch{}

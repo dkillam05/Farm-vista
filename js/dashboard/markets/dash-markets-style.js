@@ -1,5 +1,5 @@
 /* =====================================================================
-/js/dash-markets-style.js  (FULL FILE)
+/js/dashboard/markets/dash-markets-style.js  (FULL FILE)
 Rev: 2026-01-28b
 Purpose:
 ✅ Restores Markets modal styling after UI split

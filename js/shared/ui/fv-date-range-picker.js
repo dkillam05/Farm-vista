@@ -1,5 +1,5 @@
 /* ======================================================================
-/js/fv-date-range-picker.js   (FULL FILE)
+/js/shared/ui/fv-date-range-picker.js   (FULL FILE)
 Rev: 2026-03-15b-fix-single-day-apply-and-range-commit
 
 PURPOSE

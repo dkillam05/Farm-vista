@@ -3,7 +3,7 @@
    Remaining bushels use FONT color only. Ticket collapse/expand is owned by
    grain-hauling-ticket-sequence.js so this file must not force ticket cards open.
 */
-import "/js/grain-hauling-cross-entity-split-guard.js?v=20260914-1";
+import "/js/grain/hauling-jobs/grain-hauling-cross-entity-split-guard.js?v=20260914-1";
 
 (() => {
   'use strict';

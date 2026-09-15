@@ -1,7 +1,7 @@
 // FarmVista — Hauling Job field-local pickers v9.1
 // ALL four fields use the exact same local picker implementation.
 // IMPORTANT: no subtree MutationObserver; it caused a self-triggering repair loop.
-import { ready, getFirestore, collection, getDocs } from '/js/firebase-init.js';
+import { ready, getFirestore, collection, getDocs } from '/js/core/firebase/firebase-init.js';
 await ready;
 const db=getFirestore();
 const clean=v=>String(v??'').trim();

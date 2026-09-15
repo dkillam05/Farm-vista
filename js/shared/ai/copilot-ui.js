@@ -1,4 +1,4 @@
-/* /js/copilot-ui.js  (FULL FILE)
+/* /js/shared/ai/copilot-ui.js  (FULL FILE)
    Rev: 2026-01-20-copilot-ui14-better-errors-text-answer-ok
 
    CHANGE:
@@ -19,7 +19,7 @@
 
 'use strict';
 
-import { ready, getAuth } from '/js/firebase-init.js';
+import { ready, getAuth } from '/js/core/firebase/firebase-init.js';
 
 export const FVCopilotUI = (() => {
   const DEFAULTS = {

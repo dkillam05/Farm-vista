@@ -22,7 +22,7 @@
     .replaceAll("'", '&#039;');
 
   const core = document.createElement('script');
-  core.src = '/js/grain-mobile-dnd-autoscroll-core.js?v=20260911-1';
+  core.src = '/js/grain/shared/grain-mobile-dnd-autoscroll-core.js?v=20260911-1';
   core.dataset.fvGrainMobileDndCore = '1';
   document.head.appendChild(core);
 
@@ -98,7 +98,7 @@
     if (state.loading && !force) return state.loading;
     if (state.loaded && !force) return;
 
-    state.loading = import('/js/firebase-init.js').then(async firebase => {
+    state.loading = import('/js/core/firebase/firebase-init.js').then(async firebase => {
       await firebase.ready;
       const db = firebase.getFirestore();
       const [ticketsSnap, jobsSnap, customersSnap] = await Promise.all([
@@ -195,7 +195,7 @@
 
     state.repairing = true;
     try {
-      const firebase = await import('/js/firebase-init.js');
+      const firebase = await import('/js/core/firebase/firebase-init.js');
       await firebase.ready;
       const db = firebase.getFirestore();
 

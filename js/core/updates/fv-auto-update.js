@@ -21,7 +21,7 @@
   const CHECK_INTERVAL_MS = 5 * 60 * 1000;
   const MIN_CHECK_GAP_MS = 30 * 1000;
   const DEPLOY_SETTLE_MS = 4500;
-  const VERSION_URL = '/js/version.js';
+  const VERSION_URL = '/js/core/version/version.js';
   const UPDATE_PARAM = 'fv_release';
   const ATTEMPT_KEY = 'fv:auto-update-attempted-release';
 

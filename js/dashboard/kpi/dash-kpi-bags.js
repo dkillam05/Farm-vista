@@ -1,4 +1,4 @@
-// /js/dash-kpi-bags.js
+// /js/dashboard/kpi/dash-kpi-bags.js
 // Rev: 2026-01-27-dash-kpi-bags-v1
 //
 // KPI: Grain bag inventory on hand
@@ -7,7 +7,7 @@
 // Extracted from your dashboard inline script.
 // Respects perms hiding: if #bag-kpi is perm-hidden, it will no-op.
 
-import { ready, getFirestore, collection, getDocs } from '/js/firebase-init.js';
+import { ready, getFirestore, collection, getDocs } from '/js/core/firebase/firebase-init.js';
 
 (async function(){
   "use strict";

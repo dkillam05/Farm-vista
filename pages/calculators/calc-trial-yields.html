@@ -7,12 +7,12 @@
 <meta name="theme-color" content="#3B7E46">
 
 <link rel="manifest" href="../../manifest.webmanifest">
-<script defer src="../../js/theme-boot.js"></script>
+<script defer src="../../js/core/theme/theme-boot.js"></script>
 
 <link rel="stylesheet" href="../../assets/css/theme.css">
 <link rel="stylesheet" href="../../assets/css/app.css">
 
-<script defer src="../../js/fv-shell.js"></script>
+<script defer src="../../js/core/shell/fv-shell.js"></script>
 
 <style>
 :root{
@@ -151,7 +151,7 @@ const esc=value=>String(value??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").re
 const num=value=>{const n=parseFloat(String(value??"").replace(/,/g,"").trim());return Number.isFinite(n)?n:NaN;};
 const fmt=(value,decimals=2)=>Number.isFinite(Number(value))?Number(value).toLocaleString(undefined,{maximumFractionDigits:decimals}):"-";
 let fb;let db;let auth=null;let FIELDS=[];let TRIALS=[];let HISTORY=[];let seq=0;let targetRow=null;let historyShareRecord=null;let lastCalculatorDefaults={crop:"corn",cutWidthFt:30};
-async function initFirebase(){fb=await import("../../js/firebase-init.js");await fb.ready;if(typeof fb.isStub==="function"&&fb.isStub())throw new Error("Firebase is not available.");db=fb.getFirestore();try{auth=fb.getAuth();}catch{auth=null;}}
+async function initFirebase(){fb=await import("../../js/core/firebase/firebase-init.js");await fb.ready;if(typeof fb.isStub==="function"&&fb.isStub())throw new Error("Firebase is not available.");db=fb.getFirestore();try{auth=fb.getAuth();}catch{auth=null;}}
 async function loadFields(){const snap=await fb.getDocs(fb.collection(db,"fields"));const rows=[];snap.forEach(docSnap=>{const data=docSnap.data()||{};if(String(data.status||"").toLowerCase()!=="active")return;rows.push({id:docSnap.id,name:data.name||"(Unnamed field)",farmId:data.farmId||"",farmName:data.farmName||""});});rows.sort((a,b)=>String(a.name).localeCompare(String(b.name),undefined,{numeric:true}));FIELDS=rows;renderFields();}
 async function loadTrials(){const snap=await fb.getDocs(fb.collection(db,"fieldTrials"));const activeDocs=[];snap.forEach(docSnap=>{const data=docSnap.data()||{};if(String(data.status||"").toLowerCase()==="active")activeDocs.push({id:docSnap.id,data});});TRIALS=await Promise.all(activeDocs.map(async item=>{const fieldSnap=await fb.getDocs(fb.collection(db,"fieldTrials",item.id,"fields"));const links=[];fieldSnap.forEach(fieldDoc=>{const data=fieldDoc.data()||{};links.push({docId:fieldDoc.id,fieldId:String(data.fieldId||fieldDoc.id||""),fieldName:data.fieldName||"",farmId:data.farmId||"",farmName:data.farmName||"",notes:data.notes||"",tillable:Number.isFinite(Number(data.tillable))?Number(data.tillable):null,trialAcres:Number.isFinite(Number(data.trialAcres))?Number(data.trialAcres):null});});const data=item.data;return{id:item.id,trialName:data.trialName||"(Unnamed Trial)",trialType:data.trialType||"",treatmentProduct:data.treatmentProduct||"",check:data.check||"",crop:data.crop||"",cropYear:data.cropYear??null,operationTask:data.operationTask||"",notes:data.notes||"",links};}));TRIALS.sort((a,b)=>String(a.trialName).localeCompare(String(b.trialName),undefined,{numeric:true}));renderTrials();}
 const fieldPicker=$("fieldPicker"),trialPicker=$("trialPicker"),fieldBtn=$("fieldBtn"),trialBtn=$("trialBtn"),fieldText=$("fieldText"),trialText=$("trialText"),fieldId=$("fieldId"),trialId=$("trialId"),fieldSearch=$("fieldSearch"),trialSearch=$("trialSearch"),fieldOptions=$("fieldOptions"),trialOptions=$("trialOptions"),otherWrap=$("otherWrap"),otherName=$("otherName"),trialMeta=$("trialMeta");

@@ -77,7 +77,7 @@
 
   async function ensureFirebase(){
     if (firebase && db) return;
-    firebase = await import('/js/firebase-init.js');
+    firebase = await import('/js/core/firebase/firebase-init.js');
     await firebase.ready;
     db = firebase.getFirestore();
   }

@@ -1,5 +1,5 @@
 /* =====================================================================
-/js/markets.js  (FULL FILE)
+/js/shared/markets/markets.js  (FULL FILE)
 Rev: 2026-03-17a-true-expiration-date
 
 FIX (per Dane):

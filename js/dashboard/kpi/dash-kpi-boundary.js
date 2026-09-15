@@ -1,4 +1,4 @@
-// /js/dash-kpi-boundary.js
+// /js/dashboard/kpi/dash-kpi-boundary.js
 // Rev: 2026-01-27-dash-kpi-boundary-v1
 //
 // KPI: Field boundary fixes needed
@@ -7,7 +7,7 @@
 // Extracted from your dashboard inline script.
 // Respects perms hiding: if #boundary-kpi is perm-hidden, it will no-op.
 
-import { ready, getFirestore, collection, getDocs } from '/js/firebase-init.js';
+import { ready, getFirestore, collection, getDocs } from '/js/core/firebase/firebase-init.js';
 
 (async function(){
   "use strict";

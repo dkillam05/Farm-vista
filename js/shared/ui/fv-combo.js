@@ -1,4 +1,4 @@
-/* /js/fv-combo.js
+/* /js/shared/ui/fv-combo.js
    FarmVista Combo Upgrader — v1.5.0
    - Custom selects stay anchored to their source control while any page/container scrolls.
    - Clicking anywhere outside an open combo closes it immediately.

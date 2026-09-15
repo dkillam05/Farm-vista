@@ -156,7 +156,7 @@
   window.__FV_GRAIN_TICKET_ROW_TAP_GUARD_LOADER_20260905 = true;
 
   const script = document.createElement('script');
-  script.src = '/js/grain-ticket-row-tap-guard.js?v=20260905-1';
+  script.src = '/js/grain/tickets/ui/grain-ticket-row-tap-guard.js?v=20260905-1';
   script.dataset.fvGrainTicketRowTapGuard = '1';
   document.head.appendChild(script);
 })();

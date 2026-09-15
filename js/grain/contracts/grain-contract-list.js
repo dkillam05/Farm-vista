@@ -1,4 +1,4 @@
-// /js/grain-contract-list.js
+// /js/grain/contracts/grain-contract-list.js
 // Rev: 2026-08-17-grain-contract-list-v3-void-support
 //
 // PURPOSE:
@@ -37,7 +37,7 @@ import {
   doc,
   updateDoc,
   serverTimestamp
-} from "/js/firebase-init.js";
+} from "/js/core/firebase/firebase-init.js";
 
 
 await ready;

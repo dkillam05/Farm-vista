@@ -1,4 +1,4 @@
-// /js/grain-contracts.js
+// /js/grain/contracts/grain-contracts.js
 // FarmVista — Grain Contracts / Reconciliation
 // Split-load allocation model
 // Updated 2026-08-18
@@ -12,7 +12,7 @@ import {
   doc,
   updateDoc,
   serverTimestamp
-} from "/js/firebase-init.js";
+} from "/js/core/firebase/firebase-init.js";
 
 await ready;
 
@@ -1499,7 +1499,7 @@ function currentVoidUser() {
 async function requireRunTransaction() {
   const module =
     await import(
-      "/js/firebase-init.js"
+      "/js/core/firebase/firebase-init.js"
     );
 
   if (

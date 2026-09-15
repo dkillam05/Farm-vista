@@ -1,7 +1,7 @@
 // FarmVista — Hauling Job field-local pickers v10
 // Buyer, Location, Sold Under, and Crop all use the exact same local picker.
 // Location's real form control is #hauling-job-destination.
-import { ready, getFirestore, collection, getDocs } from '/js/firebase-init.js';
+import { ready, getFirestore, collection, getDocs } from '/js/core/firebase/firebase-init.js';
 
 await ready;
 const db = getFirestore();

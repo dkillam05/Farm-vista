@@ -153,7 +153,7 @@
   async function load(force=false) {
     if (state.loading && !force) return state.loading;
     state.loading = (async() => {
-      const firebase = state.firebase || await import('/js/firebase-init.js');
+      const firebase = state.firebase || await import('/js/core/firebase/firebase-init.js');
       await firebase.ready;
       state.firebase = firebase;
       state.db = firebase.getFirestore();

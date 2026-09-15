@@ -306,7 +306,7 @@
   async function importFirebase(){
 
     return await import(
-      '/js/firebase-init.js'
+      '/js/core/firebase/firebase-init.js'
     );
 
   }
@@ -316,7 +316,7 @@
 
     const module =
       await import(
-        '/js/menu.js'
+        '/js/shared/navigation/menu.js'
       );
 
 

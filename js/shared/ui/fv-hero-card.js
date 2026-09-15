@@ -1,4 +1,4 @@
-// /js/fv-hero-card.js — FULL REPLACEMENT
+// /js/shared/ui/fv-hero-card.js — FULL REPLACEMENT
 // Titles: big, bold, centered (h), top-aligned, underline, fixed max size across cards
 // Bullets: one per line. Font: TT Moons if present.
 (() => {

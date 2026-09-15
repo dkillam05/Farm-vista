@@ -33,7 +33,7 @@
 
   if(!String(location.pathname||'').toLowerCase().endsWith('/pages/grain/grain-ticket.html')) return;
 
-  const {ready,getFirestore,collection,getDocs}=await import('/js/firebase-init.js');
+  const {ready,getFirestore,collection,getDocs}=await import('/js/core/firebase/firebase-init.js');
   await ready;
 
   const db=getFirestore();

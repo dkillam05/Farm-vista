@@ -1,4 +1,4 @@
-// /js/dash-message-board.js
+// /js/dashboard/messages/dash-message-board.js
 // Rev: 2026-01-27-dash-message-board-v1
 //
 // Message Board loader (Firestore via FVData, with localStorage fallback).

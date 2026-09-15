@@ -1,4 +1,4 @@
-// /js/theme-boot.js  — viewport + theme + firebase boot + AUTH GUARD + USER CONTEXT WARM
+// /js/core/theme/theme-boot.js  — viewport + theme + firebase boot + AUTH GUARD + USER CONTEXT WARM
 // All internal paths are ABSOLUTE under / to avoid 404s on deep pages.
 
 /* =========================  Viewport & tap behavior  ========================= */
@@ -70,7 +70,7 @@ const __fvBoot = (function(){
       // 1) Ensure global config is present BEFORE loading firebase-init.js
       if (!window.FV_FIREBASE_CONFIG) {
         try {
-          await __fvBoot.loadScript('/js/firebase-config.js', { defer:false, async:false });
+          await __fvBoot.loadScript('/js/core/firebase/firebase-config.js', { defer:false, async:false });
         } catch(e) {
           console.warn('[FV] firebase-config.js failed to load (continuing):', e);
         }
@@ -80,10 +80,10 @@ const __fvBoot = (function(){
       if (!window.__FV_FIREBASE_INIT_LOADED__) {
         window.__FV_FIREBASE_INIT_LOADED__ = true;
         try {
-          await __fvBoot.loadScript('/js/firebase-init.js', { type:'module', defer:true });
+          await __fvBoot.loadScript('/js/core/firebase/firebase-init.js', { type:'module', defer:true });
           console.log('[FV] firebase-init loaded');
         } catch (e) {
-          console.warn('[FV] firebase-init failed to load — check path /js/firebase-init.js', e);
+          console.warn('[FV] firebase-init failed to load — check path /js/core/firebase/firebase-init.js', e);
         }
       }
 
@@ -107,7 +107,7 @@ const __fvBoot = (function(){
         // Load perm-ui globally ONCE (so you don't have to add it to every page)
         if (!window.__FV_PERM_UI_SCRIPT_LOADED__) {
           window.__FV_PERM_UI_SCRIPT_LOADED__ = true;
-          try { await __fvBoot.loadScript('/js/perm-ui.js', { defer:true }); }
+          try { await __fvBoot.loadScript('/js/shared/permissions/perm-ui.js', { defer:true }); }
           catch(e){ console.warn('[FV] perm-ui failed to load:', e); }
         }
 
@@ -212,7 +212,7 @@ const __fvBoot = (function(){
     try {
       if (isLoginPath()) return;
 
-      const mod = await import('/js/firebase-init.js');
+      const mod = await import('/js/core/firebase/firebase-init.js');
       const ctx = await mod.ready;
       const isStub = (mod.isStub && mod.isStub()) || false;
       const auth = (ctx && ctx.auth) || window.firebaseAuth || null;
@@ -293,7 +293,7 @@ const __fvBoot = (function(){
 
 /* =====================  Permission Engine (BRAIN ONLY — NO HIDE)  ===================== */
 /* Provides FV.can("key") and FV.can("key:action") using FVUserContext perms.
-   UI behavior (hide tiles / disable forms) is handled by /js/perm-ui.js.
+   UI behavior (hide tiles / disable forms) is handled by /js/shared/permissions/perm-ui.js.
 */
 (function(){
   try{
