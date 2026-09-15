@@ -5,8 +5,8 @@
 */
 (() => {
   'use strict';
-  if (window.__FV_HAULING_SPLIT_TARGETS_20260915_V2) return;
-  window.__FV_HAULING_SPLIT_TARGETS_20260915_V2 = true;
+  if (window.__FV_HAULING_SPLIT_TARGETS_20260915_V3) return;
+  window.__FV_HAULING_SPLIT_TARGETS_20260915_V3 = true;
   if (!String(location.pathname || '').toLowerCase().endsWith('/pages/grain/grain-contracts.html')) return;
 
   const clean = value => String(value ?? '').trim();
@@ -18,15 +18,9 @@
       .sort((a,b) => a.localeCompare(b, undefined, { numeric:true, sensitivity:'base' }));
   }
 
-  function jobBuyer(job) {
-    return clean(job?.buyerName || job?.buyer || job?.grainBuyerName || job?.destinationBuyerName);
-  }
-  function jobSoldUnder(job) {
-    return clean(job?.customerName || job?.soldUnderName || job?.soldUnder || job?.customer);
-  }
-  function jobCrop(job) {
-    return clean(job?.crop || job?.commodity || job?.cropName || job?.cropType);
-  }
+  function jobBuyer(job) { return clean(job?.buyerName || job?.buyer || job?.grainBuyerName || job?.destinationBuyerName); }
+  function jobSoldUnder(job) { return clean(job?.customerName || job?.soldUnderName || job?.soldUnder || job?.customer); }
+  function jobCrop(job) { return clean(job?.crop || job?.commodity || job?.cropName || job?.cropType); }
   function usableJob(job) {
     const status = norm(job?.status || job?.jobStatus);
     return job?.voided !== true && !status.includes('void') && !status.includes('cancel') && !status.includes('closed');
@@ -48,13 +42,18 @@
       option.textContent = value;
       select.appendChild(option);
     });
-    if (previous && options.includes(previous)) select.value = previous;
-    else select.value = '';
+    select.value = previous && options.includes(previous) ? previous : '';
+  }
 
-    /* Existing FarmVista combo panels are rebuilt from the select when reopened.
-       Remove only a stale CLOSED panel tied to this select; never touch an open panel. */
-    const combo = select.closest('.fv-combo');
-    combo?.querySelectorAll('.fv-panel:not(.show)').forEach(panel => panel.remove());
+  function upgradeFilterCombos() {
+    const ids = ['fv-ticket-job-status-filter','fv-ticket-filter-buyer','fv-ticket-filter-sold-under','fv-ticket-filter-crop'];
+    ids.forEach(id => {
+      const select = document.getElementById(id);
+      if (!select) return;
+      select.setAttribute('data-fv-combo','');
+      select.setAttribute('data-fv-search','false');
+    });
+    window.FVCombo?.upgrade?.(document);
   }
 
   async function populateFilters(force=false) {
@@ -69,6 +68,7 @@
       fillSelect('fv-ticket-filter-sold-under', 'Sold Under', jobs.map(jobSoldUnder));
       fillSelect('fv-ticket-filter-crop', 'Crops', jobs.map(jobCrop));
       loaded = true;
+      upgradeFilterCombos();
 
       const message = document.getElementById('fv-ticket-hauling-message');
       if (message && /already have grain tickets assigned/i.test(message.textContent || '')) {
@@ -94,13 +94,16 @@
   }
 
   function start() {
-    /* The core creates the filter controls during page startup. Give that startup one
-       frame, then populate once. Refresh is the only event that reloads the options. */
-    requestAnimationFrame(() => setTimeout(() => populateFilters(false), 250));
+    requestAnimationFrame(() => setTimeout(() => {
+      populateFilters(false);
+      upgradeFilterCombos();
+    }, 350));
   }
 
   document.addEventListener('click', event => {
-    if (event.target?.closest?.('#fv-refresh-ticket-hauling')) populateFilters(true);
+    if (event.target?.closest?.('#fv-refresh-ticket-hauling')) {
+      populateFilters(true).then(upgradeFilterCombos);
+    }
   }, true);
   document.addEventListener('pointerdown', exposeTargets, true);
   document.addEventListener('mousedown', exposeTargets, true);
