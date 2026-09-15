@@ -1,5 +1,5 @@
 /* =====================================================================
-/js/rainfallmap/render-flow.js   (FULL FILE)
+/js/field-readiness/rainfall-map/render-flow.js   (FULL FILE)
 Rev: 2026-03-17a-force-map-mode-select-sync
 
 PURPOSE

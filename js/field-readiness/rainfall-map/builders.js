@@ -1,5 +1,5 @@
 /* ======================================================================
-/js/rainfallmap/builders.js   (FULL FILE)
+/js/field-readiness/rainfall-map/builders.js   (FULL FILE)
 Rev: 2026-05-11-field-conditions-current-cache-v2
 
 GOAL

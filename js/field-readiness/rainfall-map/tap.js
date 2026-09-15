@@ -1,5 +1,5 @@
 /* =====================================================================
-/js/rainfallmap/tap.js   (FULL FILE)
+/js/field-readiness/rainfall-map/tap.js   (FULL FILE)
 Rev: 2026-03-15a-labeled-tap-handler
 
 PURPOSE

@@ -1,5 +1,5 @@
 /* =====================================================================
-/js/rainfallmap/app.js   (FULL FILE)
+/js/field-readiness/rainfall-map/app.js   (FULL FILE)
 Rev: 2026-03-17b-rerender-on-return
 
 PURPOSE

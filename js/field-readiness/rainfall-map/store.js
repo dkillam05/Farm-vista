@@ -1,5 +1,5 @@
 /* ======================================================================
-   /js/rainfallmap/store.js
+   /js/field-readiness/rainfall-map/store.js
    FULL FILE REBUILD
    REV: 2026-03-15a-add-latest-readiness-cache-to-map-state
 

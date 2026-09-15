@@ -1,5 +1,5 @@
 /* ======================================================================
-   /js/rainfallmap/readiness-core.js
+   /js/field-readiness/rainfall-map/readiness-core.js
    FULL FILE REBUILD
    REV: 2026-03-15a-map-readiness-centralized-fallback
 

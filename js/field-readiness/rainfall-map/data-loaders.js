@@ -1,5 +1,5 @@
 /* ======================================================================
-   /js/rainfallmap/data-loaders.js
+   /js/field-readiness/rainfall-map/data-loaders.js
    FULL FILE REBUILD
    FIX GOAL:
    - restore robust coordinate normalization

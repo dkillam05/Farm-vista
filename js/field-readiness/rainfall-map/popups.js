@@ -1,5 +1,5 @@
 /* =====================================================================
-/js/rainfallmap/popups.js   (FULL FILE)
+/js/field-readiness/rainfall-map/popups.js   (FULL FILE)
 Rev: 2026-03-15a-labeled-popup-builder
 
 PURPOSE
