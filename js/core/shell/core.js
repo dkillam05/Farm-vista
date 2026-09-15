@@ -1,0 +1,167 @@
+/* ==========================================================
+   FarmVista — Core (theme + version) v3.1.6
+   - Applies saved theme ASAP (prevents flash)
+   - Keeps "system" synced with OS changes
+   - Exposes App API used by fv-shell.js
+   - Sets data-theme attr + updates <meta name="theme-color">
+   - Loads the Grain Ticket unresolved-review warning guard
+   - Preserves previous-page navigation from Grain Ticket Detail
+   - Loads compact Hauling Job cards + overview on Grain Contracts only
+   - Keeps ticket assign / unassign DND working with collapsed job cards
+   - Loads Active + Upcoming hauling jobs (including Spot Loads) on Grain Index
+   ========================================================== */
+(function (global, doc) {
+  const THEME_KEY = "fv-theme";
+  const html = doc.documentElement;
+
+  function ensureThemeMeta(){
+    let m = doc.querySelector('meta[name="theme-color"]');
+    if (!m) { m = doc.createElement('meta'); m.setAttribute('content','#3B7E46'); m.setAttribute('name','theme-color'); doc.head.appendChild(m); }
+    return m;
+  }
+  function applyThemeColorFromCSS(){
+    try{
+      const cs = getComputedStyle(html);
+      const headerBg = cs.getPropertyValue('--header-bg').trim() || cs.getPropertyValue('--green').trim() || '#3B7E46';
+      ensureThemeMeta().setAttribute('content', headerBg);
+    }catch{}
+  }
+
+  function computeDark(mode){
+    if(mode === "dark") return true;
+    if(mode === "light") return false;
+    try { return global.matchMedia && global.matchMedia("(prefers-color-scheme: dark)").matches; }
+    catch { return false; }
+  }
+  function applyTheme(mode){
+    mode = mode || "system";
+    try { localStorage.setItem(THEME_KEY, mode); } catch {}
+    html.setAttribute('data-theme', mode === 'system' ? 'auto' : mode);
+    html.classList.toggle("dark", computeDark(mode));
+    try { doc.dispatchEvent(new CustomEvent("fv:theme", { detail:{ mode } })); } catch {}
+    applyThemeColorFromCSS();
+    return mode;
+  }
+  function initTheme(){
+    let saved = "system";
+    try { saved = localStorage.getItem(THEME_KEY) || "system"; } catch {}
+    applyTheme(saved);
+    try {
+      const mq = global.matchMedia("(prefers-color-scheme: dark)");
+      mq.addEventListener && mq.addEventListener("change", ()=>{
+        const cur = (localStorage.getItem(THEME_KEY) || "system");
+        if(cur === "system") applyTheme("system");
+      });
+    } catch {}
+  }
+
+  function readVersion(){
+    const num  = global.FV_BUILD || (global.FV_VERSION && global.FV_VERSION.number) || "";
+    const date = global.FV_BUILD_DATE || (global.FV_VERSION && global.FV_VERSION.date) || "";
+    const tag  = global.FV_TAGLINE || (global.FV_VERSION && global.FV_VERSION.tagline) || "";
+    if (num)  html.setAttribute("data-fv-version", num);
+    if (date) html.setAttribute("data-fv-build-date", date);
+    if (tag)  html.setAttribute("data-fv-tagline", tag);
+    return { number:num, date, tagline:tag };
+  }
+
+  function loadPageGuards(){
+    try{
+      const path = String(global.location?.pathname || '').toLowerCase();
+      if (path.endsWith('/pages/grain/grain-ticket.html') && !doc.querySelector('script[data-fv-grain-warning-guard]')) {
+        const script = doc.createElement('script');
+        script.src = '/js/grain-ticket-dashboard-warning-patch.js?v=20260911-2';
+        script.defer = true;
+        script.dataset.fvGrainWarningGuard = '1';
+        doc.head.appendChild(script);
+      }
+    }catch{}
+  }
+
+  function loadHaulingJobUx(){
+    try{
+      const path = String(global.location?.pathname || '').toLowerCase();
+      if (!path.endsWith('/pages/grain/grain-contracts.html')) return;
+
+      if (!doc.querySelector('script[data-fv-hauling-job-ux]')) {
+        const script = doc.createElement('script');
+        script.src = '/js/grain-hauling-job-ux.js?v=20260911-2';
+        script.defer = true;
+        script.dataset.fvHaulingJobUx = '1';
+        doc.head.appendChild(script);
+      }
+
+      if (!doc.querySelector('script[data-fv-hauling-job-dnd-guard]')) {
+        const guard = doc.createElement('script');
+        guard.src = '/js/grain-hauling-job-dnd-guard.js?v=20260911-1';
+        guard.defer = true;
+        guard.dataset.fvHaulingJobDndGuard = '1';
+        doc.head.appendChild(guard);
+      }
+    }catch{}
+  }
+
+  function loadGrainIndexHaulingJobs(){
+    try{
+      const path = String(global.location?.pathname || '').toLowerCase();
+      const isGrainIndex =
+        path.endsWith('/pages/grain/index.html') ||
+        path === '/pages/grain/' ||
+        path === '/pages/grain';
+
+      if (!isGrainIndex || doc.querySelector('script[data-fv-grain-index-hauling-jobs]')) return;
+
+      const script = doc.createElement('script');
+      script.type = 'module';
+      script.src = '/js/grain-index-hauling-jobs.js?v=20260913-1';
+      script.dataset.fvGrainIndexHaulingJobs = '1';
+      doc.head.appendChild(script);
+    }catch{}
+  }
+
+  function initGrainTicketDetailBackNavigation(){
+    try{
+      const path = String(global.location?.pathname || '').toLowerCase();
+      if (!path.endsWith('/pages/grain/grain-ticket-detail.html')) return;
+
+      doc.addEventListener('click', (event) => {
+        const backBtn = event.target?.closest?.('#backBtn');
+        if (!backBtn) return;
+
+        event.preventDefault();
+        event.stopImmediatePropagation();
+
+        if (global.history && global.history.length > 1) {
+          global.history.back();
+          return;
+        }
+
+        global.location.href = '/pages/grain/grain-ticket.html';
+      }, true);
+    }catch{}
+  }
+
+  const App = global.App || {};
+  App.getTheme = () => { try { return localStorage.getItem(THEME_KEY) || "system"; } catch { return "system"; } };
+  App.setTheme = (mode) => applyTheme(mode);
+  App.cycleTheme = () => {
+    const order = ["system","light","dark"];
+    const i = Math.max(0, order.indexOf(App.getTheme()));
+    return applyTheme(order[(i+1)%order.length]);
+  };
+  App.getVersion = () => readVersion();
+  global.App = App;
+
+  initTheme();
+  readVersion();
+  loadPageGuards();
+  loadHaulingJobUx();
+  loadGrainIndexHaulingJobs();
+  initGrainTicketDetailBackNavigation();
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', applyThemeColorFromCSS, { once:true });
+  } else {
+    applyThemeColorFromCSS();
+  }
+})(window, document);
