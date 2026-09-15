@@ -16,7 +16,7 @@
   (() => {
     'use strict';
 
-    const CORE_URL = '/pages/grain/grain-ticket-scan-core.html?v=20260911-10';
+    const CORE_URL = '/pages/grain/grain-ticket-scan-core.html?v=20260915-1915';
 
     function replaceRequired(text, oldValue, newValue, label) {
       if (!text.includes(oldValue)) throw new Error(`Scanner patch marker missing: ${label}`);
@@ -53,7 +53,12 @@
       html = replaceRequired(html, `  const ocrCity =\n    normalized(\n      headerCityState.city ||\n      grainTicket?.deliveryCity\n    );`, `  const ocrCity =\n    normalizeCityForDestinationMatch(\n      headerCityState.city ||\n      grainTicket?.deliveryCity\n    );`, 'destination OCR city normalization');
       html = replaceRequired(html, `          const locationCity =\n            normalized(\n              getLocationCity(\n                location\n              )\n            );`, `          const locationCity =\n            normalizeCityForDestinationMatch(\n              getLocationCity(\n                location\n              )\n            );`, 'destination FarmVista city normalization');
 
-      html = replaceRequired(html,
+            html = replaceRequired(html,
+        `function haulingJobIsActive(\n  job\n) {\n\n  if (\n    !job ||\n    job.active === false ||\n    job.isActive === false\n  ) {`,
+        `function haulingJobIsActive(\n  job\n) {\n\n  /* Current driver scans must never auto-assign to a completed hauling job.\n     The two-day completed/overhaul window is a manual/load-out exception only. */\n  const explicitlyCompleted =\n    job?.completed === true ||\n    job?.isCompleted === true ||\n    Boolean(job?.completedAt || job?.completionDate || job?.completedDate);\n\n  if (\n    !job ||\n    explicitlyCompleted ||\n    job.active === false ||\n    job.isActive === false\n  ) {`,
+        'exclude completed hauling jobs from current scans');
+
+html = replaceRequired(html,
         `function haulingJobCustomerId(\n  job\n) {\n\n  return String(\n    job?.customerId ||\n    job?.grainCustomerId ||\n    ""\n  ).trim();\n\n}\n`,
         `function haulingJobCustomerId(\n  job\n) {\n\n  return String(\n    job?.customerId ||\n    job?.soldUnderId ||\n    job?.grainCustomerId ||\n    ""\n  ).trim();\n\n}\n`,
         'hauling job sold under id normalization');
