@@ -1,113 +1,90 @@
-/* FarmVista — split/spot portion targets + hauling filter repair — Sept. 15, 2026
+/* FarmVista — split/spot portion matching helper — Sept. 15, 2026
    Event-driven only. No MutationObserver, polling, or continuous repaint loop.
-   The hauling-job filters are populated directly from grain_hauling_jobs so Buyer,
-   Sold Under, and Crop are useful even when a job has zero assigned tickets.
+   Matching Jobs is narrowed to the available split/unassigned ticket's destination,
+   crop and delivery date. Sold Under intentionally remains open for manual split override.
 */
 (() => {
   'use strict';
-  if (window.__FV_HAULING_SPLIT_TARGETS_20260915_V3) return;
-  window.__FV_HAULING_SPLIT_TARGETS_20260915_V3 = true;
+  if (window.__FV_HAULING_SPLIT_TARGETS_20260915_V4) return;
+  window.__FV_HAULING_SPLIT_TARGETS_20260915_V4 = true;
   if (!String(location.pathname || '').toLowerCase().endsWith('/pages/grain/grain-contracts.html')) return;
 
-  const clean = value => String(value ?? '').trim();
-  const norm = value => clean(value).toLowerCase();
-  let loaded = false;
+  const clean = v => String(v ?? '').trim();
+  const norm = v => clean(v).toLowerCase().replace(/[^a-z0-9]/g,'');
+  const cropKey = v => { const k=norm(v); if(k==='corn'||k==='yellowcorn') return 'corn'; if(['soy','soybean','soybeans','beans','yellowsoybeans'].includes(k)) return 'soybeans'; return k; };
+  const jobBuyer = j => clean(j?.buyerName||j?.buyer||j?.grainBuyerName||j?.destinationBuyerName||j?.elevatorName);
+  const jobLocation = j => clean(j?.deliveryLocationName||j?.locationName||j?.destinationName||j?.destination||j?.elevator);
+  const jobSoldUnder = j => clean(j?.customerName||j?.soldUnderName||j?.soldUnder||j?.customer);
+  const jobCrop = j => clean(j?.crop||j?.commodity||j?.cropName||j?.cropType);
+  const ticketBuyer = t => clean(t?.buyerName||t?.buyer||t?.grainBuyerName||t?.destinationBuyerName||t?.elevatorName);
+  const ticketLocation = t => clean(t?.deliveryLocationName||t?.locationName||t?.destinationName||t?.destination||t?.elevator);
+  const ticketCrop = t => clean(t?.crop||t?.commodity||t?.cropName||t?.cropType);
+  const ticketDate = t => clean(t?.ticketDate||t?.date||t?.deliveryDate).slice(0,10);
+  let jobs=[], ticket=null;
 
-  function unique(values) {
-    return [...new Set(values.map(clean).filter(value => value && norm(value) !== 'unknown'))]
-      .sort((a,b) => a.localeCompare(b, undefined, { numeric:true, sensitivity:'base' }));
+  const unique = values => [...new Set(values.map(clean).filter(v=>v&&norm(v)!=='unknown'))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true,sensitivity:'base'}));
+  const usable = j => { const s=norm(j?.status||j?.jobStatus); return j?.voided!==true&&!s.includes('void')&&!s.includes('cancel')&&!s.includes('closed'); };
+  const dateOK = (t,j) => { const d=ticketDate(t), s=clean(j?.startDate||j?.deliveryStartDate||j?.beginDate).slice(0,10), e=clean(j?.endDate||j?.expirationDate||j?.deliveryEndDate).slice(0,10); return !d||((!s||d>=s)&&(!e||d<=e)); };
+  const samePlace = (t,j) => {
+    const tl=norm(ticketLocation(t)), jl=norm(jobLocation(j)), tb=norm(ticketBuyer(t)), jb=norm(jobBuyer(j));
+    if(tl&&jl) return tl===jl;
+    return !!(tb&&jb&&tb===jb);
+  };
+  const matchesTicket = j => !ticket || (samePlace(ticket,j) && cropKey(ticketCrop(ticket))===cropKey(jobCrop(j)) && dateOK(ticket,j));
+
+  function fill(id,label,values){
+    const s=document.getElementById(id); if(!s)return;
+    const old=clean(s.value), vals=unique(values);
+    s.replaceChildren();
+    const all=document.createElement('option'); all.value=''; all.textContent=`All ${label}`; s.appendChild(all);
+    vals.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;s.appendChild(o)});
+    s.value=old&&vals.includes(old)?old:'';
   }
-
-  function jobBuyer(job) { return clean(job?.buyerName || job?.buyer || job?.grainBuyerName || job?.destinationBuyerName); }
-  function jobSoldUnder(job) { return clean(job?.customerName || job?.soldUnderName || job?.soldUnder || job?.customer); }
-  function jobCrop(job) { return clean(job?.crop || job?.commodity || job?.cropName || job?.cropType); }
-  function usableJob(job) {
-    const status = norm(job?.status || job?.jobStatus);
-    return job?.voided !== true && !status.includes('void') && !status.includes('cancel') && !status.includes('closed');
-  }
-
-  function fillSelect(id, label, values) {
-    const select = document.getElementById(id);
-    if (!select) return;
-    const previous = clean(select.value);
-    const options = unique(values);
-    select.replaceChildren();
-    const all = document.createElement('option');
-    all.value = '';
-    all.textContent = `All ${label}`;
-    select.appendChild(all);
-    options.forEach(value => {
-      const option = document.createElement('option');
-      option.value = value;
-      option.textContent = value;
-      select.appendChild(option);
-    });
-    select.value = previous && options.includes(previous) ? previous : '';
-  }
-
-  function upgradeFilterCombos() {
-    const ids = ['fv-ticket-job-status-filter','fv-ticket-filter-buyer','fv-ticket-filter-sold-under','fv-ticket-filter-crop'];
-    ids.forEach(id => {
-      const select = document.getElementById(id);
-      if (!select) return;
-      select.setAttribute('data-fv-combo','');
-      select.setAttribute('data-fv-search','false');
+  function combos(){
+    ['fv-ticket-job-status-filter','fv-ticket-filter-buyer','fv-ticket-filter-sold-under','fv-ticket-filter-crop'].forEach(id=>{
+      const s=document.getElementById(id); if(!s)return; s.setAttribute('data-fv-combo',''); s.setAttribute('data-fv-search','false');
     });
     window.FVCombo?.upgrade?.(document);
   }
-
-  async function populateFilters(force=false) {
-    if (loaded && !force) return;
-    try {
-      const F = await import('/js/firebase-init.js');
-      await F.ready;
-      const db = F.getFirestore();
-      const snap = await F.getDocs(F.collection(db, 'grain_hauling_jobs'));
-      const jobs = snap.docs.map(doc => ({ id:doc.id, ...doc.data() })).filter(usableJob);
-      fillSelect('fv-ticket-filter-buyer', 'Buyers', jobs.map(jobBuyer));
-      fillSelect('fv-ticket-filter-sold-under', 'Sold Under', jobs.map(jobSoldUnder));
-      fillSelect('fv-ticket-filter-crop', 'Crops', jobs.map(jobCrop));
-      loaded = true;
-      upgradeFilterCombos();
-
-      const message = document.getElementById('fv-ticket-hauling-message');
-      if (message && /already have grain tickets assigned/i.test(message.textContent || '')) {
-        message.textContent = 'Matching Jobs includes available hauling jobs, including jobs with no grain tickets assigned yet.';
+  function filterVisibleJobs(){
+    const status=document.getElementById('fv-ticket-job-status-filter');
+    if(!ticket||!status||status.value!=='matching') return;
+    const allowed=new Set(jobs.filter(matchesTicket).map(j=>clean(j.id)));
+    const list=document.getElementById('fv-ticket-job-list'); if(!list)return;
+    [...list.children].forEach(card=>{
+      const id=clean(card.dataset?.jobId||card.dataset?.haulingJobId||card.getAttribute?.('data-id'));
+      if(id) card.hidden=!allowed.has(id);
+      else {
+        const text=norm(card.textContent);
+        const match=jobs.find(j=>allowed.has(j.id)&&text.includes(norm(jobLocation(j)))&&text.includes(cropKey(jobCrop(j))));
+        card.hidden=!match;
       }
-    } catch (error) {
-      console.warn('[FarmVista] Could not populate hauling ticket filters:', error);
-    }
+    });
+    const count=[...list.children].filter(x=>!x.hidden).length;
+    const countEl=document.getElementById('fv-ticket-job-count'); if(countEl)countEl.textContent=`${count} job${count===1?'':'s'}`;
+    const msg=document.getElementById('fv-ticket-hauling-message');
+    if(msg){msg.textContent=ticket?`Matching hauling jobs for ${ticketLocation(ticket)||ticketBuyer(ticket)} — ${ticketCrop(ticket)}. Sold Under may differ for this split portion.`:'Matching hauling jobs for the available split portion.';msg.classList.add('ready')}
   }
-
-  function exposeTargets(event) {
-    const portion = event.target?.closest?.('.fv-hauling-partial-tile.unassigned, .fv-hauling-partial-tile.spot');
-    if (!portion) return;
-    const status = document.getElementById('fv-ticket-job-status-filter');
-    if (!status || status.value !== 'matching') return;
-    status.value = 'active';
-    status.dispatchEvent(new Event('change', { bubbles:true }));
-    const message = document.getElementById('fv-ticket-hauling-message');
-    if (message) {
-      message.textContent = 'Showing active hauling jobs for this split/spot portion. Destination and crop must match; Sold Under may be changed by the manual split override.';
-      message.classList.add('ready');
-    }
+  async function load(){
+    try{
+      const F=await import('/js/firebase-init.js'); await F.ready; const db=F.getFirestore();
+      const [js,ts]=await Promise.all([F.getDocs(F.collection(db,'grain_hauling_jobs')),F.getDocs(F.collection(db,'grain_tickets'))]);
+      jobs=js.docs.map(d=>({id:d.id,...d.data()})).filter(usable);
+      const tickets=ts.docs.map(d=>({id:d.id,...d.data()}));
+      const tile=document.querySelector('.fv-hauling-partial-tile.unassigned, .fv-hauling-partial-tile.spot');
+      const tid=clean(tile?.dataset?.ticketId||tile?.getAttribute?.('data-ticket-id'));
+      ticket=tickets.find(t=>clean(t.id)===tid)||null;
+      if(!ticket&&tile){const m=clean(tile.textContent).match(/Ticket\s+([^\s]+)/i);if(m)ticket=tickets.find(t=>clean(t.ticketNumber||t.ticketNo||t.ticket)===m[1])||null}
+      const eligible=jobs.filter(matchesTicket);
+      fill('fv-ticket-filter-buyer','Buyers',eligible.map(jobBuyer));
+      fill('fv-ticket-filter-sold-under','Sold Under',eligible.map(jobSoldUnder));
+      fill('fv-ticket-filter-crop','Crops',eligible.map(jobCrop));
+      combos();
+      requestAnimationFrame(filterVisibleJobs);
+    }catch(e){console.warn('[FarmVista] split matching helper skipped:',e)}
   }
-
-  function start() {
-    requestAnimationFrame(() => setTimeout(() => {
-      populateFilters(false);
-      upgradeFilterCombos();
-    }, 350));
-  }
-
-  document.addEventListener('click', event => {
-    if (event.target?.closest?.('#fv-refresh-ticket-hauling')) {
-      populateFilters(true).then(upgradeFilterCombos);
-    }
-  }, true);
-  document.addEventListener('pointerdown', exposeTargets, true);
-  document.addEventListener('mousedown', exposeTargets, true);
-
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once:true });
-  else start();
+  function start(){requestAnimationFrame(()=>setTimeout(load,350))}
+  document.addEventListener('click',e=>{if(e.target?.closest?.('#fv-refresh-ticket-hauling'))setTimeout(load,100)},true);
+  document.addEventListener('change',e=>{if(e.target?.id==='fv-ticket-job-status-filter')requestAnimationFrame(filterVisibleJobs)},true);
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
 })();
