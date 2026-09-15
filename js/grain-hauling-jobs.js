@@ -3,6 +3,7 @@
 // keep the Sold Under add action scoped only to the Sold Under combo,
 // and propagate contract assignments back to linked hauling jobs.
 import "/js/grain-hauling-jobs-core.js";
+import "/js/grain-hauling-job-schema-normalizer.js?v=20260915-1";
 import "/js/grain-contracts-hauling-overview-groups.js?v=20260911-1540";
 import "/js/grain-contracts-ui-followup.js?v=20260912-0624";
 import "/js/grain-ticket-alert-table-sync.js?v=20260912-0624";
