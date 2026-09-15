@@ -1,3 +1,5 @@
+import "/js/grain-hauling-split-targets.js?v=20260915-1905";
+
 /* FarmVista — Grain Contracts hauling DND left-column drop zone
    Sept. 12, 2026
 
@@ -42,9 +44,6 @@
   }
 
   function isWholeTicketDrag(event) {
-    // Status DND writes comma-separated ticket ids to text/plain.
-    // Split portions use FVPORTION:... and are intentionally handled by their
-    // own partial-allocation DND logic instead of being mistaken for a whole ticket.
     let plain = '';
     try { plain = String(event.dataTransfer?.getData('text/plain') || ''); } catch (_) {}
     return !plain.startsWith('FVPORTION:');
@@ -53,11 +52,7 @@
   function forwardDrop(event, list) {
     let forwarded;
     try {
-      forwarded = new DragEvent('drop', {
-        bubbles: true,
-        cancelable: true,
-        dataTransfer: event.dataTransfer
-      });
+      forwarded = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: event.dataTransfer });
     } catch (_) {
       forwarded = new Event('drop', { bubbles: true, cancelable: true });
       try { Object.defineProperty(forwarded, 'dataTransfer', { value: event.dataTransfer }); } catch (_) {}
@@ -74,7 +69,6 @@
     column.classList.add('fv-left-column-drop-ready');
 
     column.addEventListener('dragover', event => {
-      // If the pointer is already over the real list, let its native handler own it.
       if (event.target === list || list.contains(event.target)) return;
       if (!isWholeTicketDrag(event)) return;
       event.preventDefault();
@@ -100,13 +94,7 @@
     return true;
   }
 
-  const timer = setInterval(() => {
-    if (install()) clearInterval(timer);
-  }, 100);
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', install, { once: true });
-  } else {
-    install();
-  }
+  const timer = setInterval(() => { if (install()) clearInterval(timer); }, 100);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, { once: true });
+  else install();
 })();
