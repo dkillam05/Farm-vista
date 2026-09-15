@@ -1,9 +1,10 @@
 /* FarmVista — hauling status DND follow-up
-   Sept. 12, 2026
+   Sept. 15, 2026
    Remaining bushels use FONT color only. Ticket collapse/expand is owned by
    grain-hauling-ticket-sequence.js so this file must not force ticket cards open.
 */
 import "/js/grain-hauling-cross-entity-split-guard.js?v=20260914-1";
+import "/js/grain-hauling-split-targets.js?v=20260915-2015";
 
 (() => {
   'use strict';
