@@ -15,7 +15,7 @@ import "/js/grain-hauling-split-portion-dnd.js?v=20260915-1131";
 import "/js/grain-hauling-left-drop-zone.js?v=20260912-0915";
 import "/js/grain-hauling-effective-totals.js?v=20260912-0928";
 import "/js/grain-hauling-partial-checkboxes.js?v=20260912-0940";
-import "/js/grain-hauling-filter-repair.js?v=20260915-1815";
+import "/js/grain-hauling-filter-repair.js?v=20260915-1838";
 import { ready,getFirestore,collection,getDocs,doc,updateDoc,serverTimestamp } from "/js/firebase-init.js";
 await ready;
 const db=getFirestore();
