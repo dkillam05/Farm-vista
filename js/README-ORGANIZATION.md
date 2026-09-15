@@ -10,6 +10,8 @@ This branch is the complete JavaScript restructuring workspace. `main` must rema
 js/
 ├── app/
 ├── auth/
+│   ├── login/
+│   └── session/
 ├── core/
 │   ├── firebase/
 │   ├── shell/
@@ -20,7 +22,8 @@ js/
 │   ├── kpi/
 │   ├── markets/
 │   ├── messages/
-│   └── permissions/
+│   ├── permissions/
+│   └── ui/
 ├── equipment/
 │   └── shop/
 ├── field-readiness/
@@ -29,6 +32,8 @@ js/
 │   └── records/
 ├── grain/
 │   ├── contracts/
+│   │   ├── forms/
+│   │   └── reports/
 │   ├── hauling-jobs/
 │   │   ├── forms/
 │   │   └── legacy/
@@ -38,6 +43,7 @@ js/
 │   │   ├── bins/
 │   │   └── movements/
 │   ├── load-out/
+│   │   └── forms/
 │   ├── shared/
 │   ├── tickets/
 │   │   ├── alerts/
@@ -45,6 +51,7 @@ js/
 │   │   ├── images/
 │   │   ├── ocr/
 │   │   ├── scan/
+│   │   ├── templates/
 │   │   └── ui/
 │   └── transfers/
 ├── office/
