@@ -1,4 +1,4 @@
-import "/js/grain-hauling-split-targets.js?v=20260915-1905";
+import "/js/grain-hauling-split-targets.js?v=20260915-1238";
 
 /* FarmVista — Grain Contracts hauling DND left-column drop zone
    Sept. 12, 2026
