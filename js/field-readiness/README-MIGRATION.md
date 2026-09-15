@@ -1,0 +1,1 @@
+Root field-readiness.model.js, field-readiness.ui.js and field-readiness.weather.js are part of the Field Readiness feature and will be consolidated here with the existing readiness modules. This remains separate from js/fields.
