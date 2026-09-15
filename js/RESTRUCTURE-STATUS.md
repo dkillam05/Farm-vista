@@ -2,19 +2,22 @@
 
 ## Current phase
 
-**ACTIVE — inventory, classification, relocation and reference migration.**
+**ACTIVE — folder architecture established; file inventory/relocation and consumer-path migration remain in progress.**
 
-Do not merge this branch into `main` yet.
+Do not merge this branch into `main` yet and do not treat it as runtime-test-ready yet.
 
-## Rules for this operation
+## Working branch
 
-- Work only on `major-js-restructure-cleanup`.
+`major-js-restructure-cleanup`
+
+## Safety
+
+- `main` is intentionally not part of this restructuring operation.
 - Preserve runtime behavior; organization/path changes only.
 - `fields/` and `field-readiness/` remain independent feature areas.
 - Do not delete an old JS path until its active consumers have been migrated.
 - After migration, delete old duplicate/root files so `/js` reflects the final structure rather than two copies.
 - Audit HTML, JS modules, dynamic loaders, service workers, cache lists, guest scan pages, dashboard/index pages and report pages for references.
-- Final branch review happens before runtime testing and before any change to `main`.
 
 ## Ready-for-user-review means
 
