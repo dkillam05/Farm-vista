@@ -1,0 +1,32 @@
+name: Finish JS restructure
+on:
+  push:
+    branches: [major-js-restructure-cleanup]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  restructure:
+    if: "!contains(github.event.head_commit.message, '[js-restructure-done]')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: major-js-restructure-cleanup
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Finish restructure and audit
+        run: python .github/scripts/finish-js-restructure.py
+      - name: Commit finished restructure
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes required"
+          else
+            git commit -m "Finish JavaScript restructure [js-restructure-done]"
+            git push origin HEAD:major-js-restructure-cleanup
+          fi
