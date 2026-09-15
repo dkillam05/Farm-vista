@@ -1,0 +1,6734 @@
+// /js/grain-ticket-add.js
+// FarmVista — Manual Grain Ticket Entry
+//
+// Matches the CURRENT grain-ticket-add.html IDs.
+//
+// FLOW:
+// Driver
+// → Hauling Job
+// → Grain Source
+// → Crop / Destination / Sold Under are filled by the hauling job
+// → Ticket Information
+// → Bushels
+// → Weights
+// → Grade Factors
+
+import {
+  ready,
+  getAuth,
+  getFirestore,
+  collection,
+  getDocs,
+  addDoc,
+  doc,
+  updateDoc,
+  serverTimestamp
+} from "/js/firebase-init.js";
+
+await ready;
+
+const db =
+  getFirestore();
+
+const auth =
+  getAuth();
+
+const $ =
+  id =>
+    document.getElementById(
+      id
+    );
+
+const state = {
+  user:
+    null,
+
+  buyers:
+    [],
+
+  customers:
+    [],
+
+  locations:
+    [],
+
+  contracts:
+    [],
+
+  haulingJobs:
+    [],
+
+  tickets:
+    [],
+
+  fields:
+    [],
+
+  binSources:
+    [],
+
+  bagSources:
+    [],
+
+  employeeDrivers:
+    [],
+
+  subcontractors:
+    [],
+
+  selectedSource:
+    null,
+
+  selectedBuyer:
+    null,
+
+  selectedLocation:
+    null,
+
+  selectedCustomer:
+    null,
+
+  selectedContract:
+    null,
+
+  selectedHaulingJob:
+    null,
+
+  selectedDriver:
+    null,
+
+  saving:
+    false
+};
+
+const el = {
+  form:
+    $("ticketForm"),
+
+  backBtn:
+    $("backBtn"),
+
+  cancelBtn:
+    $("cancelBtn"),
+
+  saveBtn:
+    $("saveBtn"),
+
+  message:
+    $("message"),
+
+  crop:
+    $("ticketCrop"),
+
+  sourcePicker:
+    $("grainSourcePicker"),
+
+  sourceButton:
+    $("grainSourceButton"),
+
+  sourceButtonText:
+    $("grainSourceButtonText"),
+
+  sourceMenu:
+    $("grainSourceMenu"),
+
+  sourceValue:
+    $("grainSourceValue"),
+
+  destinationPicker:
+    $("destinationPicker"),
+
+  destinationButton:
+    $("destinationButton"),
+
+  destinationButtonText:
+    $("destinationButtonText"),
+
+  destinationMenu:
+    $("destinationMenu"),
+
+  locationSelect:
+    $("locationSelect"),
+
+  buyerSelect:
+    $("buyerSelect"),
+
+  customerPicker:
+    $("customerPicker"),
+
+  customerButton:
+    $("customerButton"),
+
+  customerButtonText:
+    $("customerButtonText"),
+
+  customerMenu:
+    $("customerMenu"),
+
+  customerSelect:
+    $("customerSelect"),
+
+  contractSelect:
+    $("contractSelect"),
+
+  contractStatus:
+    $("contractStatus"),
+
+  haulingJob:
+    $("haulingJobSelect"),
+
+  haulingJobStatus:
+    $("haulingJobStatus"),
+
+  haulingJobBackdrop:
+    $("haulingJobModalBackdrop"),
+
+  haulingJobForm:
+    $("haulingJobForm"),
+
+  haulingJobModalX:
+    $("haulingJobModalX"),
+
+  haulingJobCancel:
+    $("haulingJobCancel"),
+
+  haulingJobSave:
+    $("haulingJobSave"),
+
+  haulingJobMessage:
+    $("haulingJobMessage"),
+
+  haulingJobBuyer:
+    $("haulingJobBuyer"),
+
+  haulingJobDestination:
+    $("haulingJobDestination"),
+
+  haulingJobCustomer:
+    $("haulingJobCustomer"),
+
+  haulingJobCrop:
+    $("haulingJobCrop"),
+
+  haulingJobBushels:
+    $("haulingJobBushels"),
+
+  haulingJobStartDate:
+    $("haulingJobStartDate"),
+
+  haulingJobEndDate:
+    $("haulingJobEndDate"),
+
+  ticketNumber:
+    $("ticketNumber"),
+
+  ticketDate:
+    $("ticketDate"),
+
+  grossBushels:
+    $("grossBushels"),
+
+  shrinkBushels:
+    $("shrinkBushels"),
+
+  netBushels:
+    $("netBushels"),
+
+  bushelCheck:
+    $("bushelCheck"),
+
+  grossWeight:
+    $("grossWeight"),
+
+  tareWeight:
+    $("tareWeight"),
+
+  netWeight:
+    $("netWeight"),
+
+  weightCheck:
+    $("weightCheck"),
+
+  testWeight:
+    $("testWeight"),
+
+  moisture:
+    $("moisture"),
+
+  damage:
+    $("damage"),
+
+  foreignMaterial:
+    $("foreignMaterial"),
+
+  driverPicker:
+    $("driverPicker"),
+
+  driverButton:
+    $("driverButton"),
+
+  driverButtonText:
+    $("driverButtonText"),
+
+  driverMenu:
+    $("driverMenu"),
+
+  driverValue:
+    $("driverValue"),
+
+  subdriverWrap:
+    $("subdriverWrap"),
+
+  subdriver:
+    $("subdriver"),
+
+  addSubdriverBtn:
+    $("addSubdriverBtn"),
+
+  addDriverPanel:
+    $("addDriverPanel"),
+
+  driverFirstName:
+    $("driverFirstName"),
+
+  driverLastName:
+    $("driverLastName"),
+
+  driverCell:
+    $("driverCell"),
+
+  driverAddCancel:
+    $("driverAddCancel"),
+
+  driverAddSave:
+    $("driverAddSave")
+};
+
+function clean(
+  value
+) {
+  return String(
+    value ?? ""
+  )
+    .trim();
+}
+
+function normalize(
+  value
+) {
+  return clean(
+    value
+  )
+    .toLowerCase()
+    .replace(
+      /[^a-z0-9]+/g,
+      " "
+    )
+    .replace(
+      /\s+/g,
+      " "
+    )
+    .trim();
+}
+
+function numberOrNull(
+  value
+) {
+  if (
+    value === "" ||
+    value === null ||
+    value === undefined
+  ) {
+    return null;
+  }
+
+  const number =
+    Number(
+      String(
+        value
+      )
+        .replace(
+          /,/g,
+          ""
+        )
+    );
+
+  return Number.isFinite(
+    number
+  )
+    ? number
+    : null;
+}
+
+function localISO(
+  date =
+    new Date()
+) {
+  return [
+    date.getFullYear(),
+    String(
+      date.getMonth() +
+      1
+    )
+      .padStart(
+        2,
+        "0"
+      ),
+    String(
+      date.getDate()
+    )
+      .padStart(
+        2,
+        "0"
+      )
+  ]
+    .join(
+      "-"
+    );
+}
+
+function formatLocation(
+  location
+) {
+  if (
+    !location
+  ) {
+    return "";
+  }
+
+  const cityState =
+    [
+      location.city,
+      location.state
+    ]
+      .filter(
+        Boolean
+      )
+      .join(
+        ", "
+      );
+
+  const cityStateZip =
+    [
+      cityState,
+      location.zip
+    ]
+      .filter(
+        Boolean
+      )
+      .join(
+        " "
+      );
+
+  return [
+    location.street,
+    cityStateZip
+  ]
+    .filter(
+      Boolean
+    )
+    .join(
+      " • "
+    );
+}
+
+function displayDriverName(
+  data
+) {
+  return clean(
+    data?.fullName ||
+    data?.name ||
+    [
+      data?.firstName,
+      data?.lastName
+    ]
+      .filter(
+        Boolean
+      )
+      .join(
+        " "
+      )
+  );
+}
+
+function showMessage(
+  text,
+  type =
+    "error"
+) {
+  if (
+    !el.message
+  ) {
+    return;
+  }
+
+  el.message.textContent =
+    text;
+
+  el.message.className =
+    `message show ${type}`;
+
+  el.message.scrollIntoView({
+    behavior:
+      "smooth",
+    block:
+      "nearest"
+  });
+}
+
+function clearMessage() {
+  if (
+    !el.message
+  ) {
+    return;
+  }
+
+  el.message.textContent =
+    "";
+
+  el.message.className =
+    "message";
+}
+
+function setCheck(
+  element,
+  ok,
+  text
+) {
+  if (
+    !element
+  ) {
+    return;
+  }
+
+  element.className =
+    `check ${ok ? "good" : "warning"}`;
+
+  element.textContent =
+    text;
+}
+
+function addSearch(
+  menu,
+  placeholder,
+  value,
+  onInput
+) {
+  const wrap =
+    document.createElement(
+      "div"
+    );
+
+  wrap.className =
+    "picker-search-wrap";
+
+  const input =
+    document.createElement(
+      "input"
+    );
+
+  input.type =
+    "search";
+
+  input.className =
+    "picker-search";
+
+  input.placeholder =
+    placeholder;
+
+  input.autocomplete =
+    "off";
+
+  input.value =
+    value;
+
+  input.addEventListener(
+    "input",
+    () => {
+      onInput(
+        input.value
+      );
+    }
+  );
+
+  wrap.appendChild(
+    input
+  );
+
+  menu.appendChild(
+    wrap
+  );
+
+  return input;
+}
+
+function addGroup(
+  menu,
+  text
+) {
+  const div =
+    document.createElement(
+      "div"
+    );
+
+  div.className =
+    "picker-group";
+
+  div.textContent =
+    text;
+
+  menu.appendChild(
+    div
+  );
+}
+
+function addEmpty(
+  menu,
+  text
+) {
+  const div =
+    document.createElement(
+      "div"
+    );
+
+  div.className =
+    "picker-empty";
+
+  div.textContent =
+    text;
+
+  menu.appendChild(
+    div
+  );
+}
+
+function addChoice(
+  menu,
+  {
+    title,
+    sub = "",
+    selected = false,
+    onClick
+  }
+) {
+  const button =
+    document.createElement(
+      "button"
+    );
+
+  button.type =
+    "button";
+
+  button.className =
+    `picker-choice${selected ? " selected" : ""}`;
+
+  const titleSpan =
+    document.createElement(
+      "span"
+    );
+
+  titleSpan.className =
+    "picker-choice-title";
+
+  titleSpan.textContent =
+    title;
+
+  button.appendChild(
+    titleSpan
+  );
+
+  if (
+    sub
+  ) {
+    const subSpan =
+      document.createElement(
+        "span"
+      );
+
+    subSpan.className =
+      "picker-choice-sub";
+
+    subSpan.textContent =
+      sub;
+
+    button.appendChild(
+      subSpan
+    );
+  }
+
+  button.addEventListener(
+    "click",
+    onClick
+  );
+
+  menu.appendChild(
+    button
+  );
+
+  return button;
+}
+
+function closeMenus(
+  except =
+    null
+) {
+  const pairs = [
+    [
+      el.sourceButton,
+      el.sourceMenu
+    ],
+    [
+      el.destinationButton,
+      el.destinationMenu
+    ],
+    [
+      el.customerButton,
+      el.customerMenu
+    ],
+    [
+      el.driverButton,
+      el.driverMenu
+    ]
+  ];
+
+  pairs.forEach(
+    (
+      [
+        button,
+        menu
+      ]
+    ) => {
+      if (
+        !menu
+      ) {
+        return;
+      }
+
+      if (
+        menu !==
+        except
+      ) {
+        menu.classList.remove(
+          "open"
+        );
+
+        button?.setAttribute(
+          "aria-expanded",
+          "false"
+        );
+      }
+    }
+  );
+}
+
+function openMenu(
+  button,
+  menu,
+  render
+) {
+  if (
+    !button ||
+    !menu ||
+    button.disabled
+  ) {
+    return;
+  }
+
+  if (
+    menu.classList.contains(
+      "open"
+    )
+  ) {
+    closeMenus();
+    return;
+  }
+
+  closeMenus(
+    menu
+  );
+
+  render(
+    ""
+  );
+
+  menu.classList.add(
+    "open"
+  );
+
+  button.setAttribute(
+    "aria-expanded",
+    "true"
+  );
+
+  setTimeout(
+    () => {
+      menu
+        .querySelector(
+          ".picker-search"
+        )
+        ?.focus();
+    },
+    0
+  );
+}
+
+function refocus(
+  menu,
+  value
+) {
+  const replacement =
+    menu.querySelector(
+      ".picker-search"
+    );
+
+  replacement?.focus();
+
+  replacement?.setSelectionRange(
+    value.length,
+    value.length
+  );
+}
+
+function haulingJobIsActive(job) {
+  if (
+    !job ||
+    job.active === false ||
+    job.isActive === false
+  ) {
+    return false;
+  }
+
+  const status =
+    normalize(
+      job.status ||
+      "active"
+    );
+
+  if (
+    status.includes(
+      "closed"
+    ) ||
+    status.includes(
+      "complete"
+    ) ||
+    status.includes(
+      "cancel"
+    ) ||
+    status.includes(
+      "void"
+    )
+  ) {
+    return false;
+  }
+
+  const starting =
+    haulingJobStartingBushels(
+      job
+    );
+
+  if (
+    starting >
+      0 &&
+    haulingJobRemainingBushels(
+      job
+    ) <=
+      0.005
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function haulingJobLocationId(
+  job
+) {
+  return clean(
+    job?.deliveryLocationId ||
+    job?.locationId ||
+    job?.destinationId
+  );
+}
+
+function haulingJobCustomerId(
+  job
+) {
+  return clean(
+    job?.customerId ||
+    job?.grainCustomerId
+  );
+}
+
+function haulingJobStartingBushels(
+  job
+) {
+  const value =
+    Number(
+      job?.startingBushels ??
+      job?.jobBushels ??
+      job?.bushels ??
+      0
+    );
+
+  return Number.isFinite(
+    value
+  )
+    ? Math.max(
+        0,
+        value
+      )
+    : 0;
+}
+
+function haulingJobTicketedBushels(
+  job
+) {
+  const jobId =
+    clean(
+      job?.id
+    );
+
+  if (
+    !jobId
+  ) {
+    return 0;
+  }
+
+  return state.tickets
+    .filter(
+      ticket => {
+        const status =
+          normalize(
+            ticket?.status ||
+            ""
+          );
+
+        const voided =
+          ticket?.voided ===
+            true ||
+          status.includes(
+            "void"
+          );
+
+        const ticketJobId =
+          clean(
+            ticket?.haulingJobId ||
+            ticket?.grainHaulingJobId
+          );
+
+        return (
+          !voided &&
+          ticketJobId ===
+            jobId
+        );
+      }
+    )
+    .reduce(
+      (
+        sum,
+        ticket
+      ) => {
+        const value =
+          Number(
+            ticket?.netBushels ??
+            ticket?.netBu ??
+            ticket?.bushels ??
+            0
+          );
+
+        return sum +
+          (
+            Number.isFinite(
+              value
+            )
+              ? value
+              : 0
+          );
+      },
+      0
+    );
+}
+
+function haulingJobRemainingBushels(
+  job
+) {
+  const starting =
+    haulingJobStartingBushels(
+      job
+    );
+
+  const ticketed =
+    haulingJobTicketedBushels(
+      job
+    );
+
+  return Math.max(
+    0,
+    starting -
+      ticketed
+  );
+}
+
+function haulingJobContractedBushels(
+  job
+) {
+  const jobId =
+    clean(
+      job?.id
+    );
+
+  if (
+    !jobId
+  ) {
+    return 0;
+  }
+
+  return state.contracts
+    .filter(
+      contract => {
+        const status =
+          normalize(
+            contract?.status ||
+            contract?.contractStatus
+          );
+
+        const excluded =
+          contract?.voided ===
+            true ||
+          status.includes(
+            "void"
+          ) ||
+          status.includes(
+            "cancel"
+          );
+
+        return (
+          !excluded &&
+          clean(
+            contract?.haulingJobId
+          ) ===
+            jobId
+        );
+      }
+    )
+    .reduce(
+      (
+        total,
+        contract
+      ) =>
+        total +
+        Math.max(
+          0,
+          Number(
+            contract?.contractBushels ??
+            contract?.bushels ??
+            contract?.quantity ??
+            contract?.totalBushels ??
+            0
+          ) || 0
+        ),
+      0
+    );
+}
+
+function haulingJobUnallocatedContractBushels(
+  job
+) {
+  return Math.max(
+    0,
+    haulingJobStartingBushels(
+      job
+    ) -
+    haulingJobContractedBushels(
+      job
+    )
+  );
+}
+
+function haulingJobHasUnallocatedContractCapacity(
+  job
+) {
+  return haulingJobUnallocatedContractBushels(
+    job
+  ) >
+    0.005;
+}
+
+function formatShortDate(
+  iso
+) {
+  const value =
+    clean(
+      iso
+    );
+
+  const parts =
+    value
+      .split(
+        "-"
+      )
+      .map(
+        Number
+      );
+
+  if (
+    parts.length !== 3 ||
+    !parts[1] ||
+    !parts[2]
+  ) {
+    return value;
+  }
+
+  return `${parts[1]}/${parts[2]}`;
+}
+
+function haulingJobLabel(
+  job
+) {
+  const destination =
+    clean(
+      job?.deliveryLocationName ||
+      job?.locationName ||
+      job?.destinationName
+    ) ||
+    clean(
+      job?.buyerName
+    ) ||
+    "Hauling Job";
+
+  const buyer =
+    clean(
+      job?.buyerName
+    );
+
+  const place =
+    buyer &&
+    !normalize(
+      destination
+    )
+      .startsWith(
+        normalize(
+          buyer
+        )
+      )
+      ? `${buyer} ${destination}`
+      : destination;
+
+  return `${place} — ${haulingJobStartingBushels(
+    job
+  ).toLocaleString(
+    "en-US"
+  )} bu`;
+}
+
+function haulingJobNote(
+  job
+) {
+  if (
+    !job
+  ) {
+    return "";
+  }
+
+  const start =
+    formatShortDate(
+      job.deliveryStartDate ||
+      job.startDate
+    );
+
+  const end =
+    formatShortDate(
+      job.deliveryEndDate ||
+      job.endDate
+    );
+
+  const dates =
+    start &&
+    end
+      ? `${start}–${end}`
+      : start ||
+        end ||
+        "";
+
+  return [
+    dates
+      ? `Delivery ${dates}`
+      : "",
+    `Remaining ${haulingJobRemainingBushels(
+      job
+    ).toLocaleString(
+      "en-US"
+    )} bu`
+  ]
+    .filter(
+      Boolean
+    )
+    .join(
+      " • "
+    );
+}
+
+function renderHaulingJobs(
+  preferredId =
+    ""
+) {
+  if (
+    !el.haulingJob
+  ) {
+    return;
+  }
+
+  const wanted =
+    clean(
+      preferredId ||
+      el.haulingJob.value
+    );
+
+  const jobs =
+    state.haulingJobs
+      .filter(
+        haulingJobIsActive
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          clean(
+            a.deliveryStartDate ||
+            a.startDate
+          )
+            .localeCompare(
+              clean(
+                b.deliveryStartDate ||
+                b.startDate
+              )
+            ) ||
+          haulingJobLabel(
+            a
+          )
+            .localeCompare(
+              haulingJobLabel(
+                b
+              ),
+              undefined,
+              {
+                numeric:
+                  true,
+                sensitivity:
+                  "base"
+              }
+            )
+      );
+
+  el.haulingJob.innerHTML =
+    "";
+
+  const blank =
+    document.createElement(
+      "option"
+    );
+
+  blank.value =
+    "";
+
+  blank.textContent =
+    jobs.length
+      ? "Select hauling job"
+      : "No active hauling jobs yet";
+
+  el.haulingJob.appendChild(
+    blank
+  );
+
+  jobs.forEach(
+    job => {
+      const option =
+        document.createElement(
+          "option"
+        );
+
+      option.value =
+        job.id;
+
+      option.textContent =
+        `${haulingJobLabel(
+          job
+        )} • ${haulingJobNote(
+          job
+        )}`;
+
+      el.haulingJob.appendChild(
+        option
+      );
+    }
+  );
+
+  const add =
+    document.createElement(
+      "option"
+    );
+
+  add.value =
+    "__add_new__";
+
+  add.textContent =
+    "+ Add New Hauling Job";
+
+  el.haulingJob.appendChild(
+    add
+  );
+
+  if (
+    wanted &&
+    jobs.some(
+      job =>
+        job.id ===
+        wanted
+    )
+  ) {
+    el.haulingJob.value =
+      wanted;
+  }
+
+  const selected =
+    state.haulingJobs.find(
+      job =>
+        job.id ===
+        el.haulingJob.value
+    ) ||
+    null;
+
+  state.selectedHaulingJob =
+    selected;
+
+  setCheck(
+    el.haulingJobStatus,
+    !!selected,
+    selected
+      ? haulingJobNote(
+          selected
+        )
+      : "Select a hauling job."
+  );
+}
+
+function resetJobDerivedLoadDetails() {
+  state.selectedHaulingJob =
+    null;
+  state.selectedSource =
+    null;
+  state.selectedLocation =
+    null;
+  state.selectedBuyer =
+    null;
+  state.selectedCustomer =
+    null;
+
+  el.sourceValue.value =
+    "";
+  el.locationSelect.value =
+    "";
+  el.buyerSelect.value =
+    "";
+  el.customerSelect.value =
+    "";
+  el.crop.value =
+    "";
+  el.crop.disabled =
+    true;
+  el.sourceButton.disabled =
+    true;
+  el.sourceButtonText.textContent =
+    "Select hauling job first";
+  el.destinationButton.disabled =
+    true;
+  el.destinationButtonText.textContent =
+    "Filled by hauling job";
+  el.customerButton.disabled =
+    true;
+  el.customerButtonText.textContent =
+    "Filled by hauling job";
+}
+
+function applyHaulingJob(
+  job
+) {
+  if (
+    !job
+  ) {
+    resetJobDerivedLoadDetails();
+    return;
+  }
+
+  state.selectedHaulingJob =
+    job;
+
+  const locationId =
+    haulingJobLocationId(
+      job
+    );
+
+  const crop =
+    clean(
+      job.crop ||
+      job.commodity
+    );
+
+  const location =
+    state.locations.find(
+      item =>
+        item.id ===
+        locationId
+    ) ||
+    null;
+
+  const buyer =
+    location
+      ? (
+          state.buyers.find(
+            item =>
+              item.id ===
+              location.buyerId
+          ) ||
+          {
+            id:
+              location.buyerId,
+            name:
+              location.buyerName
+          }
+        )
+      : null;
+
+  state.selectedLocation =
+    location;
+  state.selectedBuyer =
+    buyer;
+  state.selectedCustomer = {
+    id: null,
+    name: "Unknown",
+    unknown: true
+  };
+
+  el.locationSelect.value =
+    location?.id ||
+    "";
+  el.buyerSelect.value =
+    buyer?.id ||
+    "";
+  el.customerSelect.value =
+    "__unknown__";
+
+  const cropOption =
+    Array.from(
+      el.crop.options
+    )
+      .find(
+        option =>
+          normalize(
+            option.value
+          ) ===
+          normalize(
+            crop
+          )
+      );
+
+  if (
+    cropOption
+  ) {
+    el.crop.value =
+      cropOption.value;
+  }
+  else if (
+    crop
+  ) {
+    const option =
+      document.createElement(
+        "option"
+      );
+
+    option.value =
+      crop;
+    option.textContent =
+      crop;
+    el.crop.appendChild(
+      option
+    );
+    el.crop.value =
+      crop;
+  }
+
+  el.crop.disabled =
+    true;
+  el.destinationButton.disabled =
+    true;
+  el.customerButton.disabled =
+    false;
+
+  syncDestination();
+  syncCustomer();
+
+  el.sourceValue.value =
+    "";
+  state.selectedSource =
+    null;
+
+  renderSource();
+  syncSource();
+  calculateBushels();
+  validateBushels();
+
+  setCheck(
+    el.haulingJobStatus,
+    true,
+    haulingJobNote(
+      job
+    )
+  );
+}
+
+function setJobMessage(
+  text,
+  type =
+    "error"
+) {
+  if (
+    !el.haulingJobMessage
+  ) {
+    return;
+  }
+
+  el.haulingJobMessage.textContent =
+    text ||
+    "";
+
+  el.haulingJobMessage.className =
+    `message${
+      text
+        ? " show"
+        : ""
+    }${
+      text
+        ? ` ${type}`
+        : ""
+    }`;
+}
+
+function populateJobDestinationOptions() {
+  const buyerId =
+    clean(
+      el.haulingJobBuyer?.value
+    );
+
+  el.haulingJobDestination.innerHTML =
+    "";
+
+  const blank =
+    document.createElement(
+      "option"
+    );
+
+  blank.value =
+    "";
+  blank.textContent =
+    buyerId
+      ? "Select location"
+      : "Select buyer first";
+
+  el.haulingJobDestination.appendChild(
+    blank
+  );
+
+  const locations =
+    state.locations.filter(
+      item =>
+        item.buyerId ===
+        buyerId
+    );
+
+  locations.forEach(
+    location => {
+      const option =
+        document.createElement(
+          "option"
+        );
+
+      option.value =
+        location.id;
+      option.textContent =
+        location.locationName;
+
+      el.haulingJobDestination.appendChild(
+        option
+      );
+    }
+  );
+
+  el.haulingJobDestination.disabled =
+    !buyerId;
+}
+
+function openHaulingJobModal() {
+  setJobMessage(
+    ""
+  );
+
+  el.haulingJobBuyer.innerHTML =
+    '<option value="">Select buyer</option>';
+
+  state.buyers.forEach(
+    buyer => {
+      const option =
+        document.createElement(
+          "option"
+        );
+
+      option.value =
+        buyer.id;
+      option.textContent =
+        buyer.name;
+      el.haulingJobBuyer.appendChild(
+        option
+      );
+    }
+  );
+
+  populateJobDestinationOptions();
+
+  el.haulingJobBushels.value =
+    "";
+  el.haulingJobStartDate.value =
+    localISO();
+  el.haulingJobEndDate.value =
+    localISO();
+
+  el.haulingJobBackdrop
+    ?.classList.add(
+      "open"
+    );
+
+  setTimeout(
+    () =>
+      el.haulingJobBuyer
+        ?.focus(),
+    0
+  );
+}
+
+function closeHaulingJobModal() {
+  el.haulingJobBackdrop
+    ?.classList.remove(
+      "open"
+    );
+
+  if (
+    el.haulingJob?.value ===
+      "__add_new__"
+  ) {
+    el.haulingJob.value =
+      "";
+    renderHaulingJobs();
+  }
+}
+
+async function saveHaulingJob(
+  event
+) {
+  event.preventDefault();
+
+  const buyerId =
+    clean(
+      el.haulingJobBuyer.value
+    );
+  const destinationId =
+    clean(
+      el.haulingJobDestination.value
+    );
+  const crop =
+    clean(
+      el.haulingJobCrop.value
+    );
+
+  const buyer =
+    state.buyers.find(
+      item =>
+        item.id ===
+        buyerId
+    ) ||
+    null;
+
+  const destination =
+    state.locations.find(
+      item =>
+        item.id ===
+        destinationId
+    ) ||
+    null;
+
+  const startingBushels =
+    Number(
+      el.haulingJobBushels.value ||
+      0
+    );
+
+  const deliveryStartDate =
+    clean(
+      el.haulingJobStartDate.value
+    );
+  const deliveryEndDate =
+    clean(
+      el.haulingJobEndDate.value
+    );
+
+  if (
+    !buyer ||
+    !destination ||
+    !crop ||
+    !Number.isFinite(
+      startingBushels
+    ) ||
+    startingBushels <=
+      0 ||
+    !deliveryStartDate ||
+    !deliveryEndDate
+  ) {
+    setJobMessage(
+      "Complete Buyer, Location, Crop, Starting Bushels, and both delivery dates."
+    );
+    return;
+  }
+
+  if (
+    deliveryEndDate <
+    deliveryStartDate
+  ) {
+    setJobMessage(
+      "Delivery end date cannot be before the start date."
+    );
+    return;
+  }
+
+  el.haulingJobSave.disabled =
+    true;
+  el.haulingJobSave.textContent =
+    "Adding…";
+
+  try {
+    const jobName =
+      `${
+        destination.buyerName ||
+        buyer.name ||
+        ""
+      } ${
+        destination.locationName
+      } — ${
+        Math.round(
+          startingBushels
+        ).toLocaleString(
+          "en-US"
+        )
+      } bu`
+        .trim();
+
+    const payload = {
+      jobName,
+      displayName:
+        jobName,
+      buyerId:
+        destination.buyerId ||
+        buyer.id,
+      buyerName:
+        destination.buyerName ||
+        buyer.name,
+      deliveryLocationId:
+        destination.id,
+      deliveryLocationName:
+        destination.locationName,
+      crop,
+      startingBushels,
+      deliveryStartDate,
+      deliveryEndDate,
+      status:
+        "active",
+      active:
+        true,
+      createdByUid:
+        state.user?.uid ||
+        null,
+      createdByName:
+        state.user?.displayName ||
+        state.user?.email ||
+        "FarmVista User",
+      createdByEmail:
+        state.user?.email ||
+        null,
+      createdAt:
+        serverTimestamp(),
+      updatedAt:
+        serverTimestamp()
+    };
+
+    const saved =
+      await addDoc(
+        collection(
+          db,
+          "grain_hauling_jobs"
+        ),
+        payload
+      );
+
+    const created = {
+      id:
+        saved.id,
+      ...payload
+    };
+
+    state.haulingJobs.push(
+      created
+    );
+
+    closeHaulingJobModal();
+    renderHaulingJobs(
+      saved.id
+    );
+    el.haulingJob.value =
+      saved.id;
+    applyHaulingJob(
+      created
+    );
+
+    showMessage(
+      `${jobName} added and selected.`,
+      "success"
+    );
+  }
+  catch (
+    error
+  ) {
+    console.error(
+      "[Grain Ticket Add] hauling job save failed:",
+      error
+    );
+
+    setJobMessage(
+      "Hauling job could not be saved. Check Firestore permissions for grain_hauling_jobs."
+    );
+  }
+  finally {
+    el.haulingJobSave.disabled =
+      false;
+    el.haulingJobSave.textContent =
+      "Add Hauling Job";
+  }
+}
+
+function contractIsOpen(
+  contract
+) {
+  if (
+    contract?.isActive ===
+      false ||
+    contract?.active ===
+      false
+  ) {
+    return false;
+  }
+
+  const status =
+    normalize(
+      contract?.status ||
+      contract?.contractStatus
+    );
+
+  if (
+    status.includes(
+      "closed"
+    ) ||
+    status.includes(
+      "complete"
+    ) ||
+    status.includes(
+      "cancel"
+    ) ||
+    status.includes(
+      "void"
+    )
+  ) {
+    return false;
+  }
+
+  const remaining =
+    [
+      contract?.remainingBushels,
+      contract?.bushelsRemaining,
+      contract?.remainingBu,
+      contract?.openBushels
+    ]
+      .find(
+        value =>
+          value !==
+            undefined &&
+          value !==
+            null &&
+          value !==
+            ""
+      );
+
+  if (
+    remaining !==
+      undefined &&
+    Number.isFinite(
+      Number(
+        remaining
+      )
+    ) &&
+    Number(
+      remaining
+    ) <=
+      0
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function contractCustomerId(
+  contract
+) {
+  return clean(
+    contract?.customerId ||
+    contract?.grainCustomerId
+  );
+}
+
+function contractCrop(
+  contract
+) {
+  return normalize(
+    contract?.crop ||
+    contract?.commodity
+  );
+}
+
+function contractBuyerId(
+  contract
+) {
+  return clean(
+    contract?.buyerId ||
+    contract?.grainBuyerId
+  );
+}
+
+function contractLocationId(
+  contract
+) {
+  return clean(
+    contract?.deliveryLocationId ||
+    contract?.locationId ||
+    contract?.destinationId
+  );
+}
+
+function contractMatchesLocation(
+  contract,
+  location
+) {
+  if (
+    !contract ||
+    !location
+  ) {
+    return false;
+  }
+
+  const id =
+    contractLocationId(
+      contract
+    );
+
+  if (
+    id
+  ) {
+    return (
+      id ===
+      clean(
+        location.id
+      )
+    );
+  }
+
+  const buyerId =
+    contractBuyerId(
+      contract
+    );
+
+  const buyerMatches =
+    !buyerId ||
+    buyerId ===
+      clean(
+        location.buyerId
+      );
+
+  const locationName =
+    normalize(
+      contract?.deliveryLocationName ||
+      contract?.locationName ||
+      contract?.destinationName
+    );
+
+  return (
+    buyerMatches &&
+    !!locationName &&
+    locationName ===
+      normalize(
+        location.locationName
+      )
+  );
+}
+
+function openContracts() {
+  return state.contracts.filter(
+    contractIsOpen
+  );
+}
+
+function contractsForSelectedCrop() {
+  const crop =
+    normalize(
+      el.crop.value
+    );
+
+  if (
+    !crop
+  ) {
+    return [];
+  }
+
+  return openContracts()
+    .filter(
+      contract =>
+        contractCrop(
+          contract
+        ) ===
+        crop
+    );
+}
+
+function contractsForDestination() {
+  const location =
+    state.locations.find(
+      item =>
+        item.id ===
+        el.locationSelect.value
+    ) ||
+    null;
+
+  if (
+    !location
+  ) {
+    return [];
+  }
+
+  return contractsForSelectedCrop()
+    .filter(
+      contract =>
+        contractMatchesLocation(
+          contract,
+          location
+        )
+    );
+}
+
+function contractsForCustomer() {
+  const customerId =
+    clean(
+      el.customerSelect.value
+    );
+
+  if (
+    !customerId
+  ) {
+    return [];
+  }
+
+  return contractsForDestination()
+    .filter(
+      contract =>
+        contractCustomerId(
+          contract
+        ) ===
+        customerId
+    );
+}
+
+function matchingContracts() {
+  if (
+    !el.crop.value ||
+    !state.selectedSource ||
+    !state.selectedLocation ||
+    !state.selectedCustomer
+  ) {
+    return [];
+  }
+
+  return contractsForCustomer()
+    .sort(
+      (
+        a,
+        b
+      ) =>
+        clean(
+          a.contractNumber ||
+          a.number
+        )
+          .localeCompare(
+            clean(
+              b.contractNumber ||
+              b.number
+            ),
+            undefined,
+            {
+              numeric:
+                true,
+              sensitivity:
+                "base"
+            }
+          )
+    );
+}
+
+function contractLabel(
+  contract
+) {
+  const number =
+    clean(
+      contract?.contractNumber ||
+      contract?.number ||
+      contract?.contractNo ||
+      contract?.referenceNumber
+    ) ||
+    "Contract";
+
+  const remainingRaw =
+    contract?.remainingBushels ??
+    contract?.bushelsRemaining ??
+    contract?.remainingBu ??
+    contract?.openBushels ??
+    null;
+
+  const remaining =
+    remainingRaw !==
+      null &&
+    remainingRaw !==
+      "" &&
+    Number.isFinite(
+      Number(
+        remainingRaw
+      )
+    )
+      ? ` • ${Number(
+          remainingRaw
+        ).toLocaleString(
+          "en-US",
+          {
+            maximumFractionDigits:
+              2
+          }
+        )} bu left`
+      : "";
+
+  return `${number}${remaining}`;
+}
+
+function activeFieldHarvestSource() {
+  const crop =
+    clean(
+      el.crop.value
+    );
+
+  if (
+    !crop
+  ) {
+    return null;
+  }
+
+  return {
+    type:
+      "active_field_harvest",
+    sourceScope:
+      "active_harvest",
+    value:
+      `active_field_harvest:${normalize(
+        crop
+      )}`,
+    id:
+      null,
+    siteId:
+      null,
+    siteName:
+      null,
+    binNumber:
+      null,
+    binIndex:
+      null,
+    fieldId:
+      null,
+    fieldName:
+      null,
+    crop,
+    cropYear:
+      null,
+    onHand:
+      null,
+    bypassInventory:
+      true,
+    label:
+      "Active Field Harvest",
+    searchText:
+      `active field harvest ${crop}`
+  };
+}
+
+function activeFieldSources() {
+  const crop =
+    clean(
+      el.crop.value
+    );
+  const cropNorm =
+    normalize(
+      crop
+    );
+
+  if (
+    !cropNorm
+  ) {
+    return [];
+  }
+
+  return state.fields.map(
+    field => {
+      const fieldId =
+        clean(
+          field.id
+        );
+      const fieldName =
+        clean(
+          field.name
+        );
+
+      return {
+        type:
+          "active_field_harvest",
+        sourceScope:
+          "field",
+        value:
+          `active_field_harvest:field:${fieldId}:${cropNorm}`,
+        id:
+          fieldId,
+        siteId:
+          null,
+        siteName:
+          fieldName,
+        binNumber:
+          null,
+        binIndex:
+          null,
+        fieldId,
+        fieldName,
+        crop,
+        cropYear:
+          null,
+        onHand:
+          null,
+        bypassInventory:
+          true,
+        label:
+          fieldName,
+        searchText:
+          `${fieldName} ${clean(
+            field.farmName
+          )} ${clean(
+            field.farmId
+          )} ${crop}`
+      };
+    }
+  );
+}
+
+function allSources() {
+  const activeHarvest =
+    activeFieldHarvestSource();
+
+  return [
+    ...(
+      activeHarvest
+        ? [
+            activeHarvest
+          ]
+        : []
+    ),
+    ...activeFieldSources(),
+    ...state.binSources,
+    ...state.bagSources
+  ];
+}
+
+function sourceFromValue(
+  value
+) {
+  return allSources()
+    .find(
+      item =>
+        item.value ===
+        value
+    ) ||
+    null;
+}
+
+function currentSources() {
+  const crop =
+    normalize(
+      el.crop.value
+    );
+
+  if (
+    !crop
+  ) {
+    return [];
+  }
+
+  return allSources()
+    .filter(
+      item =>
+        clean(
+          item.crop
+        ) &&
+        normalize(
+          item.crop
+        ) ===
+        crop
+    );
+}
+
+function syncSource() {
+  state.selectedSource =
+    sourceFromValue(
+      el.sourceValue.value
+    );
+
+  el.sourceButtonText.textContent =
+    state.selectedSource?.label ||
+    (
+      el.crop.value
+        ? "Select grain source"
+        : "Select crop first"
+    );
+}
+
+function renderSource(
+  searchText =
+    ""
+) {
+  const search =
+    normalize(
+      searchText
+    );
+
+  el.sourceMenu.innerHTML =
+    "";
+
+  const ready =
+    !!normalize(
+      el.crop.value
+    );
+
+  el.sourceButton.disabled =
+    !ready;
+
+  if (
+    !ready
+  ) {
+    el.sourceValue.value =
+      "";
+    state.selectedSource =
+      null;
+    el.sourceButtonText.textContent =
+      "Select crop first";
+    addEmpty(
+      el.sourceMenu,
+      "Select a crop first."
+    );
+    return;
+  }
+
+  const items =
+    currentSources();
+
+  if (
+    el.sourceValue.value &&
+    !items.some(
+      item =>
+        item.value ===
+        el.sourceValue.value
+    )
+  ) {
+    el.sourceValue.value =
+      "";
+    state.selectedSource =
+      null;
+  }
+
+  addSearch(
+    el.sourceMenu,
+    "Search grain source…",
+    searchText,
+    value => {
+      renderSource(
+        value
+      );
+      refocus(
+        el.sourceMenu,
+        value
+      );
+    }
+  );
+
+  const filtered =
+    items.filter(
+      item =>
+        !search ||
+        normalize(
+          `${item.label} ${item.searchText || ""}`
+        )
+          .includes(
+            search
+          )
+    );
+
+  const harvest =
+    filtered.filter(
+      item =>
+        item.type ===
+          "active_field_harvest" &&
+        item.sourceScope !==
+          "field"
+    );
+
+  const fields =
+    filtered.filter(
+      item =>
+        item.type ===
+          "active_field_harvest" &&
+        item.sourceScope ===
+          "field"
+    );
+
+  const bins =
+    filtered.filter(
+      item =>
+        item.type ===
+        "bin"
+    );
+
+  const bags =
+    filtered.filter(
+      item =>
+        item.type ===
+        "grain_bag"
+    );
+
+  if (
+    harvest.length
+  ) {
+    addGroup(
+      el.sourceMenu,
+      "Harvest"
+    );
+
+    harvest.forEach(
+      item => {
+        addChoice(
+          el.sourceMenu,
+          {
+            title:
+              item.label,
+            sub:
+              "Direct from field — field not specified",
+            selected:
+              item.value ===
+              el.sourceValue.value,
+            onClick:
+              () => {
+                chooseSource(
+                  item.value
+                );
+              }
+          }
+        );
+      }
+    );
+  }
+
+  if (
+    fields.length
+  ) {
+    addGroup(
+      el.sourceMenu,
+      "Fields"
+    );
+
+    fields.forEach(
+      item => {
+        addChoice(
+          el.sourceMenu,
+          {
+            title:
+              item.label,
+            sub:
+              "Active Field Harvest — does not affect stored inventory",
+            selected:
+              item.value ===
+              el.sourceValue.value,
+            onClick:
+              () => {
+                chooseSource(
+                  item.value
+                );
+              }
+          }
+        );
+      }
+    );
+  }
+
+  if (
+    bins.length
+  ) {
+    addGroup(
+      el.sourceMenu,
+      "Bin Sites"
+    );
+
+    bins.forEach(
+      item => {
+        addChoice(
+          el.sourceMenu,
+          {
+            title:
+              item.label,
+            selected:
+              item.value ===
+              el.sourceValue.value,
+            onClick:
+              () => {
+                chooseSource(
+                  item.value
+                );
+              }
+          }
+        );
+      }
+    );
+  }
+
+  if (
+    bags.length
+  ) {
+    addGroup(
+      el.sourceMenu,
+      "Grain Bags"
+    );
+
+    bags.forEach(
+      item => {
+        addChoice(
+          el.sourceMenu,
+          {
+            title:
+              item.label,
+            selected:
+              item.value ===
+              el.sourceValue.value,
+            onClick:
+              () => {
+                chooseSource(
+                  item.value
+                );
+              }
+          }
+        );
+      }
+    );
+  }
+
+  if (
+    !harvest.length &&
+    !fields.length &&
+    !bins.length &&
+    !bags.length
+  ) {
+    addEmpty(
+      el.sourceMenu,
+      `No grain source was found for ${clean(
+        el.crop.value
+      )}.`
+    );
+  }
+
+  syncSource();
+}
+
+function chooseSource(
+  value
+) {
+  const selected =
+    sourceFromValue(
+      value
+    );
+
+  if (
+    !selected ||
+    normalize(
+      selected.crop
+    ) !==
+    normalize(
+      el.crop.value
+    )
+  ) {
+    showMessage(
+      "That grain source does not match the selected crop."
+    );
+    return;
+  }
+
+  el.sourceValue.value =
+    selected.value;
+  state.selectedSource =
+    selected;
+  syncSource();
+  closeMenus();
+  clearMessage();
+}
+
+function clearBelowSource() {
+  el.locationSelect.value =
+    "";
+  el.buyerSelect.value =
+    "";
+  state.selectedLocation =
+    null;
+  state.selectedBuyer =
+    null;
+  el.customerSelect.value =
+    "";
+  state.selectedCustomer =
+    null;
+  el.contractSelect.value =
+    "";
+  state.selectedContract =
+    null;
+  syncDestination();
+  syncCustomer();
+}
+
+function syncDestination() {
+  state.selectedLocation =
+    state.locations.find(
+      location =>
+        location.id ===
+        el.locationSelect.value
+    ) ||
+    null;
+
+  state.selectedBuyer =
+    state.selectedLocation
+      ? (
+          state.buyers.find(
+            buyer =>
+              buyer.id ===
+              state.selectedLocation.buyerId
+          ) ||
+          {
+            id:
+              state.selectedLocation.buyerId,
+            name:
+              state.selectedLocation.buyerName
+          }
+        )
+      : null;
+
+  el.buyerSelect.value =
+    state.selectedBuyer?.id ||
+    "";
+
+  el.destinationButtonText.textContent =
+    state.selectedLocation
+      ? `${
+          state.selectedLocation.buyerName
+            ? `${state.selectedLocation.buyerName} — `
+            : ""
+        }${state.selectedLocation.locationName}`
+      : (
+          state.selectedSource
+            ? "Select destination"
+            : (
+                el.crop.value
+                  ? "Select grain source first"
+                  : "Select crop first"
+              )
+        );
+}
+
+function renderDestination(
+  searchText =
+    ""
+) {
+  const search =
+    normalize(
+      searchText
+    );
+
+  el.destinationMenu.innerHTML =
+    "";
+
+  const ready =
+    !!normalize(
+      el.crop.value
+    ) &&
+    !!state.selectedSource;
+
+  el.destinationButton.disabled =
+    !ready;
+
+  if (
+    !ready
+  ) {
+    el.locationSelect.value =
+      "";
+    el.buyerSelect.value =
+      "";
+    state.selectedLocation =
+      null;
+    state.selectedBuyer =
+      null;
+    syncDestination();
+
+    addEmpty(
+      el.destinationMenu,
+      el.crop.value
+        ? "Select a grain source first."
+        : "Select a crop first."
+    );
+    return;
+  }
+
+  addSearch(
+    el.destinationMenu,
+    "Search matching elevator or location…",
+    searchText,
+    value => {
+      renderDestination(
+        value
+      );
+      refocus(
+        el.destinationMenu,
+        value
+      );
+    }
+  );
+
+  const cropContracts =
+    contractsForSelectedCrop();
+
+  const eligible =
+    state.locations
+      .filter(
+        location =>
+          cropContracts.some(
+            contract =>
+              contractMatchesLocation(
+                contract,
+                location
+              )
+          )
+      );
+
+  if (
+    el.locationSelect.value &&
+    !eligible.some(
+      location =>
+        location.id ===
+        el.locationSelect.value
+    )
+  ) {
+    el.locationSelect.value =
+      "";
+    el.buyerSelect.value =
+      "";
+    state.selectedLocation =
+      null;
+    state.selectedBuyer =
+      null;
+  }
+
+  const filtered =
+    eligible
+      .filter(
+        location => {
+          if (
+            !search
+          ) {
+            return true;
+          }
+
+          return normalize(
+            [
+              location.buyerName,
+              location.locationName,
+              location.street,
+              location.city,
+              location.state,
+              location.zip
+            ]
+              .filter(
+                Boolean
+              )
+              .join(
+                " "
+              )
+          )
+            .includes(
+              search
+            );
+        }
+      );
+
+  let lastBuyer =
+    "";
+
+  filtered.forEach(
+    location => {
+      const buyerName =
+        clean(
+          location.buyerName
+        ) ||
+        "Elevator";
+
+      if (
+        buyerName !==
+        lastBuyer
+      ) {
+        addGroup(
+          el.destinationMenu,
+          buyerName
+        );
+        lastBuyer =
+          buyerName;
+      }
+
+      addChoice(
+        el.destinationMenu,
+        {
+          title:
+            location.locationName,
+          sub:
+            formatLocation(
+              location
+            ),
+          selected:
+            location.id ===
+            el.locationSelect.value,
+          onClick:
+            () => {
+              chooseDestination(
+                location.id
+              );
+            }
+        }
+      );
+    }
+  );
+
+  if (
+    !filtered.length
+  ) {
+    addEmpty(
+      el.destinationMenu,
+      `No destination has an open ${clean(
+        el.crop.value
+      )} contract.`
+    );
+  }
+
+  syncDestination();
+}
+
+function chooseDestination(
+  locationId
+) {
+  const selected =
+    state.locations.find(
+      location =>
+        location.id ===
+        locationId
+    ) ||
+    null;
+
+  el.locationSelect.value =
+    selected?.id ||
+    "";
+  el.buyerSelect.value =
+    selected?.buyerId ||
+    "";
+  state.selectedLocation =
+    selected;
+  state.selectedBuyer =
+    selected
+      ? (
+          state.buyers.find(
+            buyer =>
+              buyer.id ===
+              selected.buyerId
+          ) ||
+          {
+            id:
+              selected.buyerId,
+            name:
+              selected.buyerName
+          }
+        )
+      : null;
+
+  el.customerSelect.value =
+    "";
+  state.selectedCustomer =
+    null;
+  el.contractSelect.value =
+    "";
+  state.selectedContract =
+    null;
+
+  syncDestination();
+  syncCustomer();
+  renderCustomer();
+  renderContract();
+  closeMenus();
+  clearMessage();
+}
+
+function syncCustomer() {
+  const value =
+    clean(
+      el.customerSelect.value
+    );
+
+  if (
+    value ===
+    "__unknown__"
+  ) {
+    state.selectedCustomer = {
+      id: null,
+      name: "Unknown",
+      unknown: true
+    };
+
+    el.customerButtonText.textContent =
+      "Unknown";
+    return;
+  }
+
+  state.selectedCustomer =
+    state.customers.find(
+      customer =>
+        customer.id ===
+        value
+    ) ||
+    null;
+
+  el.customerButtonText.textContent =
+    state.selectedCustomer?.name ||
+    (
+      state.selectedHaulingJob
+        ? "Select Sold Under"
+        : "Select hauling job first"
+    );
+}
+
+function renderCustomer(
+  searchText =
+    ""
+) {
+  const search =
+    normalize(
+      searchText
+    );
+
+  el.customerMenu.innerHTML =
+    "";
+
+  const haulingJob =
+    state.selectedHaulingJob;
+
+  if (
+    !haulingJob
+  ) {
+    el.customerButton.disabled =
+      true;
+    el.customerSelect.value =
+      "";
+    state.selectedCustomer =
+      null;
+    syncCustomer();
+    addEmpty(
+      el.customerMenu,
+      "Select a hauling job first."
+    );
+    return;
+  }
+
+  el.customerButton.disabled =
+    false;
+
+  addSearch(
+    el.customerMenu,
+    "Search Sold Under…",
+    searchText,
+    value => {
+      renderCustomer(
+        value
+      );
+      refocus(
+        el.customerMenu,
+        value
+      );
+    }
+  );
+
+  if (
+    !search ||
+    "unknown".includes(
+      search
+    )
+  ) {
+    addChoice(
+      el.customerMenu,
+      {
+        title:
+          "Unknown",
+        selected:
+          el.customerSelect.value ===
+          "__unknown__",
+        onClick:
+          () => {
+            chooseCustomer(
+              "__unknown__"
+            );
+          }
+      }
+    );
+  }
+
+  const eligibleIds =
+    new Set(
+      state.contracts
+        .filter(
+          contract =>
+            contractIsOpen(
+              contract
+            ) &&
+            clean(
+              contract?.haulingJobId
+            ) ===
+              clean(
+                haulingJob.id
+              )
+        )
+        .map(
+          contractCustomerId
+        )
+        .filter(
+          Boolean
+        )
+    );
+
+  const linkedCustomers =
+    state.customers
+      .filter(
+        customer =>
+          eligibleIds.has(
+            customer.id
+          )
+      )
+      .filter(
+        customer =>
+          !search ||
+          normalize(
+            customer.name
+          )
+            .includes(
+              search
+            )
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          a.name.localeCompare(
+            b.name,
+            undefined,
+            {
+              numeric:
+                true,
+              sensitivity:
+                "base"
+            }
+          )
+      );
+
+  const hasUnallocatedCapacity =
+    haulingJobHasUnallocatedContractCapacity(
+      haulingJob
+    );
+
+  const otherCustomers =
+    hasUnallocatedCapacity
+      ? state.customers
+          .filter(
+            customer =>
+              !eligibleIds.has(
+                customer.id
+              )
+          )
+          .filter(
+            customer =>
+              !search ||
+              normalize(
+                customer.name
+              ).includes(
+                search
+              )
+          )
+          .sort(
+            (
+              a,
+              b
+            ) =>
+              a.name.localeCompare(
+                b.name,
+                undefined,
+                {
+                  numeric:
+                    true,
+                  sensitivity:
+                    "base"
+                }
+              )
+          )
+      : [];
+
+  const customers = [
+    ...linkedCustomers,
+    ...otherCustomers
+  ];
+
+  let otherGroupShown =
+    false;
+
+  if (
+    linkedCustomers.length
+  ) {
+    addGroup(
+      el.customerMenu,
+      "Linked Contracts"
+    );
+  }
+
+  customers.forEach(
+    customer => {
+      if (
+        hasUnallocatedCapacity &&
+        !eligibleIds.has(
+          customer.id
+        ) &&
+        !otherGroupShown
+      ) {
+        addGroup(
+          el.customerMenu,
+          `Other Customers — ${haulingJobUnallocatedContractBushels(
+            haulingJob
+          ).toLocaleString(
+            "en-US",
+            {
+              maximumFractionDigits:
+                2
+            }
+          )} bu unallocated`
+        );
+        otherGroupShown =
+          true;
+      }
+
+      const row =
+        document.createElement(
+          "div"
+        );
+      row.style.display =
+        "grid";
+      row.style.gridTemplateColumns =
+        "1fr auto";
+      row.style.alignItems =
+        "stretch";
+      row.style.gap =
+        "6px";
+      row.style.margin =
+        "2px 0";
+
+      const selectButton =
+        document.createElement(
+          "button"
+        );
+      selectButton.type =
+        "button";
+      selectButton.className =
+        `picker-choice${
+          customer.id ===
+          el.customerSelect.value
+            ? " selected"
+            : ""
+        }`;
+      selectButton.style.margin =
+        "0";
+
+      const title =
+        document.createElement(
+          "span"
+        );
+      title.className =
+        "picker-choice-title";
+      title.textContent =
+        customer.name;
+      selectButton.appendChild(
+        title
+      );
+
+      selectButton.addEventListener(
+        "click",
+        event => {
+          event.preventDefault();
+          event.stopPropagation();
+          chooseCustomer(
+            customer.id
+          );
+        }
+      );
+
+      const editButton =
+        document.createElement(
+          "button"
+        );
+      editButton.type =
+        "button";
+      editButton.textContent =
+        "Edit";
+      editButton.title =
+        `Edit ${customer.name}`;
+
+      Object.assign(
+        editButton.style,
+        {
+          border:
+            "1px solid var(--border, #ccc)",
+          borderRadius:
+            "8px",
+          padding:
+            "6px 10px",
+          background:
+            "var(--surface-2, #f4f4f4)",
+          color:
+            "inherit",
+          cursor:
+            "pointer",
+          fontWeight:
+            "800",
+          fontSize:
+            ".78rem"
+        }
+      );
+
+      editButton.addEventListener(
+        "click",
+        event => {
+          event.preventDefault();
+          event.stopPropagation();
+          closeMenus();
+          editSoldUnder(
+            customer.id
+          );
+        }
+      );
+
+      row.appendChild(
+        selectButton
+      );
+      row.appendChild(
+        editButton
+      );
+      el.customerMenu.appendChild(
+        row
+      );
+    }
+  );
+
+  addGroup(
+    el.customerMenu,
+    "Manage Sold Under"
+  );
+
+  const addButton =
+    document.createElement(
+      "button"
+    );
+  addButton.type =
+    "button";
+  addButton.className =
+    "picker-choice";
+  addButton.innerHTML = `
+    <span class="picker-choice-title">
+      + Add New Sold Under
+    </span>
+    <span class="picker-choice-sub">
+      Create a new customer
+    </span>
+  `;
+
+  addButton.addEventListener(
+    "click",
+    event => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const haulingJobId =
+        clean(
+          el.haulingJob.value
+        );
+      const selectedJob =
+        state.selectedHaulingJob;
+
+      closeMenus();
+
+      addSoldUnder()
+        .finally(
+          () => {
+            if (
+              haulingJobId
+            ) {
+              el.haulingJob.value =
+                haulingJobId;
+            }
+            if (
+              selectedJob
+            ) {
+              state.selectedHaulingJob =
+                selectedJob;
+            }
+          }
+        );
+    }
+  );
+
+  el.customerMenu.appendChild(
+    addButton
+  );
+  syncCustomer();
+}
+
+function chooseCustomer(
+  id
+) {
+  const haulingJobId =
+    clean(
+      el.haulingJob.value
+    );
+  const haulingJob =
+    state.selectedHaulingJob;
+
+  el.customerSelect.value =
+    id;
+
+  if (
+    id ===
+    "__unknown__"
+  ) {
+    state.selectedCustomer = {
+      id:
+        null,
+      name:
+        "Unknown",
+      unknown:
+        true
+    };
+  }
+  else {
+    state.selectedCustomer =
+      state.customers.find(
+        customer =>
+          customer.id ===
+          id
+      ) ||
+      null;
+  }
+
+  state.selectedContract =
+    null;
+  syncCustomer();
+  renderContract();
+
+  if (
+    haulingJobId
+  ) {
+    el.haulingJob.value =
+      haulingJobId;
+  }
+
+  if (
+    haulingJob
+  ) {
+    state.selectedHaulingJob =
+      haulingJob;
+  }
+
+  closeMenus();
+  clearMessage();
+}
+
+async function addSoldUnder() {
+  const entered =
+    window.prompt(
+      "Enter the new Sold Under / Customer name:"
+    );
+
+  if (
+    entered ===
+      null
+  ) {
+    return;
+  }
+
+  const name =
+    clean(
+      entered
+    );
+
+  if (
+    !name
+  ) {
+    return;
+  }
+
+  const duplicate =
+    state.customers.find(
+      customer =>
+        normalize(
+          customer.name
+        ) ===
+        normalize(
+          name
+        )
+    ) ||
+    null;
+
+  if (
+    duplicate
+  ) {
+    showMessage(
+      `${duplicate.name} already exists.`,
+      "warning"
+    );
+    return;
+  }
+
+  try {
+    const saved =
+      await addDoc(
+        collection(
+          db,
+          "grain_customers"
+        ),
+        {
+          name,
+          createdAt:
+            serverTimestamp(),
+          updatedAt:
+            serverTimestamp()
+        }
+      );
+
+    const customer = {
+      id:
+        saved.id,
+      name
+    };
+
+    state.customers.push(
+      customer
+    );
+
+    state.customers.sort(
+      (
+        a,
+        b
+      ) =>
+        a.name.localeCompare(
+          b.name,
+          undefined,
+          {
+            numeric:
+              true,
+            sensitivity:
+              "base"
+          }
+        )
+    );
+
+    renderCustomer();
+    showMessage(
+      `${name} was added. Link a contract for this customer to the hauling job before it can be selected here.`,
+      "success"
+    );
+  }
+  catch (
+    error
+  ) {
+    console.error(
+      "[Grain Ticket Add] Add Sold Under failed:",
+      error
+    );
+    showMessage(
+      "Sold Under / Customer could not be added."
+    );
+  }
+}
+
+async function editSoldUnder(
+  customerId
+) {
+  const customer =
+    state.customers.find(
+      item =>
+        item.id ===
+        clean(
+          customerId
+        )
+    ) ||
+    null;
+
+  if (
+    !customer
+  ) {
+    return;
+  }
+
+  const entered =
+    window.prompt(
+      "Edit Sold Under / Customer name:",
+      customer.name
+    );
+
+  if (
+    entered ===
+      null
+  ) {
+    return;
+  }
+
+  const name =
+    clean(
+      entered
+    );
+
+  if (
+    !name ||
+    name ===
+      customer.name
+  ) {
+    return;
+  }
+
+  const duplicate =
+    state.customers.find(
+      item =>
+        item.id !==
+          customer.id &&
+        normalize(
+          item.name
+        ) ===
+        normalize(
+          name
+        )
+    ) ||
+    null;
+
+  if (
+    duplicate
+  ) {
+    showMessage(
+      `${duplicate.name} already exists.`,
+      "warning"
+    );
+    return;
+  }
+
+  try {
+    await updateDoc(
+      doc(
+        db,
+        "grain_customers",
+        customer.id
+      ),
+      {
+        name,
+        updatedAt:
+          serverTimestamp()
+      }
+    );
+
+    const linkedContracts =
+      state.contracts.filter(
+        contract =>
+          contractCustomerId(
+            contract
+          ) ===
+            customer.id
+      );
+
+    await Promise.all(
+      linkedContracts.map(
+        contract =>
+          updateDoc(
+            doc(
+              db,
+              "grain_contracts",
+              contract.id
+            ),
+            {
+              customerName:
+                name,
+              updatedAt:
+                serverTimestamp()
+            }
+          )
+      )
+    );
+
+    linkedContracts.forEach(
+      contract => {
+        contract.customerName =
+          name;
+      }
+    );
+
+    customer.name =
+      name;
+
+    state.customers.sort(
+      (
+        a,
+        b
+      ) =>
+        a.name.localeCompare(
+          b.name,
+          undefined,
+          {
+            numeric:
+              true,
+            sensitivity:
+              "base"
+          }
+        )
+    );
+
+    if (
+      clean(
+        el.customerSelect.value
+      ) ===
+        customer.id
+    ) {
+      state.selectedCustomer =
+        customer;
+      syncCustomer();
+    }
+
+    renderCustomer();
+    showMessage(
+      `Sold Under updated to ${name}.`,
+      "success"
+    );
+  }
+  catch (
+    error
+  ) {
+    console.error(
+      "[Grain Ticket Add] Edit Sold Under failed:",
+      error
+    );
+    showMessage(
+      "Sold Under / Customer could not be updated."
+    );
+  }
+}
+
+function renderContract() {
+  if (
+    !el.contractSelect
+  ) {
+    return;
+  }
+
+  el.contractSelect.innerHTML =
+    "";
+
+  const option =
+    document.createElement(
+      "option"
+    );
+  option.value =
+    "";
+
+  el.contractSelect.disabled =
+    true;
+  el.contractSelect.appendChild(
+    option
+  );
+  state.selectedContract =
+    null;
+
+  const haulingJob =
+    state.selectedHaulingJob;
+  const customer =
+    state.selectedCustomer;
+
+  if (
+    !haulingJob
+  ) {
+    option.textContent =
+      "Select hauling job first";
+    setCheck(
+      el.contractStatus,
+      false,
+      "Select the hauling job first."
+    );
+    return;
+  }
+
+  if (
+    !customer
+  ) {
+    option.textContent =
+      "Select Sold Under first";
+    setCheck(
+      el.contractStatus,
+      false,
+      "Select who this grain is sold under."
+    );
+    return;
+  }
+
+  if (
+    customer.unknown ===
+      true
+  ) {
+    option.textContent =
+      "Contract assigned later";
+    setCheck(
+      el.contractStatus,
+      true,
+      "Sold Under is Unknown. Contract will be assigned later during ticket review."
+    );
+    return;
+  }
+
+  const matches =
+    state.contracts.filter(
+      contract =>
+        contractIsOpen(
+          contract
+        ) &&
+        clean(
+          contract?.haulingJobId
+        ) ===
+          clean(
+            haulingJob.id
+          ) &&
+        contractCustomerId(
+          contract
+        ) ===
+          clean(
+            customer.id
+          )
+    );
+
+  option.textContent =
+    "Contract assigned later";
+
+  if (
+    matches.length ===
+      1
+  ) {
+    setCheck(
+      el.contractStatus,
+      true,
+      "1 open matching contract exists. This ticket will remain unassigned until contract reconciliation."
+    );
+  }
+  else if (
+    matches.length >
+      1
+  ) {
+    setCheck(
+      el.contractStatus,
+      true,
+      `${matches.length} open matching contracts exist. Specific contract will be assigned later.`
+    );
+  }
+  else if (
+    haulingJobHasUnallocatedContractCapacity(
+      haulingJob
+    )
+  ) {
+    setCheck(
+      el.contractStatus,
+      true,
+      `No linked contract yet. This hauling job still has ${haulingJobUnallocatedContractBushels(
+        haulingJob
+      ).toLocaleString(
+        "en-US",
+        {
+          maximumFractionDigits:
+            2
+        }
+      )} bu of unallocated contract capacity. Specific contract can be assigned later.`
+    );
+  }
+  else {
+    setCheck(
+      el.contractStatus,
+      false,
+      "This hauling job is fully allocated to contracts, and this Sold Under is not represented by one of them."
+    );
+  }
+}
+
+function selectedSubcontractor() {
+  const value =
+    clean(
+      el.driverValue?.value
+    );
+
+  if (
+    !value.startsWith(
+      "sub:"
+    )
+  ) {
+    return null;
+  }
+
+  const subcontractorId =
+    value.slice(
+      4
+    );
+
+  return state.subcontractors.find(
+    subcontractor =>
+      subcontractor.id ===
+      subcontractorId
+  ) ||
+  null;
+}
+
+function selectedDriver() {
+  const value =
+    clean(
+      el.driverValue?.value
+    );
+
+  if (
+    value.startsWith(
+      "emp:"
+    )
+  ) {
+    const employeeId =
+      value.slice(
+        4
+      );
+
+    const employee =
+      state.employeeDrivers.find(
+        driver =>
+          driver.id ===
+          employeeId
+      ) ||
+      null;
+
+    if (
+      !employee
+    ) {
+      return null;
+    }
+
+    return {
+      ...employee,
+      type:
+        "employee",
+      value:
+        `emp:${employee.id}`,
+      subcontractorId:
+        null,
+      subcontractorName:
+        null
+    };
+  }
+
+  if (
+    value.startsWith(
+      "sub:"
+    )
+  ) {
+    const subcontractor =
+      selectedSubcontractor();
+    const subdriverId =
+      clean(
+        el.subdriver?.value
+      );
+
+    if (
+      !subcontractor ||
+      !subdriverId
+    ) {
+      return null;
+    }
+
+    const driver =
+      (
+        Array.isArray(
+          subcontractor.drivers
+        )
+          ? subcontractor.drivers
+          : []
+      )
+        .find(
+          item =>
+            clean(
+              item.id
+            ) ===
+            subdriverId
+        ) ||
+        null;
+
+    if (
+      !driver
+    ) {
+      return null;
+    }
+
+    return {
+      ...driver,
+      type:
+        "subcontractor",
+      value:
+        `sub:${subcontractor.id}:${driver.id}`,
+      uid:
+        null,
+      email:
+        "",
+      subcontractorId:
+        subcontractor.id,
+      subcontractorName:
+        subcontractor.company
+    };
+  }
+
+  return null;
+}
+
+function closeDriverMenu() {
+  el.driverMenu
+    ?.classList.remove(
+      "open"
+    );
+  el.driverButton
+    ?.setAttribute(
+      "aria-expanded",
+      "false"
+    );
+}
+
+function syncDriverButton() {
+  if (
+    !el.driverButtonText ||
+    !el.driverValue
+  ) {
+    return;
+  }
+
+  const value =
+    clean(
+      el.driverValue.value
+    );
+  let label =
+    "Select driver or trucking subcontractor";
+
+  if (
+    value.startsWith(
+      "emp:"
+    )
+  ) {
+    const employeeId =
+      value.slice(
+        4
+      );
+    const employee =
+      state.employeeDrivers.find(
+        driver =>
+          driver.id ===
+          employeeId
+      );
+    if (
+      employee
+    ) {
+      label =
+        employee.name;
+    }
+  }
+  else if (
+    value.startsWith(
+      "sub:"
+    )
+  ) {
+    const subcontractorId =
+      value.slice(
+        4
+      );
+    const subcontractor =
+      state.subcontractors.find(
+        item =>
+          item.id ===
+          subcontractorId
+      );
+    if (
+      subcontractor
+    ) {
+      label =
+        subcontractor.company;
+    }
+  }
+
+  el.driverButtonText.textContent =
+    label;
+
+  el.driverMenu
+    ?.querySelectorAll(
+      ".driver-choice"
+    )
+    .forEach(
+      button => {
+        button.classList.toggle(
+          "selected",
+          button.dataset.driverValue ===
+            value
+        );
+      }
+    );
+}
+
+function renderSubdriverSelect() {
+  if (
+    !el.subdriver
+  ) {
+    return;
+  }
+
+  const subcontractor =
+    selectedSubcontractor();
+  const previous =
+    clean(
+      el.subdriver.value
+    );
+
+  el.subdriver.innerHTML =
+    "";
+
+  const blank =
+    document.createElement(
+      "option"
+    );
+  blank.value =
+    "";
+  blank.textContent =
+    subcontractor
+      ? "Select subcontractor driver"
+      : "Select subcontractor first";
+  el.subdriver.appendChild(
+    blank
+  );
+
+  if (
+    !subcontractor
+  ) {
+    el.subdriverWrap
+      ?.classList.remove(
+        "show"
+      );
+    el.addDriverPanel
+      ?.classList.remove(
+        "show"
+      );
+    state.selectedDriver =
+      selectedDriver();
+    return;
+  }
+
+  el.subdriverWrap
+    ?.classList.add(
+      "show"
+    );
+
+  const drivers =
+    (
+      Array.isArray(
+        subcontractor.drivers
+      )
+        ? subcontractor.drivers
+        : []
+    )
+      .filter(
+        driver =>
+          driver &&
+          driver.active !==
+            false &&
+          clean(
+            driver.name
+          )
+      )
+      .slice()
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          clean(
+            a.name
+          )
+            .localeCompare(
+              clean(
+                b.name
+              ),
+              undefined,
+              {
+                numeric:
+                  true,
+                sensitivity:
+                  "base"
+              }
+            )
+      );
+
+  drivers.forEach(
+    driver => {
+      const option =
+        document.createElement(
+          "option"
+        );
+      option.value =
+        driver.id;
+      option.textContent =
+        driver.name;
+      el.subdriver.appendChild(
+        option
+      );
+    }
+  );
+
+  if (
+    !drivers.length
+  ) {
+    blank.textContent =
+      "No drivers saved — add one below";
+  }
+
+  if (
+    previous &&
+    drivers.some(
+      driver =>
+        driver.id ===
+        previous
+    )
+  ) {
+    el.subdriver.value =
+      previous;
+  }
+
+  state.selectedDriver =
+    selectedDriver();
+}
+
+function chooseDriverValue(
+  value
+) {
+  if (
+    !el.driverValue
+  ) {
+    return;
+  }
+
+  el.driverValue.value =
+    value ||
+    "";
+
+  if (
+    el.subdriver
+  ) {
+    el.subdriver.value =
+      "";
+  }
+
+  resetAddDriverPanel();
+  syncDriverButton();
+  renderSubdriverSelect();
+  state.selectedDriver =
+    selectedDriver();
+  closeDriverMenu();
+  clearMessage();
+}
+
+function renderDriverSelector() {
+  if (
+    !el.driverValue ||
+    !el.driverMenu
+  ) {
+    return;
+  }
+
+  const currentValue =
+    clean(
+      el.driverValue.value
+    );
+
+  const currentIsEmployee =
+    currentValue.startsWith(
+      "emp:"
+    ) &&
+    state.employeeDrivers.some(
+      driver =>
+        `emp:${driver.id}` ===
+        currentValue
+    );
+
+  const currentIsSubcontractor =
+    currentValue.startsWith(
+      "sub:"
+    ) &&
+    state.subcontractors.some(
+      subcontractor =>
+        `sub:${subcontractor.id}` ===
+        currentValue
+    );
+
+  if (
+    !currentIsEmployee &&
+    !currentIsSubcontractor
+  ) {
+    el.driverValue.value =
+      "";
+  }
+
+  el.driverMenu.innerHTML =
+    "";
+
+  if (
+    state.employeeDrivers.length
+  ) {
+    const employeeHeader =
+      document.createElement(
+        "div"
+      );
+    employeeHeader.className =
+      "driver-group";
+    employeeHeader.textContent =
+      "Employee Drivers";
+    el.driverMenu.appendChild(
+      employeeHeader
+    );
+
+    state.employeeDrivers.forEach(
+      driver => {
+        const button =
+          document.createElement(
+            "button"
+          );
+        button.type =
+          "button";
+        button.className =
+          "driver-choice";
+        button.dataset.driverValue =
+          `emp:${driver.id}`;
+        button.textContent =
+          driver.name;
+        button.addEventListener(
+          "click",
+          () => {
+            chooseDriverValue(
+              button.dataset.driverValue
+            );
+          }
+        );
+        el.driverMenu.appendChild(
+          button
+        );
+      }
+    );
+  }
+
+  if (
+    state.subcontractors.length
+  ) {
+    const subHeader =
+      document.createElement(
+        "div"
+      );
+    subHeader.className =
+      "driver-group";
+    subHeader.textContent =
+      "Trucking Subcontractors";
+    el.driverMenu.appendChild(
+      subHeader
+    );
+
+    state.subcontractors.forEach(
+      subcontractor => {
+        const button =
+          document.createElement(
+            "button"
+          );
+        button.type =
+          "button";
+        button.className =
+          "driver-choice";
+        button.dataset.driverValue =
+          `sub:${subcontractor.id}`;
+        button.textContent =
+          subcontractor.company;
+        button.addEventListener(
+          "click",
+          () => {
+            chooseDriverValue(
+              button.dataset.driverValue
+            );
+          }
+        );
+        el.driverMenu.appendChild(
+          button
+        );
+      }
+    );
+  }
+
+  if (
+    !state.employeeDrivers.length &&
+    !state.subcontractors.length
+  ) {
+    addEmpty(
+      el.driverMenu,
+      "No active Semi Drivers or trucking subcontractors were found."
+    );
+  }
+
+  syncDriverButton();
+  renderSubdriverSelect();
+}
+
+function formatUSCell(
+  value
+) {
+  const digits =
+    clean(
+      value
+    )
+      .replace(
+        /\D/g,
+        ""
+      )
+      .replace(
+        /^1(?=\d{10}$)/,
+        ""
+      );
+
+  if (
+    digits.length !==
+      10
+  ) {
+    return "";
+  }
+
+  return (
+    `(${digits.slice(
+      0,
+      3
+    )}) ` +
+    `${digits.slice(
+      3,
+      6
+    )}-` +
+    digits.slice(
+      6
+    )
+  );
+}
+
+function resetAddDriverPanel() {
+  if (
+    el.driverFirstName
+  ) {
+    el.driverFirstName.value =
+      "";
+  }
+  if (
+    el.driverLastName
+  ) {
+    el.driverLastName.value =
+      "";
+  }
+  if (
+    el.driverCell
+  ) {
+    el.driverCell.value =
+      "";
+  }
+  el.addDriverPanel
+    ?.classList.remove(
+      "show"
+    );
+}
+
+function openAddDriverPanel() {
+  const subcontractor =
+    selectedSubcontractor();
+
+  if (
+    !subcontractor
+  ) {
+    showMessage(
+      "Select a trucking subcontractor first."
+    );
+    return;
+  }
+
+  clearMessage();
+  el.addDriverPanel
+    ?.classList.add(
+      "show"
+    );
+
+  setTimeout(
+    () => {
+      el.driverFirstName
+        ?.focus();
+    },
+    0
+  );
+}
+
+async function saveSubcontractorDriver() {
+  const subcontractor =
+    selectedSubcontractor();
+
+  if (
+    !subcontractor
+  ) {
+    showMessage(
+      "Select a trucking subcontractor first."
+    );
+    return;
+  }
+
+  const firstName =
+    clean(
+      el.driverFirstName?.value
+    );
+  const lastName =
+    clean(
+      el.driverLastName?.value
+    );
+  const phone =
+    formatUSCell(
+      el.driverCell?.value
+    );
+
+  if (
+    !firstName ||
+    !lastName ||
+    !phone
+  ) {
+    showMessage(
+      "Enter the subcontractor driver's first name, last name, and a valid 10-digit cell number."
+    );
+    return;
+  }
+
+  const existingDriver =
+    (
+      Array.isArray(
+        subcontractor.drivers
+      )
+        ? subcontractor.drivers
+        : []
+    )
+      .find(
+        driver =>
+          normalize(
+            driver.name
+          ) ===
+          normalize(
+            `${firstName} ${lastName}`
+          )
+      );
+
+  if (
+    existingDriver
+  ) {
+    showMessage(
+      `${existingDriver.name} is already saved under ${subcontractor.company}.`
+    );
+
+    if (
+      el.subdriver
+    ) {
+      el.subdriver.value =
+        existingDriver.id;
+    }
+
+    state.selectedDriver =
+      selectedDriver();
+    return;
+  }
+
+  const driverId =
+    (
+      globalThis.crypto
+        ?.randomUUID?.() ||
+      `${Date.now()}-${Math.random().toString(36).slice(2,10)}`
+    );
+
+  const newDriver = {
+    id:
+      driverId,
+    firstName,
+    lastName,
+    name:
+      `${firstName} ${lastName}`,
+    phone,
+    active:
+      true,
+    createdAtISO:
+      new Date()
+        .toISOString()
+  };
+
+  const nextDrivers = [
+    ...(
+      Array.isArray(
+        subcontractor.drivers
+      )
+        ? subcontractor.drivers
+        : []
+    ),
+    newDriver
+  ];
+
+  if (
+    el.driverAddSave
+  ) {
+    el.driverAddSave.disabled =
+      true;
+    el.driverAddSave.textContent =
+      "Saving…";
+  }
+
+  try {
+    await updateDoc(
+      doc(
+        db,
+        "subcontractors",
+        subcontractor.id
+      ),
+      {
+        drivers:
+          nextDrivers,
+        updatedAt:
+          serverTimestamp()
+      }
+    );
+
+    subcontractor.drivers =
+      nextDrivers;
+    renderSubdriverSelect();
+
+    if (
+      el.subdriver
+    ) {
+      el.subdriver.value =
+        driverId;
+    }
+
+    state.selectedDriver =
+      selectedDriver();
+    resetAddDriverPanel();
+    showMessage(
+      `${newDriver.name} added to ${subcontractor.company}.`,
+      "success"
+    );
+  }
+  catch (
+    error
+  ) {
+    console.error(
+      "[Grain Ticket Add] subcontractor driver save failed:",
+      error
+    );
+    showMessage(
+      "Driver could not be saved. Check Firestore permissions for subcontractors."
+    );
+  }
+  finally {
+    if (
+      el.driverAddSave
+    ) {
+      el.driverAddSave.disabled =
+        false;
+      el.driverAddSave.textContent =
+        "Save Driver";
+    }
+  }
+}
+
+function formatWeightField(
+  input
+) {
+  if (
+    !input
+  ) {
+    return;
+  }
+
+  const raw =
+    String(
+      input.value ??
+      ""
+    );
+  const digits =
+    raw.replace(
+      /\D/g,
+      ""
+    );
+
+  if (
+    !digits
+  ) {
+    input.value =
+      "";
+    return;
+  }
+
+  input.value =
+    Number(
+      digits
+    )
+      .toLocaleString(
+        "en-US"
+      );
+}
+
+function formatAllWeightFields() {
+  [
+    el.grossWeight,
+    el.tareWeight,
+    el.netWeight
+  ]
+    .filter(
+      Boolean
+    )
+    .forEach(
+      input => {
+        formatWeightField(
+          input
+        );
+      }
+    );
+}
+
+function validateWeights() {
+  const gross =
+    numberOrNull(
+      el.grossWeight.value
+    );
+  const tare =
+    numberOrNull(
+      el.tareWeight.value
+    );
+  const net =
+    numberOrNull(
+      el.netWeight.value
+    );
+
+  if (
+    gross === null ||
+    tare === null ||
+    net === null
+  ) {
+    setCheck(
+      el.weightCheck,
+      false,
+      "Weight check incomplete."
+    );
+    return false;
+  }
+
+  if (
+    gross <
+      30000 ||
+    gross >
+      110000
+  ) {
+    setCheck(
+      el.weightCheck,
+      false,
+      "Gross Weight must be between 30,000 and 110,000 lb."
+    );
+    return false;
+  }
+
+  if (
+    tare <
+      20000 ||
+    tare >
+      40000
+  ) {
+    setCheck(
+      el.weightCheck,
+      false,
+      "Tare Weight must be between 20,000 and 40,000 lb."
+    );
+    return false;
+  }
+
+  if (
+    net <
+      1000 ||
+    net >
+      80000
+  ) {
+    setCheck(
+      el.weightCheck,
+      false,
+      "Net Weight must be between 1,000 and 80,000 lb."
+    );
+    return false;
+  }
+
+  if (
+    gross -
+      tare !==
+    net
+  ) {
+    setCheck(
+      el.weightCheck,
+      false,
+      `${gross.toLocaleString()} Gross - ${tare.toLocaleString()} Tare does not equal ${net.toLocaleString()} Net.`
+    );
+    return false;
+  }
+
+  setCheck(
+    el.weightCheck,
+    true,
+    `✓ ${gross.toLocaleString()} Gross - ${tare.toLocaleString()} Tare = ${net.toLocaleString()} Net.`
+  );
+  return true;
+}
+
+function bushelDivisor() {
+  const crop =
+    normalize(
+      el.crop.value
+    );
+
+  if (
+    crop ===
+      "corn"
+  ) {
+    return 56;
+  }
+
+  if (
+    crop ===
+      "soybeans" ||
+    crop ===
+      "wheat"
+  ) {
+    return 60;
+  }
+
+  return null;
+}
+
+function calculateBushels() {
+  const netWeight =
+    numberOrNull(
+      el.netWeight.value
+    );
+  const divisor =
+    bushelDivisor();
+
+  if (
+    netWeight === null ||
+    !divisor
+  ) {
+    el.grossBushels.value =
+      "";
+    return;
+  }
+
+  const gross =
+    Number(
+      (
+        netWeight /
+        divisor
+      )
+        .toFixed(
+          2
+        )
+    );
+
+  el.grossBushels.value =
+    gross.toFixed(
+      2
+    );
+
+  const shrink =
+    numberOrNull(
+      el.shrinkBushels.value
+    ) ??
+    0;
+
+  el.netBushels.value =
+    Math.max(
+      0,
+      Number(
+        (
+          gross -
+          shrink
+        )
+          .toFixed(
+            2
+          )
+      )
+    )
+      .toFixed(
+        2
+      );
+}
+
+function validateBushels() {
+  const gross =
+    numberOrNull(
+      el.grossBushels.value
+    );
+  const shrink =
+    numberOrNull(
+      el.shrinkBushels.value
+    ) ??
+    0;
+  const net =
+    numberOrNull(
+      el.netBushels.value
+    );
+
+  if (
+    gross === null ||
+    net === null
+  ) {
+    setCheck(
+      el.bushelCheck,
+      false,
+      "Bushel check incomplete."
+    );
+    return false;
+  }
+
+  const expected =
+    Number(
+      (
+        gross -
+        shrink
+      )
+        .toFixed(
+          2
+        )
+    );
+
+  if (
+    Math.abs(
+      expected -
+      net
+    ) >
+      0.02
+  ) {
+    setCheck(
+      el.bushelCheck,
+      false,
+      `${gross.toFixed(2)} Gross - ${shrink.toFixed(2)} Shrink = ${expected.toFixed(2)} Net, but ticket shows ${net.toFixed(2)}.`
+    );
+    return false;
+  }
+
+  setCheck(
+    el.bushelCheck,
+    true,
+    `✓ ${gross.toFixed(2)} Gross - ${shrink.toFixed(2)} Shrink = ${net.toFixed(2)} Net Bushels.`
+  );
+  return true;
+}
+
+function validateGrade(
+  input,
+  min,
+  max,
+  label
+) {
+  const value =
+    numberOrNull(
+      input.value
+    );
+
+  if (
+    value === null
+  ) {
+    return true;
+  }
+
+  if (
+    value <
+      min ||
+    value >
+      max
+  ) {
+    showMessage(
+      `${label} must be between ${min} and ${max}.`
+    );
+    input.focus();
+    return false;
+  }
+
+  return true;
+}
+
+async function loadReferenceData() {
+  const [
+    buyerSnap,
+    customerSnap,
+    locationSnap,
+    contractSnap,
+    haulingJobSnap,
+    ticketSnap,
+    fieldSnap,
+    binSnap,
+    bagSnap,
+    employeeSnap,
+    subSnap
+  ] =
+    await Promise.all([
+      getDocs(
+        collection(
+          db,
+          "grain_buyers"
+        )
+      ),
+      getDocs(
+        collection(
+          db,
+          "grain_customers"
+        )
+      ),
+      getDocs(
+        collection(
+          db,
+          "grain_delivery_locations"
+        )
+      ),
+      getDocs(
+        collection(
+          db,
+          "grain_contracts"
+        )
+      ),
+      getDocs(
+        collection(
+          db,
+          "grain_hauling_jobs"
+        )
+      ),
+      getDocs(
+        collection(
+          db,
+          "grain_tickets"
+        )
+      ),
+      getDocs(
+        collection(
+          db,
+          "fields"
+        )
+      ),
+      getDocs(
+        collection(
+          db,
+          "binSites"
+        )
+      ),
+      getDocs(
+        collection(
+          db,
+          "grain_bag_events"
+        )
+      ),
+      getDocs(
+        collection(
+          db,
+          "employees"
+        )
+      ),
+      getDocs(
+        collection(
+          db,
+          "subcontractors"
+        )
+      )
+    ]);
+
+  state.buyers =
+    buyerSnap.docs
+      .map(
+        snapshot => ({
+          id:
+            snapshot.id,
+          name:
+            clean(
+              snapshot.data()?.name
+            )
+        })
+      )
+      .filter(
+        buyer =>
+          buyer.name
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          a.name.localeCompare(
+            b.name
+          )
+      );
+
+  const buyerMap =
+    new Map(
+      state.buyers.map(
+        buyer => [
+          buyer.id,
+          buyer
+        ]
+      )
+    );
+
+  state.customers =
+    customerSnap.docs
+      .map(
+        snapshot => ({
+          id:
+            snapshot.id,
+          name:
+            clean(
+              snapshot.data()?.name
+            )
+        })
+      )
+      .filter(
+        customer =>
+          customer.name
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          a.name.localeCompare(
+            b.name
+          )
+      );
+
+  state.locations =
+    locationSnap.docs
+      .map(
+        snapshot => {
+          const data =
+            snapshot.data() ||
+            {};
+
+          return {
+            id:
+              snapshot.id,
+            buyerId:
+              clean(
+                data.buyerId
+              ),
+            buyerName:
+              clean(
+                data.buyerName
+              ) ||
+              clean(
+                buyerMap.get(
+                  clean(
+                    data.buyerId
+                  )
+                )?.name
+              ),
+            locationName:
+              clean(
+                data.locationName
+              ),
+            street:
+              clean(
+                data.street
+              ),
+            city:
+              clean(
+                data.city
+              ),
+            state:
+              clean(
+                data.state
+              ),
+            zip:
+              clean(
+                data.zip
+              )
+          };
+        }
+      )
+      .filter(
+        location =>
+          location.locationName
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          `${a.buyerName} ${a.locationName}`
+            .localeCompare(
+              `${b.buyerName} ${b.locationName}`,
+              undefined,
+              {
+                numeric:
+                  true,
+                sensitivity:
+                  "base"
+              }
+            )
+      );
+
+  state.haulingJobs =
+    haulingJobSnap.docs
+      .map(
+        snapshot => ({
+          id:
+            snapshot.id,
+          ...snapshot.data()
+        })
+      );
+
+  state.contracts =
+    contractSnap.docs
+      .map(
+        snapshot => ({
+          id:
+            snapshot.id,
+          ...snapshot.data()
+        })
+      );
+
+  state.tickets =
+    ticketSnap.docs
+      .map(
+        snapshot => ({
+          id:
+            snapshot.id,
+          ...snapshot.data()
+        })
+      );
+
+  state.fields =
+    fieldSnap.docs
+      .map(
+        snapshot => ({
+          id:
+            snapshot.id,
+          ...snapshot.data()
+        })
+      )
+      .filter(
+        field =>
+          clean(
+            field.name
+          ) &&
+          field.active !==
+            false &&
+          normalize(
+            field.status ||
+            "active"
+          ) ===
+            "active"
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          clean(
+            a.name
+          )
+            .localeCompare(
+              clean(
+                b.name
+              ),
+              undefined,
+              {
+                numeric:
+                  true,
+                sensitivity:
+                  "base"
+              }
+            )
+      );
+
+  state.binSources =
+    [];
+
+  binSnap.docs.forEach(
+    snapshot => {
+      const data =
+        snapshot.data() ||
+        {};
+
+      const siteName =
+        clean(
+          data.name
+        ) ||
+        `Bin Site ${snapshot.id.slice(
+          0,
+          6
+        )}`;
+
+      const fieldId =
+        clean(
+          data.fieldId ||
+          data.farmFieldId ||
+          data.field?.id
+        );
+
+      const fieldName =
+        clean(
+          data.fieldName ||
+          data.farmFieldName ||
+          data.field?.name
+        );
+
+      const bins =
+        Array.isArray(
+          data.bins
+        )
+          ? data.bins
+          : [];
+
+      bins.forEach(
+        (
+          bin,
+          index
+        ) => {
+          const onHand =
+            Number(
+              bin?.onHand ||
+              0
+            );
+
+          if (
+            !Number.isFinite(
+              onHand
+            ) ||
+            onHand <=
+              0
+          ) {
+            return;
+          }
+
+          const binNumber =
+            bin?.num ??
+            (
+              index +
+              1
+            );
+
+          const crop =
+            clean(
+              bin?.lastCropType ||
+              bin?.crop ||
+              bin?.cropType
+            );
+
+          const cropYear =
+            clean(
+              bin?.cropYear ||
+              bin?.lastCropYear ||
+              data.cropYear
+            );
+
+          state.binSources.push({
+            type:
+              "bin",
+            value:
+              `bin:${snapshot.id}:${binNumber}`,
+            id:
+              `${snapshot.id}:${binNumber}`,
+            siteId:
+              snapshot.id,
+            siteName,
+            binNumber,
+            binIndex:
+              index,
+            fieldId,
+            fieldName,
+            crop,
+            cropYear,
+            onHand,
+            label:
+              `${siteName} — Bin ${binNumber}` +
+              `${crop ? ` — ${crop}` : ""}` +
+              ` — ${Math.round(
+                onHand
+              ).toLocaleString(
+                "en-US"
+              )} bu`,
+            searchText:
+              `${siteName} bin ${binNumber} ${fieldName} ${crop} ${cropYear}`
+          });
+        }
+      );
+    }
+  );
+
+  state.binSources.sort(
+    (
+      a,
+      b
+    ) =>
+      a.label.localeCompare(
+        b.label,
+        undefined,
+        {
+          numeric:
+            true,
+          sensitivity:
+            "base"
+        }
+      )
+  );
+
+  state.bagSources =
+    bagSnap.docs
+      .map(
+        snapshot => ({
+          id:
+            snapshot.id,
+          ...snapshot.data()
+        })
+      )
+      .filter(
+        event => {
+          const type =
+            normalize(
+              event.type
+            );
+          return (
+            type ===
+              "putdown" ||
+            type ===
+              "put down"
+          );
+        }
+      )
+      .filter(
+        event => {
+          const status =
+            normalize(
+              event.status
+            );
+          return (
+            status !==
+              "pickedup" &&
+            status !==
+              "picked up"
+          );
+        }
+      )
+      .map(
+        event => {
+          const counts =
+            event.counts ||
+            {};
+          const full =
+            Math.max(
+              0,
+              Number(
+                counts.full ||
+                0
+              )
+            );
+          const partial =
+            Math.max(
+              0,
+              Number(
+                counts.partial ||
+                0
+              )
+            );
+          const partialFeet =
+            Array.isArray(
+              event.partialFeet
+            )
+              ? event.partialFeet.reduce(
+                  (
+                    sum,
+                    value
+                  ) =>
+                    sum +
+                    Math.max(
+                      0,
+                      Number(
+                        value
+                      ) ||
+                      0
+                    ),
+                  0
+                )
+              : 0;
+
+          if (
+            full <=
+              0 &&
+            partial <=
+              0 &&
+            partialFeet <=
+              0
+          ) {
+            return null;
+          }
+
+          const fieldId =
+            clean(
+              event.field?.id
+            );
+          const fieldName =
+            clean(
+              event.field?.name
+            ) ||
+            "Unknown Field";
+          const crop =
+            clean(
+              event.cropType ||
+              event.crop
+            );
+          const cropYear =
+            clean(
+              event.cropYear
+            );
+          const brand =
+            clean(
+              event.bagSku?.brand
+            );
+          const location =
+            clean(
+              event.bagSku?.location
+            );
+          const sizeFeet =
+            clean(
+              event.bagSku?.sizeFeet ||
+              event.bagSku?.lengthFt
+            );
+
+          const details =
+            [
+              crop,
+              cropYear
+                ? `CY ${cropYear}`
+                : "",
+              brand,
+              sizeFeet
+                ? `${sizeFeet}'`
+                : "",
+              location,
+              full >
+                0
+                  ? `${full} full`
+                  : "",
+              partial >
+                0
+                  ? `${partial} partial`
+                  : "",
+              partialFeet >
+                0
+                  ? `${Number(
+                      partialFeet.toFixed(
+                        1
+                      )
+                    )} ft partial`
+                  : ""
+            ]
+              .filter(
+                Boolean
+              );
+
+          return {
+            type:
+              "grain_bag",
+            value:
+              `bag:${event.id}`,
+            id:
+              event.id,
+            siteId:
+              null,
+            siteName:
+              null,
+            binNumber:
+              null,
+            binIndex:
+              null,
+            fieldId,
+            fieldName,
+            crop,
+            cropYear,
+            label:
+              `${fieldName}${
+                details.length
+                  ? ` — ${details.join(
+                      " • "
+                    )}`
+                  : ""
+              }`,
+            searchText:
+              `${fieldName} ${crop} ${cropYear} ${brand} ${location}`
+          };
+        }
+      )
+      .filter(
+        Boolean
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          a.label.localeCompare(
+            b.label,
+            undefined,
+            {
+              numeric:
+                true,
+              sensitivity:
+                "base"
+            }
+          )
+      );
+
+  state.employeeDrivers =
+    employeeSnap.docs
+      .map(
+        snapshot => {
+          const data =
+            snapshot.data() ||
+            {};
+          const roles =
+            Array.isArray(
+              data.roles
+            )
+              ? data.roles
+              : (
+                  clean(
+                    data.role
+                  )
+                    ? [
+                        data.role
+                      ]
+                    : []
+                );
+
+          return {
+            type:
+              "employee",
+            value:
+              `emp:${snapshot.id}`,
+            id:
+              snapshot.id,
+            uid:
+              clean(
+                data.uid ||
+                data.userUid ||
+                data.authUid
+              ) ||
+              null,
+            name:
+              displayDriverName(
+                data
+              ),
+            email:
+              clean(
+                data.email
+              ),
+            phone:
+              clean(
+                data.phone
+              ),
+            roles,
+            active:
+              data.active !==
+                false &&
+              normalize(
+                data.status ||
+                "Active"
+              ) ===
+                "active"
+          };
+        }
+      )
+      .filter(
+        driver =>
+          driver.name &&
+          driver.active &&
+          driver.roles.some(
+            role =>
+              normalize(
+                role
+              ) ===
+                "semi driver"
+          )
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          a.name.localeCompare(
+            b.name,
+            undefined,
+            {
+              numeric:
+                true,
+              sensitivity:
+                "base"
+            }
+          )
+      );
+
+  state.subcontractors =
+    subSnap.docs
+      .map(
+        snapshot => {
+          const data =
+            snapshot.data() ||
+            {};
+
+          return {
+            id:
+              snapshot.id,
+            company:
+              clean(
+                data.company ||
+                data.name
+              ),
+            service:
+              clean(
+                data.service
+              ),
+            active:
+              data.active !==
+                false &&
+              normalize(
+                data.status ||
+                "Active"
+              ) ===
+                "active",
+            drivers:
+              (
+                Array.isArray(
+                  data.drivers
+                )
+                  ? data.drivers
+                  : []
+              )
+                .map(
+                  (
+                    driver,
+                    index
+                  ) => ({
+                    id:
+                      clean(
+                        driver?.id
+                      ) ||
+                      `legacy-${index}`,
+                    name:
+                      clean(
+                        driver?.name ||
+                        [
+                          driver?.firstName,
+                          driver?.lastName
+                        ]
+                          .filter(
+                            Boolean
+                          )
+                          .join(
+                            " "
+                          )
+                      ),
+                    phone:
+                      clean(
+                        driver?.phone ||
+                        driver?.cell ||
+                        driver?.cellPhone
+                      ),
+                    active:
+                      driver?.active !==
+                        false
+                  })
+                )
+                .filter(
+                  driver =>
+                    driver.name &&
+                    driver.active
+                )
+          };
+        }
+      )
+      .filter(
+        subcontractor =>
+          subcontractor.company &&
+          subcontractor.active &&
+          normalize(
+            subcontractor.service
+          ) ===
+            "trucking"
+      )
+      .sort(
+        (
+          a,
+          b
+        ) =>
+          a.company.localeCompare(
+            b.company,
+            undefined,
+            {
+              numeric:
+                true,
+              sensitivity:
+                "base"
+            }
+          )
+      );
+}
+
+async function duplicateExists() {
+  const buyerId =
+    clean(
+      el.buyerSelect.value
+    );
+  const ticketNumber =
+    clean(
+      el.ticketNumber.value
+    );
+
+  if (
+    !buyerId ||
+    !ticketNumber
+  ) {
+    return false;
+  }
+
+  const snapshot =
+    await getDocs(
+      collection(
+        db,
+        "grain_tickets"
+      )
+    );
+
+  return snapshot.docs.some(
+    ticketSnapshot => {
+      const data =
+        ticketSnapshot.data() ||
+        {};
+
+      return (
+        clean(
+          data.buyerId
+        ) ===
+          buyerId &&
+        clean(
+          data.ticketNumber
+        )
+          .toLowerCase() ===
+          ticketNumber.toLowerCase()
+      );
+    }
+  );
+}
+
+function updateSelected() {
+  state.selectedSource =
+    sourceFromValue(
+      el.sourceValue.value
+    );
+
+  state.selectedLocation =
+    state.locations.find(
+      location =>
+        location.id ===
+        el.locationSelect.value
+    ) ||
+    null;
+
+  state.selectedBuyer =
+    state.selectedLocation
+      ? (
+          state.buyers.find(
+            buyer =>
+              buyer.id ===
+              state.selectedLocation.buyerId
+          ) ||
+          {
+            id:
+              state.selectedLocation.buyerId,
+            name:
+              state.selectedLocation.buyerName
+          }
+        )
+      : null;
+
+  const customerValue =
+    clean(
+      el.customerSelect.value
+    );
+
+  if (
+    customerValue ===
+    "__unknown__"
+  ) {
+    state.selectedCustomer = {
+      id: null,
+      name: "Unknown",
+      unknown: true
+    };
+  }
+  else {
+    state.selectedCustomer =
+      state.customers.find(
+        customer =>
+          customer.id ===
+          customerValue
+      ) ||
+      null;
+  }
+
+  state.selectedContract =
+    state.contracts.find(
+      contract =>
+        contract.id ===
+        el.contractSelect.value
+    ) ||
+    null;
+
+  state.selectedHaulingJob =
+    state.haulingJobs.find(
+      job =>
+        job.id ===
+        el.haulingJob.value
+    ) ||
+    null;
+
+  state.selectedDriver =
+    selectedDriver();
+}
+
+function validateRequiredLoadDetails() {
+  updateSelected();
+
+  const fields = [
+    [
+      !!state.selectedDriver,
+      "Select the driver."
+    ],
+    [
+      !!state.selectedHaulingJob,
+      "Select the hauling job."
+    ],
+    [
+      !!state.selectedSource,
+      "Select the grain source."
+    ],
+    [
+      !!el.crop.value,
+      "The hauling job does not have a crop."
+    ],
+    [
+      !!state.selectedLocation,
+      "The hauling job does not have a valid destination."
+    ],
+    [
+      !!state.selectedCustomer,
+      "The hauling job does not have a valid Sold Under customer."
+    ]
+  ];
+
+  const failed =
+    fields.find(
+      (
+        [
+          ok
+        ]
+      ) =>
+        !ok
+    );
+
+  if (
+    failed
+  ) {
+    showMessage(
+      failed[1]
+    );
+    return false;
+  }
+
+  if (
+    normalize(
+      state.selectedSource.crop
+    ) !==
+    normalize(
+      el.crop.value
+    )
+  ) {
+    showMessage(
+      "The grain source crop does not match the hauling job crop."
+    );
+    return false;
+  }
+
+  if (
+    haulingJobLocationId(
+      state.selectedHaulingJob
+    ) !==
+      state.selectedLocation.id ||
+    normalize(
+      state.selectedHaulingJob.crop ||
+      state.selectedHaulingJob.commodity
+    ) !==
+      normalize(
+        el.crop.value
+      )
+  ) {
+    showMessage(
+      "The hauling job details no longer match Crop and Destination."
+    );
+    return false;
+  }
+
+  if (
+    !state.selectedCustomer.unknown
+  ) {
+    const soldUnderMatchesJob =
+      state.contracts.some(
+        contract =>
+          contractIsOpen(
+            contract
+          ) &&
+          clean(
+            contract?.haulingJobId
+          ) ===
+            clean(
+              state.selectedHaulingJob.id
+            ) &&
+          contractCustomerId(
+            contract
+          ) ===
+            clean(
+              state.selectedCustomer.id
+            )
+      );
+
+    if (
+      !soldUnderMatchesJob &&
+      !haulingJobHasUnallocatedContractCapacity(
+        state.selectedHaulingJob
+      )
+    ) {
+      showMessage(
+        "This hauling job is fully allocated to contracts. Choose a Sold Under customer already represented by a linked contract."
+      );
+      return false;
+    }
+  }
+
+  return true;
+}
+
+async function saveTicket(
+  event
+) {
+  event.preventDefault();
+
+  if (
+    state.saving
+  ) {
+    return;
+  }
+
+  clearMessage();
+
+  if (
+    !el.form.reportValidity()
+  ) {
+    return;
+  }
+
+  if (
+    !validateRequiredLoadDetails()
+  ) {
+    return;
+  }
+
+  if (
+    !validateWeights()
+  ) {
+    showMessage(
+      "Fix the weight check before saving."
+    );
+    return;
+  }
+
+  if (
+    !validateBushels()
+  ) {
+    showMessage(
+      "Fix the bushel check before saving."
+    );
+    return;
+  }
+
+  if (
+    !validateGrade(
+      el.testWeight,
+      30,
+      70,
+      "Test Weight"
+    ) ||
+    !validateGrade(
+      el.moisture,
+      5,
+      40,
+      "Moisture"
+    ) ||
+    !validateGrade(
+      el.damage,
+      0,
+      30,
+      "Damage"
+    ) ||
+    !validateGrade(
+      el.foreignMaterial,
+      0,
+      30,
+      "FM / BCFM"
+    )
+  ) {
+    return;
+  }
+
+  state.saving =
+    true;
+  el.saveBtn.disabled =
+    true;
+  el.saveBtn.textContent =
+    "Saving…";
+
+  try {
+    if (
+      await duplicateExists()
+    ) {
+      throw new Error(
+        "It appears this Buyer / Elevator already has a ticket with this Ticket Number."
+      );
+    }
+
+    const location =
+      state.selectedLocation;
+    const buyer =
+      state.selectedBuyer;
+    const customer =
+      state.selectedCustomer;
+    const haulingJob =
+      state.selectedHaulingJob;
+    const source =
+      state.selectedSource;
+    const driver =
+      state.selectedDriver;
+
+    const payload = {
+      buyerId:
+        buyer?.id ||
+        null,
+      buyerName:
+        buyer?.name ||
+        location?.buyerName ||
+        null,
+      deliveryLocationId:
+        location?.id ||
+        null,
+      deliveryLocationName:
+        location?.locationName ||
+        null,
+      deliveryStreet:
+        location?.street ||
+        null,
+      deliveryCity:
+        location?.city ||
+        null,
+      deliveryState:
+        location?.state ||
+        null,
+      deliveryZip:
+        location?.zip ||
+        null,
+      customerId:
+        customer?.id ||
+        null,
+      customerName:
+        customer?.name ||
+        null,
+      ticketNumber:
+        clean(
+          el.ticketNumber.value
+        ),
+      ticketDate:
+        clean(
+          el.ticketDate.value
+        ),
+      crop:
+        clean(
+          el.crop.value
+        ),
+      grossWeight:
+        numberOrNull(
+          el.grossWeight.value
+        ),
+      tareWeight:
+        numberOrNull(
+          el.tareWeight.value
+        ),
+      netWeight:
+        numberOrNull(
+          el.netWeight.value
+        ),
+      testWeight:
+        numberOrNull(
+          el.testWeight.value
+        ),
+      moisture:
+        numberOrNull(
+          el.moisture.value
+        ),
+      damage:
+        numberOrNull(
+          el.damage.value
+        ),
+      foreignMaterial:
+        numberOrNull(
+          el.foreignMaterial.value
+        ),
+      grossBushels:
+        numberOrNull(
+          el.grossBushels.value
+        ),
+      shrinkBushels:
+        numberOrNull(
+          el.shrinkBushels.value
+        ) ??
+        0,
+      netBushels:
+        numberOrNull(
+          el.netBushels.value
+        ),
+      grainSourceType:
+        source?.type ||
+        null,
+      grainSourceScope:
+        source?.sourceScope ||
+        null,
+      grainSourceValue:
+        source?.value ||
+        null,
+      grainSourceId:
+        source?.id ||
+        null,
+      grainSourceName:
+        source?.label ||
+        null,
+      grainSourceSiteId:
+        source?.siteId ||
+        null,
+      grainSourceSiteName:
+        source?.siteName ||
+        null,
+      grainSourceBinNumber:
+        source?.binNumber ??
+        null,
+      grainSourceBinIndex:
+        source?.binIndex ??
+        null,
+      grainSourceFieldId:
+        source?.fieldId ||
+        null,
+      grainSourceFieldName:
+        source?.fieldName ||
+        null,
+      grainSourceCropYear:
+        source?.cropYear ||
+        null,
+      haulingJobId:
+        haulingJob?.id ||
+        null,
+      haulingJobName:
+        haulingJob
+          ? haulingJobLabel(
+              haulingJob
+            )
+          : null,
+      haulingJobLabel:
+        haulingJob
+          ? haulingJobLabel(
+              haulingJob
+            )
+          : null,
+      haulingJobStartingBushels:
+        haulingJob
+          ? haulingJobStartingBushels(
+              haulingJob
+            )
+          : null,
+      haulingJobDeliveryStartDate:
+        haulingJob?.deliveryStartDate ||
+        haulingJob?.startDate ||
+        null,
+      haulingJobDeliveryEndDate:
+        haulingJob?.deliveryEndDate ||
+        haulingJob?.endDate ||
+        null,
+      contractId:
+        null,
+      contractNumber:
+        null,
+      contractLabel:
+        null,
+      customerContractMatched:
+        false,
+      matchingContractIds:
+        [],
+      driverType:
+        driver.type,
+      driverId:
+        driver.id ||
+        null,
+      driverUid:
+        driver.uid ||
+        null,
+      driverName:
+        driver.name ||
+        null,
+      driverEmail:
+        driver.email ||
+        null,
+      driverPhone:
+        driver.phone ||
+        null,
+      subcontractorId:
+        driver.subcontractorId ||
+        null,
+      subcontractorName:
+        driver.subcontractorName ||
+        null,
+      entryMethod:
+        "manual_entry",
+      source:
+        "manual",
+      validationStatus:
+        "verified",
+      reconciliationStatus:
+        "reconciled",
+      reviewReasons:
+        [],
+      createdByUid:
+        state.user?.uid ||
+        null,
+      createdByName:
+        state.user?.displayName ||
+        state.user?.email ||
+        "FarmVista User",
+      createdByEmail:
+        state.user?.email ||
+        null,
+      reviewedByUid:
+        state.user?.uid ||
+        null,
+      reviewedByName:
+        state.user?.displayName ||
+        state.user?.email ||
+        "FarmVista User",
+      reviewedByEmail:
+        state.user?.email ||
+        null,
+      createdAt:
+        serverTimestamp(),
+      updatedAt:
+        serverTimestamp(),
+      reviewedAt:
+        serverTimestamp()
+    };
+
+    await addDoc(
+      collection(
+        db,
+        "grain_tickets"
+      ),
+      payload
+    );
+
+    showMessage(
+      "Ticket saved and verified.",
+      "success"
+    );
+
+    window.location.href =
+      "/pages/grain/grain-ticket.html";
+  }
+  catch (
+    error
+  ) {
+    console.error(
+      "[Grain Ticket Add] Save failed:",
+      error
+    );
+    showMessage(
+      error?.message ||
+      "The grain ticket could not be saved."
+    );
+  }
+  finally {
+    state.saving =
+      false;
+    el.saveBtn.disabled =
+      false;
+    el.saveBtn.textContent =
+      "Save Ticket";
+  }
+}
+
+function clearAfterCrop() {
+  el.sourceValue.value =
+    "";
+  state.selectedSource =
+    null;
+  el.locationSelect.value =
+    "";
+  el.buyerSelect.value =
+    "";
+  state.selectedLocation =
+    null;
+  state.selectedBuyer =
+    null;
+  el.customerSelect.value =
+    "";
+  state.selectedCustomer =
+    null;
+  el.contractSelect.value =
+    "";
+  state.selectedContract =
+    null;
+
+  syncSource();
+  syncDestination();
+  syncCustomer();
+  renderSource();
+  renderDestination();
+  renderCustomer();
+  renderContract();
+}
+
+function setupEvents() {
+  const goBack =
+    () => {
+      window.location.href =
+        "/pages/grain/grain-ticket.html";
+    };
+
+  el.backBtn?.addEventListener(
+    "click",
+    goBack
+  );
+
+  el.cancelBtn?.addEventListener(
+    "click",
+    goBack
+  );
+
+  el.haulingJob
+    ?.addEventListener(
+      "change",
+      () => {
+        if (
+          el.haulingJob.value ===
+            "__add_new__"
+        ) {
+          openHaulingJobModal();
+          return;
+        }
+
+        const job =
+          state.haulingJobs.find(
+            item =>
+              item.id ===
+              el.haulingJob.value
+          ) ||
+          null;
+
+        applyHaulingJob(
+          job
+        );
+        renderHaulingJobs(
+          job?.id ||
+          ""
+        );
+        clearMessage();
+      }
+    );
+
+  el.haulingJobBuyer
+    ?.addEventListener(
+      "change",
+      populateJobDestinationOptions
+    );
+
+  el.haulingJobModalX
+    ?.addEventListener(
+      "click",
+      closeHaulingJobModal
+    );
+
+  el.haulingJobCancel
+    ?.addEventListener(
+      "click",
+      closeHaulingJobModal
+    );
+
+  el.haulingJobForm
+    ?.addEventListener(
+      "submit",
+      saveHaulingJob
+    );
+
+  el.haulingJobBackdrop
+    ?.addEventListener(
+      "click",
+      event => {
+        if (
+          event.target ===
+          el.haulingJobBackdrop
+        ) {
+          closeHaulingJobModal();
+        }
+      }
+    );
+
+  el.sourceButton?.addEventListener(
+    "click",
+    event => {
+      event.stopPropagation();
+      openMenu(
+        el.sourceButton,
+        el.sourceMenu,
+        renderSource
+      );
+    }
+  );
+
+  el.destinationButton?.addEventListener(
+    "click",
+    event => {
+      event.stopPropagation();
+      openMenu(
+        el.destinationButton,
+        el.destinationMenu,
+        renderDestination
+      );
+    }
+  );
+
+  el.customerButton?.addEventListener(
+    "click",
+    event => {
+      event.stopPropagation();
+      openMenu(
+        el.customerButton,
+        el.customerMenu,
+        renderCustomer
+      );
+    }
+  );
+
+  el.driverButton?.addEventListener(
+    "click",
+    event => {
+      event.stopPropagation();
+
+      if (
+        el.driverMenu?.classList.contains(
+          "open"
+        )
+      ) {
+        closeDriverMenu();
+      }
+      else {
+        closeMenus(
+          el.driverMenu
+        );
+        renderDriverSelector();
+        el.driverMenu
+          ?.classList.add(
+            "open"
+          );
+        el.driverButton
+          ?.setAttribute(
+            "aria-expanded",
+            "true"
+          );
+      }
+    }
+  );
+
+  el.driverValue?.addEventListener(
+    "change",
+    () => {
+      renderSubdriverSelect();
+      state.selectedDriver =
+        selectedDriver();
+      clearMessage();
+    }
+  );
+
+  el.subdriver?.addEventListener(
+    "change",
+    () => {
+      state.selectedDriver =
+        selectedDriver();
+      clearMessage();
+    }
+  );
+
+  el.addSubdriverBtn?.addEventListener(
+    "click",
+    openAddDriverPanel
+  );
+
+  el.driverAddCancel?.addEventListener(
+    "click",
+    resetAddDriverPanel
+  );
+
+  el.driverAddSave?.addEventListener(
+    "click",
+    saveSubcontractorDriver
+  );
+
+  document.addEventListener(
+    "click",
+    event => {
+      const insidePicker =
+        [
+          el.sourcePicker,
+          el.destinationPicker,
+          el.customerPicker,
+          el.driverPicker
+        ]
+          .some(
+            picker =>
+              picker?.contains(
+                event.target
+              )
+          );
+
+      if (
+        !insidePicker
+      ) {
+        closeMenus();
+      }
+    }
+  );
+
+  document.addEventListener(
+    "keydown",
+    event => {
+      if (
+        event.key ===
+          "Escape"
+      ) {
+        closeMenus();
+      }
+    }
+  );
+
+  [
+    el.grossWeight,
+    el.tareWeight,
+    el.netWeight
+  ]
+    .filter(
+      Boolean
+    )
+    .forEach(
+      input => {
+        input.addEventListener(
+          "input",
+          () => {
+            formatWeightField(
+              input
+            );
+            validateWeights();
+            calculateBushels();
+            validateBushels();
+          }
+        );
+      }
+    );
+
+  el.shrinkBushels?.addEventListener(
+    "input",
+    () => {
+      calculateBushels();
+      validateBushels();
+    }
+  );
+
+  el.netBushels?.addEventListener(
+    "input",
+    validateBushels
+  );
+
+  el.form?.addEventListener(
+    "submit",
+    saveTicket
+  );
+}
+
+async function waitForSignedInUser() {
+  for (
+    let attempt =
+      0;
+    attempt <
+      40;
+    attempt +=
+      1
+  ) {
+    const user =
+      auth.currentUser;
+
+    if (
+      user
+    ) {
+      return user;
+    }
+
+    await new Promise(
+      resolve =>
+        setTimeout(
+          resolve,
+          250
+        )
+    );
+  }
+
+  return null;
+}
+
+async function start() {
+  setupEvents();
+
+  state.user =
+    await waitForSignedInUser();
+
+  if (
+    !state.user
+  ) {
+    throw new Error(
+      "You must be signed in to add a grain ticket."
+    );
+  }
+
+  el.ticketDate.value =
+    localISO();
+
+  await loadReferenceData();
+
+  resetJobDerivedLoadDetails();
+  renderHaulingJobs();
+  renderDriverSelector();
+  formatAllWeightFields();
+  validateWeights();
+  validateBushels();
+}
+
+start()
+  .catch(
+    error => {
+      console.error(
+        "[Grain Ticket Add] Startup failed:",
+        error
+      );
+
+      showMessage(
+        error?.message ||
+        "The Add Grain Ticket page could not load."
+      );
+
+      if (
+        el.saveBtn
+      ) {
+        el.saveBtn.disabled =
+          true;
+      }
+    }
+  );
