@@ -4,53 +4,68 @@ Working branch: `major-js-restructure-cleanup`
 
 This branch is the complete JavaScript restructuring workspace. `main` must remain untouched until the new structure has been inspected and the application has been tested.
 
-## Structure
+## Proposed final structure
 
-- `core/`
-  - `firebase/` — Firebase configuration and application data plumbing
-  - `shell/` — FarmVista shell, startup and application bootstrap
-  - `theme/` — theme/bootstrap appearance infrastructure
-  - `version/` — version/update infrastructure
-- `auth/` — login, authentication, session and user context
-- `dashboard/`
-  - `kpi/`
-  - `markets/`
-  - `messages/`
-  - `permissions/`
-- `fields/`
-  - `boundaries/`
-  - `records/`
-- `field-readiness/` — rainfall/weather/readiness only; intentionally independent from `fields/`
-- `grain/`
-  - `contracts/`
-  - `hauling-jobs/`
-    - `forms/`
-    - `legacy/`
-  - `tickets/`
-    - `scan/`
-    - `ocr/`
-    - `detail/`
-    - `alerts/`
-    - `images/`
-    - `ui/`
-  - `load-out/`
-  - `inventory/`
-  - `transfers/`
-  - `shared/`
-- `crop-planning/`
-- `equipment/`
-  - `shop/`
-- `office/`
-- `reports/`
-- `shared/`
-  - `ui/`
-  - `data/`
-  - `maps/`
-  - `permissions/`
-  - `weather/`
-- `app/` — existing app-level modules that are already logically grouped
+```text
+js/
+├── app/
+├── auth/
+├── core/
+│   ├── firebase/
+│   ├── shell/
+│   ├── theme/
+│   └── version/
+├── crop-planning/
+├── dashboard/
+│   ├── kpi/
+│   ├── markets/
+│   ├── messages/
+│   └── permissions/
+├── equipment/
+│   └── shop/
+├── field-readiness/
+├── fields/
+│   ├── boundaries/
+│   └── records/
+├── grain/
+│   ├── contracts/
+│   ├── hauling-jobs/
+│   │   ├── forms/
+│   │   └── legacy/
+│   ├── index/
+│   ├── inventory/
+│   │   ├── bags/
+│   │   ├── bins/
+│   │   └── movements/
+│   ├── load-out/
+│   ├── shared/
+│   ├── tickets/
+│   │   ├── alerts/
+│   │   ├── detail/
+│   │   ├── images/
+│   │   ├── ocr/
+│   │   ├── scan/
+│   │   └── ui/
+│   └── transfers/
+├── office/
+│   ├── company/
+│   ├── people/
+│   ├── subcontractors/
+│   └── vendors/
+├── reports/
+│   ├── grain/
+│   └── operations/
+└── shared/
+    ├── data/
+    ├── maps/
+    ├── permissions/
+    ├── ui/
+    └── weather/
+```
 
-## Restructure completion gate
+`field-readiness/` is intentionally separate from `fields/`. Field Readiness owns rainfall/weather/readiness logic. Fields owns actual field management.
+
+## Completion gate
 
 The branch is **not complete** merely because destination folders exist. Before it is called ready for review:
 
