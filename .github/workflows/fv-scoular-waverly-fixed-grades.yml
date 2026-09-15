@@ -13,7 +13,6 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-
       - name: Fix Scoular Waverly grade row parsing
         run: |
           python - <<'PY'
@@ -30,24 +29,8 @@ jobs:
     const stop = block.search(/\bGROSS\s+L\.?BS\s*:/i);
     if (stop > 0) block = block.slice(0, stop);
 
-    /*
-      SCOULAR WAVERLY FIXED ROW MAP
-
-      Printed rows never change meaning:
-        Test Weight                    -> TW
-        Moisture                       -> MO
-        Damaged Kernels (total)        -> DM
-        Broken Corn & Foreign Mat      -> FM/BCFM
-
-      Google frequently returns the LABEL COLUMN first and the VALUE COLUMN
-      afterward, e.g.:
-        58.8 / Test Weight / Moisture / Damaged... / Broken... / 13.2 / 1.9 / 1.0
-
-      Therefore do not require four consecutive decimals.  TW is the grade-sized
-      value immediately before the label run; MO/DM/FM are the three grade-sized
-      values after that run, in fixed printed row order.  This prevents moisture
-      from ever sliding into FM when the OCR reading order is column-major.
-    */
+    /* Scoular Waverly is a fixed four-row grade layout. Google commonly emits
+       the label column before the remaining numeric column. Never shift fields. */
     const labelRun = block.match(/Test\s*Weight[\s\S]{0,180}?(?:Moisture|Voisture)[\s\S]{0,180}?Damaged\s*Kernels(?:\s*\(total\))?[\s\S]{0,180}?Broken\s*Corn\s*&\s*Foreign\s*Mat/i);
     if (labelRun && Number.isFinite(labelRun.index)) {
       const before = block.slice(0, labelRun.index);
@@ -57,43 +40,39 @@ jobs:
       const afterNums = nums(after).filter(n=>n>=0 && n<=40);
       const tw = beforeNums.length ? beforeNums[beforeNums.length-1] : null;
       if (Number.isFinite(tw) && afterNums.length >= 3) {
-        return {testWeight:tw, moisture:afterNums[0], damage:afterNums[1], foreignMaterial:afterNums[2]};
+        const [mo,dm,fm] = afterNums;
+        if (mo >= 7 && mo <= 35 && dm >= 0 && dm <= 20 && fm >= 0 && fm <= 20) {
+          return {testWeight:tw, moisture:mo, damage:dm, foreignMaterial:fm};
+        }
       }
+      return null;
     }
 
-    // Fallback for OCR that returns the four values row-major.
     const values=[];
     for (const m of block.matchAll(/(?:^|\s)(\d{1,2}\.\d{1,2})(?=\s|$)/g)) {
-      const n=Number(m[1]);
-      if (Number.isFinite(n)) values.push(n);
+      const n=Number(m[1]); if (Number.isFinite(n)) values.push(n);
     }
     if (values.length < 4) return null;
     const [tw,mo,dm,fm]=values;
-    if (!(tw>=35&&tw<=70) || !(mo>=0&&mo<=40) || !(dm>=0&&dm<=20) || !(fm>=0&&fm<=20)) return null;
+    if (!(tw>=45&&tw<=70) || !(mo>=7&&mo<=35) || !(dm>=0&&dm<=20) || !(fm>=0&&fm<=20)) return null;
     return {testWeight:tw,moisture:mo,damage:dm,foreignMaterial:fm};
   }
 '''
-          s=s[:start]+new+s[end:]
-          p.write_text(s)
+          p.write_text(s[:start]+new+s[end:])
 
           scan=Path('pages/grain/grain-ticket-scan.html')
           t=scan.read_text()
-          # Ensure helper is loaded by the wrapper/core document if already referenced with an older cache key.
-          t=t.replace('grain-ticket-adm-decatur-grade-fix.js?v=20260915-1','grain-ticket-adm-decatur-grade-fix.js?v=20260915-2')
+          t=t.replace('grain-ticket-adm-decatur-grade-fix.js?v=20260915-1','grain-ticket-adm-decatur-grade-fix.js?v=20260915-3')
+          t=t.replace('grain-ticket-adm-decatur-grade-fix.js?v=20260915-2','grain-ticket-adm-decatur-grade-fix.js?v=20260915-3')
           scan.write_text(t)
           PY
-
       - name: Validate JavaScript
         run: node --check js/grain-ticket-adm-decatur-grade-fix.js
-
       - name: Commit parser fix
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add js/grain-ticket-adm-decatur-grade-fix.js pages/grain/grain-ticket-scan.html
-          if git diff --cached --quiet; then
-            echo 'No changes required.'
-            exit 0
-          fi
+          if git diff --cached --quiet; then exit 0; fi
           git commit -m 'Fix Scoular Waverly fixed grade row parsing'
           git push
