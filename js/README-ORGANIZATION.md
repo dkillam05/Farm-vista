@@ -29,9 +29,11 @@ js/
 ├── field-readiness/
 ├── fields/
 │   ├── boundaries/
-│   └── records/
+│   ├── records/
+│   └── ui/
 ├── grain/
 │   ├── contracts/
+│   │   ├── allocation/
 │   │   ├── forms/
 │   │   └── reports/
 │   ├── hauling-jobs/
@@ -41,15 +43,18 @@ js/
 │   ├── inventory/
 │   │   ├── bags/
 │   │   ├── bins/
-│   │   └── movements/
+│   │   ├── movements/
+│   │   └── shared/
 │   ├── load-out/
 │   │   └── forms/
 │   ├── shared/
 │   ├── tickets/
 │   │   ├── alerts/
+│   │   ├── assignment/
 │   │   ├── detail/
 │   │   ├── images/
 │   │   ├── ocr/
+│   │   ├── review/
 │   │   ├── scan/
 │   │   ├── templates/
 │   │   └── ui/
@@ -57,6 +62,7 @@ js/
 ├── office/
 │   ├── company/
 │   ├── people/
+│   ├── shared/
 │   ├── subcontractors/
 │   └── vendors/
 ├── reports/
