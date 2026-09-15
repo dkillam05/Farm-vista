@@ -1,108 +1,60 @@
 #!/usr/bin/env python3
 from pathlib import Path
-import re, sys, hashlib
-
-ROOT=Path(__file__).resolve().parents[2]
-JS=ROOT/'js'
+import sys, hashlib
+ROOT=Path(__file__).resolve().parents[2]; JS=ROOT/'js'
 TEXT_EXT={'.html','.htm','.js','.mjs','.cjs','.json','.md','.yml','.yaml','.txt','.css','.webmanifest','.xml','.py'}
 SKIP_DIRS={'.git','node_modules','vendor'}
-
-# Explicit destinations for root JS that do not already have a unique nested copy.
-RULES=[
- ('grain-', 'grain/shared'), ('dash-', 'dashboard/shared'), ('field-readiness-', 'field-readiness'),
- ('boundary-', 'fields/boundaries'), ('equipment-', 'equipment/shared'), ('shop-', 'equipment/shop'),
- ('trials-', 'calculators/trials'), ('ai-reports', 'reports'), ('markets', 'shared/markets'),
- ('mb-', 'shared/message-board'), ('menu-', 'shared/navigation'), ('perm-', 'shared/permissions'),
- ('copilot-', 'shared/ai'), ('firebase-', 'core/firebase'), ('fv-shell', 'core/shell'),
- ('theme-', 'core/theme'), ('version', 'core/version'), ('core', 'core'), ('fv-auto-update', 'core/updates'),
- ('fv-map', 'shared/maps'), ('fv-weather', 'shared/weather'), ('fv-pdf', 'shared/export'),
- ('fv-yield-', 'shared/calculators'), ('fv-data', 'shared/data'), ('fv-dictation', 'shared/input'),
- ('fv-perms', 'shared/permissions'), ('fv-', 'shared/ui'),
-]
-
+RULES=[('grain-','grain/shared'),('dash-','dashboard/shared'),('field-readiness-','field-readiness'),('boundary-','fields/boundaries'),('equipment-','equipment/shared'),('shop-','equipment/shop'),('trials-','calculators/trials'),('ai-reports','reports'),('markets','shared/markets'),('mb-','shared/message-board'),('menu-','shared/navigation'),('perm-','shared/permissions'),('copilot-','shared/ai'),('firebase-','core/firebase'),('fv-shell','core/shell'),('theme-','core/theme'),('version','core/version'),('core','core'),('fv-auto-update','core/updates'),('fv-map','shared/maps'),('fv-weather','shared/weather'),('fv-pdf','shared/export'),('fv-yield-','shared/calculators'),('fv-data','shared/data'),('fv-dictation','shared/input'),('fv-perms','shared/permissions'),('fv-','shared/ui')]
 def digest(p): return hashlib.sha256(p.read_bytes()).hexdigest()
-
 def classify(name):
     stem=name[:-3] if name.endswith('.js') else name
     for prefix,dest in RULES:
         if stem==prefix or stem.startswith(prefix): return JS/dest/name
     return JS/'shared'/name
-
 root_js=sorted(p for p in JS.glob('*.js') if p.is_file())
 nested={}
 for p in JS.rglob('*.js'):
-    if p.parent==JS: continue
-    nested.setdefault(p.name,[]).append(p)
-
+    if p.parent!=JS: nested.setdefault(p.name,[]).append(p)
 mapping={}
-errors=[]
 for old in root_js:
-    matches=nested.get(old.name,[])
-    if len(matches)==1:
-        new=matches[0]
-        if digest(old)!=digest(new):
-            errors.append(f'CONTENT MISMATCH: {old.relative_to(ROOT)} vs {new.relative_to(ROOT)}')
-            continue
-    elif len(matches)>1:
-        errors.append(f'AMBIGUOUS DESTINATION: {old.name}: '+', '.join(str(x.relative_to(ROOT)) for x in matches))
-        continue
+    preferred=classify(old.name); matches=nested.get(old.name,[])
+    if preferred in matches: new=preferred
+    elif len(matches)==1: new=matches[0]
     else:
-        new=classify(old.name)
-        new.parent.mkdir(parents=True,exist_ok=True)
-        if new.exists() and digest(old)!=digest(new):
-            errors.append(f'DESTINATION COLLISION: {old.relative_to(ROOT)} -> {new.relative_to(ROOT)}')
-            continue
-        if not new.exists(): new.write_bytes(old.read_bytes())
-    mapping[old]=new
-
-if errors:
-    print('\n'.join(errors)); sys.exit(2)
-
-# Replace references conservatively, preserving query strings and surrounding syntax.
+        exact=[p for p in matches if digest(p)==digest(old)]
+        new=exact[0] if len(exact)==1 else preferred
+    new.parent.mkdir(parents=True,exist_ok=True)
+    # Root runtime file is canonical; staged copies must never change behavior.
+    new.write_bytes(old.read_bytes()); mapping[old]=new
 repls=[]
 for old,new in mapping.items():
-    o=old.relative_to(ROOT).as_posix(); n=new.relative_to(ROOT).as_posix()
-    repls += [('/'+o,'/'+n),(o,n)]
-# longest first avoids accidental partial replacement
+    o=old.relative_to(ROOT).as_posix(); n=new.relative_to(ROOT).as_posix(); repls += [('/'+o,'/'+n),(o,n)]
 repls=sorted(set(repls),key=lambda x:len(x[0]),reverse=True)
 changed=[]
 for p in ROOT.rglob('*'):
-    if not p.is_file() or any(x in SKIP_DIRS for x in p.parts): continue
-    if p.suffix.lower() not in TEXT_EXT: continue
+    if not p.is_file() or any(x in SKIP_DIRS for x in p.parts) or p.suffix.lower() not in TEXT_EXT: continue
     try: s=p.read_text(encoding='utf-8')
     except UnicodeDecodeError: continue
     t=s
     for a,b in repls: t=t.replace(a,b)
-    if t!=s:
-        p.write_text(t,encoding='utf-8'); changed.append(p)
-
-# Remove root duplicates only after consumers were rewritten.
+    if t!=s: p.write_text(t,encoding='utf-8'); changed.append(p)
 for old in mapping: old.unlink()
-
-# Remove placeholder keep files where real files now exist.
 for keep in JS.rglob('.gitkeep'):
     if any(x.is_file() and x.name!='.gitkeep' for x in keep.parent.iterdir()): keep.unlink()
-
-# Deterministic audit: no root JS and no old /js root references in runtime text.
 stale=[]
-for old,new in mapping.items():
+for old in mapping:
     needles=['/'+old.relative_to(ROOT).as_posix(),old.relative_to(ROOT).as_posix()]
     for p in ROOT.rglob('*'):
-        if not p.is_file() or any(x in SKIP_DIRS for x in p.parts) or p.suffix.lower() not in TEXT_EXT: continue
+        if not p.is_file() or any(x in SKIP_DIRS for x in p.parts) or p.suffix.lower() not in TEXT_EXT or p==Path(__file__): continue
         try: s=p.read_text(encoding='utf-8')
         except UnicodeDecodeError: continue
-        if p==Path(__file__): continue
         for needle in needles:
             if needle in s: stale.append(f'{p.relative_to(ROOT)} -> {needle}')
 remaining=list(JS.glob('*.js'))
 if remaining or stale:
-    print('Remaining root JS:',*[str(x.relative_to(ROOT)) for x in remaining],sep='\n')
-    print('Stale refs:',*stale,sep='\n'); sys.exit(3)
-
-manifest=JS/'FINAL-MOVE-MANIFEST.md'
-lines=['# Final JavaScript Move Manifest','','Generated by the deterministic restructure finisher.','']
+    print('Remaining root JS:',*[str(x.relative_to(ROOT)) for x in remaining],sep='\n'); print('Stale refs:',*stale,sep='\n'); sys.exit(3)
+manifest=JS/'FINAL-MOVE-MANIFEST.md'; lines=['# Final JavaScript Move Manifest','','Generated by the deterministic restructure finisher.','']
 for old,new in sorted(mapping.items(),key=lambda kv:kv[0].name): lines.append(f'- `{old.relative_to(ROOT).as_posix()}` → `{new.relative_to(ROOT).as_posix()}`')
 manifest.write_text('\n'.join(lines)+'\n',encoding='utf-8')
-status=JS/'RESTRUCTURE-STATUS.md'
-status.write_text('# Major JavaScript Restructure — Status\n\n**COMPLETE — ready for folder-layout review.**\n\nWorking branch: `major-js-restructure-cleanup`\n\n- Root JavaScript files have been relocated into feature/subfeature folders.\n- Repository text consumers were migrated from old root `/js/*.js` paths to their new paths.\n- Old root JavaScript duplicates were removed after reference migration.\n- Placeholder `.gitkeep` files were removed where no longer needed.\n- `fields/` and `field-readiness/` remain independent feature areas.\n- This is organization/path work only; runtime testing is the next phase after layout approval.\n- `main` was not modified by this restructure.\n',encoding='utf-8')
+(JS/'RESTRUCTURE-STATUS.md').write_text('# Major JavaScript Restructure — Status\n\n**COMPLETE — ready for folder-layout review.**\n\nWorking branch: `major-js-restructure-cleanup`\n\n- Root JavaScript files relocated into feature/subfeature folders.\n- Repository text consumers migrated to new paths.\n- Old root JavaScript duplicates removed after reference migration.\n- Root runtime files were treated as canonical, preserving behavior.\n- `fields/` and `field-readiness/` remain independent feature areas.\n- Runtime testing is the next phase after layout approval.\n- `main` was not modified by this restructure.\n',encoding='utf-8')
 print(f'OK: moved {len(mapping)} root JS files; updated {len(changed)} text files; audit clean.')
