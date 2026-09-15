@@ -1,0 +1,1 @@
+Dashboard runtime sources are being migrated from the JS root into KPI, markets, messages, permissions and weather subfolders. Root copies remain only until index.html and any other consumers have been redirected and audited.
