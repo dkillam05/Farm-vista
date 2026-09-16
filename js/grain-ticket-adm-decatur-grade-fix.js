@@ -1,14 +1,35 @@
 /* =====================================================================
    FarmVista — Elevator OCR Template Safety
    ADM Decatur + Bartlett Jacksonville remain here.
-   Scoular Waverly now lives in its own elevator template file.
+   Scoular Waverly lives in its own elevator template file.
 ===================================================================== */
 (function () {
   'use strict';
   const pagePath = String(window.location.pathname || '').toLowerCase();
   if (!pagePath.endsWith('/pages/grain/grain-ticket-scan.html')) return;
-  if (window.__FV_ELEVATOR_GRADE_FIX_20260916_2) return;
-  window.__FV_ELEVATOR_GRADE_FIX_20260916_2 = true;
+  if (window.__FV_ELEVATOR_GRADE_FIX_20260916_3) return;
+  window.__FV_ELEVATOR_GRADE_FIX_20260916_3 = true;
+
+  /* Load the elevator-specific Scoular template before any OCR response is
+     interpreted. Keeping this dependency here makes the template available
+     even if version.js and this helper arrive from different PWA cache ages. */
+  const scoularTemplateReady = (() => {
+    if (window.FVGrainTicketTemplates?.scoularWaverly) return Promise.resolve(true);
+    return new Promise(resolve => {
+      const existing = document.querySelector('script[data-fv-scoular-waverly-template]');
+      if (existing) {
+        existing.addEventListener('load', () => resolve(true), { once:true });
+        existing.addEventListener('error', () => resolve(false), { once:true });
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = '/js/grain-ticket-templates/scoular-waverly.js?v=20260916-2';
+      script.dataset.fvScoularWaverlyTemplate = '1';
+      script.onload = () => resolve(true);
+      script.onerror = () => { console.warn('[Grain Ticket] Scoular Waverly template failed to load.'); resolve(false); };
+      document.head.appendChild(script);
+    });
+  })();
 
   const originalFetch = window.fetch.bind(window);
   const clean = v => String(v == null ? '' : v).trim();
@@ -25,5 +46,5 @@
   function patchBartlett(data) { const root=responseRoot(data);if(!root?.grainTicket)return false;const text=documentText(data,root);if(!isBartlettJacksonville(root,text))return false;const ticket=root.grainTicket;const grades=bartlettGradeBlock(text)||{};let changed=false;changed=patchField(root,'testWeight',grades.testWeight)||changed;changed=patchField(root,'moisture',grades.moisture)||changed;changed=patchField(root,'damage',grades.damage)||changed;changed=patchField(root,'foreignMaterial',grades.foreignMaterial)||changed;const gross=labeledNumber(text,'GROSS',true),tare=labeledNumber(text,'TARE',true),net=labeledNumber(text,'NET',true),shrink=labeledNumber(text,'SHRINK\\s+BU');if(Number.isFinite(gross)){ticket.grossWeight=gross;changed=true;}if(Number.isFinite(tare)){ticket.tareWeight=tare;changed=true;}if(Number.isFinite(net)){ticket.netWeight=net;changed=true;}if(Number.isFinite(shrink)){ticket.shrinkBushels=shrink;changed=true;}const cropMatch=text.match(/Kind\s+of\s+Grain\s*:\s*([^\n\r]+)/i);if(cropMatch){if(/corn/i.test(cropMatch[1]))ticket.crop='Corn';else if(/soy/i.test(cropMatch[1]))ticket.crop='Soybeans';else if(/wheat/i.test(cropMatch[1]))ticket.crop='Wheat';}const ticketMatch=text.match(/\bTicket\s*No\.?\s*[:#]?\s*([A-Z0-9-]{3,})\b/i);if(ticketMatch)ticket.ticketNumber=clean(ticketMatch[1]);if(ticket.shrinkBushels===0&&Number.isFinite(ticket.netWeight)){const divisor=ticket.crop==='Soybeans'?60:ticket.crop==='Corn'?56:null;if(divisor){const bu=Number((ticket.netWeight/divisor).toFixed(2));ticket.grossBushels=bu;ticket.netBushels=bu;changed=true;}}ticket.elevatorName='Bartlett Grain';ticket.deliveryStreet='2350 South Main';ticket.deliveryCity='Jacksonville';ticket.deliveryState='IL';ticket.deliveryZip='62650';return changed; }
   function patchScoular(data) { const root=responseRoot(data);if(!root?.grainTicket)return false;const text=documentText(data,root);const template=window.FVGrainTicketTemplates?.scoularWaverly;if(!template)return false;const result=template.apply(root.grainTicket,text);if(!result.matched)return false;if(result.changed){root.fields=root.fields||{};for(const name of ['testWeight','moisture','damage','foreignMaterial']){if(Number.isFinite(root.grainTicket[name]))root.fields[name]=root.grainTicket[name];}}console.log('[Grain Ticket] Scoular Waverly template result:',result);return result.changed; }
 
-  window.fetch=async(...args)=>{const response=await originalFetch(...args);try{const type=clean(response.headers.get('content-type')).toLowerCase();if(!type.includes('application/json'))return response;const data=await response.clone().json();const changed=patchAdm(data)||patchBartlett(data)||patchScoular(data);if(!changed)return response;const headers=new Headers(response.headers);headers.delete('content-length');headers.delete('content-encoding');return new Response(JSON.stringify(data),{status:response.status,statusText:response.statusText,headers});}catch(error){console.warn('[Grain Ticket] Elevator layout template skipped:',error);return response;}};
+  window.fetch=async(...args)=>{const response=await originalFetch(...args);try{const type=clean(response.headers.get('content-type')).toLowerCase();if(!type.includes('application/json'))return response;const data=await response.clone().json();await scoularTemplateReady;const changed=patchAdm(data)||patchBartlett(data)||patchScoular(data);if(!changed)return response;const headers=new Headers(response.headers);headers.delete('content-length');headers.delete('content-encoding');return new Response(JSON.stringify(data),{status:response.status,statusText:response.statusText,headers});}catch(error){console.warn('[Grain Ticket] Elevator layout template skipped:',error);return response;}};
 })();
