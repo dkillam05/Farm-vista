@@ -6,8 +6,8 @@
   'use strict';
   const pagePath = String(window.location.pathname || '').toLowerCase();
   if (!pagePath.endsWith('/pages/grain/grain-ticket-scan.html')) return;
-  if (window.__FV_ELEVATOR_GRADE_FIX_20260915_2) return;
-  window.__FV_ELEVATOR_GRADE_FIX_20260915_2 = true;
+  if (window.__FV_ELEVATOR_GRADE_FIX_20260916_1) return;
+  window.__FV_ELEVATOR_GRADE_FIX_20260916_1 = true;
 
   const originalFetch = window.fetch.bind(window);
   const clean = v => String(v == null ? '' : v).trim();
@@ -32,7 +32,7 @@
   }
   function isScoularWaverly(root,text) {
     const t=root?.grainTicket||{}; const e=compact([t.elevatorName,t.deliveryStreet,t.deliveryCity,t.deliveryState,t.deliveryZip,text].filter(Boolean).join(' '));
-    return e.includes('scoular')&&e.includes('waverly')&&(e.includes('wave')||e.includes('15379jasmineroad')||e.includes('jasmineroad'));
+    return e.includes('scoular')&&(e.includes('waverly')||e.includes('wave')||e.includes('15379jasmineroad')||e.includes('jasmineroad'));
   }
   function valueBeforeAnchor(text,anchor) {
     const m=String(text||'').match(new RegExp('(?:^|\\n)\\s*([0-9]{1,3}(?:\\.[0-9]+)?)\\s+'+anchor+'\\b','im')); const n=m?Number(m[1]):NaN; return Number.isFinite(n)?n:null;
@@ -63,29 +63,49 @@
     ticket.elevatorName='Bartlett Grain';ticket.deliveryStreet='2350 South Main';ticket.deliveryCity='Jacksonville';ticket.deliveryState='IL';ticket.deliveryZip='62650'; return changed;
   }
 
-  /* SCOULAR WAVERLY: grade meaning is POSITIONAL, not label-dependent.
-     Printed order is always TW, MO, DM, FM/BCFM. OCR does NOT have to read
-     Test Weight/Moisture/Damaged/Broken Corn labels for this template. */
+  /* SCOULAR WAVERLY
+     Grade meaning is positional, not label-dependent. The printed order is
+     always TW, MO, DM, FM/BCFM. Scoular commonly prints one decimal place;
+     weak OCR sometimes drops only the decimal (13.2 -> 132, 1.8 -> 18).
+     Normalize that OCR defect before deciding the ticket is missing moisture. */
   function scoularGradeValues(text) {
     const source=String(text||'').replace(/\r/g,'\n');
-    let start=source.search(/Grade\s*:\s*U\.?S\.?/i); if(start<0)start=source.search(/U\.?S\.?\s*No\.?\s*\d/i); if(start<0)return null;
-    let block=source.slice(start,start+1500); let stop=block.search(/\bGROSS\s+L\.?BS\s*:/i); if(stop<0)stop=block.search(/\bTARE\s+L\.?BS\s*:/i); if(stop>0)block=block.slice(0,stop);
-    const nums=[...block.matchAll(/(?:^|\s)(\d{1,2}(?:\.\d{1,2}))(?=\s|$)/g)].map(m=>Number(m[1])).filter(Number.isFinite);
-    /* Find the grade quartet by VALUE SHAPE. This deliberately ignores every
-       grade label. A Scoular TW must be 45-70 and is followed, in printed row
-       order, by plausible corn moisture, damage and FM values. */
-    for(let i=0;i<=nums.length-4;i++){
-      const tw=nums[i],mo=nums[i+1],dm=nums[i+2],fm=nums[i+3];
-      if(tw>=45&&tw<=70&&mo>=7&&mo<=35&&dm>=0&&dm<=20&&fm>=0&&fm<=20) return {testWeight:tw,moisture:mo,damage:dm,foreignMaterial:fm};
-    }
-    /* Column-major OCR may place TW before the label column and MO/DM/FM after
-       it. Still do not require any label: use the only plausible TW in the
-       grade block and the first subsequent plausible MO/DM/FM triple. */
-    for(let i=0;i<nums.length;i++){
-      const tw=nums[i]; if(!(tw>=45&&tw<=70))continue;
-      for(let j=i+1;j<=nums.length-3;j++){
-        const mo=nums[j],dm=nums[j+1],fm=nums[j+2];
-        if(mo>=7&&mo<=35&&dm>=0&&dm<=20&&fm>=0&&fm<=20) return {testWeight:tw,moisture:mo,damage:dm,foreignMaterial:fm};
+    let start=source.search(/Grade\s*:?\s*U\.?S\.?/i);
+    if(start<0)start=source.search(/U\.?S\.?\s*No\.?\s*\d/i);
+    if(start<0)start=source.search(/Test\s*Weight|Moisture|Voisture/i);
+    if(start<0)return null;
+    let block=source.slice(start,start+1800);
+    let stop=block.search(/\bGROSS\s+L\.?BS\s*:/i); if(stop<0)stop=block.search(/\bTARE\s+L\.?BS\s*:/i); if(stop<0)stop=block.search(/\bGross\s+Bushels\b/i); if(stop>0)block=block.slice(0,stop);
+
+    const raw=[...block.matchAll(/(?:^|\s)(\d{1,3}(?:\.\d{1,2})?)(?=\s|$)/g)].map(m=>m[1]);
+    const candidates=(token,slot)=>{
+      const n=Number(token); if(!Number.isFinite(n))return [];
+      const values=[n];
+      if(!token.includes('.')&&n>=10) values.push(n/10);
+      const range=slot===0?[45,70]:slot===1?[7,35]:[0,20];
+      return [...new Set(values)].filter(v=>v>=range[0]&&v<=range[1]);
+    };
+    const solve=(tokens)=>{
+      for(let i=0;i<=tokens.length-4;i++){
+        const a=candidates(tokens[i],0),b=candidates(tokens[i+1],1),c=candidates(tokens[i+2],2),d=candidates(tokens[i+3],3);
+        if(a.length&&b.length&&c.length&&d.length)return {testWeight:a[0],moisture:b[0],damage:c[0],foreignMaterial:d[0]};
+      }
+      return null;
+    };
+    let solved=solve(raw); if(solved)return solved;
+
+    /* OCR may interleave grade labels between the values. Keep positional
+       meaning but discard obvious non-grade numbers and search forward. */
+    for(let i=0;i<raw.length;i++){
+      const tw=candidates(raw[i],0); if(!tw.length)continue;
+      for(let j=i+1;j<raw.length;j++){
+        const mo=candidates(raw[j],1); if(!mo.length)continue;
+        for(let k=j+1;k<raw.length;k++){
+          const dm=candidates(raw[k],2); if(!dm.length)continue;
+          for(let q=k+1;q<raw.length;q++){
+            const fm=candidates(raw[q],3); if(fm.length)return {testWeight:tw[0],moisture:mo[0],damage:dm[0],foreignMaterial:fm[0]};
+          }
+        }
       }
     }
     return null;
