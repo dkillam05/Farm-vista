@@ -6,18 +6,19 @@
   'use strict';
   const pagePath=String(window.location.pathname||'').toLowerCase();
   if(!pagePath.endsWith('/pages/grain/grain-ticket-scan.html')) return;
-  if(window.__FV_ELEVATOR_GRADE_FIX_20260916_7) return;
-  window.__FV_ELEVATOR_GRADE_FIX_20260916_7=true;
+  if(window.__FV_ELEVATOR_GRADE_FIX_20260916_8) return;
+  window.__FV_ELEVATOR_GRADE_FIX_20260916_8=true;
 
-  /* Preserve ticket detail for OCR. */
-  if(!window.__FV_GRAIN_TICKET_FULL_RES_CAPTURE_20260916_V3){
-    window.__FV_GRAIN_TICKET_FULL_RES_CAPTURE_20260916_V3=true;
+  /* Keep FarmVista's normal in-app shutter. Preserve as much image detail as
+     possible without replacing the driver's camera workflow. */
+  if(!window.__FV_GRAIN_TICKET_FULL_RES_CAPTURE_20260916_V4){
+    window.__FV_GRAIN_TICKET_FULL_RES_CAPTURE_20260916_V4=true;
     const originalDrawImage=CanvasRenderingContext2D.prototype.drawImage;
     CanvasRenderingContext2D.prototype.drawImage=function(source,...args){
       try{
         if(source instanceof HTMLImageElement&&args.length===4&&source.naturalWidth>0&&source.naturalHeight>0&&
           (source.naturalWidth>this.canvas.width||source.naturalHeight>this.canvas.height)&&Math.max(this.canvas.width,this.canvas.height)<=2200){
-          this.canvas.width=source.naturalWidth;this.canvas.height=source.naturalHeight;
+          this.canvas.width=source.naturalWidth; this.canvas.height=source.naturalHeight;
           return originalDrawImage.call(this,source,0,0,source.naturalWidth,source.naturalHeight);
         }
       }catch(_){}
@@ -30,39 +31,17 @@
     };
   }
 
-  /* iOS Safari getUserMedia gives FarmVista a video-preview frame. That is the
-     source of the inconsistent small-print OCR. The scanner already has a
-     capture=environment input and a complete file-input processing path. On
-     iPhone/iPad, make the main shutter use that native camera still instead. */
-  const installIosNativeStill=()=>{
-    const apple=/iPhone|iPad|iPod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-    if(!apple)return true;
-    const button=document.getElementById('captureBtn'),input=document.getElementById('fileInput');
-    if(!button||!input)return false;
-    if(button.dataset.fvIosNativeStill==='1')return true;
-    button.dataset.fvIosNativeStill='1';
-    input.setAttribute('accept','image/*');input.setAttribute('capture','environment');
-    button.addEventListener('click',event=>{
-      if(button.disabled)return;
-      event.preventDefault();event.stopImmediatePropagation();
-      console.log('[Grain Ticket] Native iPhone still requested for full-resolution OCR.');
-      input.click();
-    },true);
-    console.log('[Grain Ticket] Native iPhone still capture ACTIVE.');
-    return true;
-  };
-  if(!installIosNativeStill()){
-    const observer=new MutationObserver(()=>{if(installIosNativeStill())observer.disconnect();});
-    observer.observe(document.documentElement,{childList:true,subtree:true});
-    setTimeout(()=>observer.disconnect(),15000);
-  }
-
   const scoularTemplateReady=(()=>{
-    if(window.FVGrainTicketTemplates?.scoularWaverly)return Promise.resolve(true);
+    if(window.FVGrainTicketTemplates?.scoularWaverly) return Promise.resolve(true);
     return new Promise(resolve=>{
-      const old=document.querySelector('script[data-fv-scoular-waverly-template]');if(old)old.remove();
-      const script=document.createElement('script');script.src='/js/grain-ticket-templates/scoular-waverly.js?v=20260916-7';script.dataset.fvScoularWaverlyTemplate='1';
-      script.onload=()=>resolve(true);script.onerror=()=>{console.warn('[Grain Ticket] Scoular Waverly template failed to load.');resolve(false);};document.head.appendChild(script);
+      const old=document.querySelector('script[data-fv-scoular-waverly-template]');
+      if(old) old.remove();
+      const script=document.createElement('script');
+      script.src='/js/grain-ticket-templates/scoular-waverly.js?v=20260916-8';
+      script.dataset.fvScoularWaverlyTemplate='1';
+      script.onload=()=>resolve(true);
+      script.onerror=()=>{console.warn('[Grain Ticket] Scoular Waverly template failed to load.');resolve(false);};
+      document.head.appendChild(script);
     });
   })();
 
@@ -82,16 +61,40 @@
   function labeledNumber(text,label,requireLb=false){const suffix=requireLb?'\\s*(?:lb|lbs)\\b':'\\b';const m=String(text||'').match(new RegExp('\\b'+label+'\\s*:?\\s*([0-9][0-9,]*(?:\\.[0-9]+)?)'+suffix,'i'));if(!m)return null;const n=Number(m[1].replace(/,/g,''));return Number.isFinite(n)?n:null;}
   function patchBartlett(data){const root=responseRoot(data);if(!root?.grainTicket)return false;const text=documentText(data,root);if(!isBartlettJacksonville(root,text))return false;const ticket=root.grainTicket,grades=bartlettGradeBlock(text)||{};let changed=false;changed=patchField(root,'testWeight',grades.testWeight)||changed;changed=patchField(root,'moisture',grades.moisture)||changed;changed=patchField(root,'damage',grades.damage)||changed;changed=patchField(root,'foreignMaterial',grades.foreignMaterial)||changed;const gross=labeledNumber(text,'GROSS',true),tare=labeledNumber(text,'TARE',true),net=labeledNumber(text,'NET',true);if(Number.isFinite(gross)){ticket.grossWeight=gross;changed=true;}if(Number.isFinite(tare)){ticket.tareWeight=tare;changed=true;}if(Number.isFinite(net)){ticket.netWeight=net;changed=true;}ticket.elevatorName='Bartlett Grain';ticket.deliveryStreet='2350 South Main';ticket.deliveryCity='Jacksonville';ticket.deliveryState='IL';ticket.deliveryZip='62650';return changed;}
 
-  function resolvedScoularError(message,result){const s=String(message||'').toLowerCase();if(result.grades&&(s.includes('test weight')||s.includes('moisture')||s.includes('damage')||s.includes('foreign material')||s.includes('grade')))return true;if(result.weights&&(s.includes('gross minus tare')||s.includes('gross weight')||s.includes('tare weight')||s.includes('net weight')))return true;if(result.bushels&&s.includes('bushel'))return true;return false;}
-  function patchScoular(data){
-    const root=responseRoot(data);if(!root?.grainTicket)return false;const text=documentText(data,root),template=window.FVGrainTicketTemplates?.scoularWaverly;if(!template||!text)return false;
-    const result=template.apply(root.grainTicket,text);if(!result.matched)return false;
-    root.document=root.document||{};root.document.text=text;root.documentText=text;root.fields=root.fields||{};
-    for(const name of ['testWeight','moisture','damage','foreignMaterial'])if(Number.isFinite(root.grainTicket[name]))root.fields[name]=root.grainTicket[name];
-    root.scanErrors=Array.isArray(root.scanErrors)?root.scanErrors.filter(message=>!resolvedScoularError(message,result)):[];
-    if(result.complete){root.scanValid=root.scanErrors.length===0;}else{root.scanValid=false;if(!root.scanErrors.some(x=>String(x).includes('Scoular Waverly ticket could not be fully verified')))root.scanErrors.push('Scoular Waverly ticket could not be fully verified from OCR. Please review.');}
-    console.log('[Grain Ticket] Scoular Waverly FINAL GitHub template:',{result,scanValid:root.scanValid,scanErrors:root.scanErrors,ticket:root.grainTicket});return true;
+  function resolvedScoularError(message,result){
+    const s=String(message||'').toLowerCase();
+    if(result.grades&&(s.includes('test weight')||s.includes('moisture')||s.includes('damage')||s.includes('foreign material')||s.includes('grade')))return true;
+    if(result.weights&&(s.includes('gross minus tare')||s.includes('gross weight')||s.includes('tare weight')||s.includes('net weight')))return true;
+    if(result.bushels&&s.includes('bushel'))return true;
+    return false;
   }
 
-  window.fetch=async(...args)=>{const response=await originalFetch(...args);try{const type=clean(response.headers.get('content-type')).toLowerCase();if(!type.includes('application/json'))return response;const data=await response.clone().json();await scoularTemplateReady;const changed=patchAdm(data)||patchBartlett(data)||patchScoular(data);if(!changed)return response;const headers=new Headers(response.headers);headers.delete('content-length');headers.delete('content-encoding');return new Response(JSON.stringify(data),{status:response.status,statusText:response.statusText,headers});}catch(error){console.warn('[Grain Ticket] Elevator layout template skipped:',error);return response;}};
+  function patchScoular(data){
+    const root=responseRoot(data);if(!root?.grainTicket)return false;
+    const text=documentText(data,root),template=window.FVGrainTicketTemplates?.scoularWaverly;
+    if(!template||!text)return false;
+    const result=template.apply(root.grainTicket,text);if(!result.matched)return false;
+    root.document=root.document||{};root.document.text=text;root.documentText=text;
+    root.fields=root.fields||{};
+    for(const name of ['testWeight','moisture','damage','foreignMaterial'])if(Number.isFinite(root.grainTicket[name]))root.fields[name]=root.grainTicket[name];
+    root.scanErrors=Array.isArray(root.scanErrors)?root.scanErrors.filter(message=>!resolvedScoularError(message,result)):[];
+    if(result.complete){root.scanValid=root.scanErrors.length===0;}
+    else{
+      root.scanValid=false;
+      if(!root.scanErrors.some(x=>String(x).includes('Scoular Waverly ticket could not be fully verified')))root.scanErrors.push('Scoular Waverly ticket could not be fully verified from OCR. Please review.');
+    }
+    console.log('[Grain Ticket] Scoular Waverly FINAL GitHub template:',{result,scanValid:root.scanValid,scanErrors:root.scanErrors,ticket:root.grainTicket});
+    return true;
+  }
+
+  window.fetch=async(...args)=>{
+    const response=await originalFetch(...args);
+    try{
+      const type=clean(response.headers.get('content-type')).toLowerCase();if(!type.includes('application/json'))return response;
+      const data=await response.clone().json();await scoularTemplateReady;
+      const changed=patchAdm(data)||patchBartlett(data)||patchScoular(data);if(!changed)return response;
+      const headers=new Headers(response.headers);headers.delete('content-length');headers.delete('content-encoding');
+      return new Response(JSON.stringify(data),{status:response.status,statusText:response.statusText,headers});
+    }catch(error){console.warn('[Grain Ticket] Elevator layout template skipped:',error);return response;}
+  };
 })();
