@@ -6,13 +6,37 @@
   'use strict';
   const pagePath=String(window.location.pathname||'').toLowerCase();
   if(!pagePath.endsWith('/pages/grain/grain-ticket-scan.html')) return;
-  if(window.__FV_ELEVATOR_GRADE_FIX_20260916_8) return;
-  window.__FV_ELEVATOR_GRADE_FIX_20260916_8=true;
+  if(window.__FV_ELEVATOR_GRADE_FIX_20260916_9) return;
+  window.__FV_ELEVATOR_GRADE_FIX_20260916_9=true;
 
-  /* Keep FarmVista's normal in-app shutter. Preserve as much image detail as
-     possible without replacing the driver's camera workflow. */
-  if(!window.__FV_GRAIN_TICKET_FULL_RES_CAPTURE_20260916_V4){
-    window.__FV_GRAIN_TICKET_FULL_RES_CAPTURE_20260916_V4=true;
+  /*
+    OCR IMAGE FIDELITY
+
+    The scanner core normally reads the captured/selected image, draws it to a
+    canvas, then creates a second JPEG before OCR. On phones that extra canvas
+    encode can soften small ticket print even when the original camera file is
+    sharp. Preserve the original JPEG/PNG/WebP bytes for the prepareImage()
+    canvas-toBlob step so fvOcr receives the same source image the phone made.
+
+    HEIC/other formats still use FarmVista's normal canvas conversion because
+    the OCR endpoint expects a browser-safe image MIME type.
+  */
+  if(!window.__FV_GRAIN_TICKET_ORIGINAL_OCR_BYTES_20260916_V1){
+    window.__FV_GRAIN_TICKET_ORIGINAL_OCR_BYTES_20260916_V1=true;
+
+    let pendingOriginalImage=null;
+    const originalReadAsDataURL=FileReader.prototype.readAsDataURL;
+    FileReader.prototype.readAsDataURL=function(blob){
+      try{
+        const mime=String(blob?.type||'').toLowerCase();
+        if(blob instanceof Blob && /^(image\/jpeg|image\/jpg|image\/png|image\/webp)$/.test(mime)){
+          pendingOriginalImage=blob;
+          console.log('[Grain Ticket] Preserving original image bytes for OCR:',{mimeType:mime,size:blob.size});
+        }
+      }catch(_){}
+      return originalReadAsDataURL.call(this,blob);
+    };
+
     const originalDrawImage=CanvasRenderingContext2D.prototype.drawImage;
     CanvasRenderingContext2D.prototype.drawImage=function(source,...args){
       try{
@@ -24,10 +48,22 @@
       }catch(_){}
       return originalDrawImage.call(this,source,...args);
     };
+
     const originalToBlob=HTMLCanvasElement.prototype.toBlob;
     HTMLCanvasElement.prototype.toBlob=function(callback,type,quality){
-      const mime=String(type||'').toLowerCase();
-      return originalToBlob.call(this,callback,type,(mime==='image/jpeg'||mime==='image/jpg')?1.0:quality);
+      try{
+        const mime=String(type||'').toLowerCase();
+        if((mime==='image/jpeg'||mime==='image/jpg')&&pendingOriginalImage){
+          const original=pendingOriginalImage;
+          pendingOriginalImage=null;
+          console.log('[Grain Ticket] Sending original camera/photo bytes through OCR preparation:',{mimeType:original.type,size:original.size});
+          queueMicrotask(()=>callback(original));
+          return;
+        }
+        return originalToBlob.call(this,callback,type,(mime==='image/jpeg'||mime==='image/jpg')?1.0:quality);
+      }catch(_){
+        return originalToBlob.call(this,callback,type,quality);
+      }
     };
   }
 
@@ -37,7 +73,7 @@
       const old=document.querySelector('script[data-fv-scoular-waverly-template]');
       if(old) old.remove();
       const script=document.createElement('script');
-      script.src='/js/grain-ticket-templates/scoular-waverly.js?v=20260916-8';
+      script.src='/js/grain-ticket-templates/scoular-waverly.js?v=20260916-9';
       script.dataset.fvScoularWaverlyTemplate='1';
       script.onload=()=>resolve(true);
       script.onerror=()=>{console.warn('[Grain Ticket] Scoular Waverly template failed to load.');resolve(false);};
