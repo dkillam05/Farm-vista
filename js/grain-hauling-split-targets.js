@@ -7,8 +7,8 @@
 */
 (() => {
   'use strict';
-  if (window.__FV_HAULING_SPLIT_TARGETS_20260916_V7) return;
-  window.__FV_HAULING_SPLIT_TARGETS_20260916_V7 = true;
+  if (window.__FV_HAULING_SPLIT_TARGETS_20260916_V8) return;
+  window.__FV_HAULING_SPLIT_TARGETS_20260916_V8 = true;
   if (!String(location.pathname || '').toLowerCase().endsWith('/pages/grain/grain-contracts.html')) return;
 
   const clean=v=>String(v??'').trim();
@@ -115,6 +115,14 @@
     }
     return helper;
   }
+  function updateRightJobCount(list,count){
+    const text=`${count} job${count===1?'':'s'}`;
+    const legacy=document.getElementById('fv-ticket-job-count');
+    if(legacy)legacy.textContent=text;
+    const column=list.closest('.dnd-column');
+    const visibleCount=column?.querySelector('.dnd-column-count');
+    if(visibleCount)visibleCount.textContent=text;
+  }
 
   function syncMatching(){
     const status=document.getElementById('fv-ticket-job-status-filter');
@@ -128,8 +136,7 @@
       card.hidden=!cardMatches(card,eligible);
     });
     const count=eligible.length;
-    const countEl=document.getElementById('fv-ticket-job-count');
-    if(countEl)countEl.textContent=`${count} job${count===1?'':'s'}`;
+    updateRightJobCount(list,count);
     const helper=ensureEmptyHelper(list);
     helper.hidden=count!==0;
     const title=helper.querySelector('.empty-title');
