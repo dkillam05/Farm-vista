@@ -6,6 +6,7 @@
 import "/js/grain-hauling-cross-entity-split-guard.js?v=20260914-1";
 import "/js/grain-hauling-split-targets.js?v=20260916-2";
 import "/js/grain-hauling-matching-controller.js?v=20260916-1";
+import "/js/grain-hauling-matching-count.js?v=20260916-1";
 
 (() => {
   'use strict';
