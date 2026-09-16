@@ -1,5 +1,5 @@
 /* FarmVista grain ticket OCR grade normalizer
-   Rev 2026-09-11a — Scoular-Waverly grade + net-bushel/shrink hardening
+   Rev 2026-09-16 — Scoular-Waverly fixed grade-order authority
 
    Known elevator templates override ambiguous generic OCR association. This is
    intentionally conservative: a template must be positively identified before
@@ -94,7 +94,6 @@ function flexibleNumber(valueText,field){
   if(m){const n=Number(`${m[1]}.${m[2]}`);return inRange(field,n)?n:null;}
   m=value.match(/(?:^|[^0-9])(\d{1,2})\s+(\d)(?!\d)/);
   if(m){const n=Number(`${m[1]}.${m[2]}`);return inRange(field,n)?n:null;}
-  /* Scoular's light print frequently loses the decimal: 154 => 15.4. */
   m=value.match(/(?:^|[^0-9])(\d{3})(?!\d)/);
   if(m){const n=Number(m[1])/10;return inRange(field,n)?n:null;}
   return null;
@@ -103,33 +102,34 @@ function flexibleNumber(valueText,field){
 function scoularGradeBlock(rawText){
   const text=clean(rawText); if(!text||!/\bscoular\b/i.test(text))return null;
   if(!(/scoular\s*[-–]?\s*waverly/i.test(text)||/elevator\s*id\s*:?\s*wave\b/i.test(text)||/15379\s+jasmine\s+road/i.test(text)))return null;
-  const upper=text.toUpperCase(); let start=upper.indexOf('GRADE:'); if(start<0)start=upper.indexOf('GRADE '); if(start<0)start=upper.indexOf('TEST WEIGHT'); if(start<0)return null;
-  let end=upper.indexOf('GROSS LBS',start); if(end<0)end=upper.indexOf('NET LBS',start); if(end<0)end=upper.indexOf('GROSS BUSHELS',start); if(end<0)end=Math.min(text.length,start+1800);
-  const section=text.slice(start,end); const lines=section.split(/\n+/).map(x=>x.trim()).filter(Boolean);
-  const patterns={testWeight:/\bTEST\s*(?:WEIGHT|WT)\b/i,moisture:/\b(?:MOISTURE|VOISTURE|MOIST\s*URE)\b/i,damage:/\b(?:DAMAGED?\s+KERNELS?(?:\s*\(TOTAL\))?|DAMAGE)\b/i,foreignMaterial:/\b(?:BROKEN\s+CORN\s*(?:&|AND)\s*FOREIGN\s+MAT(?:ERIAL)?|FOREIGN\s+MATERIAL)\b/i};
-  if(!Object.values(patterns).every(p=>p.test(section)))return null;
-  const sameRow=field=>{for(const line of lines){if(!patterns[field].test(line))continue;const n=flexibleNumber(line.replace(patterns[field],' '),field);if(n!==null)return n;}return null;};
-  const rows={testWeight:sameRow('testWeight'),moisture:sameRow('moisture'),damage:sameRow('damage'),foreignMaterial:sameRow('foreignMaterial')};
 
-  /* Scoular Waverly commonly OCRs the four values as two values above the
-     four labels and two below them. Preserve that print order rather than
-     requiring label/value pairs on the same OCR line. */
-  const firstLabel=lines.findIndex(line=>Object.values(patterns).some(p=>p.test(line)));
-  let lastLabel=-1;
-  for(let i=0;i<lines.length;i++)if(Object.values(patterns).some(p=>p.test(lines[i])))lastLabel=i;
-  const bareGrade=valueText=>{
-    const s=clean(valueText).replace(/,/g,'');
-    let m=s.match(/^(\d{1,2})[.]([0-9]{1,2})$/); if(m)return Number(`${m[1]}.${m[2]}`);
-    m=s.match(/^(\d{3})$/); if(m)return Number(m[1])/10;
-    return null;
-  };
-  const before=firstLabel>=0?lines.slice(Math.max(0,firstLabel-5),firstLabel).map(bareGrade).filter(Number.isFinite):[];
-  const after=lastLabel>=0?lines.slice(lastLabel+1,Math.min(lines.length,lastLabel+6)).map(bareGrade).filter(Number.isFinite):[];
-  const positional=[...before.slice(-2),...after.slice(0,2)];
-  const pos=positional.length===4?{testWeight:positional[0],moisture:positional[1],damage:positional[2],foreignMaterial:positional[3]}:{};
-  const values={testWeight:rows.testWeight??pos.testWeight??null,moisture:rows.moisture??pos.moisture??null,damage:rows.damage??pos.damage??null,foreignMaterial:rows.foreignMaterial??pos.foreignMaterial??null};
-  if(!Object.keys(values).every(k=>inRange(k,values[k])))return null;
-  return {...values,evidence:section,source:'scoular_waverly_template_v4'};
+  const upper=text.toUpperCase();
+  let start=upper.indexOf('GRADE:');
+  if(start<0)start=upper.indexOf('GRADE ');
+  if(start<0)start=upper.indexOf('TEST WEIGHT');
+  if(start<0)return null;
+  let end=upper.indexOf('GROSS LBS',start);
+  if(end<0)end=upper.indexOf('NET LBS',start);
+  if(end<0)end=upper.indexOf('GROSS BUSHELS',start);
+  if(end<0)end=Math.min(text.length,start+1400);
+  const section=text.slice(start,end);
+
+  /* Scoular Waverly's four tracked grade values are printed in one fixed
+     physical order: TW -> MO -> DM -> FM. The printer frequently makes the
+     Moisture label unreadable and Document AI can linearize all four numbers
+     separately from the labels. For this positively identified elevator we
+     therefore use the four DECIMAL grade values in OCR order, not label/value
+     association. This exact ticket reads 60.3, 13.2, 1.8, 1.0. */
+  const decimals=[...section.matchAll(/(?<![\d.])(\d{1,3}\.\d{1,2})(?!\d)/g)]
+    .map(m=>Number(m[1])).filter(Number.isFinite);
+
+  for(let i=0;i<=decimals.length-4;i++){
+    const tw=decimals[i],mo=decimals[i+1],dm=decimals[i+2],fm=decimals[i+3];
+    if(tw>=45&&tw<=70&&mo>=7&&mo<=35&&dm>=0&&dm<=20&&fm>=0&&fm<=20){
+      return {testWeight:tw,moisture:mo,damage:dm,foreignMaterial:fm,evidence:section,source:'scoular_waverly_template_v5'};
+    }
+  }
+  return null;
 }
 
 function scoularBushelBlock(rawText){
@@ -145,8 +145,6 @@ function scoularBushelBlock(rawText){
     if(/Gross\s+Bushels?/i.test(line)&&gross===null){for(let j=i+1;j<Math.min(lines.length,i+4);j++){const n=parseBu(lines[j]);if(n!==null){gross=n;break;}}}
     if(/Net\s+Bushels?/i.test(line)&&net===null){for(let j=i+1;j<Math.min(lines.length,i+4);j++){const n=parseBu(lines[j]);if(n!==null){net=n;break;}}}
   }
-  /* When OCR places both BU values after the two labels, their print order is
-     Gross Bushels then Net Bushels. */
   if(gross===null||net===null){
     const grossLabel=lines.findIndex(x=>/Gross\s+Bushels?/i.test(x));
     const netLabel=lines.findIndex(x=>/Net\s+Bushels?/i.test(x));
@@ -200,7 +198,7 @@ function chooseField(result,rawText,field,family,template){
 
 export function normalizeGrainTicketGrades(result){
   if(!result?.grainTicket)return result;
-  const rawText=clean(result?.grainTicket?.rawText||result?.document?.text||'');
+  const rawText=clean(result?.grainTicket?.rawText||result?.documentText||result?.document?.text||'');
   const family=elevatorFamily(result,rawText);
   const template=family==='Cahokia'?cahokiaGradeBlock(rawText):family==='Scoular'?scoularGradeBlock(rawText):null;
   const scoularCustomer=family==='Scoular'?extractScoularCustomer(rawText):null;
@@ -210,17 +208,15 @@ export function normalizeGrainTicketGrades(result){
   if(scoularCustomer){if(scoularCustomer.account){result.grainTicket.customerAccountText=scoularCustomer.account;result.fields.customerAccountText=scoularCustomer.account;}if(scoularCustomer.name){result.grainTicket.customerText=scoularCustomer.name;result.fields.customerText=scoularCustomer.name;}}
   for(const field of fields){
     const chosen=chooseField(result,rawText,field,family,template); audit[field]=chosen;
-    if(chosen.value!==null&&chosen.value!==undefined){result.grainTicket[field]=chosen.value;if(['raw_label_value','scoular_waverly_template_v4','cahokia_grain_template_v1'].includes(chosen.source))result.fields[field]=chosen.value;}
+    if(chosen.value!==null&&chosen.value!==undefined){result.grainTicket[field]=chosen.value;if(['raw_label_value','scoular_waverly_template_v5','cahokia_grain_template_v1'].includes(chosen.source))result.fields[field]=chosen.value;}
     if(chosen.confidence==='review')review.push(`Conflicting OCR readings for ${field}.`);
   }
   if(scoularBushels){
     const {grossBushels,netBushels,shrinkBushels,shrinkPercent}=scoularBushels;
-    /* Populate the common aliases used across FarmVista so the printed NET BU
-       wins over a generic parser that accidentally selected Gross Bushels. */
     Object.assign(result.grainTicket,{grossBushels,netBushels,grossBu:grossBushels,netBu:netBushels,shrink:shrinkBushels,shrinkBushels,shrinkPercent});
     Object.assign(result.fields,{grossBushels,netBushels,grossBu:grossBushels,netBu:netBushels,shrink:shrinkBushels,shrinkBushels,shrinkPercent});
   }
-  result.grainTicket.gradeParser={version:'farmvista-grade-v8',elevatorFamily:family,template:template?.source||null,fields:audit,customer:scoularCustomer,bushels:scoularBushels};
+  result.grainTicket.gradeParser={version:'farmvista-grade-v9',elevatorFamily:family,template:template?.source||null,fields:audit,customer:scoularCustomer,bushels:scoularBushels};
   result.gradeNormalization=result.grainTicket.gradeParser;
   if(review.length)result.reviewWarnings=[...(Array.isArray(result.reviewWarnings)?result.reviewWarnings:[]),...review];
   return result;
