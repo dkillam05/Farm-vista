@@ -4,8 +4,8 @@ import "/js/grain-contracts-filter-combo-anchor.js?v=20260916-1";
 /* FarmVista — Grain Contracts UI follow-up — Sept. 12, 2026 */
 (() => {
   'use strict';
-  if (window.__FV_GRAIN_CONTRACTS_UI_FOLLOWUP_20260912_V5) return;
-  window.__FV_GRAIN_CONTRACTS_UI_FOLLOWUP_20260912_V5 = true;
+  if (window.__FV_GRAIN_CONTRACTS_UI_FOLLOWUP_20260912_V6) return;
+  window.__FV_GRAIN_CONTRACTS_UI_FOLLOWUP_20260912_V6 = true;
 
   const clean = v => String(v ?? '').trim();
   const norm = v => clean(v).toLowerCase();
@@ -27,8 +27,11 @@ import "/js/grain-contracts-filter-combo-anchor.js?v=20260916-1";
 
   function upgradeCombos() {
     findBlock('Assign Grain Tickets to Hauling Jobs')?.querySelectorAll('select').forEach(upgradeSelect);
-    ['hauling-link-buyer','hauling-link-customer','hauling-link-crop','reconcile-buyer','reconcile-customer']
-      .forEach(id => upgradeSelect(document.getElementById(id)));
+    [
+      'hauling-status-filter','hauling-crop-filter','hauling-buyer-filter','hauling-customer-filter',
+      'hauling-link-buyer','hauling-link-customer','hauling-link-crop',
+      'reconcile-buyer','reconcile-customer'
+    ].forEach(id => upgradeSelect(document.getElementById(id)));
     window.FVCombo?.upgrade?.(document);
   }
 
