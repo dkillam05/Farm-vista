@@ -7,8 +7,8 @@
 */
 (() => {
   'use strict';
-  if (window.__FV_HAULING_SPLIT_TARGETS_20260916_V6) return;
-  window.__FV_HAULING_SPLIT_TARGETS_20260916_V6 = true;
+  if (window.__FV_HAULING_SPLIT_TARGETS_20260916_V7) return;
+  window.__FV_HAULING_SPLIT_TARGETS_20260916_V7 = true;
   if (!String(location.pathname || '').toLowerCase().endsWith('/pages/grain/grain-contracts.html')) return;
 
   const clean=v=>String(v??'').trim();
@@ -105,6 +105,16 @@
       return (!place||text.includes(place))&&(!crop||text.includes(crop));
     });
   }
+  function ensureEmptyHelper(list){
+    let helper=list.querySelector(':scope > .fv-matching-jobs-empty');
+    if(!helper){
+      helper=document.createElement('div');
+      helper.className='empty-state fv-matching-jobs-empty';
+      helper.innerHTML='<div class="empty-title">No Matching Hauling Jobs</div><div class="empty-sub">There are no hauling jobs to show for the current Matching Jobs selection.</div>';
+      list.appendChild(helper);
+    }
+    return helper;
+  }
 
   function syncMatching(){
     const status=document.getElementById('fv-ticket-job-status-filter');
@@ -113,10 +123,21 @@
     if(!list)return;
     const left=leftTickets();
     const eligible=matchingJobs();
-    [...list.children].forEach(card=>{card.hidden=!cardMatches(card,eligible)});
-    const count=[...list.children].filter(card=>!card.hidden).length;
+    [...list.children].forEach(card=>{
+      if(card.classList.contains('fv-matching-jobs-empty'))return;
+      card.hidden=!cardMatches(card,eligible);
+    });
+    const count=eligible.length;
     const countEl=document.getElementById('fv-ticket-job-count');
     if(countEl)countEl.textContent=`${count} job${count===1?'':'s'}`;
+    const helper=ensureEmptyHelper(list);
+    helper.hidden=count!==0;
+    const title=helper.querySelector('.empty-title');
+    const sub=helper.querySelector('.empty-sub');
+    if(title)title.textContent=left.length?'No Matching Hauling Jobs':'No Matching Jobs';
+    if(sub)sub.textContent=left.length
+      ? 'No Past Due, Active, or Upcoming hauling jobs match the unassigned grain tickets and current filters.'
+      : 'Unassigned grain tickets will appear on the left. Matching hauling jobs will appear here.';
     const msg=document.getElementById('fv-ticket-hauling-message');
     if(msg){
       msg.textContent=left.length
