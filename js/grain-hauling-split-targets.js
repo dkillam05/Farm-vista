@@ -7,8 +7,8 @@
 */
 (() => {
   'use strict';
-  if (window.__FV_HAULING_SPLIT_TARGETS_20260916_V8) return;
-  window.__FV_HAULING_SPLIT_TARGETS_20260916_V8 = true;
+  if (window.__FV_HAULING_SPLIT_TARGETS_20260916_V9) return;
+  window.__FV_HAULING_SPLIT_TARGETS_20260916_V9 = true;
   if (!String(location.pathname || '').toLowerCase().endsWith('/pages/grain/grain-contracts.html')) return;
 
   const clean=v=>String(v??'').trim();
@@ -119,9 +119,34 @@
     const text=`${count} job${count===1?'':'s'}`;
     const legacy=document.getElementById('fv-ticket-job-count');
     if(legacy)legacy.textContent=text;
-    const column=list.closest('.dnd-column');
-    const visibleCount=column?.querySelector('.dnd-column-count');
-    if(visibleCount)visibleCount.textContent=text;
+
+    // The live DND markup does not give the visible right header count a stable ID.
+    // Anchor from the known right-side job list, find its containing DND panel, then
+    // update the small count in that panel's header. This avoids touching the left
+    // "0 tickets" count and works with both the older and newer DND markup.
+    let panel=list.parentElement;
+    while(panel && panel!==document.body){
+      const heading=[...panel.querySelectorAll('h1,h2,h3,h4,h5,h6,strong,b,div,span')]
+        .find(el=>clean(el.textContent)==='Hauling Jobs');
+      if(heading){
+        const header=heading.closest('header,.dnd-column-header,.column-header')||heading.parentElement;
+        if(header){
+          const candidates=[...header.querySelectorAll('span,small,div')]
+            .filter(el=>el!==heading && /^\s*\d+\s+jobs?\s*$/i.test(clean(el.textContent)));
+          candidates.forEach(el=>{el.textContent=text;});
+          if(candidates.length)return;
+        }
+      }
+      panel=panel.parentElement;
+    }
+
+    // Final scoped fallback: only counts inside the same right-side parent as the list.
+    const parent=list.parentElement;
+    if(parent){
+      [...parent.querySelectorAll('span,small,div')]
+        .filter(el=>/^\s*\d+\s+jobs?\s*$/i.test(clean(el.textContent)))
+        .forEach(el=>{el.textContent=text;});
+    }
   }
 
   function syncMatching(){
@@ -185,6 +210,8 @@
       tickets=ts.docs.map(d=>({id:d.id,...d.data()}));
       rebuildRightFilterOptions();
       requestAnimationFrame(syncMatching);
+      setTimeout(syncMatching,150);
+      setTimeout(syncMatching,500);
     }catch(e){console.warn('[FarmVista] Matching Jobs helper skipped:',e)}
   }
   function queueSync(){if(queued)return;queued=true;requestAnimationFrame(()=>{queued=false;syncMatching()})}
