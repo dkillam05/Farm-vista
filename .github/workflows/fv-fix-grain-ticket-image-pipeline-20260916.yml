@@ -1,0 +1,71 @@
+name: FarmVista - Fix Grain Ticket Image Pipeline 2026-09-16
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fv-fix-grain-ticket-image-pipeline-20260916.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Patch scanner image pipeline
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('pages/grain/grain-ticket-scan-core.html')
+          s=p.read_text()
+
+          old='''          const file =\n            await prepareImage(\n              rawFile\n            );'''
+          new='''          /*\n            OCR IMAGE FIDELITY\n\n            rawFile is already the best image FarmVista captured. Do not\n            decode it to an Image, draw it to another canvas, resize it, and\n            JPEG-encode it a second time before OCR. That second generation\n            was softening small scale-ticket text on iPhone/Safari.\n\n            Send the original captured/file bytes to fvOcr. Keep the same file\n            for Storage so OCR and the saved ticket image are identical.\n          */\n          const file =\n            rawFile;'''
+          if old not in s:
+              raise SystemExit('processTicket prepareImage block not found')
+          s=s.replace(old,new,1)
+
+          old2='''const scannedTestWeight =\n  Number(\n    result.grainTicket\n      ?.testWeight\n  );'''
+          new2='''const rawScannedTestWeight =\n  result.grainTicket\n    ?.testWeight;\n\nconst scannedTestWeight =\n  (\n    rawScannedTestWeight === null ||\n    rawScannedTestWeight === undefined ||\n    rawScannedTestWeight === ""\n  )\n    ? null\n    : Number(\n        rawScannedTestWeight\n      );'''
+          if old2 not in s:
+              raise SystemExit('test weight coercion block not found')
+          s=s.replace(old2,new2,1)
+
+          old3='''const documentText =\n  String(\n    result.document?.text ||\n    ""\n  ).trim();'''
+          new3='''const documentText =\n  String(\n    result.documentText ||\n    result.document?.text ||\n    result.grainTicket?.rawText ||\n    ""\n  ).trim();'''
+          if old3 not in s:
+              raise SystemExit('documentText block not found')
+          s=s.replace(old3,new3,1)
+
+          p.write_text(s)
+
+          # Force clients/PWA to fetch the repaired scanner assets.
+          vp=Path('js/version.js')
+          v=vp.read_text()
+          import re
+          v2,n=re.subn(r'const\s+FV_VERSION\s*=\s*"[^"]+"', 'const FV_VERSION = "09.16.29"', v, count=1)
+          if not n:
+              # FarmVista version files have used a few declaration styles.
+              v2,n=re.subn(r'FV_VERSION\s*=\s*"[^"]+"', 'FV_VERSION = "09.16.29"', v, count=1)
+          if not n:
+              raise SystemExit('FV_VERSION declaration not found')
+          vp.write_text(v2)
+          PY
+      - name: Verify scanner syntax markers
+        run: |
+          grep -q 'const file =' pages/grain/grain-ticket-scan-core.html
+          grep -q 'rawScannedTestWeight' pages/grain/grain-ticket-scan-core.html
+          grep -q 'result.documentText' pages/grain/grain-ticket-scan-core.html
+          grep -q '09.16.29' js/version.js
+      - name: Commit repaired pipeline
+        run: |
+          git config user.name 'FarmVista Automation'
+          git config user.email 'farmvista-automation@users.noreply.github.com'
+          git add pages/grain/grain-ticket-scan-core.html js/version.js
+          git commit -m 'Fix phone grain ticket OCR image fidelity' || exit 0
+          git push origin main
