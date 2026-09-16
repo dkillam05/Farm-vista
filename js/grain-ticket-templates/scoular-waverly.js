@@ -21,7 +21,6 @@
       ticket?.deliveryZip,
       text
     ].filter(Boolean).join(' '));
-
     const scoular = hay.includes('scoular');
     const wave = hay.includes('elevatoridwave') || hay.includes('waverly');
     const address = hay.includes('15379jasmineroad') || hay.includes('jasmineroad');
@@ -38,71 +37,78 @@
   function gradeBlock(text) {
     const s = String(text || '').replace(/\r/g, '\n');
     let start = s.search(/Grade\s*:?\s*U\.?S\.?/i);
+    if (start < 0) start = s.search(/Calibration\s+ID/i);
     if (start < 0) start = s.search(/Test\s*Weight|Moisture|Damaged\s+Kernels|Broken\s+Corn/i);
     if (start < 0) return '';
-
-    let block = s.slice(start, start + 1800);
+    let block = s.slice(start, start + 1400);
     const stop = block.search(/\bGROSS\s+(?:L\.?BS|LBS|WEIGHT)\b|\bGross\s+Bushels\b/i);
     if (stop > 0) block = block.slice(0, stop);
     return block;
   }
 
-  function normalizedGradeToken(raw, slot) {
-    const t = String(raw || '').replace(/[^0-9.]/g, '');
-    if (!t) return null;
-    let n = num(t);
-    if (!Number.isFinite(n)) return null;
-
-    if (slot === 'tw') {
-      if (n >= 45 && n <= 70) return n;
-      if (!t.includes('.') && n >= 450 && n <= 700) return n / 10;
-      return null;
-    }
-    if (slot === 'mo') {
-      if (n >= 7 && n <= 35) return n;
-      if (!t.includes('.') && n >= 70 && n <= 350) return n / 10;
-      return null;
-    }
-    if (n >= 0 && n <= 20) {
-      if (!t.includes('.') && n >= 10 && n <= 99) return n / 10;
-      return n;
-    }
-    if (!t.includes('.') && n >= 0 && n <= 200) return n / 10;
-    return null;
+  function plausibleGradeSet(values) {
+    if (!values || values.length !== 4) return null;
+    const [tw, mo, dm, fm] = values;
+    if (!(tw >= 45 && tw <= 70)) return null;
+    if (!(mo >= 7 && mo <= 35)) return null;
+    if (!(dm >= 0 && dm <= 20)) return null;
+    if (!(fm >= 0 && fm <= 20)) return null;
+    return { testWeight: tw, moisture: mo, damage: dm, foreignMaterial: fm };
   }
 
   function grades(text) {
     const block = gradeBlock(text);
     if (!block) return null;
 
-    /* Scoular Waverly prints exactly four tracked grade values in this order:
-       TW -> MO -> DM -> FM. Document AI often linearizes the two top values
-       before the labels and the two bottom values after the labels. Do not
-       require the word Moisture (or any other individual label) to survive OCR. */
-    const decimals = [...block.matchAll(/(?<![\d.])(\d{1,2}\.\d{1,2})(?!\d)/g)]
-      .map(m => Number(m[1]));
+    /*
+      SCOULAR WAVERLY PRINTED LAYOUT
+      The four tracked values are always TW -> MO -> DM -> FM.
 
-    for (let i = 0; i <= decimals.length - 4; i++) {
-      const [tw, mo, dm, fm] = decimals.slice(i, i + 4);
-      if (tw >= 45 && tw <= 70 && mo >= 7 && mo <= 35 && dm >= 0 && dm <= 20 && fm >= 0 && fm <= 20) {
-        return { testWeight: tw, moisture: mo, damage: dm, foreignMaterial: fm, confidence: 'scoular_fixed_decimal_order' };
-      }
+      The Waverly printer/OCR frequently separates the numbers from their labels,
+      and the word Moisture is especially unreliable. Therefore the template does
+      NOT require any individual grade label. It reads the four decimal grade
+      values in printed order inside the grade section and validates each against
+      the FarmVista grade ranges before accepting the set.
+
+      We intentionally accept 1-3 digits before the decimal. This matters because
+      OCR may return DM/FM as 00.8 or 00.0 rather than 0.8 or 0.0.
+    */
+    const decimalTokens = [...block.matchAll(/(?<![\d.])(\d{1,3}\.\d{1,2})(?!\d)/g)]
+      .map(m => Number(m[1]))
+      .filter(Number.isFinite);
+
+    for (let i = 0; i <= decimalTokens.length - 4; i++) {
+      const set = plausibleGradeSet(decimalTokens.slice(i, i + 4));
+      if (set) return { ...set, confidence: 'scoular_waverly_fixed_grade_order' };
     }
 
-    const tokens = [...block.matchAll(/(?<!\d)(\d{1,3}(?:\.\d{1,2})?)(?!\d)/g)].map(m => m[1]);
-    for (let i = 0; i < tokens.length; i++) {
-      for (let j = i + 1; j < Math.min(tokens.length, i + 7); j++) {
-        for (let k = j + 1; k < Math.min(tokens.length, j + 6); k++) {
-          for (let l = k + 1; l < Math.min(tokens.length, k + 6); l++) {
-            const tw = normalizedGradeToken(tokens[i], 'tw');
-            const mo = normalizedGradeToken(tokens[j], 'mo');
-            const dm = normalizedGradeToken(tokens[k], 'dm');
-            const fm = normalizedGradeToken(tokens[l], 'fm');
-            if (tw != null && mo != null && dm != null && fm != null) {
-              return { testWeight: tw, moisture: mo, damage: dm, foreignMaterial: fm, confidence: 'scoular_fixed_order_recovered' };
-            }
-          }
-        }
+    /* Conservative fallback for a dropped decimal point. Stay within the same
+       grade block and preserve order; never search arbitrary ticket numbers. */
+    const rawTokens = [...block.matchAll(/(?<!\d)(\d{1,3}(?:\.\d{1,2})?)(?!\d)/g)].map(m => m[1]);
+    const normalize = (raw, slot) => {
+      const t = String(raw || '');
+      let n = Number(t);
+      if (!Number.isFinite(n)) return null;
+      if (slot === 0) {
+        if (n >= 45 && n <= 70) return n;
+        if (!t.includes('.') && n >= 450 && n <= 700) return n / 10;
+        return null;
+      }
+      if (slot === 1) {
+        if (n >= 7 && n <= 35) return n;
+        if (!t.includes('.') && n >= 70 && n <= 350) return n / 10;
+        return null;
+      }
+      if (n >= 0 && n <= 20) return n;
+      if (!t.includes('.') && n >= 21 && n <= 200) return n / 10;
+      return null;
+    };
+
+    for (let i = 0; i <= rawTokens.length - 4; i++) {
+      const vals = rawTokens.slice(i, i + 4).map((v, slot) => normalize(v, slot));
+      if (vals.every(v => v != null)) {
+        const set = plausibleGradeSet(vals);
+        if (set) return { ...set, confidence: 'scoular_waverly_fixed_grade_order_recovered' };
       }
     }
     return null;
@@ -114,7 +120,6 @@
     if (start < 0) start = s.search(/TARE\s+(?:L\.?BS|LBS|WEIGHT)\s*:?/i);
     if (start < 0) start = s.search(/NET\s+(?:L\.?BS|LBS|WEIGHT)\s*:?/i);
     if (start < 0) return '';
-
     let block = s.slice(start, start + 1300);
     const stop = block.search(/Gross\s+Bushels\s*:?/i);
     if (stop > 0) block = block.slice(0, stop);
@@ -131,7 +136,6 @@
 
   function weights(text, ticket) {
     const vals = weightCandidates(text);
-
     for (let i = 0; i < vals.length; i++) {
       for (let j = i + 1; j < vals.length; j++) {
         for (let k = j + 1; k < vals.length; k++) {
@@ -142,21 +146,14 @@
         }
       }
     }
-
-    /* If OCR gives gross and tare but loses/mis-associates net, derive net only
-       from two independently plausible values. Never use notes or timestamps. */
     const generic = [ticket?.grossWeight, ticket?.tareWeight, ticket?.netWeight]
-      .map(Number)
-      .filter(n => Number.isFinite(n) && n >= 15000 && n <= 95000);
+      .map(Number).filter(n => Number.isFinite(n) && n >= 15000 && n <= 95000);
     const all = [...new Set([...vals, ...generic])];
-
     for (const gross of all) {
       for (const tare of all) {
         if (gross <= tare || gross < 40000 || gross > 95000 || tare < 20000 || tare > 35000) continue;
         const net = gross - tare;
-        if (net >= 15000 && net <= 75000) {
-          return { grossWeight: gross, tareWeight: tare, netWeight: net, confidence: 'gross_tare_math_derived' };
-        }
+        if (net >= 15000 && net <= 75000) return { grossWeight: gross, tareWeight: tare, netWeight: net, confidence: 'gross_tare_math_derived' };
       }
     }
     return null;
@@ -168,15 +165,12 @@
     if (start >= 0) {
       const block = s.slice(start, start + 500);
       const vals = [...block.matchAll(/\b(\d{2,4}\.\d{1,2})\s*BU\b/gi)]
-        .map(m => num(m[1]))
-        .filter(Number.isFinite)
-        .filter(v => v > 100 && v < 1200);
+        .map(m => num(m[1])).filter(Number.isFinite).filter(v => v > 100 && v < 1200);
       if (vals.length) {
         const second = vals.length > 1 ? vals[1] : vals[0];
         return { grossBushels: vals[0], netBushels: second, confidence: vals.length > 1 ? 'printed' : 'single_printed' };
       }
     }
-
     if (w?.netWeight) {
       const divisor = ticket?.crop === 'Soybeans' ? 60 : ticket?.crop === 'Corn' ? 56 : null;
       if (divisor) {
@@ -189,7 +183,6 @@
 
   function apply(ticket, text) {
     if (!matches(ticket, text)) return { matched: false, changed: false, complete: false };
-
     ticket.crop = crop(text, ticket);
     const g = grades(text);
     const w = weights(text, ticket);
@@ -197,24 +190,13 @@
     let changed = false;
 
     if (g) {
-      Object.assign(ticket, {
-        testWeight: g.testWeight,
-        moisture: g.moisture,
-        damage: g.damage,
-        foreignMaterial: g.foreignMaterial
-      });
+      Object.assign(ticket, { testWeight: g.testWeight, moisture: g.moisture, damage: g.damage, foreignMaterial: g.foreignMaterial });
       changed = true;
     }
-
     if (w) {
-      Object.assign(ticket, {
-        grossWeight: w.grossWeight,
-        tareWeight: w.tareWeight,
-        netWeight: w.netWeight
-      });
+      Object.assign(ticket, { grossWeight: w.grossWeight, tareWeight: w.tareWeight, netWeight: w.netWeight });
       changed = true;
     }
-
     if (b) {
       ticket.grossBushels = b.grossBushels;
       ticket.netBushels = b.netBushels;
@@ -223,12 +205,6 @@
       ticket.printedGrossBushels = b.confidence.startsWith('printed') ? b.grossBushels : null;
       ticket.printedNetBushels = b.confidence === 'printed' ? b.netBushels : null;
       ticket.shrinkBushels = round2(Math.max(0, b.grossBushels - b.netBushels));
-      changed = true;
-    }
-
-    const truck = String(text || '').match(/Truck\s+ID\s*:\s*([A-Z0-9-]+)/i);
-    if (truck) {
-      ticket.vehicleId = clean(truck[1]);
       changed = true;
     }
 
