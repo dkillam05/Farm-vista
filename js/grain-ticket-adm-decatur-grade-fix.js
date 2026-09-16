@@ -7,8 +7,120 @@
   'use strict';
   const pagePath = String(window.location.pathname || '').toLowerCase();
   if (!pagePath.endsWith('/pages/grain/grain-ticket-scan.html')) return;
-  if (window.__FV_ELEVATOR_GRADE_FIX_20260916_3) return;
-  window.__FV_ELEVATOR_GRADE_FIX_20260916_3 = true;
+  if (window.__FV_ELEVATOR_GRADE_FIX_20260916_4) return;
+  window.__FV_ELEVATOR_GRADE_FIX_20260916_4 = true;
+
+  /* ===================================================================
+     PHONE OCR IMAGE QUALITY
+
+     The desktop diagnostic sends the original high-resolution photograph to
+     fvOcr. The production phone scanner was taking a video frame, converting
+     it to JPEG, then prepareImage() resized it to 2200px and JPEG-encoded it
+     a second time. Fine ticket print was being lost between those steps.
+
+     On the grain-ticket scanner only:
+       1. preserve the source image's full pixel dimensions when prepareImage
+          attempts to downscale an HTMLImageElement;
+       2. use maximum JPEG quality for scanner canvas exports;
+       3. when ImageCapture.takePhoto is supported, use the camera's actual
+          still-photo capture instead of a video-preview frame. If the browser
+          cannot do that, FarmVista falls straight back to its existing burst
+          capture without blocking the driver.
+  =================================================================== */
+  if (!window.__FV_GRAIN_TICKET_FULL_RES_CAPTURE_20260916) {
+    window.__FV_GRAIN_TICKET_FULL_RES_CAPTURE_20260916 = true;
+
+    const originalDrawImage = CanvasRenderingContext2D.prototype.drawImage;
+    CanvasRenderingContext2D.prototype.drawImage = function(source, ...args) {
+      try {
+        if (
+          source instanceof HTMLImageElement &&
+          args.length === 4 &&
+          source.naturalWidth > 0 &&
+          source.naturalHeight > 0 &&
+          (source.naturalWidth > this.canvas.width || source.naturalHeight > this.canvas.height) &&
+          Math.max(this.canvas.width, this.canvas.height) <= 2200
+        ) {
+          this.canvas.width = source.naturalWidth;
+          this.canvas.height = source.naturalHeight;
+          return originalDrawImage.call(
+            this,
+            source,
+            0,
+            0,
+            source.naturalWidth,
+            source.naturalHeight
+          );
+        }
+      } catch (_) {}
+      return originalDrawImage.call(this, source, ...args);
+    };
+
+    const originalToBlob = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function(callback, type, quality) {
+      const mime = String(type || '').toLowerCase();
+      if (mime === 'image/jpeg' || mime === 'image/jpg') {
+        return originalToBlob.call(this, callback, type, 1.0);
+      }
+      return originalToBlob.call(this, callback, type, quality);
+    };
+
+    const installStillCapture = () => {
+      const button = document.getElementById('captureBtn');
+      const video = document.getElementById('cameraVideo');
+      const input = document.getElementById('fileInput');
+      if (!button || !video || !input || button.dataset.fvFullResCapture === '1') return;
+      button.dataset.fvFullResCapture = '1';
+      let fallbackClick = false;
+
+      button.addEventListener('click', async event => {
+        if (fallbackClick) return;
+        const stream = video.srcObject;
+        const track = stream?.getVideoTracks?.()[0] || null;
+        if (!track || typeof window.ImageCapture !== 'function') return;
+
+        event.preventDefault();
+        event.stopImmediatePropagation();
+
+        try {
+          const imageCapture = new ImageCapture(track);
+          const blob = await imageCapture.takePhoto();
+          if (!blob || blob.size < 10000) throw new Error('Still photo capture returned no usable image.');
+
+          const file = new File(
+            [blob],
+            `grain-ticket-${Date.now()}.${blob.type === 'image/png' ? 'png' : 'jpg'}`,
+            { type: blob.type || 'image/jpeg' }
+          );
+          const transfer = new DataTransfer();
+          transfer.items.add(file);
+          input.files = transfer.files;
+
+          console.log('[Grain Ticket] Full-resolution still captured for OCR:', {
+            bytes: file.size,
+            type: file.type,
+            trackSettings: track.getSettings ? track.getSettings() : null
+          });
+
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        } catch (error) {
+          console.warn('[Grain Ticket] Full-resolution still unavailable; using existing burst capture.', error);
+          fallbackClick = true;
+          try {
+            button.dispatchEvent(new MouseEvent('click', { bubbles:true, cancelable:true, view:window }));
+          } finally {
+            fallbackClick = false;
+          }
+        }
+      }, true);
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', installStillCapture, { once:true });
+    } else {
+      installStillCapture();
+    }
+  }
 
   /* Load the elevator-specific Scoular template before any OCR response is
      interpreted. Keeping this dependency here makes the template available
