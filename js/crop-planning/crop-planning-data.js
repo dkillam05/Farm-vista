@@ -16,7 +16,7 @@ import {
   collection, getDocs,
   doc, setDoc, deleteDoc,
   serverTimestamp
-} from '/js/firebase-init.js';
+} from '/js/firebase/firebase-init.js';
 
 const norm = (s) => String(s || '').trim().toLowerCase();
 

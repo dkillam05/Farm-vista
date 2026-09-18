@@ -783,11 +783,14 @@ async function selectFarm(
   }
 
 
+  // Beta must always load the selected farm configuration from this
+  // GitHub Pages repository. Platform lookup configPath values are
+  // production-root-relative and would otherwise escape /.
   const configPath =
-    String(
-      farm?.configPath ||
-      `/farms/${farmKey}.json`
-    ).trim();
+    new URL(
+      `farms/${encodeURIComponent(farmKey)}.json`,
+      document.baseURI || location.href
+    ).pathname;
 
 
   const response =

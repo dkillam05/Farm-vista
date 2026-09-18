@@ -47,7 +47,7 @@ export async function initSwipeOnTiles(state, { onDetails }){
 
   let swipe = null;
   try{
-    swipe = await import('/js/fv-swipe-list.js');
+    swipe = await import('/js/shared/components/fv-swipe-list.js');
   }catch(e){
     console.warn('[FieldReadiness] swipe import failed:', e);
     return;

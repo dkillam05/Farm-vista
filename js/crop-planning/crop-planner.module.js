@@ -82,7 +82,7 @@ async function getFirestoreFns(){
   }
 
   try{
-    const m = await import('/js/firebase-init.js');
+    const m = await import('/js/firebase/firebase-init.js');
     if (m.doc && m.getDoc && m.setDoc){
       return {
         doc: m.doc,

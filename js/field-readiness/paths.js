@@ -8,7 +8,7 @@ If you later copy model/weather into /js/field-readiness/, update here only.
 'use strict';
 
 export const PATHS = {
-  MODEL:  '/js/field-readiness.model.js',
-  WEATHER:'/js/field-readiness.weather.js',
-  FIREBASE_INIT:'/js/firebase-init.js'
+  MODEL:  '/js/field-readiness/field-readiness.model.js',
+  WEATHER:'/js/field-readiness/field-readiness.weather.js',
+  FIREBASE_INIT:'/js/firebase/firebase-init.js'
 };

@@ -101,7 +101,7 @@ async function getFirebaseMod(){
 
   __fbModPromise = (async()=>{
     try{
-      const mod = await import('/js/firebase-init.js');
+      const mod = await import('/js/firebase/firebase-init.js');
       if (mod && mod.ready) await mod.ready;
       return mod;
     }catch(e){
