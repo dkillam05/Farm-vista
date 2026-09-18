@@ -1,0 +1,32 @@
+name: Deploy Beta Main To Live
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  deploy:
+    if: ${{ !contains(github.event.head_commit.message || '', '[skip deploy-beta]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout live
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Mirror FarmVista-Beta main and preserve live domain
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch main https://github.com/dkillam05/FarmVista-Beta.git /tmp/farmvista-beta
+          rsync -a --delete --exclude='.git/' --exclude='CNAME' /tmp/farmvista-beta/ ./
+          printf 'farmvista.app\n' > CNAME
+          git config user.name "FarmVista Deploy Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Live already matches Beta (with live CNAME preserved)."
+            exit 0
+          fi
+          git commit -m "Deploy FarmVista Beta main to live [skip deploy-beta]"
+          git push origin HEAD:main
