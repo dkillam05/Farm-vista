@@ -887,10 +887,15 @@ section[data-hide-for-now]{ display:none !important; }
 
 .hauling-job-modal-backdrop{
   z-index:10060;
+  align-items:center !important;
+  justify-content:center !important;
+  padding:18px !important;
 }
 
 .hauling-job-modal{
   width:min(560px,100%);
+  max-height:calc(100vh - 36px) !important;
+  border-radius:16px !important;
 }
 
 .loadout-form-message{
@@ -2240,7 +2245,7 @@ section[data-hide-for-now]{ display:none !important; }
 
           <div class="loadout-field">
             <label for="hauling-job-bushels">Starting Bushels</label>
-            <input id="hauling-job-bushels" class="loadout-input" type="number" min="1" step="1" inputmode="decimal" placeholder="300000" required>
+            <input id="hauling-job-bushels" class="loadout-input" type="text" inputmode="numeric" autocomplete="off" placeholder="300,000" required>
           </div>
 
           <div class="loadout-field">
@@ -7493,6 +7498,8 @@ else {
     addDoc,
     serverTimestamp
   } from "/js/firebase/firebase-init.js";
+  import { haulingPayload, validateHaulingDraft } from "/js/grain/operations/hauling/hauling-form.js";
+  import { saveHaulingJob } from "/js/grain/operations/data/grain-writes.js";
 
   await ready;
 
@@ -12122,7 +12129,7 @@ function loApplyHaulingJobToLoad(job){
     const destination = loState.locations.find(item => item.id === destinationId) || null;
     const customer = loState.customers.find(item => item.id === customerId) || null;
     const buyer = loState.buyers.find(item => item.id === buyerId) || null;
-    const startingBushels = Number(loEls.jobBushels?.value || 0);
+    const startingBushels = Number(String(loEls.jobBushels?.value || "").replace(/,/g,"")) || 0;
     const deliveryStartDate = loClean(loEls.jobStartDate?.value);
     const deliveryEndDate = loClean(loEls.jobEndDate?.value);
 
@@ -12145,37 +12152,39 @@ function loApplyHaulingJobToLoad(job){
     loEls.jobSaveBtn.textContent = "Adding…";
 
     try {
-      const jobName = `${destination.buyerName || buyer.name || ""} ${destination.locationName} — ${Math.round(startingBushels).toLocaleString("en-US")} bu`.trim();
-      const payload = {
-        jobName,
-        displayName:jobName,
+      const draft = {
         buyerId:destination.buyerId || buyer.id,
         buyerName:destination.buyerName || buyer.name,
         deliveryLocationId:destination.id,
         deliveryLocationName:destination.locationName,
         customerId:customer.id,
+        grainCustomerId:customer.id,
         customerName:customer.name,
         crop,
         startingBushels,
         deliveryStartDate,
         deliveryEndDate,
         status:"active",
-        active:true,
-        createdByUid:auth.currentUser?.uid || null,
-        createdByName:auth.currentUser?.displayName || auth.currentUser?.email || "FarmVista User",
-        createdByEmail:auth.currentUser?.email || null,
-        createdAt:serverTimestamp(),
-        updatedAt:serverTimestamp()
+        active:true
       };
+      const validationErrors = validateHaulingDraft(draft);
+      if (validationErrors.length) {
+        throw new Error(validationErrors.join(" "));
+      }
 
-      const saved = await addDoc(collection(db,"grain_hauling_jobs"),payload);
-      const createdJob = {id:saved.id,...payload};
+      const payload = haulingPayload(draft);
+      const savedId = await saveHaulingJob(null,payload);
+      const createdJob = {id:savedId,...payload};
+
+      // saveHaulingJob refreshes the centralized Grain Operations store.
+      // Keep this load-out's local picker in sync immediately as well.
+      loState.haulingJobs = loState.haulingJobs.filter(item => item.id !== savedId);
       loState.haulingJobs.push(createdJob);
       loCloseHaulingJobModal();
-      loRenderHaulingJobs(saved.id);
-      loEls.haulingJob.value = saved.id;
+      loRenderHaulingJobs(savedId);
+      loEls.haulingJob.value = savedId;
       loApplyHaulingJobToLoad(createdJob);
-      loShowMessage(`${jobName} added and selected.`,"good");
+      loShowMessage(`${payload.jobName} added and selected.`,"good");
     }
     catch (error) {
       console.error("[grain loadout] hauling job save failed:",error);
@@ -16384,6 +16393,13 @@ loState.drivers = employeeSnapshot.docs
   loEls.form?.addEventListener("submit",loAssignLoad);
 
   loEls.jobForm?.addEventListener("submit",loSaveHaulingJob);
+
+  loEls.jobBushels?.addEventListener("input",() => {
+    const digits = String(loEls.jobBushels.value || "").replace(/\D/g,"");
+    loEls.jobBushels.value = digits
+      ? Number(digits).toLocaleString("en-US")
+      : "";
+  });
 
   loEls.jobBuyer?.addEventListener("change",() => {
     const buyerId = loClean(loEls.jobBuyer.value);
