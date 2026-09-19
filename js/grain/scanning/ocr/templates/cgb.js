@@ -38,19 +38,30 @@
   }
 
   function labeledDecimal(text, label, min, max) {
-    const m = String(text || '').match(new RegExp(label + '\\s*:?\\s*([0-9]{1,2}\\.[0-9]{1,2})\\b', 'i'));
+    const s = String(text || '');
+    // Document AI can preserve the label/value on one line or split them across
+    // adjacent lines. Limit the search window so a grade label cannot steal a
+    // later grade's value.
+    const m = s.match(new RegExp(label + '[^0-9]{0,45}([0-9]{1,2}(?:[.,][0-9]{1,2}))\\b', 'i'));
     if (!m) return null;
-    const n = Number(m[1]);
+    const n = Number(m[1].replace(',', '.'));
     return Number.isFinite(n) && n >= min && n <= max ? n : null;
   }
 
   function grades(text) {
-    const tw = labeledDecimal(text, 'TEST\\s+WEIGHT', 45, 70);
+    const tw = labeledDecimal(text, 'TEST\\s*WEIGHT', 45, 70);
     const mo = labeledDecimal(text, 'MOISTURE', 7, 35);
     const dm = labeledDecimal(text, 'DAMAGE', 0, 20);
-    const fm = labeledDecimal(text, 'FOREIGN\\s+MATE(?:R(?:IAL)?)?', 0, 20);
-    if (![tw, mo, dm, fm].every(Number.isFinite)) return null;
-    return { testWeight: tw, moisture: mo, damage: dm, foreignMaterial: fm, confidence: 'cgb_explicit_labels' };
+    // Accept common OCR truncations/typos seen on CGB tickets, including
+    // FOREIGN MATEF from the Naples sample.
+    const fm = labeledDecimal(text, 'FOREIGN\\s+MAT(?:ERIAL|ERIA|ERI|ER|E|EF)?', 0, 20);
+    return {
+      testWeight: tw,
+      moisture: mo,
+      damage: dm,
+      foreignMaterial: fm,
+      confidence: 'cgb_explicit_labels'
+    };
   }
 
   function labeledWeight(text, label) {
@@ -93,10 +104,10 @@
     let changed = false;
 
     if (g) {
-      Object.assign(ticket, {
-        testWeight:g.testWeight, moisture:g.moisture,
-        damage:g.damage, foreignMaterial:g.foreignMaterial
-      });
+      if (Number.isFinite(g.testWeight)) ticket.testWeight = g.testWeight;
+      if (Number.isFinite(g.moisture)) ticket.moisture = g.moisture;
+      if (Number.isFinite(g.damage)) ticket.damage = g.damage;
+      if (Number.isFinite(g.foreignMaterial)) ticket.foreignMaterial = g.foreignMaterial;
       changed = true;
     }
     if (w) {
@@ -124,7 +135,13 @@
     if (!ticket.elevatorName) ticket.elevatorName = 'CGB';
     ticket.parserProfile = 'cgb_github';
 
-    const complete = !!(g && w && b && ticket.ticketNumber && ticket.ticketDate && ticket.crop);
+    const complete = !!(
+      w && b && ticket.ticketNumber && ticket.ticketDate && ticket.crop &&
+      Number.isFinite(ticket.testWeight) &&
+      Number.isFinite(ticket.moisture) &&
+      Number.isFinite(ticket.damage) &&
+      Number.isFinite(ticket.foreignMaterial)
+    );
     console.log('[Grain Ticket] CGB template result:', {
       complete, ticketNumber:ticket.ticketNumber, ticketDate:ticket.ticketDate,
       crop:ticket.crop, grades:g, weights:w, bushels:b,
