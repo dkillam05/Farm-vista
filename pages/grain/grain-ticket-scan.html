@@ -28,6 +28,98 @@
       if (!response.ok) throw new Error(`Scanner core request failed (${response.status})`);
       let html = await response.text();
 
+      // Beta scanner must use the same Document AI OCR service as the
+      // desktop diagnostic bench. The core file still contains the legacy
+      // fv-ocr endpoint, so replace it before the scanner is written.
+      // Beta phone scanner uses the new FarmVista Document AI OCR service.
+      html = replaceRequired(
+        html,
+        'https://fv-ocr-300398089669.us-central1.run.app/fvOcr',
+        'https://farmvistagrainticketocr-300398089669.us-central1.run.app',
+        'current grain ticket OCR endpoint'
+      );
+
+      // Adapt raw Document AI JSON synchronously inside the scanner core.
+      // The template module is already imported by the core scanner, so do not
+      // inject a second module script during document.write (Safari can race it).
+      html = replaceRequired(
+        html,
+        'import { normalizeGrainTicketGrades } from "/js/grain/scanning/ocr/grain-ticket-ocr-grade-normalizer.js?v=20260909-6";',
+        `import { normalizeGrainTicketGrades } from "/js/grain/scanning/ocr/grain-ticket-ocr-grade-normalizer.js?v=20260909-6";
+import { applyGrainTicketTemplate } from "/js/grain/scanning/ocr/core/template-dispatcher.js?v=20260919-2";`,
+        'Document AI template dispatcher import'
+      );
+
+      html = replaceRequired(
+        html,
+        `          const result =
+            await response.json();`,
+        `          let result =
+            await response.json();
+
+          // New Document AI returns raw document text/layout. Build the
+          // FarmVista grainTicket shell, then let the elevator template parse it.
+          const documentAiText =
+            String(
+              result?.documentText ||
+              result?.document?.text ||
+              ""
+            );
+
+          if (!result.document) {
+            result.document = { text: documentAiText };
+          } else if (!result.document.text) {
+            result.document.text = documentAiText;
+          }
+
+          if (!result.grainTicket) {
+            result.grainTicket = { rawText: documentAiText };
+          } else if (!result.grainTicket.rawText) {
+            result.grainTicket.rawText = documentAiText;
+          }
+
+          if (!result.fields || typeof result.fields !== "object") {
+            result.fields = {};
+          }
+
+          applyGrainTicketTemplate(result);
+
+          result.scanErrors =
+            Array.isArray(result.scanErrors)
+              ? result.scanErrors
+              : [];
+
+          const adaptedTicket =
+            result.grainTicket || {};
+
+          const adaptedRequired = [
+            adaptedTicket.ticketNumber,
+            adaptedTicket.ticketDate,
+            adaptedTicket.crop,
+            adaptedTicket.grossWeight,
+            adaptedTicket.tareWeight,
+            adaptedTicket.netWeight,
+            adaptedTicket.netBushels
+          ];
+
+          if (
+            !adaptedRequired.every(
+              value =>
+                value !== null &&
+                value !== undefined &&
+                String(value).trim() !== ""
+            )
+          ) {
+            result.scanErrors.push(
+              "FarmVista could not parse all required ticket fields."
+            );
+          }
+
+          result.scanValid =
+            result.scanErrors.length === 0;`,
+        'adapt Document AI response before FarmVista validation'
+      );
+
       const landscapeCss = `
 @media (orientation: landscape) and (max-height: 700px) {
   .camera-page{display:flex !important;flex-direction:column !important;width:100vw !important;height:100dvh !important;overflow:hidden !important}
