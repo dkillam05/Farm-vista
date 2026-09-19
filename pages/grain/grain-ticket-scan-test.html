@@ -35,7 +35,40 @@ function render(diag){const data=diag.data||{},text=String(data?.documentText||'
 runBtn.onclick=async()=>{if(!selectedFile)return;runBtn.disabled=true;copyBtn.disabled=true;status.className='status';status.textContent='Reading ticket with the new FarmVista Document OCR service…';results.style.display='none';const started=new Date().toISOString();try{const base64=await fileToBase64(selectedFile);let response;try{response=await fetch(OCR_URL,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({mode:'grain_ticket',content:base64,mimeType:selectedFile.type||'image/jpeg'})});}catch(networkError){lastDiagnostic={started,file:{name:selectedFile.name,type:selectedFile.type,size:selectedFile.size},endpoint:OCR_URL,status:0,statusText:'FETCH FAILED',networkError:String(networkError?.message||networkError),raw:'',data:null};render(lastDiagnostic);copyBtn.disabled=false;throw new Error('OCR request was blocked or failed before the browser received a response. Copy the diagnostic report so we can see the endpoint/network failure.');}
 const raw=await response.text();let data=null;try{data=raw?JSON.parse(raw):null;}catch(parseError){data={_diagnosticNonJson:true,body:raw};}
 lastDiagnostic={started,file:{name:selectedFile.name,type:selectedFile.type,size:selectedFile.size},endpoint:OCR_URL,status:response.status,statusText:response.statusText,headers:Object.fromEntries(response.headers.entries()),raw,data};render(lastDiagnostic);copyBtn.disabled=false;if(!response.ok||data?.ok===false){const backendMessage=data?.error?.message||data?.error||data?.message||`OCR returned ${response.status}`;throw new Error(typeof backendMessage==='string'?backendMessage:JSON.stringify(backendMessage));}status.className='status ok';status.textContent='New Document OCR diagnostic complete. Nothing was saved to FarmVista.';console.log('[FarmVista OCR DIAGNOSTIC]',lastDiagnostic);}catch(error){console.error('[FarmVista OCR DIAGNOSTIC] failed',error,lastDiagnostic);status.className='status error';status.textContent=error?.message||String(error);}finally{runBtn.disabled=!selectedFile;}};
-copyBtn.onclick=async()=>{if(!lastDiagnostic)return;const data=lastDiagnostic.data||{},text=String(data?.documentText||'');const report=['=== FARMVISTA NEW GRAIN TICKET OCR DIAGNOSTIC ===',`Time: ${lastDiagnostic.started}`,`File: ${lastDiagnostic.file?.name||''} (${lastDiagnostic.file?.type||''}, ${lastDiagnostic.file?.size||0} bytes)`,`Endpoint: ${lastDiagnostic.endpoint}`,`HTTP: ${lastDiagnostic.status||'NO RESPONSE'} ${lastDiagnostic.statusText||''}`,`OCR Engine: ${data?.ocrEngine||''}`,`Processor: ${data?.processor||''}`,`Pages: ${Array.isArray(data?.pages)?data.pages.length:0}`,lastDiagnostic.networkError?`Network error: ${lastDiagnostic.networkError}`:'','','=== document text / raw OCR reading ===',text||'(none)','','=== full OCR response ===',lastDiagnostic.raw||JSON.stringify(data,null,2)].filter(v=>v!==null).join('\n');try{await navigator.clipboard.writeText(report);status.className='status ok';status.textContent='Diagnostic report copied. Paste it into ChatGPT so we can trace the Beta template handoff.';}catch{const ta=document.createElement('textarea');ta.value=report;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();status.className='status ok';status.textContent='Diagnostic report copied. Paste it into ChatGPT.';}};
+copyBtn.onclick=async()=>{if(!lastDiagnostic)return;const data=lastDiagnostic.data||{},text=String(data?.documentText||'');const report=['=== FARMVISTA NEW GRAIN TICKET OCR DIAGNOSTIC ===',`Time: ${lastDiagnostic.started}`,`File: ${lastDiagnostic.file?.name||''} (${lastDiagnostic.file?.type||''}, ${lastDiagnostic.file?.size||0} bytes)`,`Endpoint: ${lastDiagnostic.endpoint}`,`HTTP: ${lastDiagnostic.status||'NO RESPONSE'} ${lastDiagnostic.statusText||''}`,`OCR Engine: ${data?.ocrEngine||''}`,`Processor: ${data?.processor||''}`,`Pages: ${Array.isArray(data?.pages)?data.pages.length:0}`,lastDiagnostic.networkError?`Network error: ${lastDiagnostic.networkError}`:'','','=== document text / raw OCR reading ===',text||'(none)','','=== full OCR response ===',lastDiagnostic.raw||JSON.stringify(data,null,2)].filter(v=>v!==null).join('\n');try{
+  // Use a DOM textarea first. This is more reliable on the diagnostic page
+  // than navigator.clipboard alone (browser permissions/focus can block it).
+  const ta=document.createElement('textarea');
+  ta.value=report;
+  ta.setAttribute('readonly','');
+  ta.style.position='fixed';
+  ta.style.left='-9999px';
+  ta.style.top='0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  ta.setSelectionRange(0,ta.value.length);
+  let copied=false;
+  try{copied=document.execCommand('copy');}catch(_){}
+  ta.remove();
+
+  // Modern Clipboard API fallback when execCommand is unavailable.
+  if(!copied&&navigator.clipboard&&window.isSecureContext){
+    await navigator.clipboard.writeText(report);
+    copied=true;
+  }
+  if(!copied)throw new Error('Browser did not allow clipboard access.');
+
+  status.className='status ok';
+  status.textContent='Diagnostic report copied. Paste it into ChatGPT so we can trace the Beta template handoff.';
+  const original=copyBtn.textContent;
+  copyBtn.textContent='Copied!';
+  setTimeout(()=>{copyBtn.textContent=original;},1400);
+}catch(error){
+  console.error('[FarmVista OCR DIAGNOSTIC] copy failed',error);
+  status.className='status error';
+  status.textContent='Copy failed. Click Copy Diagnostic Report again after clicking anywhere on this page.';
+}};
 })();
 </script>
 </body></html>
