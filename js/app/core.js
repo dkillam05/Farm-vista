@@ -113,7 +113,7 @@
 
       const script = doc.createElement('script');
       script.type = 'module';
-      script.src = '/js/grain/shared/grain-index-hauling-jobs.js?v=20260913-1';
+      script.src = '/js/grain/shared/grain-index-hauling-jobs.js?v=20260918-2';
       script.dataset.fvGrainIndexHaulingJobs = '1';
       doc.head.appendChild(script);
     }catch{}

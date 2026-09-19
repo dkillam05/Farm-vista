@@ -23,6 +23,7 @@ if (!window.__FV_GRAIN_INDEX_HAULING_JOBS_20260913_V1) {
   window.__FV_GRAIN_INDEX_HAULING_JOBS_20260913_V1 = true;
 
   const db = getFirestore();
+  const STATIC_KPI_ID = "fv-hauling-commitment-kpis";
   const clean = value => String(value ?? "").trim();
   const norm = value => clean(value).toLowerCase();
   const num = value => {
@@ -155,13 +156,30 @@ if (!window.__FV_GRAIN_INDEX_HAULING_JOBS_20260913_V1) {
       [data-theme="dark"] .fv-ahj-status.active{color:#b9e4bf}
       [data-theme="dark"] .fv-ahj-status.upcoming{color:#f4ca78}
       .fv-ahj-spot{font-weight:850}
+      .fv-ahj-commitment-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-bottom:16px}
+      .fv-ahj-commitment-kpis-top{padding:18px 20px 0;margin-bottom:0}
+      .fv-ahj-commitment-kpi{min-width:0;padding:14px;border:1px solid var(--border,#d4d4d4);border-radius:12px;background:var(--surface,#fff);box-shadow:var(--shadow,0 1px 3px rgba(0,0,0,.05))}
+      .fv-ahj-commitment-label{font-size:.8rem;opacity:.70;margin-bottom:5px;font-weight:500}
+      .fv-ahj-commitment-value{font-size:1.28rem;font-weight:800;white-space:nowrap;font-variant-numeric:tabular-nums}
     `;
     document.head.appendChild(style);
   }
 
+  function ensureCommitmentKpis(section) {
+    if (!section) return null;
+    let wrap = document.getElementById(STATIC_KPI_ID) || document.getElementById("fv-grain-index-commitment-kpis");
+    if (wrap) return wrap;
+    // The KPI row now lives in its own static Grain Index section.
+    // Never inject KPI markup into the dynamic hauling-jobs card/table.
+    return null;
+  }
+
   function ensureSection() {
     let section = document.getElementById("fv-active-hauling-jobs-section");
-    if (section) return section;
+    if (section) {
+      ensureCommitmentKpis(section);
+      return section;
+    }
 
     const harvestSection = document.getElementById("active-harvest-section")?.closest("section.workspace-section");
     if (!harvestSection) return null;
@@ -177,6 +195,7 @@ if (!window.__FV_GRAIN_INDEX_HAULING_JOBS_20260913_V1) {
           </div>
         </div>
         <div class="inventory-body">
+          <div id="fv-grain-index-commitment-kpis" class="fv-ahj-commitment-kpis" aria-label="Remaining committed bushels by crop"></div>
           <div class="table-wrap">
             <table class="fv-ahj-table inventory-table">
               <thead>
@@ -202,7 +221,9 @@ if (!window.__FV_GRAIN_INDEX_HAULING_JOBS_20260913_V1) {
       </div>
     `;
     harvestSection.parentNode.insertBefore(section, harvestSection);
-    return document.getElementById("fv-active-hauling-jobs-section");
+    const built = document.getElementById("fv-active-hauling-jobs-section");
+    ensureCommitmentKpis(built);
+    return built;
   }
 
   function rowHtml(job, stateName, tickets, customersById) {
@@ -228,11 +249,12 @@ if (!window.__FV_GRAIN_INDEX_HAULING_JOBS_20260913_V1) {
 
   async function render() {
     installStyles();
+    const kpiWrap = document.getElementById(STATIC_KPI_ID) || document.getElementById("fv-grain-index-commitment-kpis");
     const section = ensureSection();
-    if (!section) return;
     const tbody = document.getElementById("fv-grain-index-hauling-jobs-tbody");
-    if (!tbody) return;
 
+    // KPI totals are independent from the hauling table UI. Load/calculate them
+    // even if the existing table is rendered by another Grain Index component.
     try {
       const [jobSnap, ticketSnap, customerSnap] = await Promise.all([
         getDocs(collection(db, "grain_hauling_jobs")),
@@ -246,6 +268,37 @@ if (!window.__FV_GRAIN_INDEX_HAULING_JOBS_20260913_V1) {
 
       const active = jobs.filter(job => status(job, tickets) === "active");
       const upcoming = jobs.filter(job => status(job, tickets) === "upcoming");
+      const pastDue = jobs.filter(job => status(job, tickets) === "past_due");
+
+      // KPI totals are commitments still owed, regardless of whether the job is
+      // active, upcoming, or past due. Completed/closed/voided jobs contribute 0.
+      const committedByCrop = new Map();
+      [...active, ...upcoming, ...pastDue].forEach(job => {
+        const remaining = remainingBushels(job, tickets);
+        const crop = jobCrop(job);
+        if (remaining <= 0.005 || crop === "—") return;
+        committedByCrop.set(crop, (committedByCrop.get(crop) || 0) + remaining);
+      });
+
+      if (kpiWrap) {
+        const cropTotals = [...committedByCrop.entries()]
+          .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+        kpiWrap.innerHTML = cropTotals.length ? cropTotals.map(([crop, remaining]) => `
+          <div class="mini-kpi fv-ahj-commitment-kpi">
+            <div class="mini-kpi-label fv-ahj-commitment-label">${esc(crop)} Remaining to Deliver</div>
+            <div class="mini-kpi-value fv-ahj-commitment-value">${fmtBu(remaining)} bu</div>
+          </div>
+        `).join("") : `
+          <div class="mini-kpi">
+            <div class="mini-kpi-label">Remaining to Deliver</div>
+            <div class="mini-kpi-value">0 bu</div>
+          </div>
+        `;
+        kpiWrap.hidden = false;
+      }
+
+      // If another renderer owns the hauling table, stop here after updating KPIs.
+      if (!section || !tbody) return;
 
       active.sort((a, b) => jobName(a).localeCompare(jobName(b), undefined, { numeric: true, sensitivity: "base" }));
       upcoming.sort((a, b) => startDate(a).localeCompare(startDate(b)) || jobName(a).localeCompare(jobName(b), undefined, { numeric: true, sensitivity: "base" }));
@@ -266,7 +319,10 @@ if (!window.__FV_GRAIN_INDEX_HAULING_JOBS_20260913_V1) {
       document.dispatchEvent(new CustomEvent("fv:grain-index-hauling-jobs-rendered"));
     } catch (error) {
       console.warn("[Grain Index] Could not load hauling jobs:", error);
-      tbody.innerHTML = `<tr><td colspan="10" class="empty-row">Hauling jobs could not be loaded.</td></tr>`;
+      if (kpiWrap) {
+        kpiWrap.innerHTML = `<div class="mini-kpi"><div class="mini-kpi-label">Remaining to Deliver</div><div class="mini-kpi-value">— bu</div></div>`;
+      }
+      if (tbody) tbody.innerHTML = `<tr><td colspan="10" class="empty-row">Hauling jobs could not be loaded.</td></tr>`;
     }
   }
 

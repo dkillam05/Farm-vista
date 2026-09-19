@@ -922,11 +922,24 @@ function prettyFarmName(
   farmKey
 ) {
 
-  return String(
-    farmKey ||
-    ""
-  )
-    .trim()
+  const normalizedFarmKey =
+    String(
+      farmKey ||
+      ""
+    )
+      .trim()
+      .toLowerCase();
+
+  if (
+    normalizedFarmKey ===
+    "demo"
+  ) {
+
+    return "FarmVista Demo";
+
+  }
+
+  return normalizedFarmKey
     .replace(
       /[-_]+/g,
       " "
