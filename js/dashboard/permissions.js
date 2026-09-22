@@ -54,6 +54,7 @@ PRETRIP: "logistics-pre-trip",
       markets: byId("markets-section"),
       chatbot: byId("ai-section"),
       logisticsOverview: byId("logistics-panel"),
+      portraitPretrip: byId("portrait-pretrip"),
 
       attentionSection: byId("attention-section"),
       kpiWO: byId("wo-approve-kpi"),
@@ -65,6 +66,7 @@ PRETRIP: "logistics-pre-trip",
 
       qlPreTripAdd: byId("ql-pretrip-add"),
       qlPreTripAddMobile: byId("ql-pretrip-add-mobile"),
+      qlGrainScanMobile: byId("ql-grain-ticket-scan-mobile"),
 
       qlBoundaries: byId("ql-boundaries"),
       qlBoundariesMobile: byId("ql-boundaries-mobile"),
@@ -283,6 +285,7 @@ PRETRIP: "logistics-pre-trip",
       isVisible(els.qlFieldWeather);
 
     const mobileHasLinks =
+      isVisible(els.qlGrainScanMobile) ||
       isVisible(els.qlPreTripAddMobile) ||
       isVisible(els.qlBoundariesMobile) ||
       isVisible(els.qlMaintAddMobile) ||
@@ -370,6 +373,7 @@ PRETRIP: "logistics-pre-trip",
       els.markets,
       els.chatbot,
       els.logisticsOverview,
+      els.portraitPretrip,
 
       els.attentionSection,
       els.kpiWO,
@@ -381,6 +385,7 @@ PRETRIP: "logistics-pre-trip",
 
       els.qlPreTripAdd,
       els.qlPreTripAddMobile,
+      els.qlGrainScanMobile,
 
       els.qlBoundaries,
       els.qlBoundariesMobile,
@@ -463,6 +468,8 @@ PRETRIP: "logistics-pre-trip",
       )
     );
 
+    setVisible(els.portraitPretrip, can(CAP.LOGISTICS_OVERVIEW, "view"));
+
     /*
      * =========================================================
      * KPI CARDS
@@ -504,6 +511,8 @@ PRETRIP: "logistics-pre-trip",
         CAP.PRETRIP,
         "add"
       );
+
+    setVisible(els.qlGrainScanMobile, can("grain-tix", "add"));
 
     const boundariesAllowed =
       canAny(

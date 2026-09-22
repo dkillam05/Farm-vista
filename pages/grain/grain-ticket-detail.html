@@ -1476,12 +1476,12 @@
                     Driver
                   </label>
 
-                  <div
-                    id="driverName"
-                    class="readonly-line"
+                  <select
+                    id="driverSelect"
+                    class="control"
                   >
-                    —
-                  </div>
+                    <option value="">Loading drivers…</option>
+                  </select>
 
                 </div>
 
@@ -1910,8 +1910,8 @@ crop:
       bushelCheck:
         $("bushelCheck"),
 
-      driverName:
-        $("driverName"),
+      driverSelect:
+        $("driverSelect"),
 
       entryMethod:
         $("entryMethod"),
@@ -3610,14 +3610,15 @@ else {
     ========================================================
   */
 
-  elements.driverName.textContent =
-    clean(
-      load.driverName
+  state.selectedDriver =
+    state.drivers.find(driver =>
+      clean(driver.id) === clean(load.driverEmployeeId) ||
+      normalize(driver.driverName) === normalize(load.driverName)
     ) ||
-    clean(
-      state.ticket?.driverName
-    ) ||
-    "—";
+    state.selectedDriver;
+
+  elements.driverSelect.value =
+    state.selectedDriver?.id || "";
 
 
   /*
@@ -4387,7 +4388,8 @@ const [
   ticketSnapshot,
   binSiteSnapshot,
   bagEventSnapshot,
-  fieldSnapshot
+  fieldSnapshot,
+  employeeSnapshot
 ] =
   await Promise.all([
 
@@ -4452,9 +4454,73 @@ getDocs(
               db,
               "fields"
             )
+          ),
+
+          getDocs(
+            collection(
+              db,
+              "employees"
+            )
           )
 
         ]);
+
+
+      state.drivers =
+        employeeSnapshot.docs
+          .map(snapshot => ({
+            id: snapshot.id,
+            ...(snapshot.data() || {})
+          }))
+          .filter(employee => {
+            const roles = Array.isArray(employee.roles)
+              ? employee.roles
+              : [employee.role].filter(Boolean);
+            const isSemiDriver = roles.some(
+              role => normalize(role) === "semi driver"
+            );
+            const isActive =
+              employee.active !== false &&
+              normalize(employee.status || "active") === "active" &&
+              employee.archived !== true;
+            return isSemiDriver && isActive;
+          })
+          .map(employee => ({
+            ...employee,
+            driverName:
+              clean(employee.fullName) ||
+              clean(employee.name) ||
+              [clean(employee.firstName), clean(employee.lastName)]
+                .filter(Boolean)
+                .join(" ")
+          }))
+          .filter(employee => employee.driverName)
+          .sort((a,b) => a.driverName.localeCompare(b.driverName));
+
+      const savedDriverId =
+        clean(state.ticket?.driverEmployeeId);
+      const savedDriverName =
+        clean(state.ticket?.driverName);
+
+      state.selectedDriver =
+        state.drivers.find(driver =>
+          (savedDriverId && clean(driver.id) === savedDriverId) ||
+          (savedDriverName && normalize(driver.driverName) === normalize(savedDriverName))
+        ) ||
+        state.drivers.find(driver =>
+          normalize(driver.driverName) === "scandan"
+        ) ||
+        null;
+
+      elements.driverSelect.innerHTML =
+        state.drivers.length
+          ? state.drivers.map(driver =>
+              `<option value="${driver.id}">${driver.driverName}</option>`
+            ).join("")
+          : '<option value="">No active Semi Drivers</option>';
+
+      elements.driverSelect.value =
+        state.selectedDriver?.id || "";
 
 
       state.fields =
@@ -10437,12 +10503,23 @@ elements.foreignMaterial.value =
         "";
 
 
-      elements.driverName.textContent =
-        clean(
-          state.loadout?.driverName ||
-          ticket.driverName
+      const displayedDriver =
+        state.drivers.find(driver =>
+          clean(driver.id) === clean(state.loadout?.driverEmployeeId) ||
+          normalize(driver.driverName) === normalize(state.loadout?.driverName)
         ) ||
-        "—";
+        state.selectedDriver;
+
+      state.selectedDriver =
+        displayedDriver ||
+        state.drivers.find(driver =>
+          normalize(driver.driverName) === "scandan"
+        ) ||
+        null;
+
+      elements.driverSelect.value =
+        state.selectedDriver?.id ||
+        "";
 
 
       elements.entryMethod.textContent =
@@ -11334,6 +11411,69 @@ function updateSelectedReferences() {
     }
 
 
+    function customerAliasIsSafe(
+      value
+    ) {
+
+      const normalizedValue =
+        normalize(
+          value
+        );
+
+
+      if (
+        !normalizedValue
+      ) {
+
+        return false;
+
+      }
+
+
+      const blockedCustomerLabels =
+        new Set([
+          "shipper",
+          "customer",
+          "customer name",
+          "account",
+          "account number",
+          "vendor",
+          "vendor name",
+          "carrier",
+          "driver",
+          "truck",
+          "trucking",
+          "destination",
+          "sold under",
+          "contract"
+        ]);
+
+
+      if (
+        blockedCustomerLabels.has(
+          normalizedValue
+        )
+      ) {
+
+        return false;
+
+      }
+
+
+      /*
+        A customer alias must contain real identifying content.
+        Generic OCR field labels can never become learned mappings.
+      */
+      return (
+        normalizedValue.length >= 4 &&
+        /[a-z0-9]/.test(
+          normalizedValue
+        )
+      );
+
+    }
+
+
     async function saveAlias(
       type,
       targetId,
@@ -11352,6 +11492,24 @@ function updateSelectedReferences() {
         !ocrText ||
         !targetId
       ) {
+
+        return;
+
+      }
+
+
+      if (
+        type === "customer" &&
+        !customerAliasIsSafe(
+          ocrText
+        )
+      ) {
+
+        console.warn(
+          "[Grain Ticket Detail] Refusing unsafe customer OCR alias:",
+          ocrText
+        );
+
 
         return;
 
@@ -13412,6 +13570,20 @@ async function saveVerifiedTicketWithInventory(
     }
 
 
+    elements.driverSelect.addEventListener(
+      "change",
+      () => {
+        state.selectedDriver =
+          state.drivers.find(
+            driver =>
+              driver.id ===
+              elements.driverSelect.value
+          ) ||
+          null;
+      }
+    );
+
+
     // ==========================================================
     // SAVE / APPROVE
     // ==========================================================
@@ -13574,7 +13746,43 @@ const customerIsUnknown =
             : [];
 
 
+        state.selectedDriver =
+          state.drivers.find(
+            driver =>
+              driver.id ===
+              elements.driverSelect.value
+          ) ||
+          state.selectedDriver;
+
         const payload = {
+
+          driverEmployeeId:
+            state.selectedDriver?.id ||
+            null,
+
+          driverUid:
+            clean(
+              state.selectedDriver?.uid ||
+              state.selectedDriver?.authUid ||
+              state.selectedDriver?.phoneAuthUid
+            ) ||
+            null,
+
+          driverName:
+            state.selectedDriver?.driverName ||
+            null,
+
+          driverEmail:
+            clean(state.selectedDriver?.email) ||
+            null,
+
+          driverPhone:
+            clean(
+              state.selectedDriver?.phoneE164 ||
+              state.selectedDriver?.phone ||
+              state.selectedDriver?.mobile
+            ) ||
+            null,
 
           buyerId:
             selectedBuyer?.id ||

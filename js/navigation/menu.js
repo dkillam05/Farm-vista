@@ -301,7 +301,7 @@ export const NAV_MENU = {
               id: 'insurance-vehicle',
               icon: '🚘',
               label: 'Vehicle',
-              href: '/docs/cooming-soon.html',
+              href: '/pages/templates/coming-soon.html',
               activeMatch: 'starts-with'
             },
             {
@@ -309,7 +309,7 @@ export const NAV_MENU = {
               id: 'insurance-crop',
               icon: '🌱',
               label: 'Crop',
-              href: '/docs/cooming-soon.html',
+              href: '/pages/templates/coming-soon.html',
               activeMatch: 'starts-with'
             },
             {
@@ -317,7 +317,7 @@ export const NAV_MENU = {
               id: 'insurance-health',
               icon: '🏥',
               label: 'Health',
-              href: '/docs/cooming-soon.html',
+              href: '/pages/templates/coming-soon.html',
               activeMatch: 'starts-with'
             },
             {
@@ -325,7 +325,7 @@ export const NAV_MENU = {
               id: 'insurance-liability',
               icon: '⚖️',
               label: 'Liability',
-              href: '/docs/cooming-soon.html',
+              href: '/pages/templates/coming-soon.html',
               activeMatch: 'starts-with'
             },
             {
@@ -333,7 +333,7 @@ export const NAV_MENU = {
               id: 'insurance-umbrella',
               icon: '☂️',
               label: 'Umbrella',
-              href: '/docs/cooming-soon.html',
+              href: '/pages/templates/coming-soon.html',
               activeMatch: 'starts-with'
             }
           ]
@@ -376,7 +376,7 @@ export const NAV_MENU = {
           id: 'office-farm-land-leases',
           icon: '🌾',
           label: 'Farm Land Leases',
-          href: '/docs/cooming-soon.html',
+          href: '/pages/templates/coming-soon.html',
           activeMatch: 'starts-with'
         },
         {
@@ -393,7 +393,7 @@ export const NAV_MENU = {
           id: 'office-fsa',
           icon: '🏛️',
           label: 'FSA',
-          href: '/docs/cooming-soon.html',
+          href: '/pages/templates/coming-soon.html',
           activeMatch: 'starts-with'
         },
         {
@@ -432,7 +432,7 @@ export const NAV_MENU = {
           id: 'inv-seed-inventory',
           icon: '🌱',
           label: 'Seed',
-          href: '/docs/cooming-soon.html',
+          href: '/pages/templates/coming-soon.html',
           activeMatch: 'starts-with'
         },
         {

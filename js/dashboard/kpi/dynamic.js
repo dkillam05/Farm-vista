@@ -8,7 +8,8 @@
   const KPI_CONFIG = [
     { cardId: "wo-approve-kpi", countId: "wo-approve-count" },
     { cardId: "boundary-kpi", countId: "boundary-kpi-count" },
-    { cardId: "bag-kpi", countId: "bag-kpi-count" }
+    { cardId: "bag-kpi", countId: "bag-kpi-count" },
+    { cardId: "portrait-pretrip", countId: "portrait-pretrip-count", portraitOnly: true }
   ];
 
   const section = document.getElementById("attention-section");
@@ -34,13 +35,14 @@
   function sync(){
     let hasVisibleAttention = false;
 
-    KPI_CONFIG.forEach(({cardId, countId}) => {
+    KPI_CONFIG.forEach(({cardId, countId, portraitOnly}) => {
       const card = document.getElementById(cardId);
       const countEl = document.getElementById(countId);
       if (!card || !countEl) return;
 
       const count = readCount(countEl);
-      const hasItems = count !== null && count > 0;
+      const portrait = innerWidth < 900 && !(innerHeight <= 650 && matchMedia("(orientation: landscape)").matches);
+      const hasItems = portrait ? count !== null && count >= 0 : !portraitOnly && count !== null && count > 0;
 
       card.style.display = hasItems ? "" : "none";
       card.dataset.attentionActive = hasItems ? "true" : "false";
@@ -83,6 +85,7 @@
   });
 
   sync();
+  window.addEventListener("resize", sync);
   document.addEventListener("fv:dash-perms-ready", sync);
   document.addEventListener("fv:user-ready", sync);
   document.addEventListener("visibilitychange", () => {

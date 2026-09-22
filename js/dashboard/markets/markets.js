@@ -612,7 +612,8 @@ Keeps:
 
     const mobile = isMobile();
     const safeList = filterList(list || []);
-    const shown = mobile ? pickMobileTwoTiles(safeList, cropKey) : safeList;
+    const portrait = innerWidth < 900 && !(innerHeight <= 650 && matchMedia("(orientation: landscape)").matches);
+    const shown = mobile && !portrait ? pickMobileTwoTiles(safeList, cropKey) : safeList;
 
     container.innerHTML = `
       <div class="fv-mkt-card">
@@ -789,7 +790,7 @@ Keeps:
     redraw();
 
     if (isMobile()){
-      const vis = mobileVisibleSymbols(payload);
+      const vis = innerWidth < 900 && !(innerHeight <= 650 && matchMedia("(orientation: landscape)").matches) ? allSymbols(payload) : mobileVisibleSymbols(payload);
       await runQueue(vis, "full");
       redraw();
     } else {
@@ -800,8 +801,17 @@ Keeps:
     window.dispatchEvent(new CustomEvent("fv:markets:updated", { detail:{ payload } }));
   };
 
+  let layoutListenerInstalled = false;
   Markets.start = function(){
     ensureStyles();
+    if (!layoutListenerInstalled) {
+      layoutListenerInstalled = true;
+      let layout = `${isMobile()}:${innerHeight <= 650 && matchMedia("(orientation: landscape)").matches}`;
+      window.addEventListener("resize", () => {
+        const next = `${isMobile()}:${innerHeight <= 650 && matchMedia("(orientation: landscape)").matches}`;
+        if (next !== layout) { layout = next; redraw(); }
+      });
+    }
 
     Markets.refresh().catch(()=>{});
 
@@ -812,7 +822,7 @@ Keeps:
     timerFrontQuotes = setInterval(async ()=>{
       try{
         if (!lastPayload) return;
-        const syms = isMobile() ? mobileVisibleSymbols(lastPayload) : allSymbols(lastPayload);
+        const syms = allSymbols(lastPayload);
         await runQueue(syms, "full");
         redraw();
       }catch{}

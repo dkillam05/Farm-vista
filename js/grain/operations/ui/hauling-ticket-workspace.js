@@ -18,9 +18,9 @@ const unassignedBushels=t=>round2(splitRows(t).filter(x=>x.allocationType==='una
 const spotBushels=t=>round2(splitRows(t).filter(x=>x.allocationType==='spot').reduce((s,x)=>s+Math.max(0,Number(x.bushels)||0),0));
 const fullyUnassigned=t=>!clean(t?.haulingJobId)&&splitRows(t).filter(x=>x.allocationType==='job').length===0;
 
-function ticketCard(t,amount,extra='',selectable=false){
+function ticketCard(t,amount,extra='',selectable=false,badge='JOB'){
   const ticketNo=esc(t.ticketNumber||t.ticketNo||t.id),crop=esc(t.crop||t.commodity||'—'),buyer=esc(t.buyerName||t.deliveryLocationName||'—'),sold=esc(t.customerName||t.soldUnder||'—'),date=esc(clean(t.date||t.ticketDate||t.deliveryDate||t.createdDate).slice(0,10)||'—'),location=esc(t.deliveryLocationName||t.deliveryCity||t.buyerName||'—'),driver=esc(t.driverName||t.driver||t.submittedByName||'');
-  return `<div class="fv-go-ticket-card fv-go-hauling-ticket" draggable="true" data-hauling-ticket-id="${esc(t.id)}" data-ticket-detail="${esc(t.id)}">${selectable?`<label class="fv-go-ticket-select" title="Select this ticket to move it with other selected tickets"><input type="checkbox" data-hauling-select="${esc(t.id)}" aria-label="Select ticket ${ticketNo}"></label>`:''}<div class="fv-go-hauling-ticket-top"><strong>Ticket ${ticketNo}</strong><span class="fv-go-ticket-job-pill">JOB</span><b>${bu(amount)} bu</b></div><div class="fv-go-hauling-ticket-meta">${date} · ${crop}</div><div class="fv-go-hauling-ticket-meta">${buyer} · ${location}${driver?` · ${driver}`:''}</div><div class="fv-go-hauling-ticket-sold"><strong>Sold Under:</strong> ${sold}</div>${extra?`<div class="fv-go-hauling-ticket-extra">${esc(extra)}</div>`:''}</div>`;
+  return `<div class="fv-go-ticket-card fv-go-hauling-ticket" draggable="true" data-hauling-ticket-id="${esc(t.id)}" data-ticket-detail="${esc(t.id)}">${selectable?`<label class="fv-go-ticket-select" title="Select this ticket to move it with other selected tickets"><input type="checkbox" data-hauling-select="${esc(t.id)}" aria-label="Select ticket ${ticketNo}"></label>`:''}<div class="fv-go-hauling-ticket-top"><strong>Ticket ${ticketNo}</strong><span class="fv-go-ticket-job-pill">${esc(badge)}</span><b>${bu(amount)} bu</b></div><div class="fv-go-hauling-ticket-meta">${date} · ${crop}</div><div class="fv-go-hauling-ticket-meta">${buyer} · ${location}${driver?` · ${driver}`:''}</div><div class="fv-go-hauling-ticket-sold"><strong>Sold Under:</strong> ${sold}</div>${extra?`<div class="fv-go-hauling-ticket-extra">${esc(extra)}</div>`:''}</div>`;
 }
 
 function render(host){
@@ -28,7 +28,7 @@ function render(host){
   if(!model||!host)return;
   const tickets=(model.tickets||[]).filter(live);
   const unassigned=tickets.filter(t=>fullyUnassigned(t)||unassignedBushels(t)>.005);
-  const unassignedCards=unassigned.map(t=>{const partial=unassignedBushels(t),amount=partial>.005?partial:ticketBushels(t),extra=partial>.005&&clean(t?.haulingJobId)?'SPLIT — UNASSIGNED PORTION':(partial>.005?'Unassigned':'');return ticketCard(t,amount,extra,true).replace(`data-hauling-ticket-id="${esc(t.id)}"`,`data-hauling-ticket-id="${esc(t.id)}" data-hauling-unassigned-ticket-id="${esc(t.id)}"`)}).join('');
+  const unassignedCards=unassigned.map(t=>{const partial=unassignedBushels(t),amount=partial>.005?partial:ticketBushels(t),extra=partial>.005&&clean(t?.haulingJobId)?'SPLIT — UNASSIGNED PORTION':(partial>.005?'Unassigned':'');return ticketCard(t,amount,extra,true,'UNASSIGNED').replace(`data-hauling-ticket-id="${esc(t.id)}"`,`data-hauling-ticket-id="${esc(t.id)}" data-hauling-unassigned-ticket-id="${esc(t.id)}"`)}).join('');
   const jobs=(model.haulingJobs||[]).filter(j=>clean(j.effectiveStatus).toLowerCase()!=='voided');
   const buyers=[...new Set(jobs.map(j=>clean(j.buyerName)).filter(Boolean))].sort();
   const customers=[...new Set(jobs.map(j=>clean(j.customerName||j.soldUnder)).filter(Boolean))].sort();
@@ -56,10 +56,8 @@ export function installHaulingTicketWorkspace(root){
   }
   const host=details.querySelector('[data-panel="hauling-ticket-workspace"]');
   render(host);
-  // Central auto-allocation repair: legacy/scanner tickets may arrive with a whole
-  // ticket on one job even when that ticket crosses the job capacity. Re-run only
-  // central_auto/non-manual assignments through the authoritative capacity planner.
-  // The planner excludes the ticket being recalculated, so this is idempotent.
+  // One-time migration/repair for scanner-era tickets that were saved wholly
+  // against a hauling job before persisted rollover splits existed.
   let autoRepairRunning=false;
   const repairAutomaticRollover=async()=>{
     if(autoRepairRunning)return;
@@ -67,35 +65,30 @@ export function installHaulingTicketWorkspace(root){
     try{
       await refreshGrainOperations();
       const state=grainState();
-      const candidates=(state.tickets||[]).filter(t=>live(t)&&t?.manualHaulingOverride!==true&&clean(t?.haulingJobId)&&(
-        Number(t?.allocationModelVersion||0)<4 ||
-        clean(t?.allocationSource)==='central_auto'
-      ));
+      const candidates=(state.tickets||[])
+        .filter(t=>live(t)&&clean(t?.haulingJobId)&&t?.manualHaulingOverride!==true&&Number(t?.allocationModelVersion||0)<4)
+        .sort((a,b)=>clean(a?.date||a?.ticketDate).localeCompare(clean(b?.date||b?.ticketDate))||clean(a?.createdAt).localeCompare(clean(b?.createdAt))||clean(a?.id).localeCompare(clean(b?.id)));
       let changed=false;
-      for(const ticket of candidates){
-        const before=JSON.stringify({
-          job:clean(ticket.haulingJobId),
-          splits:normalizeSplitAllocations(ticket).map(x=>[clean(x.haulingJobId),round2(x.bushels),clean(x.allocationType)]),
-          spot:round2(ticket.spotBushels||0)
-        });
-        const plan=await persistAutomaticTicketAllocation(ticket,grainState());
+      for(const oldTicket of candidates){
+        const fresh=grainState();
+        const ticket=(fresh.tickets||[]).find(t=>clean(t.id)===clean(oldTicket.id))||oldTicket;
+        const before=JSON.stringify({job:clean(ticket.haulingJobId),splits:normalizeSplitAllocations(ticket).map(x=>[x.haulingJobId,round2(x.bushels),x.allocationType])});
+        const plan=await persistAutomaticTicketAllocation(ticket,fresh);
         const hauling=plan?.hauling;
         if(!hauling)continue;
-        const after=JSON.stringify({
-          job:clean(hauling.haulingJobId),
-          splits:(hauling.haulingJobSplitAllocations||[]).map(x=>[clean(x.haulingJobId),round2(x.bushels),clean(x.allocationType)]),
-          spot:round2(hauling.spotBushels||0)
-        });
+        const after=JSON.stringify({job:clean(hauling.haulingJobId),splits:(hauling.haulingJobSplitAllocations||[]).map(x=>[clean(x.haulingJobId),round2(x.bushels),clean(x.allocationType)])});
         if(before!==after)changed=true;
       }
       if(changed){await refreshGrainOperations();render(host);applyFilters();}
-    }catch(error){console.error('[FarmVista] Automatic hauling rollover repair failed:',error)}
+    }catch(error){console.error('[FarmVista] hauling rollover migration failed',error)}
     finally{autoRepairRunning=false}
   };
-  setTimeout(repairAutomaticRollover,250);
   let dragged='';let draggedIds=[];let draggedSpot=false;let draggedUnassigned=false;
-  const applyFilters=()=>{const search=clean(details.querySelector('[data-hauling-filter="search"]')?.value).toLowerCase(),status=clean(details.querySelector('[data-hauling-filter="status"]')?.value).toLowerCase(),buyer=clean(details.querySelector('[data-hauling-filter="buyer"]')?.value).toLowerCase(),crop=clean(details.querySelector('[data-hauling-filter="crop"]')?.value).toLowerCase(),customer=clean(details.querySelector('[data-hauling-filter="customer"]')?.value).toLowerCase(),hasExplicit=!!(search||status||buyer||crop||customer),model=getWorkspaceModel(),unassignedTickets=(model?.tickets||[]).filter(t=>live(t)&&(fullyUnassigned(t)||unassignedBushels(t)>.005)),defaultPairs=new Set(unassignedTickets.map(t=>`${clean(t.buyerName).toLowerCase()}|${clean(t.crop||t.commodity).toLowerCase()}`));details.querySelectorAll('[data-hauling-job-drop]').forEach(card=>{const job=model?.haulingJobs?.find(j=>clean(j.id)===clean(card.dataset.haulingJobDrop));const text=[job?.jobName,job?.displayName,job?.deliveryLocationName,job?.buyerName,job?.customerName,job?.soldUnder].map(clean).join(' ').toLowerCase(),rawStatus=clean(job?.effectiveStatus||job?.status).toLowerCase(),displayStatus=rawStatus==='closed'?'completed':rawStatus,defaultMatch=defaultPairs.has(`${clean(job?.buyerName).toLowerCase()}|${clean(job?.crop||job?.commodity).toLowerCase()}`);card.hidden=hasExplicit?!!((search&&!text.includes(search))||(status&&displayStatus!==status)||(buyer&&clean(job?.buyerName).toLowerCase()!==buyer)||(crop&&clean(job?.crop||job?.commodity).toLowerCase()!==crop)||(customer&&clean(job?.customerName||job?.soldUnder).toLowerCase()!==customer)):!defaultMatch});const visible=[...details.querySelectorAll('[data-hauling-job-drop]')].filter(card=>!card.hidden).length,count=details.querySelector('.fv-go-dnd-col:nth-child(2) .fv-go-dnd-head span');if(count)count.textContent=String(visible)};
+  const applyFilters=()=>{const search=clean(details.querySelector('[data-hauling-filter="search"]')?.value).toLowerCase(),status=clean(details.querySelector('[data-hauling-filter="status"]')?.value).toLowerCase(),buyer=clean(details.querySelector('[data-hauling-filter="buyer"]')?.value).toLowerCase(),crop=clean(details.querySelector('[data-hauling-filter="crop"]')?.value).toLowerCase(),customer=clean(details.querySelector('[data-hauling-filter="customer"]')?.value).toLowerCase(),hasExplicit=!!(search||status||buyer||crop||customer),model=getWorkspaceModel(),unassignedTickets=(model?.tickets||[]).filter(t=>live(t)&&(fullyUnassigned(t)||unassignedBushels(t)>.005)),defaultPairs=new Set(unassignedTickets.map(t=>`${clean(t.buyerName).toLowerCase()}|${clean(t.crop||t.commodity).toLowerCase()}`));details.querySelectorAll('[data-hauling-job-drop]').forEach(card=>{const job=model?.haulingJobs?.find(j=>clean(j.id)===clean(card.dataset.haulingJobDrop));const text=[job?.jobName,job?.displayName,job?.deliveryLocationName,job?.buyerName,job?.customerName,job?.soldUnder].map(clean).join(' ').toLowerCase(),rawStatus=clean(job?.effectiveStatus||job?.status).toLowerCase(),displayStatus=rawStatus==='closed'?'completed':rawStatus;card.hidden=!hasExplicit||!!((search&&!text.includes(search))||(status&&displayStatus!==status)||(buyer&&clean(job?.buyerName).toLowerCase()!==buyer)||(crop&&clean(job?.crop||job?.commodity).toLowerCase()!==crop)||(customer&&clean(job?.customerName||job?.soldUnder).toLowerCase()!==customer))});details.querySelectorAll('[data-hauling-unassigned-ticket-id]').forEach(card=>{const ticket=unassignedTickets.find(t=>clean(t.id)===clean(card.dataset.haulingUnassignedTicketId));if(!hasExplicit||!ticket){card.hidden=true;return}const text=[ticket.ticketNumber,ticket.ticketNo,ticket.buyerName,ticket.deliveryLocationName,ticket.customerName,ticket.soldUnder,ticket.crop,ticket.commodity,ticket.driverName].map(clean).join(' ').toLowerCase();card.hidden=!!((search&&!text.includes(search))||(buyer&&clean(ticket.buyerName).toLowerCase()!==buyer)||(crop&&clean(ticket.crop||ticket.commodity).toLowerCase()!==crop)||(customer&&clean(ticket.customerName||ticket.soldUnder).toLowerCase()!==customer))});const visibleUnassigned=[...details.querySelectorAll('[data-hauling-unassigned-ticket-id]')].filter(card=>!card.hidden).length,unassignedCount=details.querySelector('.fv-go-hauling-unassigned .fv-go-dnd-head span');if(unassignedCount)unassignedCount.textContent=`Unassigned Tickets · ${visibleUnassigned}`;const visible=[...details.querySelectorAll('[data-hauling-job-drop]')].filter(card=>!card.hidden).length,count=details.querySelector('.fv-go-dnd-col:nth-child(2) .fv-go-dnd-head span');if(count)count.textContent=String(visible)};
   applyFilters();
+  // Start repair only after applyFilters exists. The previous timer could fire while
+  // this module was still initializing, leaving Grain Operations stuck on Loading.
+  setTimeout(repairAutomaticRollover,250);
   const rerenderPreservingView=async()=>{const filters=Object.fromEntries([...details.querySelectorAll('[data-hauling-filter]')].map(x=>[x.dataset.haulingFilter,x.value])),openJobs=new Set([...details.querySelectorAll('[data-hauling-job-drop]')].filter(x=>x.querySelector('.fv-go-assigned-details')?.open).map(x=>x.dataset.haulingJobDrop));await refreshGrainOperations();render(host);for(const [key,value] of Object.entries(filters)){const el=details.querySelector(`[data-hauling-filter="${key}"]`);if(el)el.value=value}details.querySelectorAll('[data-hauling-job-drop]').forEach(x=>{const d=x.querySelector('.fv-go-assigned-details');if(d)d.open=openJobs.has(x.dataset.haulingJobDrop)});applyFilters()};
   const updateSelectionHelper=()=>{const selected=[...details.querySelectorAll('[data-hauling-select]:checked')],helper=details.querySelector('[data-hauling-selection-helper]');if(!helper)return;helper.textContent=selected.length?`${selected.length} ticket${selected.length===1?'':'s'} selected — drag any selected ticket to move the whole group.`:'Select tickets to move several at once.';helper.classList.toggle('active',selected.length>0)};
   details.addEventListener('input',e=>{if(e.target.matches('[data-hauling-filter]'))applyFilters()});details.addEventListener('click',e=>{if(e.target.closest('[data-hauling-select],.fv-go-ticket-select'))e.stopPropagation()});details.addEventListener('change',e=>{if(e.target.matches('[data-hauling-filter]'))applyFilters();if(e.target.matches('[data-hauling-select]')){e.stopPropagation();updateSelectionHelper();return}if(e.target.matches('[data-hauling-select-all]')){e.stopPropagation();const checked=e.target.checked;details.querySelectorAll('[data-hauling-select]').forEach(x=>x.checked=checked);updateSelectionHelper()}});

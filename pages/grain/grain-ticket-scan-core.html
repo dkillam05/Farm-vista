@@ -1741,6 +1741,7 @@
 <script type="module">
 
     import { normalizeGrainTicketGrades } from "/js/grain/scanning/ocr/grain-ticket-ocr-grade-normalizer.js?v=20260909-6";
+    import { planTicketAllocation } from "/js/grain/operations/tickets/ticket-allocation.js?v=20260919-1";
 
     import {
       ready,
@@ -7972,68 +7973,23 @@ function haulingJobTicketedBushels(
   }
 
 
-  return grainTickets
-    .filter(
-      ticket => {
-
-        const status =
-          normalizeAliasText(
-            ticket?.status ||
-            ""
-          );
-
-
-        const voided =
-          ticket?.voided ===
-            true ||
-          status.includes(
-            "void"
-          );
-
-
-        const ticketJobId =
-          String(
-            ticket?.haulingJobId ||
-            ticket?.grainHaulingJobId ||
-            ""
-          ).trim();
-
-
-        return (
-          !voided &&
-          ticketJobId ===
-            jobId
-        );
-
-      }
-    )
-    .reduce(
-      (
-        total,
-        ticket
-      ) => {
-
-        const bushels =
-          Number(
-            ticket?.netBushels ??
-            ticket?.netBu ??
-            ticket?.bushels ??
-            0
-          );
-
-
-        return total +
-          (
-            Number.isFinite(
-              bushels
-            )
-              ? bushels
-              : 0
-          );
-
-      },
-      0
-    );
+  return grainTickets.reduce((total,ticket)=>{
+    const status=normalizeAliasText(ticket?.status||"");
+    if(ticket?.voided===true||status.includes("void"))return total;
+    const sourceId=String(ticket?.haulingJobId||ticket?.grainHaulingJobId||"").trim();
+    const bushels=Number(ticket?.netBushels??ticket?.netBu??ticket?.bushels??0);
+    let amount=sourceId===jobId&&Number.isFinite(bushels)?bushels:0;
+    const splits=Array.isArray(ticket?.haulingJobSplitAllocations)?ticket.haulingJobSplitAllocations:[];
+    for(const split of splits){
+      const source=String(split?.sourceJobId||sourceId||"").trim();
+      const target=String(split?.haulingJobId||"").trim();
+      const splitBushels=Math.max(0,Number(split?.bushels)||0);
+      const type=String(split?.allocationType||"job").trim().toLowerCase();
+      if(source===jobId&&(type==="spot"||type==="unassigned"||(type==="job"&&target&&target!==jobId)))amount-=splitBushels;
+      if(type==="job"&&target===jobId&&source!==jobId)amount+=splitBushels;
+    }
+    return total+Math.max(0,amount);
+  },0);
 
 }
 
@@ -11793,6 +11749,28 @@ reconciliationStatus:
       TICKET_COLLECTION,
       stableTicketId
     );
+
+  // Authoritative hauling allocation. A ticket that fills the current job is
+  // physically split at the remaining capacity and the remainder rolls into
+  // the next compatible hauling job(s). Only leftover bushels after all
+  // compatible capacity is exhausted become Spot.
+  const allocationPlan=planTicketAllocation(
+    {...payload,id:stableTicketId},
+    {haulingJobs, tickets:grainTickets}
+  );
+  const haulingPlan=allocationPlan.hauling;
+  payload.reviewReasons=[...new Set([...(Array.isArray(payload.reviewReasons)?payload.reviewReasons:[]),...(allocationPlan.reviewReasons||[])])];
+  if(allocationPlan.needsReview)payload.validationStatus="review";
+  const haulingSource=haulingJobs.find(job=>String(job?.id||"").trim()===String(haulingPlan.haulingJobId||"").trim());
+  payload.haulingJobId=haulingPlan.haulingJobId||null;
+  payload.haulingJobName=haulingSource?haulingJobDisplayLabel(haulingSource).label:null;
+  payload.haulingJobLabel=payload.haulingJobName;
+  payload.haulingJobSplitAllocations=haulingPlan.haulingJobSplitAllocations||[];
+  payload.allocationModelVersion=4;
+  payload.allocationSource="central_auto";
+  payload.assignedBushels=haulingPlan.totalBushels||0;
+  payload.spotBushels=haulingPlan.spotBushels||0;
+  payload.spotLoad=(haulingPlan.spotBushels||0)>0;
 
 
   await retryNetworkAction(

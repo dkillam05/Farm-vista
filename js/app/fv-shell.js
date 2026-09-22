@@ -42,9 +42,9 @@
     :host{ --green:#3B7E46; --gold:#D0C542; --hdr-h:56px; --ftr-h:14px;
       display:block; color:#141514; background:#fff; min-height:100vh; position:relative; }
     .hdr{ position:fixed; inset:0 0 auto 0; height:calc(var(--hdr-h) + env(safe-area-inset-top,0px));
-      padding-top:env(safe-area-inset-top,0px); background:var(--green); color:#fff;
+      padding-top:env(safe-area-inset-top,0px); background:#fff; color:#141b16;
       display:grid; grid-template-columns:56px 1fr 56px; align-items:center; z-index:1000; box-shadow:0 2px 0 rgba(0,0,0,.05); }
-    .hdr .title{ text-align:center; font-weight:800; font-size:20px; display:flex; align-items:center; justify-content:center; gap:8px; }
+    .hdr .title{ text-align:center; font-family:"Avenir Next",Avenir,"Segoe UI",sans-serif; letter-spacing:-.6px; font-weight:600; font-size:23px; display:flex; align-items:center; justify-content:center; gap:8px; }
     .beta-pill{
       padding:2px 8px;
       border-radius:999px;
@@ -58,6 +58,8 @@
       box-shadow:0 0 0 1px rgba(0,0,0,0.06);
     }
     .iconbtn{ display:grid; place-items:center; width:48px; height:48px; border:none; background:transparent; color:#fff; font-size:28px; line-height:1; -webkit-tap-highlight-color: transparent; margin:0 auto;}
+    .hdr .iconbtn{color:#141b16;}
+    .brand-sprout{width:25px;height:25px;flex:none;color:#3B7E46;}
     .iconbtn svg{ width:26px; height:26px; display:block; }
     .gold-bar{ position:fixed; top:calc(var(--hdr-h) + env(safe-area-inset-top,0px)); left:0; right:0; height:3px; background:var(--gold); z-index:999; }
 
@@ -80,8 +82,23 @@
     .ptr .txt{ font-weight:800; }
 
     .ftr{ position:fixed; inset:auto 0 0 0; height:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px));
-      padding-bottom:env(safe-area-inset-bottom,0px); background:var(--green); color:#fff;
+      padding-bottom:env(safe-area-inset-bottom,0px); background:#fff; color:#141b16;
       display:flex; align-items:center; justify-content:center; border-top:2px solid var(--gold); z-index:900; }
+
+    /* Header, footer, and both iPhone safe areas follow the selected theme. */
+    :host-context(html.dark) .hdr,
+    :host-context(html[data-theme="dark"]) .hdr,
+    :host-context(html.dark) .ftr,
+    :host-context(html[data-theme="dark"]) .ftr{
+      background:#111a14;
+      color:#eef4ef;
+      box-shadow:0 2px 0 rgba(255,255,255,.04);
+    }
+
+    :host-context(html.dark) .hdr .iconbtn,
+    :host-context(html[data-theme="dark"]) .hdr .iconbtn{
+      color:#eef4ef;
+    }
     .ftr .text{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
     .main{ position:relative; padding:
@@ -89,6 +106,15 @@
         calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 16px);
       min-height:100vh; box-sizing:border-box; background: var(--bg); color: var(--text); }
     ::slotted(.container){ max-width:980px; margin:0 auto; }
+
+    /* Phone landscape uses .main itself as the iOS scroll viewport.
+       Give THAT viewport the same trailing breathing room portrait gets
+       from normal document flow, instead of trying to pad the slotted page. */
+    @media (orientation:landscape) and (max-height:650px){
+      .main{
+        padding-bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 150px)!important;
+      }
+    }
 
     .scrim{ position:fixed; inset:0; background:rgba(0,0,0,.45); opacity:0; pointer-events:none; transition:opacity .2s; z-index:1100; }
     :host(.drawer-open) .scrim,
@@ -101,11 +127,13 @@
       -webkit-backdrop-filter: blur(8px);
     }
 
-    .drawer{ position:fixed; top:0; bottom:0; left:0; width:min(84vw, 320px);
+    .drawer{ position:fixed; top:80px; bottom:auto; left:12px; width:min(84vw, 320px);
+      max-height:calc(100vh - 92px);
       background: var(--surface); color: var(--text); box-shadow: var(--shadow);
-      transform:translateX(-100%); transition:transform .25s; z-index:1200; -webkit-overflow-scrolling:touch;
-      display:flex; flex-direction:column; height:100%; overflow:hidden; padding-bottom:env(safe-area-inset-bottom,0px);
-      border-right: 1px solid var(--border); }
+      transform:translateX(calc(-100% - 12px)); transition:transform .25s; z-index:1200; -webkit-overflow-scrolling:touch;
+      display:flex; flex-direction:column; height:auto; overflow:hidden;
+      padding-bottom:0;
+      border:1px solid var(--border); border-radius:14px; }
     :host(.drawer-open) .drawer{ transform:translateX(0); }
     .drawer header{ padding:16px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; flex:0 0 auto; background: var(--surface); }
     .org{ display:flex; align-items:center; gap:12px; }
@@ -119,8 +147,8 @@
     .drawer nav a{ display:flex; align-items:center; gap:12px; padding:16px; text-decoration:none; color: var(--text); border-bottom:1px solid var(--border); }
     .drawer nav a span:first-child{ width:22px; text-align:center; opacity:.95; }
 
-    .drawer-footer{ flex:0 0 auto; display:flex; align-items:flex-end; justify-content:space-between; gap:12px; padding:12px 16px;
-      padding-bottom:calc(12px + env(safe-area-inset-bottom,0px)); border-top:1px solid var(--border);
+    .drawer-footer{ flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 16px;
+      border-top:1px solid var(--border);
       background: var(--surface); color: var(--text); }
     .df-left{ display:flex; flex-direction:column; align-items:flex-start; }
     .df-left .brand{ font-weight:800; line-height:1.15; }
@@ -134,6 +162,7 @@
     .topwrap{ padding:6px 10px 14px; }
     .brandrow{ display:flex; align-items:center; justify-content:center; gap:10px; padding:10px 8px 12px 8px; }
     .brandrow img{ width:28px; height:28px; border-radius:6px; object-fit:cover; }
+    .brandrow-sprout{width:28px;height:28px;flex:none;color:#fff;}
     .brandrow .brandname{ font-weight:800; font-size:18px; letter-spacing:.2px; }
     .section-h{ padding:12px 12px 6px; font:600 12px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; letter-spacing:.12em; color:color-mix(in srgb,#fff 85%, transparent); }
 
@@ -145,6 +174,11 @@
     .row .left{ display:flex; align-items:center; gap:14px; }
     .row .ico{ width:28px; height:28px; display:grid; place-items:center; font-size:24px; line-height:1; text-align:center; opacity:.95; }
     .row .txt{ font-size:16px; line-height:1.25; }
+    #userDetailsLink .txt{
+      font-family:"Avenir Next",Avenir,"Segoe UI",sans-serif;
+      font-weight:600;
+      letter-spacing:-.25px;
+    }
     .row .chev{ opacity:.9; }
 
     .toast{ position:fixed; left:50%; bottom:calc(var(--ftr-h) + env(safe-area-inset-bottom,0px) + 12px);
@@ -336,7 +370,7 @@
   <header class="hdr" part="header">
     <button class="iconbtn js-menu" aria-label="Open menu">≡</button>
     <div class="title">
-      <span>FarmVista</span>
+      <svg class="brand-sprout" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 21V11" stroke="var(--gold)" stroke-width="3" stroke-linecap="round"/><path d="M12 21V11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M12 14C5 14 3 10 3 5c6 0 9 3 9 9ZM12 11c0-6 3-9 9-9 0 6-3 9-9 9Z" fill="currentColor" stroke="var(--gold)" stroke-width=".6" stroke-linejoin="round"/></svg><span>FarmVista</span>
       <span id="betaBadge" class="beta-pill" hidden>BETA</span>
     </div>
     <button class="iconbtn js-account" aria-label="Account" title="Account">
@@ -390,7 +424,7 @@
 
   <section class="topdrawer js-top" role="dialog" aria-label="Account & settings">
     <div class="topwrap">
-      <div class="brandrow"><img src="/assets/icons/icon-192.png" alt="" /><div class="brandname">FarmVista</div></div>
+      <div class="brandrow"><svg class="brandrow-sprout" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 21V11" stroke="var(--gold)" stroke-width="3" stroke-linecap="round"/><path d="M12 21V11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M12 14C5 14 3 10 3 5c6 0 9 3 9 9ZM12 11c0-6 3-9 9-9 0 6-3 9-9 9Z" fill="currentColor" stroke="var(--gold)" stroke-width=".6" stroke-linejoin="round"/></svg><div class="brandname">FarmVista</div></div>
 
       <div class="section-h">THEME</div>
       <div class="chips">
