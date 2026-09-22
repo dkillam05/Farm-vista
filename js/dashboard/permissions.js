@@ -60,6 +60,8 @@ PRETRIP: "logistics-pre-trip",
       kpiWO: byId("wo-approve-kpi"),
       kpiBoundary: byId("boundary-kpi"),
       kpiBag: byId("bag-kpi"),
+      kpiLoads: byId("grain-loads-kpi"),
+      kpiReview: byId("grain-review-kpi"),
 
       desktopQuickLinks: byId("desktop-quick-links"),
       mobileQuickLinks: byId("quick-links"),
@@ -266,7 +268,7 @@ PRETRIP: "logistics-pre-trip",
     const hasVisibleKPI =
       isVisible(els.kpiWO) ||
       isVisible(els.kpiBoundary) ||
-      isVisible(els.kpiBag);
+      isVisible(els.kpiBag) || isVisible(els.kpiLoads) || isVisible(els.kpiReview);
 
     setVisible(
       els.attentionSection,
@@ -378,6 +380,8 @@ PRETRIP: "logistics-pre-trip",
       els.attentionSection,
       els.kpiWO,
       els.kpiBoundary,
+      els.kpiLoads,
+      els.kpiReview,
       els.kpiBag,
 
       els.desktopQuickLinks,
@@ -505,6 +509,9 @@ PRETRIP: "logistics-pre-trip",
      * QUICK LINK PERMISSION CHECKS
      * =========================================================
      */
+
+    setVisible(els.kpiLoads, can(CAP.KPI_GRAIN, "view") && can("grain-tix", "view"));
+    setVisible(els.kpiReview, can(CAP.KPI_GRAIN, "view") && can("grain-tix", "view"));
 
     const preTripAddAllowed =
       can(

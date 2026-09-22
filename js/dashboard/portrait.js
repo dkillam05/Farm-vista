@@ -62,7 +62,8 @@
       const order = JSON.parse(localStorage.getItem(orderKey()) || '[]');
       if (Array.isArray(order)) {
         const cards = new Map(attentionCards().map(card => [card.id,card]));
-        order.forEach(id => { const card = cards.get(id); if (card) attentionGrid.append(card); });
+        order.forEach(id => { const card = cards.get(id); if (card) { attentionGrid.append(card); cards.delete(id); } });
+        cards.forEach(card => attentionGrid.append(card));
       }
     } catch {}
     syncAttentionCards();
@@ -158,7 +159,7 @@
   }
   enableLongPressSorting();
   restoreAttentionOrder();
-  new MutationObserver(() => requestAnimationFrame(syncAttentionCards)).observe(attentionGrid,{subtree:false,childList:true,attributes:true,attributeFilter:['hidden','style','aria-hidden']});
+  new MutationObserver(() => requestAnimationFrame(syncAttentionCards)).observe(attentionGrid,{subtree:true,childList:true,attributes:true,attributeFilter:['hidden','style','aria-hidden']});
   document.addEventListener('fv:user-ready',restoreAttentionOrder);
   document.addEventListener('fv:dash-perms-ready',()=>{enableLongPressSorting();restoreAttentionOrder();});
   function layoutLabels(){

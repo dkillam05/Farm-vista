@@ -6,6 +6,8 @@
   "use strict";
 
   const KPI_CONFIG = [
+    { cardId: "grain-loads-kpi", countId: "grain-loads-count", alwaysShow: true },
+    { cardId: "grain-review-kpi", countId: "grain-review-count", alwaysShow: true },
     { cardId: "wo-approve-kpi", countId: "wo-approve-count" },
     { cardId: "boundary-kpi", countId: "boundary-kpi-count" },
     { cardId: "bag-kpi", countId: "bag-kpi-count" },
@@ -35,14 +37,14 @@
   function sync(){
     let hasVisibleAttention = false;
 
-    KPI_CONFIG.forEach(({cardId, countId, portraitOnly}) => {
+    KPI_CONFIG.forEach(({cardId, countId, portraitOnly, alwaysShow}) => {
       const card = document.getElementById(cardId);
       const countEl = document.getElementById(countId);
       if (!card || !countEl) return;
 
       const count = readCount(countEl);
       const portrait = innerWidth < 900 && !(innerHeight <= 650 && matchMedia("(orientation: landscape)").matches);
-      const hasItems = portrait ? count !== null && count >= 0 : !portraitOnly && count !== null && count > 0;
+      const hasItems = alwaysShow || (portrait ? count !== null && count >= 0 : !portraitOnly && count !== null && count > 0);
 
       card.style.display = hasItems ? "" : "none";
       card.dataset.attentionActive = hasItems ? "true" : "false";

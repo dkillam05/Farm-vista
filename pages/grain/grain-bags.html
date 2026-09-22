@@ -995,6 +995,42 @@
         color:#ffb2ad;
       }
     }
+
+    .inventory-grid tbody td.field-edit-cell { padding:0; }
+    .field-swipe { position:relative; overflow:hidden; touch-action:pan-y pinch-zoom; }
+    .field-swipe .field-name { position:relative; display:block; padding:12px 44px 12px 10px; background:var(--sheet-bg); transition:transform .18s ease; pointer-events:none; }
+    .field-edit { position:absolute; right:0; top:0; bottom:0; width:64px; border:0; background:var(--bag-green); color:white; font:inherit; font-weight:850; cursor:pointer; visibility:hidden; }
+    .field-swipe.revealed .field-name { transform:translateX(-64px); }
+    .field-swipe.revealed .field-edit { visibility:visible; }
+    .field-edit svg { width:18px; height:18px; }
+    .field-edit .edit-pencil { display:none; }
+    @media (hover:hover) and (pointer:fine) {
+      .field-swipe:not(.revealed):hover .field-edit, .field-swipe:not(.revealed):focus-visible .field-edit { visibility:visible; z-index:1; width:40px; background:var(--sheet-bg); color:var(--sheet-text); }
+      .field-swipe:not(.revealed) .edit-pencil { display:inline; }
+      .field-swipe:not(.revealed) .edit-label { display:none; }
+    }
+    .field-swipe:focus-visible .field-edit, .field-edit:focus-visible { visibility:visible; z-index:1; }
+    .inventory-grid .field-edit .edit-label { color:#fff !important; -webkit-text-fill-color:#fff !important; }
+    .inventory-grid .field-swipe.revealed .field-edit { background:var(--bag-green); color:#fff !important; -webkit-text-fill-color:#fff !important; }
+    .field-edit:focus-visible { outline:2px solid currentColor; outline-offset:-4px; }
+    #bagEditDialog { max-height:calc(100dvh - 24px); overflow:auto; }
+    #bagEditForm label { display:grid; gap:5px; font-size:13px; font-weight:850; }
+    #bagEditPartials { display:grid; gap:10px; }
+    @media(prefers-reduced-motion:reduce) { .field-swipe .field-name { transition:none; } }
+
+    .partial-usage-field { display:grid; gap:5px; align-content:start; min-width:0; font-size:13px; font-weight:850; }
+    .partial-usage-toggle { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); border:1px solid var(--border); border-radius:10px; padding:3px; gap:3px; background:var(--surface); }
+    #bagEditForm .partial-usage-toggle button { min-width:0; min-height:44px; padding:6px 3px; border:0; border-radius:7px; background:transparent; color:var(--text) !important; -webkit-text-fill-color:var(--text) !important; font:inherit; font-size:12px; line-height:1.2; cursor:pointer; }
+    #bagEditForm .partial-usage-toggle button[aria-pressed="true"] { background:var(--bag-green); color:#fff !important; -webkit-text-fill-color:#fff !important; }
+    #bagEditForm .partial-usage-toggle button:focus-visible { outline:2px solid var(--text); outline-offset:1px; }
+    #bagEditForm .partial-usage-toggle button:disabled { opacity:.6; cursor:default; }
+    .inventory-grid tbody .bag-total-row td {
+      background:var(--crop-row-bg); font-weight:950;
+      border-top:1px solid var(--gridline-strong);
+    }
+    .inventory-grid tbody .bag-overall-total td {
+      background:var(--farm-row-bg); border-bottom:2px solid var(--gridline-strong);
+    }
   </style>
 </head>
 
@@ -1305,6 +1341,29 @@
        DATA + INVENTORY LOGIC
   ========================================================== -->
 
+
+  <dialog id="bagEditDialog" class="pickup-dialog" aria-labelledby="bagEditTitle">
+    <form id="bagEditForm">
+      <div class="pickup-head"><div><h2 id="bagEditTitle" class="pickup-title">Edit Bag Entry</h2><p id="bagEditSub" class="pickup-sub"></p></div><button type="button" id="bagEditClose" class="dialog-close" aria-label="Close">×</button></div>
+      <div class="pickup-body">
+        <div id="bagEditInfo" class="pickup-help"></div>
+        <div class="pickup-fields">
+          <label>Date put down<input id="bagEditDate" class="pickup-input" type="date" required></label>
+          <label>Moisture (%)<input id="bagEditMoisture" class="pickup-input" type="number" min="0" max="100" step="0.1"></label>
+          <label>Full bags remaining<input id="bagEditFull" class="pickup-input" type="number" min="0" step="1" required></label>
+          <label>Partial bags remaining<input id="bagEditCount" class="pickup-input" type="number" min="0" max="100" step="1" required></label>
+        </div>
+        <div id="bagEditPartials"></div>
+        <div id="bagEditBushels" class="pickup-help" aria-live="polite"></div>
+        <label>Priority: <output id="bagEditPriorityValue">0</output><input id="bagEditPriority" type="range" min="0" max="10" step="1"></label>
+        <label id="bagEditReasonLabel">High-priority reason<textarea id="bagEditReason" class="pickup-input" rows="2"></textarea></label>
+        <label>Notes<textarea id="bagEditNotes" class="pickup-input" rows="3" placeholder="Optional details"></textarea></label>
+        <div id="bagEditError" class="pickup-error" role="alert"></div>
+      </div>
+      <div class="pickup-footer"><button type="button" id="bagEditCancel" class="btn">Cancel</button><button type="submit" id="bagEditSave" class="btn btn-primary">Save Changes</button></div>
+    </form>
+  </dialog>
+
   <script type="module">
 
     import {
@@ -1315,6 +1374,7 @@
       getDocs,
       doc,
       updateDoc,
+      runTransaction,
       addDoc,
       serverTimestamp
     } from "/js/firebase/firebase-init.js";
@@ -3315,6 +3375,27 @@ _priority:
        RENDER
     ========================================================= */
 
+    function totalBagRows(rows){
+      return rows.reduce((totals,row) => {
+        totals.bushels += Number(row._bushels) || 0;
+        totals.full += Number(row._full) || 0;
+        totals.partial += Number(row._partial) || 0;
+        return totals;
+      }, {bushels:0,full:0,partial:0});
+    }
+
+    function bagTotalRow(label,crop,totals,overall=false){
+      return `<tr class="bag-total-row ${overall ? 'bag-overall-total' : ''}">
+        <td>${escapeHtml(label)}</td>
+        <td class="crop-cell">${escapeHtml(crop)}</td>
+        <td class="number-cell"><span class="bag-count">${totals.bushels.toLocaleString('en-US')}</span></td>
+        <td></td><td></td>
+        <td class="number-cell">${totals.full.toLocaleString('en-US')}</td>
+        <td class="number-cell">${totals.partial.toLocaleString('en-US')}</td>
+        <td></td>
+      </tr>`;
+    }
+
     function renderInventory(){
 
       if (
@@ -3492,12 +3573,11 @@ _priority:
                           title="Tap to remove inventory"
                         >
 
-                          <td>
-                            <span class="field-name">
-                              ${escapeHtml(
-                                row._fieldName
-                              )}
-                            </span>
+                          <td class="field-edit-cell">
+                            <div class="field-swipe">
+                              <button type="button" class="field-edit" aria-label="Edit ${escapeHtml(row._fieldName)} bag entry"><span class="edit-label">Edit</span><svg class="edit-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z"/></svg></button>
+                              <span class="field-name">${escapeHtml(row._fieldName)}</span>
+                            </div>
                           </td>
 
 <td class="crop-cell">
@@ -3562,12 +3642,24 @@ _priority:
                   }
                 );
 
+              html.push(bagTotalRow(`${crop.name} subtotal`,crop.name,totalBagRows(crop.rows)));
             }
           );
 
         }
       );
 
+      // Only total the entries currently displayed; keep every crop separate.
+      const cropTotals=new Map();
+      state.rows.forEach(row => {
+        const crop=row._crop;
+        if(!cropTotals.has(crop)) cropTotals.set(crop,[]);
+        cropTotals.get(crop).push(row);
+      });
+      html.push('<tr class="farm-group-row"><td colspan="8">Totals by crop — All farms</td></tr>');
+      [...cropTotals.keys()].sort((a,b) => COLLATOR.compare(a,b)).forEach(crop => {
+        html.push(bagTotalRow('All farms total',crop,totalBagRows(cropTotals.get(crop)),true));
+      });
 
       body.innerHTML =
         html.join(
@@ -3582,11 +3674,12 @@ _priority:
         .forEach(
           rowElement => {
 
+            installBagEditGesture(rowElement);
             rowElement
               .addEventListener(
                 "click",
-                () => {
-
+                event => {
+                  if (event.target.closest('.field-edit') || Date.now() < (rowElement.suppressPickupUntil || 0)) return;
                   const id =
                     rowElement.dataset.id;
 
@@ -3620,6 +3713,255 @@ _priority:
     /* =========================================================
        QUICK PICKUP
     ========================================================= */
+
+    function dismissBagSwipe(cell){
+      cell.classList.remove('revealed');
+      if(cell.contains(document.activeElement)) document.activeElement.blur();
+    }
+
+    // A tap on the open row dismisses Edit instead of opening pickup.
+    // Other page controls retain their normal action after dismissing it.
+    document.addEventListener('pointerdown', () => {
+      body.querySelectorAll('.field-swipe.revealed').forEach(cell => {
+        cell.closest('tr').suppressPickupUntil=0;
+      });
+    }, {capture:true, passive:true});
+    document.addEventListener('click', event => {
+      if(event.target.closest('.field-edit')) return;
+      const openCells=[...body.querySelectorAll('.field-swipe.revealed')];
+      if(!openCells.length) return;
+      const sameRow=openCells.find(cell => cell.closest('tr').contains(event.target));
+      // Ignore the synthetic click that some browsers emit after a swipe.
+      if(sameRow && Date.now() < (sameRow.closest('tr').suppressPickupUntil || 0)){
+        event.preventDefault(); event.stopPropagation(); return;
+      }
+      openCells.forEach(dismissBagSwipe);
+      if(sameRow){ event.preventDefault(); event.stopPropagation(); }
+    }, true);
+    document.addEventListener('keydown', event => {
+      if(event.key==='Escape') body.querySelectorAll('.field-swipe.revealed').forEach(dismissBagSwipe);
+    });
+
+    // Swiping is confined to the field cell; the rest of the grid scrolls normally.
+    function installBagEditGesture(tr){
+      const cell = tr.querySelector('.field-swipe');
+      const button = cell.querySelector('.field-edit');
+      // Keep the discreet action keyboard reachable even while visually hidden.
+      cell.tabIndex = 0;
+      cell.setAttribute('aria-label', 'Bag entry. Press Enter to edit.');
+      const edit = () => {
+        const row = state.rows.find(item => item.id === tr.dataset.id);
+        if(row) openBagEdit(row);
+      };
+      button.addEventListener('click', event => { event.stopPropagation(); edit(); });
+      cell.addEventListener('keydown', event => {
+        if(event.target === cell && (event.key === 'Enter' || event.key === ' ')){
+          event.preventDefault(); event.stopPropagation(); edit();
+        }
+      });
+      let gesture = null;
+      cell.addEventListener('touchstart', event => {
+        if(event.touches.length !== 1) { gesture = null; return; }
+        const t = event.touches[0];
+        gesture = {x:t.clientX, y:t.clientY, dx:0, horizontal:false};
+      }, {passive:true});
+      cell.addEventListener('touchmove', event => {
+        if(!gesture || event.touches.length !== 1) { gesture=null; return; }
+        const t=event.touches[0], dx=t.clientX-gesture.x, dy=t.clientY-gesture.y;
+        if(!gesture.horizontal && Math.abs(dy)>10 && Math.abs(dy)>Math.abs(dx)) { gesture=null; return; }
+        if(Math.abs(dx)>12 && Math.abs(dx)>Math.abs(dy)*1.3) gesture.horizontal=true;
+        if(gesture.horizontal){
+          if(event.cancelable) event.preventDefault();
+          gesture.dx=dx;
+          tr.suppressPickupUntil=Date.now()+800;
+        }
+      }, {passive:false});
+      cell.addEventListener('touchend', event => {
+        if(gesture?.horizontal){
+          if(event.cancelable) event.preventDefault();
+          tr.suppressPickupUntil=Date.now()+800;
+          if(gesture.dx < -35){
+            body.querySelectorAll('.field-swipe.revealed').forEach(el => el.classList.remove('revealed'));
+            cell.classList.add('revealed');
+          } else if(gesture.dx > 18) dismissBagSwipe(cell);
+        }
+        gesture=null;
+      }, {passive:false});
+      cell.addEventListener('touchcancel', () => { gesture=null; tr.suppressPickupUntil=Date.now()+800; });
+    }
+
+    let bagEditRow=null, bagEditBusy=false, bagEditOriginal='';
+    const editDialog=$('bagEditDialog'), editForm=$('bagEditForm');
+    function editError(message){ $('bagEditError').textContent=message; $('bagEditError').classList.toggle('show', !!message); }
+    function editFeetSource(row){
+      if(Array.isArray(row.partialFeet) && row.partialFeet.length) return row.partialFeet;
+      if(Array.isArray(row.counts?.partialFeet) && row.counts.partialFeet.length) return row.counts.partialFeet;
+      const total=rowPartialFeet(row);
+      return rowPartial(row)===1 && total>0 ? [total] : [];
+    }
+    function renderEditPartials(values=[], usages=[]){
+      const count=Number($('bagEditCount').value);
+      if(!Number.isInteger(count) || count<0 || count>100) return;
+      $('bagEditPartials').innerHTML=Array.from({length:count}, (_,i) =>
+        `<div class="pickup-fields">
+          <label>Partial bag ${i+1} — feet<input class="pickup-input" type="number" min="0.1" step="any" data-partial="${i}" value="${escapeHtml(values[i] ?? '')}" placeholder="Feet not recorded"></label>
+          <div class="partial-usage-field">
+            <span id="partialUsageLabel${i}">Partial bag ${i+1} — usage</span>
+            <div class="partial-usage-toggle" role="group" aria-labelledby="partialUsageLabel${i}" data-partial-usage="${i}" data-value="${['new','carryover'].includes(usages[i]) ? usages[i] : 'unknown'}">
+              <button type="button" data-usage="carryover" aria-pressed="${usages[i]==='carryover'}">Carry over</button>
+              <button type="button" data-usage="new" aria-pressed="${usages[i]==='new'}">Start new</button>
+            </div>
+            ${!['new','carryover'].includes(usages[i]) ? '<span class="pickup-help usage-unrecorded">Not recorded — choose either option.</span>' : ''}
+          </div>
+        </div>`
+      ).join('');
+      updateEditPreview();
+    }
+    function editPartialUsages(){
+      return [...$('bagEditPartials').querySelectorAll('[data-partial-usage]')].map(toggle => toggle.dataset.value);
+    }
+    function editInventoryValues(){
+      return {
+        full:$('bagEditFull').value,
+        partial:$('bagEditCount').value,
+        feet:[...$('bagEditPartials').querySelectorAll('input')].map(input => input.value)
+      };
+    }
+    function updateEditPreview(){
+      if(!bagEditRow) return;
+      const values=editInventoryValues();
+      const changed=JSON.stringify(values)!==bagEditOriginal;
+      if(changed && values.feet.some(value => value==='')){
+        $('bagEditBushels').textContent='Enter footage for each partial bag to calculate bushels.'; return;
+      }
+      const row=changed ? {...bagEditRow, partialFeet:values.feet.map(Number), counts:{...bagEditRow.counts, full:Number(values.full), partial:Number(values.partial), partialFeet:values.feet.map(Number)}} : bagEditRow;
+      $('bagEditBushels').textContent=`Estimated remaining: ${bagBushels(row).toLocaleString('en-US')} bu`;
+    }
+    function updateEditPriority(){
+      const value=Number($('bagEditPriority').value);
+      $('bagEditPriorityValue').textContent=`${value}/10`;
+      $('bagEditReasonLabel').hidden=value<7;
+      $('bagEditReason').required=value>=7;
+    }
+    function openBagEdit(row){
+      bagEditRow=row; editError('');
+      $('bagEditSub').textContent=[row._farmName,row._fieldName,row._crop].filter(Boolean).join(' • ');
+      const length=bagCapacityInfo(row).lengthFt;
+      $('bagEditInfo').textContent=[row.bagSku?.brand, length ? `${length} ft bags` : '', 'Edit remaining inventory for this entry.'].filter(Boolean).join(' • ');
+      $('bagEditDate').value=clean(row.datePlaced || row.placedDate).slice(0,10);
+      $('bagEditMoisture').value=row.cropMoisture ?? row._moisture ?? '';
+      $('bagEditFull').value=rowFull(row);
+      $('bagEditCount').value=rowPartial(row);
+      $('bagEditPriority').value=row._priority ?? row.priority ?? 0;
+      $('bagEditReason').value=row.priorityReason || '';
+      $('bagEditNotes').value=row.notes || '';
+      renderEditPartials(editFeetSource(row), row.counts?.partialUsage || []);
+      bagEditOriginal=JSON.stringify(editInventoryValues());
+      updateEditPreview(); updateEditPriority();
+      body.querySelectorAll('.field-swipe.revealed').forEach(el => el.classList.remove('revealed'));
+      editDialog.showModal();
+    }
+    function closeBagEdit(){ if(!bagEditBusy){ editDialog.close(); bagEditRow=null; } }
+    $('bagEditClose').addEventListener('click', closeBagEdit);
+    $('bagEditCancel').addEventListener('click', closeBagEdit);
+    editDialog.addEventListener('cancel', event => { if(bagEditBusy) event.preventDefault(); });
+    $('bagEditCount').addEventListener('input', () => renderEditPartials(editInventoryValues().feet, editPartialUsages()));
+    $('bagEditFull').addEventListener('input', updateEditPreview);
+    $('bagEditPartials').addEventListener('input', updateEditPreview);
+    $('bagEditPartials').addEventListener('click', event => {
+      const button=event.target.closest('button[data-usage]');
+      if(!button || bagEditBusy) return;
+      const toggle=button.closest('[data-partial-usage]');
+      if(!toggle) return;
+      toggle.dataset.value=button.dataset.usage;
+      toggle.querySelectorAll('button[data-usage]').forEach(option => {
+        option.setAttribute('aria-pressed', String(option===button));
+      });
+      toggle.parentElement.querySelector('.usage-unrecorded')?.remove();
+    });
+    $('bagEditPriority').addEventListener('input', updateEditPriority);
+    editForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      if(bagEditBusy || !bagEditRow || !editForm.reportValidity()) return;
+      editError('');
+      const row=bagEditRow, values=editInventoryValues();
+      const quantityChanged=JSON.stringify(values)!==bagEditOriginal;
+      const usages=editPartialUsages();
+      const oldUsages=Array.from({length:rowPartial(row)}, (_,i) => row.counts?.partialUsage?.[i] || 'unknown');
+      const usageChanged=JSON.stringify(usages)!==JSON.stringify(oldUsages);
+      if(usages.some(value => !['new','carryover','unknown'].includes(value))){
+        editError('Choose a valid partial bag usage.'); return;
+      }
+      const feet=values.feet.map(Number), full=Number(values.full), partial=Number(values.partial);
+      const length=bagCapacityInfo(row).lengthFt;
+      if(quantityChanged && (feet.length!==partial || feet.some(n => !Number.isFinite(n) || n<=0 || (length>0 && n>=length)))){
+        editError('Enter a positive footage below the full bag length for every partial bag.'); return;
+      }
+      const patch={
+        priority:Number($('bagEditPriority').value),
+        priorityReason:$('bagEditReason').value.trim() || null,
+        notes:$('bagEditNotes').value.trim(),
+        datePlaced:$('bagEditDate').value,
+        cropMoisture:$('bagEditMoisture').value==='' ? null : Number($('bagEditMoisture').value),
+        updatedAt:serverTimestamp(), updatedBy:currentUser()
+      };
+      if(quantityChanged){
+        patch['counts.full']=full; patch['counts.partial']=partial;
+        patch['counts.partialFeet']=feet;
+        // Older entries may carry the authoritative footage at the top level.
+        if(Object.prototype.hasOwnProperty.call(row,'partialFeet')) patch.partialFeet=feet;
+
+      }
+      if(usageChanged || quantityChanged) patch['counts.partialUsage']=usages;
+      // Correct the empty-bag stock debit only for an explicit change between
+      // known usages. Missing historical usage does not establish a prior debit.
+      const usageStockDelta=usages.reduce((total,usage,i) => {
+        const old=oldUsages[i];
+        return total + (['new','carryover'].includes(old) && ['new','carryover'].includes(usage)
+          ? Number(usage==='new')-Number(old==='new') : 0);
+      },0);
+      bagEditBusy=true;
+      const controls=[...editForm.querySelectorAll('input,select,textarea,button')];
+      controls.forEach(el => el.disabled=true);
+      $('bagEditSave').textContent='Saving…';
+      try{
+        const ref=doc(state.db,'grain_bag_events',row.id);
+        await runTransaction(state.db, async transaction => {
+          const snapshot=await transaction.get(ref);
+          if(!snapshot.exists()) throw new Error('This entry no longer exists. Reopen the page to refresh.');
+          const fresh=snapshot.data();
+          // Never overwrite a pickup or another edit made while this form was open.
+          const keys=['counts','partialFeet','status','priority','priorityReason','notes','datePlaced','cropMoisture','updatedAt'];
+          if(keys.some(key => JSON.stringify(fresh[key])!==JSON.stringify(row[key]))) {
+            const conflict=new Error('This entry changed while you were editing. Close and reopen it to load the latest values.');
+            conflict.code='bag-edit-conflict'; throw conflict;
+          }
+          if(usageStockDelta && row.bagSku?.id){
+            const stockRef=doc(state.db,'inventoryGrainBagMovements',row.bagSku.id);
+            const stockSnapshot=await transaction.get(stockRef);
+            if(stockSnapshot.exists()){
+              const stock=stockSnapshot.data();
+              const available=stock.onHand ?? stock.initialQty ?? stock.qty;
+              if(available!=null && Number.isFinite(Number(available))){
+                const next=Number(available)-usageStockDelta;
+                if(next<0) throw new Error('Not enough unused bags on hand to mark this partial as a new bag.');
+                transaction.update(stockRef,{onHand:next,updatedAt:serverTimestamp()});
+              }
+            }
+          }
+          transaction.update(ref,patch);
+        });
+        bagEditBusy=false; closeBagEdit(); toast('Bag entry updated.');
+        await loadBagInventory();
+      } catch(error){
+        editError(error?.message || 'Unable to save bag entry.');
+        if(error?.code==='bag-edit-conflict') await loadBagInventory();
+      }
+      finally {
+        bagEditBusy=false; controls.forEach(el => el.disabled=false);
+        $('bagEditSave').textContent='Save Changes';
+      }
+    });
 
     function showPickupError(message){
 
@@ -4153,7 +4495,7 @@ _priority:
 
           if (
             state.db &&
-            !pickupDialog.open
+            !pickupDialog.open && !$("bagEditDialog").open
           ) {
 
             loadBagInventory();
@@ -4172,7 +4514,7 @@ _priority:
           if (
             !document.hidden &&
             state.db &&
-            !pickupDialog.open
+            !pickupDialog.open && !$("bagEditDialog").open
           ) {
 
             loadBagInventory();
