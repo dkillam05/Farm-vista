@@ -94,9 +94,13 @@ input,select,button{font-size:16px;}
 .stat .l{color:var(--muted);font-size:12px;font-weight:700;margin-bottom:3px;}
 .stat .v{font-size:18px;font-weight:850;}
 .pos{color:var(--accent);}.neg{color:#b12828;}
-.actions{padding:16px;border-top:1px dashed var(--border);display:flex;gap:10px;flex-wrap:wrap;}
-.actions .save{margin-left:auto;}
-@media(max-width:600px){.actions .save{margin-left:0;width:100%;}}
+.actions{padding:16px;border-top:1px dashed var(--border);display:flex;flex-direction:column;gap:10px;}
+.actions .btn{width:100%;}
+#cyModal{z-index:100000;}
+.saved-strips-heading{display:grid;gap:10px;margin-bottom:10px;}
+.saved-strip-actions{display:flex;flex-wrap:wrap;gap:8px;}
+.saved-strip-actions .btn{flex:1;}
+.detail-strip-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;}
 .history{border-top:1px solid var(--border);padding:16px;}
 .history-head{display:flex;align-items:center;gap:10px;margin-bottom:12px;}
 .history-head h2{flex:1;margin:0;font-size:20px;}
@@ -114,12 +118,42 @@ input,select,button{font-size:16px;}
 .dialog-body{padding:14px;overflow:auto;flex:1 1 auto;min-height:0;-webkit-overflow-scrolling:touch;}
 .closex{border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:700;color:var(--text) !important;}
 html.no-scroll,body.no-scroll{overflow:hidden;}
-.cg{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
-@media(max-width:760px){.cg{grid-template-columns:1fr;}}
+.cg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
+.cg > div{min-width:0;}
+@media(max-width:760px){.cg{grid-template-columns:minmax(0,1fr);}}
+/* Keep the strip calculator inside its viewport, including native iOS selects. */
+#cyModal{overflow:hidden;overscroll-behavior-x:none;}
+#cyModal .dialog{min-width:0;max-width:94vw;box-sizing:border-box;}
+#cyModal .dialog-head{flex-shrink:0;min-width:0;}
+#cyModal .dialog-head h3{min-width:0;overflow-wrap:anywhere;}
+#cyModal .dialog-body{
+  width:100%;max-width:100%;min-width:0;box-sizing:border-box;
+  overflow-x:hidden;overflow-y:auto;
+  overscroll-behavior-x:none;overscroll-behavior-y:contain;
+  touch-action:pan-y pinch-zoom;
+}
+#cyModal .cg,#cyModal .ctrl,#cyModal .select-box,#cyModal .result{
+  min-width:0;max-width:100%;box-sizing:border-box;
+}
+#cyModal .ctrl input{flex:1 1 0;min-width:0;max-width:100%;}
+#cyModal .result{overflow-wrap:anywhere;}
 .unit{font-size:12px;color:var(--muted);white-space:nowrap;}
 .result{margin-top:12px;border:1px solid var(--border);border-radius:12px;padding:10px;background:var(--surface);}
 .detail-strip{border:1px solid var(--border);border-radius:12px;padding:10px;margin-top:8px;}
 .loading{color:var(--muted);padding:10px 2px;}
+
+.void-badge{display:inline-block;border:1px solid #c45b5b;background:rgba(180,40,40,.12);color:var(--text);border-radius:6px;padding:3px 8px;font-size:12px;font-weight:800;}
+.history-row.is-voided{border-color:#c45b5b;}
+.history-status{display:flex;justify-content:flex-end;margin-bottom:6px;}
+.void-notice{border:1px solid #c45b5b;border-radius:10px;padding:10px;margin:10px 0;overflow-wrap:anywhere;white-space:pre-wrap;}
+.btn.void-action{border-color:#c45b5b;}
+.strip-actions{display:flex;gap:8px;flex-wrap:wrap;}
+.detail-strip-head{flex-wrap:wrap;}
+.dialog-body{overflow-x:hidden;overflow-wrap:anywhere;}
+#voidModal{z-index:100001;}
+#voidModal .dialog{width:min(520px,94vw);min-width:0;}
+#voidReason{box-sizing:border-box;width:100%;min-height:110px;resize:vertical;padding:12px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:10px;font:inherit;}
+#voidError{color:var(--text);white-space:pre-wrap;}
 </style>
 </head>
 <body>
@@ -135,12 +169,13 @@ html.no-scroll,body.no-scroll{overflow:hidden;}
 <div class="section-note">Add each combine pass below. FarmVista averages all Trial strips together and all Check strips together.</div>
 <div class="strip-list" id="stripList"></div>
 <section class="summary"><div class="summary-tile"><h3>Test Summary</h3><div class="summary-grid"><div class="stat"><div class="l">Trial Strips</div><div class="v" id="trialCount">0</div></div><div class="stat"><div class="l">Check Strips</div><div class="v" id="checkCount">0</div></div><div class="stat"><div class="l">Trial Average</div><div class="v" id="trialAvg">- bu/ac</div></div><div class="stat"><div class="l">Check Average</div><div class="v" id="checkAvg">- bu/ac</div></div><div class="stat"><div class="l">Trial vs Check</div><div class="v" id="yieldDiff">- bu/ac</div></div><div class="stat"><div class="l">Trial Difference</div><div class="v" id="yieldPct">-%</div></div></div></div></section>
-<div class="actions"><button class="btn" id="clearCurrent" type="button">Clear Test</button><button class="btn primary save" id="saveTrial" type="button">Save Test</button></div>
+<div class="actions"><button class="btn primary save" id="saveTrial" type="button">Save Test</button><button class="btn" id="clearCurrent" type="button">Clear Test</button></div>
 <section class="history"><div class="history-head"><h2>Previous Tests</h2><button class="btn" id="refreshHistory" type="button">Refresh</button></div><div id="historyList" class="history-list"></div><div id="historyEmpty" class="loading">Loading saved tests...</div></section>
 </div></div>
 </fv-shell>
-<div class="modal" id="cyModal" aria-hidden="true"><div class="dialog"><div class="dialog-head"><h3 style="margin:0;">Combine Yield</h3><button class="closex" id="cyClose" type="button">Back</button></div><div class="dialog-body"><div class="cg"><div><label>Crop</label><select id="cyCrop" class="select-box"><option value="corn">Corn (56 lb/bu - 15.5%)</option><option value="soy">Soybeans (60 lb/bu - 13.0%)</option></select></div><div><label>Cut Width</label><select id="cyWid" class="select-box"><option value="20">20 ft</option><option value="25">25 ft</option><option value="30" selected>30 ft</option><option value="35">35 ft</option><option value="40">40 ft</option><option value="45">45 ft</option></select></div><div><label>Cut Length</label><div class="ctrl"><input id="cyLen" type="text" inputmode="decimal" placeholder="e.g. 2400"><span class="unit">ft</span></div></div><div><label>Area</label><div class="ctrl"><input id="cyAc" type="text" readonly placeholder="auto"><span class="unit">ac</span></div></div><div><label>Wet Weight</label><div class="ctrl"><input id="cyWt" type="text" inputmode="numeric" placeholder="e.g. 27,580"><span class="unit">lb</span></div></div><div><label>Start Moisture</label><div class="ctrl"><input id="cyM" type="text" inputmode="decimal" placeholder="e.g. 28.50"><span class="unit">%</span></div></div></div><div id="cyRes" class="result" hidden><strong>True Shrink Result</strong><div>Standard-moisture bushels: <strong id="tBu">-</strong></div><div>Yield: <strong id="tYield">-</strong> bu/ac</div></div><div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap;"><button class="btn" id="cyCalc" type="button">Calculate</button><button class="btn primary" id="cyUse" type="button">Use This Yield</button></div></div></div></div>
+<div class="modal" id="cyModal" aria-hidden="true"><div class="dialog"><div class="dialog-head"><h3 style="margin:0;">Combine Yield</h3><button class="closex" id="cyClose" type="button">Back</button></div><div class="dialog-body"><div id="savedStripFields" hidden><div class="cg" style="margin-bottom:12px;"><div><label for="savedStripType">Strip Type</label><select id="savedStripType" class="select-box"><option>Trial</option><option>Check</option></select></div><div><label for="savedStripNotes">Strip Notes</label><div class="ctrl"><input id="savedStripNotes" type="text" placeholder="Optional - hybrid, product, rate, etc."></div></div></div></div><div class="cg"><div><label>Crop</label><select id="cyCrop" class="select-box"><option value="corn">Corn (56 lb/bu - 15.5%)</option><option value="soy">Soybeans (60 lb/bu - 13.0%)</option></select></div><div><label>Cut Width</label><select id="cyWid" class="select-box"><option value="20">20 ft</option><option value="25">25 ft</option><option value="30" selected>30 ft</option><option value="35">35 ft</option><option value="40">40 ft</option><option value="45">45 ft</option></select></div><div><label>Cut Length</label><div class="ctrl"><input id="cyLen" type="text" inputmode="decimal" placeholder="e.g. 2400"><span class="unit">ft</span></div></div><div><label>Area</label><div class="ctrl"><input id="cyAc" type="text" readonly placeholder="auto"><span class="unit">ac</span></div></div><div><label>Wet Weight</label><div class="ctrl"><input id="cyWt" type="text" inputmode="numeric" placeholder="e.g. 27,580"><span class="unit">lb</span></div></div><div><label>Start Moisture</label><div class="ctrl"><input id="cyM" type="text" inputmode="decimal" placeholder="e.g. 28.50"><span class="unit">%</span></div></div></div><div id="cyRes" class="result" hidden><strong>True Shrink Result</strong><div>Standard-moisture bushels: <strong id="tBu">-</strong></div><div>Yield: <strong id="tYield">-</strong> bu/ac</div></div><div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap;"><button class="btn" id="cyCalc" type="button">Calculate</button><button class="btn primary" id="cyUse" type="button">Use This Yield</button></div></div></div></div>
 <div class="modal" id="historyModal" aria-hidden="true"><div class="dialog"><div class="dialog-head"><h3 style="margin:0;">Trial Details</h3><div class="dialog-actions"><button class="btn primary" id="historyShare" type="button">Share</button><button class="closex" id="historyClose" type="button">Back</button></div></div><div class="dialog-body" id="historyBody"></div></div></div>
+<div class="modal" id="voidModal" aria-hidden="true"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="voidTitle"><div class="dialog-head"><h3 id="voidTitle" style="margin:0;">Void Trial</h3><button class="closex" id="voidCancel" type="button">Cancel</button></div><div class="dialog-body"><p id="voidHelp"></p><label for="voidReason">Reason (required)</label><textarea id="voidReason" required placeholder="Explain why this trial or strip is being voided."></textarea><p id="voidError" role="alert" hidden></p><button class="btn void-action" id="voidConfirm" type="button" style="width:100%;margin-top:12px;">Confirm Void</button></div></div></div>
 <script type="module">
 (async()=>{
 "use strict";
@@ -149,7 +184,8 @@ window.__FV_TRIAL_YIELDS_V26__ = true;
 const $=id=>document.getElementById(id);
 const esc=value=>String(value??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");
 const num=value=>{const n=parseFloat(String(value??"").replace(/,/g,"").trim());return Number.isFinite(n)?n:NaN;};
-const fmt=(value,decimals=2)=>Number.isFinite(Number(value))?Number(value).toLocaleString(undefined,{maximumFractionDigits:decimals}):"-";
+const fmt=(value,decimals=2)=>value!=null&&Number.isFinite(Number(value))?Number(value).toLocaleString(undefined,{maximumFractionDigits:decimals}):"-";
+let savedStripEdit=null;let savingStrip=false;let voidTarget=null;let savingVoid=false;
 let fb;let db;let auth=null;let FIELDS=[];let TRIALS=[];let HISTORY=[];let seq=0;let targetRow=null;let historyShareRecord=null;let lastCalculatorDefaults={crop:"corn",cutWidthFt:30};
 async function initFirebase(){fb=await import("../../js/firebase/firebase-init.js");await fb.ready;if(typeof fb.isStub==="function"&&fb.isStub())throw new Error("Firebase is not available.");db=fb.getFirestore();try{auth=fb.getAuth();}catch{auth=null;}}
 async function loadFields(){const snap=await fb.getDocs(fb.collection(db,"fields"));const rows=[];snap.forEach(docSnap=>{const data=docSnap.data()||{};if(String(data.status||"").toLowerCase()!=="active")return;rows.push({id:docSnap.id,name:data.name||"(Unnamed field)",farmId:data.farmId||"",farmName:data.farmName||""});});rows.sort((a,b)=>String(a.name).localeCompare(String(b.name),undefined,{numeric:true}));FIELDS=rows;renderFields();}
@@ -176,10 +212,10 @@ const SETTINGS={corn:{name:"Corn",standardMoisture:15.5,poundsPerBushel:56},soy:
 function calculateArea(){const length=num(cyLen.value),width=num(cyWid.value),area=length*width/SQFT_PER_ACRE;cyAc.value=Number.isFinite(area)&&area>0?fmt(area,4):"";return area;}cyLen.addEventListener("input",calculateArea);cyWid.addEventListener("change",calculateArea);
 function calculateYield(){const crop=SETTINGS[cyCrop.value],width=num(cyWid.value),length=num(cyLen.value),area=length*width/SQFT_PER_ACRE,wetWeight=num(cyWt.value),moisture=num(cyM.value);if(!crop||![width,length,area,wetWeight,moisture].every(Number.isFinite)||width<=0||length<=0||area<=0||wetWeight<=0||moisture<=0||moisture>=100){alert("Enter valid crop, width, length, wet weight, and moisture.");return null;}const standardWeight=wetWeight*((100-moisture)/(100-crop.standardMoisture));const standardBushels=standardWeight/crop.poundsPerBushel;const yieldBuAc=standardBushels/area;return{crop:cyCrop.value,cropName:crop.name,cutWidthFt:width,cutLengthFt:length,acres:area,wetWeightLb:wetWeight,startMoisture:moisture,standardMoisture:crop.standardMoisture,poundsPerBushel:crop.poundsPerBushel,standardWeightLb:standardWeight,standardBushels,yieldBuAc};}
 function showCalculation(calc){$("cyRes").hidden=!calc;if(calc){$("tBu").textContent=fmt(calc.standardBushels,2);$("tYield").textContent=fmt(calc.yieldBuAc,2);}}
-function openModal(modal){closePickers();modal.setAttribute("open","");document.documentElement.classList.add("no-scroll");document.body.classList.add("no-scroll");}
-function closeModal(modal){modal.removeAttribute("open");document.documentElement.classList.remove("no-scroll");document.body.classList.remove("no-scroll");}
-function openCalculator(row){targetRow=row;if(row._calc){const calc=row._calc;cyCrop.value=calc.crop||"corn";cyWid.value=String(calc.cutWidthFt||30);cyLen.value=fmt(calc.cutLengthFt,2);cyAc.value=fmt(calc.acres,4);cyWt.value=Math.round(calc.wetWeightLb).toLocaleString();cyM.value=fmt(calc.startMoisture,2);showCalculation(calc);}else{cyCrop.value=lastCalculatorDefaults.crop||"corn";cyWid.value=String(lastCalculatorDefaults.cutWidthFt||30);cyLen.value="";cyAc.value="";cyWt.value="";cyM.value="";showCalculation(null);}openModal(cyModal);}
-$("cyClose").addEventListener("click",()=>closeModal(cyModal));$("cyCalc").addEventListener("click",()=>{calculateArea();showCalculation(calculateYield());});$("cyUse").addEventListener("click",()=>{calculateArea();const calc=calculateYield();if(!calc||!targetRow)return;targetRow._calc=calc;lastCalculatorDefaults={crop:calc.crop||"corn",cutWidthFt:calc.cutWidthFt||30};targetRow.querySelector("[data-yield]").textContent=fmt(calc.yieldBuAc,2)+" bu/ac";targetRow.querySelector("[data-details]").textContent=`${calc.cropName} | ${fmt(calc.cutWidthFt,0)} ft x ${fmt(calc.cutLengthFt,2)} ft | ${fmt(calc.acres,3)} ac | ${fmt(calc.wetWeightLb,0)} lb | ${fmt(calc.startMoisture,2)}% moisture`;refreshSummary();closeModal(cyModal);});
+function openModal(modal){closePickers();modal.setAttribute("open","");modal.setAttribute("aria-hidden","false");document.documentElement.classList.add("no-scroll");document.body.classList.add("no-scroll");}
+function closeModal(modal){if(modal===$("voidModal")&&savingVoid)return;if(modal===cyModal&&savingStrip)return;modal.removeAttribute("open");modal.setAttribute("aria-hidden","true");if(!document.querySelector(".modal[open]")){document.documentElement.classList.remove("no-scroll");document.body.classList.remove("no-scroll");}if(modal===cyModal){savedStripEdit=null;targetRow=null;}}
+function openCalculator(row){savedStripEdit=null;$("savedStripFields").hidden=true;$("cyUse").textContent="Use This Yield";cyModal.querySelector("h3").textContent="Combine Yield";targetRow=row;if(row._calc){const calc=row._calc;cyCrop.value=calc.crop||"corn";cyWid.value=String(calc.cutWidthFt||30);cyLen.value=fmt(calc.cutLengthFt,2);cyAc.value=fmt(calc.acres,4);cyWt.value=Math.round(calc.wetWeightLb).toLocaleString();cyM.value=fmt(calc.startMoisture,2);showCalculation(calc);}else{cyCrop.value=lastCalculatorDefaults.crop||"corn";cyWid.value=String(lastCalculatorDefaults.cutWidthFt||30);cyLen.value="";cyAc.value="";cyWt.value="";cyM.value="";showCalculation(null);}openModal(cyModal);}
+$("cyClose").addEventListener("click",()=>closeModal(cyModal));$("cyCalc").addEventListener("click",()=>{calculateArea();showCalculation(calculateYield());});$("cyUse").addEventListener("click",async()=>{if(savingStrip)return;calculateArea();const calc=calculateYield();if(!calc)return;if(savedStripEdit){await saveHistoryStrip(calc);return;}if(!targetRow)return;targetRow._calc=calc;lastCalculatorDefaults={crop:calc.crop||"corn",cutWidthFt:calc.cutWidthFt||30};targetRow.querySelector("[data-yield]").textContent=fmt(calc.yieldBuAc,2)+" bu/ac";targetRow.querySelector("[data-details]").textContent=`${calc.cropName} | ${fmt(calc.cutWidthFt,0)} ft x ${fmt(calc.cutLengthFt,2)} ft | ${fmt(calc.acres,3)} ac | ${fmt(calc.wetWeightLb,0)} lb | ${fmt(calc.startMoisture,2)}% moisture`;refreshSummary();closeModal(cyModal);});
 function getStripData(){return getStripRows().map((row,index)=>({order:index+1,type:row.querySelector("[data-type]").value,notes:row.querySelector("[data-notes]").value.trim(),yieldBuAc:row._calc?row._calc.yieldBuAc:null,calculation:row._calc?{...row._calc}:null}));}
 function average(values){const clean=values.filter(Number.isFinite);if(!clean.length)return null;return clean.reduce((sum,value)=>sum+value,0)/clean.length;}
 function refreshSummary(){const strips=getStripData(),trialStrips=strips.filter(strip=>strip.type==="Trial"),checkStrips=strips.filter(strip=>strip.type==="Check"),trialAverage=average(trialStrips.map(strip=>strip.yieldBuAc)),checkAverage=average(checkStrips.map(strip=>strip.yieldBuAc));const differenceBuAc=Number.isFinite(trialAverage)&&Number.isFinite(checkAverage)?trialAverage-checkAverage:null;const differencePct=Number.isFinite(differenceBuAc)&&checkAverage!==0?(differenceBuAc/checkAverage)*100:null;$("trialCount").textContent=trialStrips.length;$("checkCount").textContent=checkStrips.length;$("trialAvg").textContent=Number.isFinite(trialAverage)?fmt(trialAverage,2)+" bu/ac":"- bu/ac";$("checkAvg").textContent=Number.isFinite(checkAverage)?fmt(checkAverage,2)+" bu/ac":"- bu/ac";const diffElement=$("yieldDiff"),pctElement=$("yieldPct");diffElement.textContent=Number.isFinite(differenceBuAc)?(differenceBuAc>=0?"+":"")+fmt(differenceBuAc,2)+" bu/ac":"- bu/ac";pctElement.textContent=Number.isFinite(differencePct)?(differencePct>=0?"+":"")+fmt(differencePct,2)+"%":"-%";diffElement.className="v "+(differenceBuAc>0?"pos":differenceBuAc<0?"neg":"");pctElement.className="v "+(differencePct>0?"pos":differencePct<0?"neg":"");return{trialStripCount:trialStrips.length,checkStripCount:checkStrips.length,trialYieldCount:trialStrips.filter(strip=>Number.isFinite(strip.yieldBuAc)).length,checkYieldCount:checkStrips.filter(strip=>Number.isFinite(strip.yieldBuAc)).length,trialAverage,checkAverage,differenceBuAc,differencePct};}
@@ -188,10 +224,162 @@ function validateCurrent(){const problems=[],field=getSelectedField(),trial=getS
 $("saveTrial").addEventListener("click",async()=>{const problems=validateCurrent();if(problems.length){alert("Fix these before saving:\n\n- "+problems.join("\n- "));return;}const saveButton=$("saveTrial");saveButton.disabled=true;saveButton.textContent="Saving...";try{const field=getSelectedField(),trial=getSelectedTrial(),isOther=Boolean(trial.isOther),trialName=isOther?String(otherName.value||"").trim():trial.trialName,fieldTrialLink=isOther?null:trial.links.find(link=>link.fieldId===field.id)||null,strips=getStripData(),summary=refreshSummary(),user=auth&&auth.currentUser?auth.currentUser:null,now=new Date();const record={fieldId:field.id,fieldName:field.name,farmId:fieldTrialLink&&fieldTrialLink.farmId?fieldTrialLink.farmId:field.farmId||"",farmName:fieldTrialLink&&fieldTrialLink.farmName?fieldTrialLink.farmName:field.farmName||"",fieldTrialId:isOther?"":trial.id,trialName,testName:trialName,trialType:isOther?"Other":trial.trialType,treatmentProduct:isOther?"":trial.treatmentProduct,check:isOther?"":trial.check,crop:isOther?"":trial.crop,cropYear:isOther?null:trial.cropYear,operationTask:isOther?"":trial.operationTask,fieldTrialNotes:isOther?"":trial.notes,trialFieldLinkId:isOther?"":fieldTrialLink?fieldTrialLink.docId||"":"",trialFieldNotes:isOther?"":fieldTrialLink?fieldTrialLink.notes||"":"",tillable:isOther?null:fieldTrialLink?fieldTrialLink.tillable:null,trialAcres:isOther?null:fieldTrialLink?fieldTrialLink.trialAcres:null,isOtherTrial:isOther,strips,summary,trialStripCount:summary.trialStripCount,checkStripCount:summary.checkStripCount,trialAverage:summary.trialAverage,checkAverage:summary.checkAverage,differenceBuAc:summary.differenceBuAc,differencePct:summary.differencePct,createdAt:typeof fb.serverTimestamp==="function"?fb.serverTimestamp():now,createdAtMs:Date.now(),createdAtISO:now.toISOString(),createdByUid:user?user.uid||"":"",createdByEmail:user?user.email||"":"",createdByName:user?user.displayName||"":""};await fb.addDoc(fb.collection(db,"trialYields"),record);alert("Trial test saved to FarmVista.");clearCurrent(false);await loadHistory();}catch(error){console.error("[FV] Trial Yield save failed",error);alert("FarmVista could not save this test.\n\n"+(error&&error.message?error.message:"Unknown error"));}finally{saveButton.disabled=false;saveButton.textContent="Save Test";}});
 function formatDate(value){try{let date;if(value&&typeof value.toDate==="function")date=value.toDate();else if(value&&value.seconds)date=new Date(value.seconds*1000);else date=new Date(value);if(Number.isNaN(date.getTime()))return"-";return date.toLocaleString();}catch{return"-";}}
 async function loadHistory(){const list=$("historyList"),empty=$("historyEmpty");list.innerHTML="";empty.hidden=false;empty.textContent="Loading saved tests...";try{const snap=await fb.getDocs(fb.collection(db,"trialYields")),rows=[];snap.forEach(docSnap=>rows.push({id:docSnap.id,...(docSnap.data()||{})}));rows.sort((a,b)=>Number(b.createdAtMs||0)-Number(a.createdAtMs||0));HISTORY=rows;renderHistory();}catch(error){console.error("[FV] Trial history load failed",error);empty.hidden=false;empty.textContent="Could not load saved tests.";}}
-function renderHistory(){const list=$("historyList"),empty=$("historyEmpty");list.innerHTML="";if(!HISTORY.length){empty.hidden=false;empty.textContent="No saved tests yet.";return;}empty.hidden=true;HISTORY.forEach(record=>{const summary=record.summary||record,row=document.createElement("div");row.className="history-row";const differenceText=Number.isFinite(summary.differenceBuAc)?(summary.differenceBuAc>=0?"+":"")+fmt(summary.differenceBuAc,1):"-";row.innerHTML=`<div class="history-main"><div class="history-info"><div class="history-title">${esc(record.testName||record.trialName||"Unnamed Test")}</div><div class="history-sub">${esc(record.fieldName||"Unknown Field")} | ${esc(formatDate(record.createdAt||record.createdAtISO))}</div><div class="history-sub">Trial: <strong>${fmt(summary.trialAverage,1)}</strong> bu/ac | Check: <strong>${fmt(summary.checkAverage,1)}</strong> bu/ac | Difference: <strong>${differenceText}</strong> bu/ac</div></div><button class="btn" type="button">View</button></div>`;row.querySelector("button").addEventListener("click",()=>openHistory(record));list.appendChild(row);});}
-function buildShareText(record){const summary=record.summary||record,strips=Array.isArray(record.strips)?record.strips:[],signed=value=>Number.isFinite(value)?(value>=0?"+":"")+fmt(value,2):"-";const lines=["FarmVista Trial Yield Results",record.testName||record.trialName||"Unnamed Test",`Field: ${record.fieldName||"Unknown Field"}`,`Date: ${formatDate(record.createdAt||record.createdAtISO)}`,"",`Trial Average: ${fmt(summary.trialAverage,2)} bu/ac`,`Check Average: ${fmt(summary.checkAverage,2)} bu/ac`,`Difference: ${signed(summary.differenceBuAc)} bu/ac`,`Difference: ${signed(summary.differencePct)}%`];if(strips.length){lines.push("","Individual Strips:");strips.forEach((strip,index)=>{const calc=strip.calculation||{},parts=[`Strip ${index+1} - ${strip.type||"-"}: ${fmt(strip.yieldBuAc,2)} bu/ac`];if(calc.cropName)parts.push(calc.cropName);if(Number.isFinite(calc.cutWidthFt))parts.push(`${fmt(calc.cutWidthFt,0)} ft`);if(Number.isFinite(calc.startMoisture))parts.push(`${fmt(calc.startMoisture,2)}% moisture`);if(strip.notes)parts.push(`Notes: ${strip.notes}`);if(index>0)lines.push("");lines.push(parts.join(" | "));});}return lines.join("\n");}
+function renderHistory(){const list=$("historyList"),empty=$("historyEmpty");list.innerHTML="";if(!HISTORY.length){empty.hidden=false;empty.textContent="No saved tests yet.";return;}empty.hidden=true;HISTORY.forEach(record=>{const summary=record.summary||record,row=document.createElement("div");row.className="history-row"+(record.voided?" is-voided":"");const differenceText=Number.isFinite(summary.differenceBuAc)?(summary.differenceBuAc>=0?"+":"")+fmt(summary.differenceBuAc,1):"-";row.innerHTML=`${record.voided?`<div class="history-status"><span class="void-badge">Voided</span></div><div class="void-notice">Reason: ${esc(record.voidReason||"-")}</div>`:""}<div class="history-main"><div class="history-info"><div class="history-title">${esc(record.testName||record.trialName||"Unnamed Test")}</div><div class="history-sub">${esc(record.fieldName||"Unknown Field")} | ${esc(formatDate(record.createdAt||record.createdAtISO))}</div><div class="history-sub">Trial: <strong>${fmt(summary.trialAverage,1)}</strong> bu/ac | Check: <strong>${fmt(summary.checkAverage,1)}</strong> bu/ac | Difference: <strong>${differenceText}</strong> bu/ac</div></div><button class="btn" type="button">View</button></div>`;row.querySelector("button").addEventListener("click",()=>openHistory(record));list.appendChild(row);});}
+function buildShareText(record){const summary=record.voided?summarizeSavedStrips([]):(record.summary||record),strips=Array.isArray(record.strips)?record.strips:[],signed=value=>Number.isFinite(value)?(value>=0?"+":"")+fmt(value,2):"-";const lines=["FarmVista Trial Yield Results",record.testName||record.trialName||"Unnamed Test",`Field: ${record.fieldName||"Unknown Field"}`,`Date: ${formatDate(record.createdAt||record.createdAtISO)}`,"",`Trial Average: ${fmt(summary.trialAverage,2)} bu/ac`,`Check Average: ${fmt(summary.checkAverage,2)} bu/ac`,`Difference: ${signed(summary.differenceBuAc)} bu/ac`,`Difference: ${signed(summary.differencePct)}%`];if(record.voided)lines.splice(2,0,"VOIDED — Reason: "+(record.voidReason||"-"));if(strips.some(strip=>strip.voided))lines.push("Averages exclude voided strips.");if(strips.length){lines.push("","Individual Strips:");strips.forEach((strip,index)=>{const calc=strip.calculation||{},parts=[`Strip ${index+1} - ${strip.type||"-"}: ${fmt(strip.yieldBuAc,2)} bu/ac`];if(strip.voided)parts.push("VOIDED — Reason: "+(strip.voidReason||"-"));if(calc.cropName)parts.push(calc.cropName);if(Number.isFinite(calc.cutWidthFt))parts.push(`${fmt(calc.cutWidthFt,0)} ft`);if(Number.isFinite(calc.startMoisture))parts.push(`${fmt(calc.startMoisture,2)}% moisture`);if(strip.notes)parts.push(`Notes: ${strip.notes}`);if(index>0)lines.push("");lines.push(parts.join(" | "));});}return lines.join("\n");}
 async function shareHistoryRecord(){const record=historyShareRecord;if(!record)return;const text=buildShareText(record),title=record.testName||record.trialName||"FarmVista Trial Yield Results";if(navigator.share){try{await navigator.share({title,text});return;}catch(error){if(error&&error.name==="AbortError")return;console.warn("[FV] Native share failed, trying SMS fallback",error);}}const isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent),separator=isIOS?"&":"?";window.location.href=`sms:${separator}body=${encodeURIComponent(text)}`;}
-function openHistory(record){historyShareRecord=record;const summary=record.summary||record,strips=Array.isArray(record.strips)?record.strips:[],value=number=>Number.isFinite(number)?fmt(number,2):"-";let html=`<h3 style="margin-top:0;">${esc(record.testName||record.trialName||"Unnamed Test")}</h3><div class="history-sub">${esc(record.fieldName||"Unknown Field")} | ${esc(formatDate(record.createdAt||record.createdAtISO))}</div><p><strong>Trial Average:</strong> ${value(summary.trialAverage)} bu/ac<br><strong>Check Average:</strong> ${value(summary.checkAverage)} bu/ac<br><strong>Difference:</strong> ${value(summary.differenceBuAc)} bu/ac<br><strong>Difference %:</strong> ${value(summary.differencePct)}%</p><strong>Individual Strips</strong>`;strips.forEach((strip,index)=>{const calc=strip.calculation||{};html+=`<div class="detail-strip"><strong>Strip ${index+1} - ${esc(strip.type||"-")}</strong><div>Yield: ${value(strip.yieldBuAc)} bu/ac</div><div>Notes: ${esc(strip.notes||"-")}</div><div>Crop: ${esc(calc.cropName||"-")}</div><div>Width: ${value(calc.cutWidthFt)} ft</div><div>Length: ${value(calc.cutLengthFt)} ft</div><div>Area: ${value(calc.acres)} ac</div><div>Wet Weight: ${value(calc.wetWeightLb)} lb</div><div>Moisture: ${value(calc.startMoisture)}%</div></div>`;});$("historyBody").innerHTML=html;openModal($("historyModal"));}
+function openHistory(record){historyShareRecord=record;const summary=record.summary||record,strips=Array.isArray(record.strips)?record.strips:[],value=number=>Number.isFinite(number)?fmt(number,2):"-";let html=`<h3 style="margin-top:0;">${esc(record.testName||record.trialName||"Unnamed Test")}</h3><div class="history-sub">${esc(record.fieldName||"Unknown Field")} | ${esc(formatDate(record.createdAt||record.createdAtISO))}</div>${record.voided?`<div class="void-notice"><span class="void-badge">Voided</span><br>Reason: ${esc(record.voidReason||"-")}<br>Results retained for reference only.</div>`:`<p><button class="btn void-action" type="button" data-void-trial>Void Trial</button></p>`}<p><strong>Trial Average:</strong> ${value(summary.trialAverage)} bu/ac<br><strong>Check Average:</strong> ${value(summary.checkAverage)} bu/ac<br><strong>Difference:</strong> ${value(summary.differenceBuAc)} bu/ac<br><strong>Difference %:</strong> ${value(summary.differencePct)}%</p><div class="saved-strips-heading"><strong>Individual Strips</strong><div class="saved-strip-actions" ${record.voided?"hidden":""}><button class="btn primary" type="button" data-add-strip="Trial">+ Trial Strip</button><button class="btn" type="button" data-add-strip="Check">+ Check Strip</button></div></div>`;strips.forEach((strip,index)=>{const calc=strip.calculation||{};html+=`<div class="detail-strip"><div class="detail-strip-head"><strong>Strip ${index+1} - ${esc(strip.type||"-")}</strong>${strip.voided?`<span class="void-badge">Voided</span>`:record.voided?"":`<div class="strip-actions"><button class="btn" type="button" data-edit-strip="${index}" aria-label="Edit strip ${index+1}">Edit</button><button class="btn void-action" type="button" data-void-strip="${index}">Void Strip</button></div>`}</div>${strip.voided?`<div class="void-notice">Reason: ${esc(strip.voidReason||"-")}<br>Excluded from averages.</div>`:""}<div>Yield: ${value(strip.yieldBuAc)} bu/ac</div><div>Notes: ${esc(strip.notes||"-")}</div><div>Crop: ${esc(calc.cropName||"-")}</div><div>Width: ${value(calc.cutWidthFt)} ft</div><div>Length: ${value(calc.cutLengthFt)} ft</div><div>Area: ${value(calc.acres)} ac</div><div>Wet Weight: ${value(calc.wetWeightLb)} lb</div><div>Moisture: ${value(calc.startMoisture)}%</div></div>`;});$("historyBody").innerHTML=html;$("historyBody").querySelector("[data-void-trial]")?.addEventListener("click",()=>openVoid(record));$("historyBody").querySelectorAll("[data-void-strip]").forEach(button=>button.addEventListener("click",()=>openVoid(record,Number(button.dataset.voidStrip))));$("historyBody").querySelectorAll("[data-edit-strip]").forEach(button=>button.addEventListener("click",()=>editHistoryStrip(record,Number(button.dataset.editStrip))));$("historyBody").querySelectorAll("[data-add-strip]").forEach(button=>button.addEventListener("click",()=>addHistoryStrip(record,button.dataset.addStrip)));openModal($("historyModal"));}
+
+function summarizeSavedStrips(strips){
+  const trial=strips.filter(s=>!s.voided&&s.type==="Trial"),check=strips.filter(s=>!s.voided&&s.type==="Check");
+  const trialAverage=average(trial.map(s=>s.yieldBuAc)),checkAverage=average(check.map(s=>s.yieldBuAc));
+  const differenceBuAc=Number.isFinite(trialAverage)&&Number.isFinite(checkAverage)?trialAverage-checkAverage:null;
+  const differencePct=Number.isFinite(differenceBuAc)&&checkAverage!==0?differenceBuAc/checkAverage*100:null;
+  return {trialStripCount:trial.length,checkStripCount:check.length,trialYieldCount:trial.filter(s=>Number.isFinite(s.yieldBuAc)).length,checkYieldCount:check.filter(s=>Number.isFinite(s.yieldBuAc)).length,trialAverage,checkAverage,differenceBuAc,differencePct};
+}
+function editHistoryStrip(record,index){
+  if(record.voided||record.strips[index]?.voided)return;
+  const strip=record.strips[index];
+  openCalculator({_calc:strip.calculation||null});
+  targetRow=null;
+  savedStripEdit={recordId:record.id,index,original:JSON.stringify(strip)};
+  $("savedStripFields").hidden=false;
+  $("savedStripType").value=strip.type||"Trial";
+  $("savedStripNotes").value=strip.notes||"";
+  $("cyUse").textContent="Save Strip";
+  cyModal.querySelector("h3").textContent=`Edit Strip ${index+1}`;
+}
+function addHistoryStrip(record,type){
+  if(record.voided)return;
+  openCalculator({_calc:null});
+  targetRow=null;
+  savedStripEdit={recordId:record.id,isNew:true};
+  const previous=(record.strips||[]).find(strip=>strip.type===type&&strip.calculation)
+    ||(record.strips||[]).find(strip=>strip.calculation);
+  if(previous){
+    cyCrop.value=previous.calculation.crop||"corn";
+    cyWid.value=String(previous.calculation.cutWidthFt||30);
+  }
+  $("savedStripFields").hidden=false;
+  $("savedStripType").value=type;
+  $("savedStripNotes").value="";
+  $("cyUse").textContent="Save Strip";
+  cyModal.querySelector("h3").textContent="Add Strip";
+}
+async function saveHistoryStrip(calc){
+  const edit=savedStripEdit,type=$("savedStripType").value,notes=$("savedStripNotes").value.trim();
+  savingStrip=true;
+  const controls=[...cyModal.querySelectorAll("button,input,select")];
+  controls.forEach(el=>el.disabled=true);
+  $("cyUse").textContent="Saving...";
+  let updatedRecord=null;
+  try{
+    const ref=fb.doc(db,"trialYields",edit.recordId);
+    await fb.runTransaction(db,async transaction=>{
+      const snap=await transaction.get(ref);
+      if(!snap.exists())throw new Error("This test no longer exists. Refresh Previous Tests.");
+      const current=snap.data(),strips=Array.isArray(current.strips)?current.strips.slice():[];
+      if(current.voided)throw new Error("This trial is voided and cannot be changed.");
+      if(!edit.isNew&&strips[edit.index]?.voided)throw new Error("This strip is voided and cannot be changed.");
+      if(edit.isNew){
+        // Append to the latest saved test so other users' additions are retained.
+        const order=strips.reduce((max,strip)=>Math.max(max,Number(strip.order)||0),strips.length)+1;
+        strips.push({order,type,notes,yieldBuAc:calc.yieldBuAc,calculation:{...calc}});
+      }else{
+        if(!strips[edit.index]||JSON.stringify(strips[edit.index])!==edit.original)throw new Error("This strip changed since you opened it. Go back and refresh Previous Tests before editing again.");
+        strips[edit.index]={...strips[edit.index],type,notes,yieldBuAc:calc.yieldBuAc,calculation:{...strips[edit.index].calculation,...calc}};
+      }
+      if(!strips.some(s=>s.type==="Trial")||!strips.some(s=>s.type==="Check"))throw new Error("Keep at least one Trial strip and one Check strip.");
+      const summary=summarizeSavedStrips(strips);
+      const patch={strips,summary,trialStripCount:summary.trialStripCount,checkStripCount:summary.checkStripCount,trialAverage:summary.trialAverage,checkAverage:summary.checkAverage,differenceBuAc:summary.differenceBuAc,differencePct:summary.differencePct,updatedAt:fb.serverTimestamp()};
+      transaction.update(ref,patch);
+      updatedRecord={...current,...patch,id:edit.recordId};
+    });
+    HISTORY=HISTORY.map(record=>record.id===edit.recordId?updatedRecord:record);
+    renderHistory();
+    savingStrip=false;
+    closeModal(cyModal);
+    openHistory(updatedRecord);
+  }catch(error){
+    console.error("[FV] Strip update failed",error);
+    alert("Could not save this strip. Your changes are still here.\n\n"+(error.message||"Please try again."));
+  }finally{
+    savingStrip=false;
+    controls.forEach(el=>el.disabled=false);
+    $("cyUse").textContent="Save Strip";
+  }
+}
+
+
+function openVoid(record,index=null){
+  if(record.voided||(index!==null&&record.strips[index]?.voided))return;
+  voidTarget={recordId:record.id,index,original:index===null?null:JSON.stringify(record.strips[index])};
+  $("voidTitle").textContent=index===null?"Void Entire Trial":"Void Strip "+(index+1);
+  $("voidHelp").textContent=index===null
+    ?"This marks the entire saved test as voided. All entered strip data stays available for reference."
+    :"This keeps the strip's entered data but removes it from the test averages.";
+  $("voidReason").value="";
+  $("voidError").hidden=true;
+  openModal($("voidModal"));
+}
+async function confirmVoid(){
+  if(savingVoid||!voidTarget)return;
+  const reason=$("voidReason").value.trim();
+  if(!reason){
+    $("voidError").textContent="Type a reason before voiding.";
+    $("voidError").hidden=false;
+    $("voidReason").focus();
+    return;
+  }
+  const target={...voidTarget};
+  savingVoid=true;
+  ["voidConfirm","voidCancel","voidReason"].forEach(id=>$(id).disabled=true);
+  $("voidConfirm").textContent="Saving...";
+  $("voidError").hidden=true;
+  try{
+    const ref=fb.doc(db,"trialYields",target.recordId);
+    const user=auth?.currentUser;
+    const audit={voided:true,voidReason:reason,voidedAtISO:new Date().toISOString(),voidedAtMs:Date.now(),voidedByUid:user?.uid||"",voidedByName:user?.displayName||"",voidedByEmail:user?.email||""};
+    let updatedRecord;
+    await fb.runTransaction(db,async transaction=>{
+      const snap=await transaction.get(ref);
+      if(!snap.exists())throw new Error("This test no longer exists. Refresh Previous Tests.");
+      const current=snap.data();
+      if(current.voided)throw new Error("This trial has already been voided. Refresh Previous Tests.");
+      const strips=Array.isArray(current.strips)?current.strips.slice():[];
+      let patch;
+      if(target.index===null){
+        patch={...audit,summaryBeforeVoid:current.summary||summarizeSavedStrips(strips)};
+      }else{
+        const strip=strips[target.index];
+        if(!strip||JSON.stringify(strip)!==target.original)throw new Error("This strip changed. Cancel and refresh Previous Tests before voiding it.");
+        if(strip.voided)throw new Error("This strip has already been voided.");
+        strips[target.index]={...strip,...audit};
+        patch={strips};
+      }
+      const summary=summarizeSavedStrips(target.index===null?[]:strips);
+      Object.assign(patch,{summary,trialStripCount:summary.trialStripCount,checkStripCount:summary.checkStripCount,trialAverage:summary.trialAverage,checkAverage:summary.checkAverage,differenceBuAc:summary.differenceBuAc,differencePct:summary.differencePct,updatedAt:fb.serverTimestamp()});
+      transaction.update(ref,patch);
+      updatedRecord={...current,...patch,id:target.recordId};
+    });
+    HISTORY=HISTORY.map(record=>record.id===target.recordId?updatedRecord:record);
+    renderHistory();
+    savingVoid=false;
+    closeModal($("voidModal"));
+    voidTarget=null;
+    openHistory(updatedRecord);
+  }catch(error){
+    console.error("[FV] Void failed",error);
+    $("voidError").textContent="Could not void. "+(error.message||"Please try again.");
+    $("voidError").hidden=false;
+  }finally{
+    savingVoid=false;
+    ["voidConfirm","voidCancel","voidReason"].forEach(id=>$(id).disabled=false);
+    $("voidConfirm").textContent="Confirm Void";
+  }
+}
+$("voidConfirm").addEventListener("click",confirmVoid);
+$("voidCancel").addEventListener("click",()=>{if(savingVoid)return;voidTarget=null;closeModal($("voidModal"));});
+
 $("historyShare").addEventListener("click",shareHistoryRecord);$("historyClose").addEventListener("click",()=>{historyShareRecord=null;closeModal($("historyModal"));});$("refreshHistory").addEventListener("click",loadHistory);
 try{await initFirebase();await loadFields();await loadTrials();addStrip("Trial");addStrip("Check");await loadHistory();}catch(error){console.error("[FV] Trial Yields boot failed",error);alert("FarmVista could not initialize Trial Yields.\n\n"+(error&&error.message?error.message:"Unknown error"));}
 })();
