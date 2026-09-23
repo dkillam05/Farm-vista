@@ -1037,6 +1037,11 @@
     #bagEditDialog { max-height:calc(100dvh - 24px); overflow:auto; }
     #bagEditForm label { display:grid; gap:5px; font-size:13px; font-weight:850; }
     #bagEditPartials { display:grid; gap:10px; }
+    .partial-edit-row { display:grid; gap:6px; }
+    .partial-edit-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:13px; font-weight:850; }
+    .partial-delete { display:inline-flex; align-items:center; justify-content:center; width:44px; height:44px; flex:0 0 44px; border:1px solid var(--border); border-radius:9px; background:var(--surface); color:var(--danger); cursor:pointer; }
+    .partial-delete:disabled { opacity:.55; cursor:default; }
+    .partial-delete:focus-visible { outline:2px solid var(--text); outline-offset:2px; }
     @media(prefers-reduced-motion:reduce) { .field-swipe .field-name { transition:none; } }
 
     .partial-usage-field { display:grid; gap:5px; align-content:start; min-width:0; font-size:13px; font-weight:850; }
@@ -3847,8 +3852,22 @@ _priority:
     }
 
     let bagEditRow=null, bagEditBusy=false, bagEditOriginal='';
+    let bagEditPartialOrigins=[];
     const editDialog=$('bagEditDialog'), editForm=$('bagEditForm');
     function editError(message){ $('bagEditError').textContent=message; $('bagEditError').classList.toggle('show', !!message); }
+    // Firestore map key order can differ between a query and a transaction.
+    // Compare values with sorted map keys while preserving partial bag order.
+    function bagEditFingerprint(value){
+      if(value === undefined) return 'undefined';
+      if(value === null || typeof value !== 'object') return JSON.stringify(value);
+      if(typeof value.toMillis === 'function'){
+        return `timestamp:${value.seconds}:${value.nanoseconds}`;
+      }
+      if(Array.isArray(value)) return '['+value.map(bagEditFingerprint).join(',')+']';
+      return '{'+Object.keys(value).sort().map(key =>
+        JSON.stringify(key)+':'+bagEditFingerprint(value[key])
+      ).join(',')+'}';
+    }
     function editFeetSource(row){
       if(Array.isArray(row.partialFeet) && row.partialFeet.length) return row.partialFeet;
       if(Array.isArray(row.counts?.partialFeet) && row.counts.partialFeet.length) return row.counts.partialFeet;
@@ -3858,20 +3877,41 @@ _priority:
     function renderEditPartials(values=[], usages=[]){
       const count=Number($('bagEditCount').value);
       if(!Number.isInteger(count) || count<0 || count>100) return;
+      bagEditPartialOrigins=Array.from({length:count}, (_,i) => bagEditPartialOrigins[i] ?? null);
       $('bagEditPartials').innerHTML=Array.from({length:count}, (_,i) =>
-        `<div class="pickup-fields">
-          <label>Partial bag ${i+1} — feet<input class="pickup-input" type="number" min="0.1" step="any" data-partial="${i}" value="${escapeHtml(values[i] ?? '')}" placeholder="Feet not recorded"></label>
+        `<div class="partial-edit-row">
+          <div class="partial-edit-heading"><span>Partial bag ${i+1}</span>
+            <button type="button" class="partial-delete" data-delete-partial="${i}" aria-label="Delete partial bag ${i+1}" title="Delete partial bag ${i+1}">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/></svg>
+            </button>
+          </div>
+          <div class="pickup-fields">
+          <label>Feet<input class="pickup-input" type="number" min="0.1" step="any" data-partial="${i}" value="${escapeHtml(values[i] ?? '')}" placeholder="Feet not recorded"></label>
           <div class="partial-usage-field">
-            <span id="partialUsageLabel${i}">Partial bag ${i+1} — usage</span>
+            <span id="partialUsageLabel${i}">Usage</span>
             <div class="partial-usage-toggle" role="group" aria-labelledby="partialUsageLabel${i}" data-partial-usage="${i}" data-value="${['new','carryover'].includes(usages[i]) ? usages[i] : 'unknown'}">
               <button type="button" data-usage="carryover" aria-pressed="${usages[i]==='carryover'}">Carry over</button>
               <button type="button" data-usage="new" aria-pressed="${usages[i]==='new'}">Start new</button>
             </div>
             ${!['new','carryover'].includes(usages[i]) ? '<span class="pickup-help usage-unrecorded">Not recorded — choose either option.</span>' : ''}
           </div>
+          </div>
         </div>`
       ).join('');
       updateEditPreview();
+    }
+    function deleteEditPartial(index){
+      if(bagEditBusy) return;
+      const values=editInventoryValues(), usages=editPartialUsages();
+      if(!Number.isInteger(index) || index<0 || index>=values.feet.length) return;
+      values.feet.splice(index,1);
+      usages.splice(index,1);
+      bagEditPartialOrigins.splice(index,1);
+      $('bagEditCount').value=String(values.feet.length);
+      editError('');
+      renderEditPartials(values.feet,usages);
+      const buttons=$('bagEditPartials').querySelectorAll('[data-delete-partial]');
+      (buttons[Math.min(index,buttons.length-1)] || $('bagEditCount')).focus();
     }
     function editPartialUsages(){
       return [...$('bagEditPartials').querySelectorAll('[data-partial-usage]')].map(toggle => toggle.dataset.value);
@@ -3911,6 +3951,7 @@ _priority:
       $('bagEditPriority').value=row._priority ?? row.priority ?? 0;
       $('bagEditReason').value=row.priorityReason || '';
       $('bagEditNotes').value=row.notes || '';
+      bagEditPartialOrigins=Array.from({length:rowPartial(row)}, (_,i) => i);
       renderEditPartials(editFeetSource(row), row.counts?.partialUsage || []);
       bagEditOriginal=JSON.stringify(editInventoryValues());
       updateEditPreview(); updateEditPriority();
@@ -3925,6 +3966,8 @@ _priority:
     $('bagEditFull').addEventListener('input', updateEditPreview);
     $('bagEditPartials').addEventListener('input', updateEditPreview);
     $('bagEditPartials').addEventListener('click', event => {
+      const remove=event.target.closest('button[data-delete-partial]');
+      if(remove){ deleteEditPartial(Number(remove.dataset.deletePartial)); return; }
       const button=event.target.closest('button[data-usage]');
       if(!button || bagEditBusy) return;
       const toggle=button.closest('[data-partial-usage]');
@@ -3972,7 +4015,9 @@ _priority:
       // Correct the empty-bag stock debit only for an explicit change between
       // known usages. Missing historical usage does not establish a prior debit.
       const usageStockDelta=usages.reduce((total,usage,i) => {
-        const old=oldUsages[i];
+        // Follow the surviving bag, not its new position after a deletion.
+        const origin=bagEditPartialOrigins[i];
+        const old=origin==null ? 'unknown' : oldUsages[origin];
         return total + (['new','carryover'].includes(old) && ['new','carryover'].includes(usage)
           ? Number(usage==='new')-Number(old==='new') : 0);
       },0);
@@ -3988,7 +4033,7 @@ _priority:
           const fresh=snapshot.data();
           // Never overwrite a pickup or another edit made while this form was open.
           const keys=['counts','partialFeet','status','priority','priorityReason','notes','datePlaced','cropMoisture','updatedAt'];
-          if(keys.some(key => JSON.stringify(fresh[key])!==JSON.stringify(row[key]))) {
+          if(keys.some(key => bagEditFingerprint(fresh[key])!==bagEditFingerprint(row[key]))) {
             const conflict=new Error('This entry changed while you were editing. Close and reopen it to load the latest values.');
             conflict.code='bag-edit-conflict'; throw conflict;
           }
@@ -4011,7 +4056,8 @@ _priority:
         await loadBagInventory();
       } catch(error){
         editError(error?.message || 'Unable to save bag entry.');
-        if(error?.code==='bag-edit-conflict') await loadBagInventory();
+        // Unlock immediately even if refreshing inventory is slow or offline.
+        if(error?.code==='bag-edit-conflict') void loadBagInventory();
       }
       finally {
         bagEditBusy=false; controls.forEach(el => el.disabled=false);
