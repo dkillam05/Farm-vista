@@ -49,7 +49,7 @@ export function blendRadiusMeters(){
   return Number.isFinite(n) ? n : 1800;
 }
 
-export function drawRainBlobs(points, fields, scale){
+export function drawRainBlobs(points, fields, scale, options = {}){
   ensureMap();
   clearMapOverlays();
 
@@ -110,7 +110,7 @@ export function drawRainBlobs(points, fields, scale){
   updateTapTargetsForCurrentZoom();
   setPointMeta(points.length);
   setFieldsMeta(fields.length);
-  fitToFields(fields);
+  if (!options.preserveViewport) fitToFields(fields);
 
   const sampleHit = appState.lastTapTargets[0] ? Math.round(appState.lastTapTargets[0].hitRadiusMeters) : 0;
   const floorLabel = scale.usedDynamicFloor
@@ -127,7 +127,7 @@ export function drawRainBlobs(points, fields, scale){
   );
 }
 
-export function drawReadinessMarkers(fields){
+export function drawReadinessMarkers(fields, options = {}){
   ensureMap();
   clearMapOverlays();
 
@@ -189,7 +189,7 @@ export function drawReadinessMarkers(fields){
   updateTapTargetsForCurrentZoom();
   setPointMeta(fields.length);
   setFieldsMeta(fields.length);
-  fitToFields(fields);
+  if (!options.preserveViewport) fitToFields(fields);
 
   const sampleHit = appState.lastTapTargets[0] ? Math.round(appState.lastTapTargets[0].hitRadiusMeters) : 0;
 

@@ -128,7 +128,9 @@
     }
 
     .drawer{ position:fixed; top:80px; bottom:auto; left:12px; width:min(84vw, 320px);
-      max-height:calc(100vh - 92px);
+      box-sizing:border-box;
+      max-height:calc(100vh - 92px - var(--ftr-h) - env(safe-area-inset-bottom,0px) - env(safe-area-inset-bottom,0px));
+      max-height:var(--menu-max-height,calc(100dvh - 92px - var(--ftr-h) - env(safe-area-inset-bottom,0px) - env(safe-area-inset-bottom,0px)));
       background: var(--surface); color: var(--text); box-shadow: var(--shadow);
       transform:translateX(calc(-100% - 12px)); transition:transform .25s; z-index:1200; -webkit-overflow-scrolling:touch;
       display:flex; flex-direction:column; height:auto; overflow:hidden;
@@ -142,7 +144,7 @@
     .org .org-name{ font-weight:800; line-height:1.15; }
     .org .org-loc{ font-size:13px; color:#666; }
 
-    .drawer nav{ flex:1 1 auto; overflow:auto; background: var(--bg); }
+    .drawer nav{ flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior-y:contain; -webkit-overflow-scrolling:touch; background: var(--bg); }
     .drawer nav .skeleton{ padding:16px; color:#777; }
     .drawer nav a{ display:flex; align-items:center; gap:12px; padding:16px; text-decoration:none; color: var(--text); border-bottom:1px solid var(--border); }
     .drawer nav a span:first-child{ width:22px; text-align:center; opacity:.95; }
@@ -624,7 +626,12 @@ this._companyLoc =
       this._bootSequence();
 
       window.addEventListener('orientationchange', ()=>{ this._setScrollLock(false); }, { passive:true });
-      window.addEventListener('resize', ()=>{ if (this._scrollLocked) this._applyBodyFixedStyles(); }, { passive:true });
+      window.addEventListener('resize', ()=>{
+        if (this._scrollLocked) this._applyBodyFixedStyles();
+        this._syncDrawerBounds();
+      }, { passive:true });
+      window.visualViewport?.addEventListener('resize', ()=>this._syncDrawerBounds(), {passive:true});
+      window.visualViewport?.addEventListener('scroll', ()=>this._syncDrawerBounds(), {passive:true});
 
       /* QC init */
       this._initQuickCamera();
@@ -2019,11 +2026,23 @@ a.href = href;
       this._setScrollLock(anyOpen);
     }
 
+    _syncDrawerBounds(){
+      if (!this._drawer || !this.classList.contains('drawer-open')) return;
+      const viewport = window.visualViewport;
+      const screenBottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight;
+      const footer = this.shadowRoot.querySelector('.ftr');
+      const footerRect = footer?.getBoundingClientRect();
+      const bottom = footerRect?.height > 0 ? Math.min(screenBottom, footerRect.top) : screenBottom;
+      const top = this._drawer.getBoundingClientRect().top;
+      this._drawer.style.setProperty('--menu-max-height', `${Math.max(0, bottom - top - 12)}px`);
+    }
+
     toggleDrawer(open){
       const wasOpen = this.classList.contains('drawer-open');
       const on = (open===undefined) ? !wasOpen : open;
       this.classList.toggle('drawer-open', on);
       this._syncScrollLock();
+      if (on) this._syncDrawerBounds();
       if (wasOpen && !on) { this._collapseAllNavGroups(); }
     }
 

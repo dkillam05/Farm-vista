@@ -207,7 +207,7 @@ function safeMrmsDocData(d){
 ===================================================================== */
 const MRMS_TTL_MS = 5 * 60 * 1000;
 
-export async function loadFieldMrmsDoc(state, fieldId, { force=false } = {}){
+export async function loadFieldMrmsDoc(state, fieldId, { force=false, throwOnError=false } = {}){
   const fid = String(fieldId || '').trim();
   if (!fid) return null;
 
@@ -263,6 +263,7 @@ export async function loadFieldMrmsDoc(state, fieldId, { force=false } = {}){
     return data || null;
   }catch(e){
     console.warn('[FieldReadiness] loadFieldMrmsDoc failed:', e);
+    if (throwOnError) throw e;
     state.mrmsByFieldId.set(fid, null);
     state.mrmsInfoByFieldId.set(fid, {
       ok: false,
@@ -379,7 +380,7 @@ function initialWarmCount(state){
   return 25; // sensible default
 }
 
-export async function loadFields(state){
+export async function loadFields(state, { warmWeather=true } = {}){
   const api = getAPI(state);
   if (!api){
     setErr('Firestore helpers not found.');
@@ -430,6 +431,9 @@ export async function loadFields(state){
     if (empty) empty.style.display = state.fields.length ? 'none' : 'block';
 
     ensureSelectedParamsToSliders(state);
+
+    // The tile page reads backend readiness and does not need model weather.
+    if (!warmWeather) return;
 
     // weather warmup (uses existing weather module)
     await ensureModelWeatherModulesLocal(state);

@@ -126,7 +126,36 @@ function ensureMapReadyForRender(){
   updateMapStyle();
 }
 
-export async function renderRain(force = false){
+// Build replacement overlays while the existing ones stay attached. Only
+// detach the old set after drawing succeeds; roll back a failed draw.
+function replaceOverlays(draw){
+  const old = {
+    circles: appState.mapCircles, markers: appState.fieldMarkers,
+    targets: appState.lastTapTargets
+  };
+  appState.mapCircles = [];
+  appState.fieldMarkers = [];
+  appState.lastTapTargets = [];
+  try{
+    draw();
+  }catch(error){
+    clearMapOverlays();
+    appState.mapCircles = old.circles;
+    appState.fieldMarkers = old.markers;
+    appState.lastTapTargets = old.targets;
+    throw error;
+  }
+  for (const overlay of [...old.circles, ...old.markers]){
+    try{ overlay.setMap(null); }catch(_){}
+  }
+}
+
+function keepVisibleData(reason){
+  setStatus('Not updated');
+  setDebug(`${reason} • keeping previous map data`);
+}
+
+export async function renderRain(force = false, options = {}){
   const requestId = ++appState.currentRequestId;
 
   try{
@@ -180,9 +209,10 @@ export async function renderRain(force = false){
 
     const scale = buildRainScale(values);
 
-    appState.lastFieldSummaries = summaries;
-    appState.lastRenderedFields = renderedFields;
-    appState.lastScaleMeta = scale;
+    if (options.quiet && (!points.length || !renderedFields.length)){
+      keepVisibleData('No replacement rainfall data returned');
+      return;
+    }
 
     if (!points.length || !renderedFields.length){
       resetEmptyRainState();
@@ -191,7 +221,10 @@ export async function renderRain(force = false){
 
     cacheRangeResult(cacheKey, { points, summaries, renderedFields, scale });
 
-    drawRainBlobs(points, renderedFields, scale);
+    replaceOverlays(() => drawRainBlobs(points, renderedFields, scale, options));
+    appState.lastFieldSummaries = summaries;
+    appState.lastRenderedFields = renderedFields;
+    appState.lastScaleMeta = scale;
 
     const hasAnyRain = points.some(p => Number(p?.rainInches || 0) > 0);
     setStatus(hasAnyRain ? 'Live' : 'Live (0 rain)');
@@ -199,7 +232,9 @@ export async function renderRain(force = false){
       `range=${getCurrentRangeDisplay()} • fields=${renderedFields.length} • points=${points.length}`
     );
   }catch(e){
+    if (requestId !== appState.currentRequestId) return;
     console.warn('[WeatherMap] rain render failed:', e);
+    if (options.quiet){ keepVisibleData(safeErrMsg(e)); return; }
 
     const fallback = getCachedRangeResult(cacheKey);
     if (fallback){
@@ -221,7 +256,7 @@ export async function renderRain(force = false){
   }
 }
 
-export async function renderReadiness(force = false){
+export async function renderReadiness(force = false, options = {}){
   const requestId = ++appState.currentRequestId;
 
   try{
@@ -255,8 +290,10 @@ export async function renderReadiness(force = false){
     const summaries = Array.isArray(res.summaries) ? res.summaries : [];
     const renderedFields = Array.isArray(res.renderedFields) ? res.renderedFields : [];
 
-    appState.lastFieldSummaries = summaries;
-    appState.lastRenderedFields = renderedFields;
+    if (options.quiet && !renderedFields.length){
+      keepVisibleData('No replacement readiness data returned');
+      return;
+    }
 
     if (!renderedFields.length){
       resetEmptyReadinessState();
@@ -264,11 +301,15 @@ export async function renderReadiness(force = false){
     }
 
     cacheRangeResult(cacheKey, { summaries, renderedFields });
-    drawReadinessMarkers(renderedFields);
+    replaceOverlays(() => drawReadinessMarkers(renderedFields, options));
+    appState.lastFieldSummaries = summaries;
+    appState.lastRenderedFields = renderedFields;
     setStatus('Live');
     setDebug(`readiness • fields=${renderedFields.length} • markers=${renderedFields.length}`);
   }catch(e){
+    if (requestId !== appState.currentRequestId) return;
     console.warn('[WeatherMap] readiness render failed:', e);
+    if (options.quiet){ keepVisibleData(safeErrMsg(e)); return; }
 
     const fallback = getCachedRangeResult(cacheKey);
     if (fallback){
@@ -290,7 +331,7 @@ export async function renderReadiness(force = false){
   }
 }
 
-export async function renderActiveMode(force = false){
+export async function renderActiveMode(force = false, options = {}){
   appState.currentMapMode = normalizeMapMode(appState.currentMapMode);
 
   syncMapModeSelect();
@@ -299,13 +340,13 @@ export async function renderActiveMode(force = false){
     setModeText('Readiness');
     setModeChip('Readiness Map');
     updateReadinessLegend();
-    showMapLoading('Loading readiness…');
+    if (!options.quiet) showMapLoading('Loading readiness…');
 
     try{
-      await renderReadiness(force);
+      await renderReadiness(force, options);
     }finally{
       syncMapModeSelect();
-      hideMapLoading();
+      if (!options.quiet) hideMapLoading();
     }
 
     return;
@@ -316,12 +357,12 @@ export async function renderActiveMode(force = false){
   if (appState.lastScaleMeta){
     updateRainLegend(appState.lastScaleMeta);
   }
-  showMapLoading('Loading rainfall…');
+  if (!options.quiet) showMapLoading('Loading rainfall…');
 
   try{
-    await renderRain(force);
+    await renderRain(force, options);
   }finally{
     syncMapModeSelect();
-    hideMapLoading();
+    if (!options.quiet) hideMapLoading();
   }
 }

@@ -41,6 +41,7 @@ import { buildFarmFilterOptions } from './farm-filter.js';
 import { initMap } from './map.js';
 import { initLayoutFix } from './layout.js';
 import { initOpThresholds } from './op-thresholds.js';
+import { beginFieldLoading } from './loading-progress.js';
 
 const LS_RANGE_KEY = 'fv_fr_range_v1';
 const MRMS_UI_REFRESH_MS = 10 * 60 * 1000;
@@ -102,45 +103,10 @@ function scheduleForceSyncPageSizeUi(state){
    - does NOT rerun full readiness model
    - only nudges rainfall-related UI to refresh
 ===================================================================== */
-function getVisibleTileFieldIds(state){
-  try{
-    const nodes = Array.from(document.querySelectorAll('#fieldsGrid .tile[data-field-id]'));
-    const ids = nodes
-      .map(el => String(el.getAttribute('data-field-id') || '').trim())
-      .filter(Boolean);
-
-    if (ids.length) return ids;
-
-    return Array.isArray(state && state.fields)
-      ? state.fields.map(f => String(f && f.id || '')).filter(Boolean).slice(0, 25)
-      : [];
-  }catch(_){
-    return [];
-  }
-}
-
 async function refreshMrmsUiOnly(state){
-  try{
-    if (!state || !Array.isArray(state.fields) || !state.fields.length) return;
-
-    const visibleIds = getVisibleTileFieldIds(state);
-
-    for (const fieldId of visibleIds){
-      try{
-        document.dispatchEvent(new CustomEvent('fr:tile-refresh', {
-          detail: { fieldId }
-        }));
-      }catch(_){}
-    }
-
-    if (state.selectedFieldId){
-      try{
-        document.dispatchEvent(new CustomEvent('fr:details-refresh', {
-          detail: { fieldId: state.selectedFieldId }
-        }));
-      }catch(_){}
-    }
-  }catch(_){}
+  if(!state || !state.fields?.length || document.hidden)return;
+  // One page refresh, not one full refresh per visible tile.
+  await refreshAll(state,{force:true});
 }
 
 function startMrmsUiRefreshTimer(state){
@@ -218,6 +184,10 @@ function applyDetailsEditGateState(state){
 (async function init(){
   const state = createState();
   window.__FV_FR = state;
+  state._fvHoldRefresh = true;
+  window.FVRefresh = () => refreshAll(state,{force:true});
+  window.FVRefresh.handlesFirestore = true;
+  const bootProgress = beginFieldLoading();
 
   initLayoutFix();
 
@@ -250,6 +220,7 @@ function applyDetailsEditGateState(state){
   applyDetailsEditGateState(state);
 
   if (!canView(state)){
+    bootProgress.stop();
     const grid = document.getElementById('fieldsGrid');
     if (grid){
       grid.innerHTML = '';
@@ -274,9 +245,7 @@ function applyDetailsEditGateState(state){
   enforceCalendarNoFuture();
 
   // Load remote thresholds + data
-  await loadThresholdsFromFirestore(state);
-  await loadFarmsOptional(state);
-  await loadFields(state);
+  await Promise.all([loadThresholdsFromFirestore(state), loadFarmsOptional(state), loadFields(state,{warmWeather:false})]);
 
   // Farm options can change after farms/fields load
   buildFarmFilterOptions(state);
@@ -290,14 +259,6 @@ function applyDetailsEditGateState(state){
 
   initMap(state);
   initOpThresholds(state);
-
-  document.addEventListener('fr:soft-reload', async ()=>{
-    try{
-      scheduleForceSyncPageSizeUi(state);
-      await refreshAll(state);
-      scheduleForceSyncPageSizeUi(state);
-    }catch(_){}
-  });
 
   document.addEventListener('fv:user-ready', async ()=>{
     try{
@@ -386,19 +347,16 @@ function applyDetailsEditGateState(state){
     }
   });
 
-  // Initial paint
+  // Only one initial render. Details are loaded when opened.
+  state._fvHoldRefresh = false;
+  state._fvRefreshPending = false;
+  bootProgress.stop();
+  const detailsPanel=document.getElementById('detailsPanel');
+  detailsPanel?.addEventListener('toggle',()=>{
+    if(detailsPanel.open && canEdit(state))renderDetails(state).catch(()=>{});
+  });
   await renderTiles(state);
   scheduleForceSyncPageSizeUi(state);
-
-  await renderDetails(state);
-  scheduleForceSyncPageSizeUi(state);
-
-  // ✅ refresh without destroying tiles
-  setTimeout(()=>{
-    refreshAll(state).then?.(()=>{
-      scheduleForceSyncPageSizeUi(state);
-    }).catch?.(()=>{});
-  }, 0);
 
   // global calibration wiring (will show Fields always; only wires when edit allowed)
   wireFieldsHiddenTap(state);
@@ -406,11 +364,10 @@ function applyDetailsEditGateState(state){
   // Re-apply details gate again after all wiring (safe)
   applyDetailsEditGateState(state);
 
-  // Start lightweight MRMS-only refresh timer
+  // Refresh the selected tiles periodically, with one coalesced request
   startMrmsUiRefreshTimer(state);
 
-  // Small delayed MRMS-only refresh after initial paint so hourly rainfall UI can settle
-  setTimeout(()=>{ refreshMrmsUiOnly(state).catch?.(()=>{}); }, 1500);
+
 
   // re-close details (edge cases)
   try{
@@ -420,4 +377,8 @@ function applyDetailsEditGateState(state){
       dp2.removeAttribute('open');
     }
   }catch(_){}
-})();
+})().catch(error=>{
+  console.warn("[FieldReadiness] startup failed:",error);
+  const progress=beginFieldLoading();
+  progress.stop("Unable to load fields. Please reopen this page to try again.");
+});

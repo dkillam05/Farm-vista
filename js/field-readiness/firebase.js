@@ -11,7 +11,10 @@ export async function importFirebaseInit(state){
   try{
     const mod = await import(PATHS.FIREBASE_INIT);
     state.fb = mod;
-    if (mod && mod.ready) await mod.ready;
+    if (mod && mod.ready){
+      const ctx=await mod.ready;
+      if(ctx.auth?.authStateReady)await ctx.auth.authStateReady();
+    }
     return true;
   }catch(e){
     console.warn('[FieldReadiness] firebase-init import failed:', e);

@@ -203,7 +203,7 @@ export const NAV_MENU = {
           type: 'link',
           id: 'grain-tix',
           perm: 'grain-tix',
-          icon: '🎟️',
+          icon: '<img src="/assets/icons/grain-tracking.svg" width="28" height="28" alt="" aria-hidden="true" style="display:block;max-width:none;">',
           label: 'Grain Tickets',
           href: '/pages/grain/grain-ticket.html'
         },
@@ -211,7 +211,7 @@ export const NAV_MENU = {
           type: 'link',
           id: 'grain-bins',
           perm: 'grain-bins',
-          icon: '🛢️',
+          icon: '<img src="/assets/icons/grain-bin.svg" width="28" height="28" alt="" aria-hidden="true" style="display:block;max-width:none;">',
           label: 'Grain Bin Inventory',
           href: '/pages/grain/grain-bins.html'
         },
@@ -219,7 +219,7 @@ export const NAV_MENU = {
           type: 'link',
           id: 'grain-bags',
           perm: 'grain-bags',
-          icon: '👝',
+          icon: '<img src="/assets/icons/grain-bag.svg" width="28" height="28" alt="" aria-hidden="true" style="display:block;max-width:none;">',
           label: 'Grain Bag Inventory',
           href: '/pages/grain/grain-bags.html'
         }

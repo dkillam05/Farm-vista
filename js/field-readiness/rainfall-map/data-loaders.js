@@ -11,7 +11,7 @@
 import {
   collection,
   getDocs
-} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+} from '/js/firebase/firebase-init.js';
 
 import {
   MRMS_COLLECTION,
@@ -166,6 +166,7 @@ export async function loadMrmsDocs(force=false){
     return out;
   }catch(e){
     if (isPermissionError(e)){
+      if (force) throw e;
       console.warn('[WeatherMap] MRMS permission denied; continuing without MRMS collection.');
       appState.mrmsCache = { loadedAt: Date.now(), data: [] };
       return [];

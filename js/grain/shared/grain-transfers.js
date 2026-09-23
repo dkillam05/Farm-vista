@@ -2668,7 +2668,10 @@ function injectStyles() {
 .grain-transfer-modal{
   width:min(560px,100%);
   max-height:calc(100vh - 36px);
+  max-height:calc(100dvh - 36px);
   overflow:auto;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
   scrollbar-width:none;
   -ms-overflow-style:none;
   background:var(--surface);
@@ -4205,6 +4208,57 @@ function resetForm() {
 }
 
 
+// Fix the document in place on iOS and also lock the shell's landscape viewport.
+// Both transfer dialogs share this lock so closing one cannot unlock the other.
+let transferScrollLock = null;
+function syncTransferScrollLock() {
+  const open = [els.backdrop, els.settingsBackdrop].some(el => el?.classList.contains('open'));
+  if (open && !transferScrollLock) {
+    const restores = [];
+    const set = (el, property, value) => {
+      if (!el) return;
+      const old = el.style.getPropertyValue(property);
+      const priority = el.style.getPropertyPriority(property);
+      restores.push(() => old ? el.style.setProperty(property, old, priority) : el.style.removeProperty(property));
+      el.style.setProperty(property, value, 'important');
+    };
+    const x = window.scrollX, y = window.scrollY;
+    const html = document.documentElement;
+    const main = document.querySelector('fv-shell')?.shadowRoot?.querySelector('.main');
+    const mainX = main?.scrollLeft, mainY = main?.scrollTop;
+    set(html, 'overflow', 'hidden');
+    set(document.body, 'position', 'fixed');
+    set(document.body, 'top', `-${y}px`);
+    set(document.body, 'left', `-${x}px`);
+    set(document.body, 'width', '100%');
+    set(document.body, 'overflow', 'hidden');
+    set(main, 'overflow', 'hidden');
+    const blockBackground = event => {
+      const modal = event.target.closest?.('.grain-transfer-modal');
+      if (!modal?.closest('.grain-transfer-backdrop.open') && event.cancelable) event.preventDefault();
+    };
+    document.addEventListener('touchmove', blockBackground, {passive:false});
+    document.addEventListener('wheel', blockBackground, {passive:false});
+    transferScrollLock = () => {
+      document.removeEventListener('touchmove', blockBackground);
+      document.removeEventListener('wheel', blockBackground);
+      restores.reverse().forEach(restore => restore());
+      if (main) { main.scrollLeft = mainX; main.scrollTop = mainY; }
+      // Override smooth scrolling only while restoring the original position.
+      const behavior = html.style.getPropertyValue('scroll-behavior');
+      const priority = html.style.getPropertyPriority('scroll-behavior');
+      html.style.setProperty('scroll-behavior', 'auto', 'important');
+      window.scrollTo(x, y);
+      if (behavior) html.style.setProperty('scroll-behavior', behavior, priority);
+      else html.style.removeProperty('scroll-behavior');
+    };
+  } else if (!open && transferScrollLock) {
+    transferScrollLock();
+    transferScrollLock = null;
+  }
+}
+
+
 function openModal() {
 
   resetForm();
@@ -4215,8 +4269,7 @@ function openModal() {
   );
 
 
-  document.body.style.overflow =
-    "hidden";
+  syncTransferScrollLock();
 }
 
 
@@ -4235,8 +4288,7 @@ function closeModal() {
   );
 
 
-  document.body.style.overflow =
-    "";
+  syncTransferScrollLock();
 }
 
 
@@ -5935,8 +5987,7 @@ function openTransferSettings() {
   );
 
 
-  document.body.style.overflow =
-    "hidden";
+  syncTransferScrollLock();
 }
 
 
@@ -5947,8 +5998,7 @@ function closeTransferSettings() {
   );
 
 
-  document.body.style.overflow =
-    "";
+  syncTransferScrollLock();
 }
 
 

@@ -35,12 +35,31 @@ function normalizeMapMode(mode){
   return String(mode || '').toLowerCase() === 'readiness' ? 'readiness' : 'rainfall';
 }
 
-export async function startWeatherMap(){
+let startupPromise = null;
+
+export function startWeatherMap(){
+  // All callers await the same startup/render; a map object alone does not
+  // mean its field data has finished loading.
+  if (startupPromise) return startupPromise;
+  startupPromise = runWeatherMap().finally(() => { startupPromise = null; });
+  return startupPromise;
+}
+
+// Refresh the current controls, never re-run saved/default startup settings.
+export async function refreshWeatherMap(){
+  if (startupPromise) await startupPromise;
+  if (!appState.startFinished) return startWeatherMap();
+  await initFirebase();
+  await renderActiveMode(true, { quiet:true, preserveViewport:true });
+}
+
+async function runWeatherMap(){
   // If startup already completed, this is a return-to-page / re-entry case.
   // Re-sync UI + state and force a redraw instead of exiting.
   if (appState.startRequested && appState.startFinished){
     try{
       detectLayoutMode();
+      await initFirebase();
       ensureMap();
 
       restoreCurrentRangeFromLocal();

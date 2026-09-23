@@ -1095,7 +1095,7 @@
   </fv-shell>
 
 <script type="module">
-  import { startWeatherMap } from '/js/field-readiness/rainfall-map/app.js';
+  import { startWeatherMap, refreshWeatherMap } from '/js/field-readiness/rainfall-map/app.js';
   import { appState } from '/js/field-readiness/rainfall-map/store.js';
 
   window.startWeatherMap = startWeatherMap;
@@ -1535,7 +1535,7 @@
       renderRadarFrame();
     }
 
-    async function loadRadarManifest(force = false){
+    async function loadRadarManifest(force = false, preserveSettings = false){
       if (radarState.loading) return;
       radarState.loading = true;
       setRadarStatus(force ? 'reloading…' : 'loading…');
@@ -1559,10 +1559,15 @@
               })
           : [];
 
+        if (preserveSettings && !frames.length) return;
+        const previousTime = radarState.frames[radarState.frameIndex]?.time;
+        const wasLatest = radarState.frameIndex === radarState.frames.length - 1;
+        const previousIndex = frames.findIndex(frame => frame.time === previousTime);
         radarState.manifest = manifest;
         radarState.frames = frames;
-        radarState.frameIndex = Math.max(0, frames.length - 1);
-        radarState.speedMs = readSavedRadarSpeed();
+        radarState.frameIndex = preserveSettings && !wasLatest && previousIndex >= 0
+          ? previousIndex : Math.max(0, frames.length - 1);
+        if (!preserveSettings) radarState.speedMs = readSavedRadarSpeed();
 
         const speedSel = document.getElementById('radarSpeedSel');
         if (speedSel){
@@ -1772,15 +1777,34 @@
         wireRadarMenuUi();
         await waitForGoogleMaps();
 
-        if (!appState.map){
-          await startWeatherMap();
-        }
-
+        await startWeatherMap();
         await bootDevRadar();
       }catch(err){
         console.warn('[WeatherReadinessRadar] page boot failed:', err);
       }
     }
+
+    // The shell calls this contract for pull-to-refresh. Keep the current
+    // session/page alive and reload both field data and radar in place.
+    let refreshPromise = null;
+    window.FVRefresh = () => {
+      if (refreshPromise) return refreshPromise;
+      refreshPromise = (async () => {
+        await refreshWeatherMap();
+        await loadRadarManifest(true, true);
+      })().catch(err => {
+        console.warn('[WeatherReadinessRadar] refresh failed:', err);
+      }).finally(() => { refreshPromise = null; });
+      return refreshPromise;
+    };
+
+    // This page owns its data refresh; avoid the global Firestore network
+    // disable/enable cycle racing the map's fresh queries.
+    window.FVRefresh.handlesFirestore = true;
+
+    window.addEventListener('pageshow', event => {
+      if (event.persisted) bootPage();
+    });
 
     window.addEventListener('load', () => {
       setTimeout(() => {
@@ -1794,9 +1818,7 @@
           try{
             await waitForGoogleMaps();
 
-            if (!appState.map){
-              await startWeatherMap();
-            }
+            await startWeatherMap();
 
             ensureRadarOverlay();
             renderRadarFrame();

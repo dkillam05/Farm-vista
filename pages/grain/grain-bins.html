@@ -153,6 +153,29 @@
         );
     }
 
+    #binShare{position:absolute;top:8px;right:10px;z-index:25;display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:6px;border:0;background:transparent;color:var(--sheet-text);cursor:pointer}
+    .inventory-section{position:relative}
+    .inventory-title{padding-right:44px}
+    #binShareDialog{max-width:340px;width:calc(100% - 32px);padding:20px;border:1px solid var(--border);border-radius:14px;background:var(--surface);color:var(--text)}
+    #binShareDialog::backdrop{background:rgba(0,0,0,.5)}
+    #binShareDialog button{font:inherit;min-height:44px;cursor:pointer}
+    #binShareClose{float:right;background:transparent;color:inherit;border:0;font-size:24px!important}
+    .bin-share-actions{display:flex;gap:12px;margin:16px 0}
+    .bin-share-actions button{flex:1;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:inherit}
+    #binShareStatus{font-size:13px}
+    .bin-group-toggle{
+      border:0; background:transparent; color:inherit; font:inherit;
+      text-align:left; cursor:pointer; padding:6px 0; min-height:32px;
+      display:inline-flex; align-items:center; gap:9px;
+    }
+    .bin-group-toggle:focus-visible{ outline:2px solid #c6b52e; outline-offset:3px; }
+    .bin-group-toggle .chevron{ display:inline-block; width:12px; }
+    .grid-viewport{ touch-action:pan-x pan-y; }
+
+    .inventory-grid .crop-group-row td,
+    .inventory-grid .bin-total-row td{background:var(--site-row-bg) !important;font-weight:950;border-top:1px solid var(--gridline-strong)}
+    .crop-group-row .bin-group-toggle{margin-left:16px}
+    .inventory-head{padding-right:54px}
     .inventory-title{
       margin:0;
       font-size:18px;
@@ -758,6 +781,7 @@
         box-shadow:none;
       }
 
+      #binShare{position:fixed;top:8px;right:12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;}
       .inventory-head{
         display:none;
       }
@@ -908,6 +932,7 @@
         data-perm="grain-bins:view"
       >
 
+        <button type="button" id="binShare" aria-label="Share or print table" title="Share or print table"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 16V3m-4 4 4-4 4 4M6 10H4v11h16V10h-2"/></svg></button>
         <header class="inventory-head">
 
           <div>
@@ -917,7 +942,7 @@
             </h2>
 
             <p class="inventory-helper">
-              Grouped by bin site. Tap a bin row to remove inventory.
+              Tap a bin site or crop to expand. Pinch the table to zoom. Tap a bin row to remove inventory.
               Turn your phone sideways for full-screen spreadsheet view.
             </p>
 
@@ -988,6 +1013,11 @@
     </div>
 
   </fv-shell>
+
+  <dialog id="binShareDialog" aria-labelledby="binShareTitle"><button id="binShareClose" aria-label="Close">×</button><h3 id="binShareTitle">Share table</h3><p>Current view · Letter (8.5 × 11)</p><div class="bin-share-actions"><button id="binSharePdf">Share PDF</button><button id="binSharePrint">Print</button></div><p id="binShareStatus" role="status"></p></dialog>
+  <script src="/js/vendor/jspdf.umd.min.js" defer></script>
+  <script src="/js/vendor/jspdf.plugin.autotable.min.js" defer></script>
+  <script src="/js/grain/bag-table-export.js?v=20260923-19" defer></script>
 
 
   <!-- =========================================================
@@ -1135,6 +1165,7 @@
     import {
       ready,
       getFirestore,
+      getAuth,
       collection,
       getDocs,
       doc,
@@ -1580,192 +1611,113 @@
        RENDER
     ========================================================= */
 
-    function renderInventory(){
-
-      const total =
-        state.sites.reduce(
-          (
-            sum,
-            site
-          ) =>
-            sum +
-            site.total,
-          0
-        );
-
-
-      inventoryTotal.textContent =
-        `${formatBushels(
-          total
-        )} bu On Hand`;
-
-
-      if(
-        !state.sites.length
-      ){
-
-        body.innerHTML =
-          `
-            <tr class="message-row">
-              <td colspan="3">
-                No grain is currently stored in bins.
-              </td>
-            </tr>
-          `;
-
-        return;
-
+    let binView = {open:{}, zoom:1};
+    let binViewKey = '';
+    let binPinch = null, suppressBinClickUntil = 0;
+    const binViewport = $('gridViewport');
+    const binTable = binViewport.querySelector('table');
+    function saveBinView(){
+      try { localStorage.setItem(binViewKey, JSON.stringify(binView)); } catch {}
+    }
+    function loadBinView(){
+      const key = 'fv:grain-bins:view:v1:' + (getAuth()?.currentUser?.uid || 'guest');
+      if(key === binViewKey) return;
+      binViewKey = key;
+      binView = {open:{}, zoom:1};
+      try {
+        const saved = JSON.parse(localStorage.getItem(key));
+        if(saved && saved.open && typeof saved.open === 'object' && !Array.isArray(saved.open)) binView.open = saved.open;
+        if(Number.isFinite(saved?.zoom)) binView.zoom = Math.max(.4, Math.min(2, saved.zoom));
+      } catch {}
+      binTable.style.zoom = binView.zoom;
+    }
+    binViewport.addEventListener('click', event => {
+      if(binPinch || Date.now() < suppressBinClickUntil){
+        event.preventDefault(); event.stopImmediatePropagation(); return;
       }
+      const button = event.target.closest('[data-bin-group]');
+      if(!button) return;
+      const key = button.dataset.binGroup;
+      binView.open[key] = binView.open[key] !== true;
+      saveBinView();
+      renderInventory();
+      [...body.querySelectorAll('[data-bin-group]')].find(el => el.dataset.binGroup === key)?.focus({preventScroll:true});
+    }, true);
+    function binTouchDistance(touches){
+      return Math.hypot(touches[0].clientX-touches[1].clientX, touches[0].clientY-touches[1].clientY);
+    }
+    binViewport.addEventListener('touchstart', event => {
+      if(event.touches.length !== 2) return;
+      if(event.cancelable) event.preventDefault();
+      const rect = binViewport.getBoundingClientRect();
+      const x = (event.touches[0].clientX+event.touches[1].clientX)/2-rect.left;
+      const y = (event.touches[0].clientY+event.touches[1].clientY)/2-rect.top;
+      binPinch = {distance:Math.max(1,binTouchDistance(event.touches)), zoom:binView.zoom,
+        x:(binViewport.scrollLeft+x)/binView.zoom, y:(binViewport.scrollTop+y)/binView.zoom};
+      suppressBinClickUntil = Date.now()+800;
+    }, {passive:false});
+    binViewport.addEventListener('touchmove', event => {
+      if(!binPinch) return;
+      if(event.cancelable) event.preventDefault();
+      if(event.touches.length !== 2) return;
+      const rect = binViewport.getBoundingClientRect();
+      binView.zoom = Math.max(.4, Math.min(2, binPinch.zoom*binTouchDistance(event.touches)/binPinch.distance));
+      binTable.style.zoom = binView.zoom;
+      binViewport.scrollLeft = binPinch.x*binView.zoom-((event.touches[0].clientX+event.touches[1].clientX)/2-rect.left);
+      binViewport.scrollTop = binPinch.y*binView.zoom-((event.touches[0].clientY+event.touches[1].clientY)/2-rect.top);
+    }, {passive:false});
+    function endBinPinch(event){
+      if(!binPinch) return;
+      suppressBinClickUntil = Date.now()+800;
+      if(event.touches.length === 0){ binPinch=null; saveBinView(); }
+    }
+    binViewport.addEventListener('touchend', endBinPinch, {passive:true});
+    binViewport.addEventListener('touchcancel', () => {
+      if(binPinch){ binPinch=null; suppressBinClickUntil=Date.now()+800; saveBinView(); }
+    }, {passive:true});
 
-
-      const html =
-        [];
-
-
-      state.sites.forEach(
-        site => {
-
-          html.push(
-            `
-              <tr class="site-group-row">
-
-                <td colspan="3">
-
-                  <div class="site-group-inner">
-
-                    <span class="site-name">
-                      ${escapeHtml(
-                        site.name
-                      )}
-                    </span>
-
-                    <span class="site-summary">
-                      ${formatBushels(
-                        site.total
-                      )} bu
-                    </span>
-
-                  </div>
-
-                </td>
-
-              </tr>
-            `
-          );
-
-
-          site.bins.forEach(
-            bin => {
-
-              html.push(
-                `
-                  <tr
-                    class="inventory-row"
-                    data-site="${escapeHtml(
-                      bin.siteId
-                    )}"
-                    data-index="${bin.binIndex}"
-                    title="Tap to remove inventory"
-                  >
-
-                    <td>
-                      <span class="bin-name">
-                        Bin ${escapeHtml(
-                          bin.binNumber
-                        )}
-                      </span>
-                    </td>
-
-                    <td class="crop-cell">
-                      ${escapeHtml(
-                        bin.crop
-                      )}
-                    </td>
-
-                    <td class="bushel-cell">
-                      ${escapeHtml(
-                        formatBushels(
-                          bin.onHand
-                        )
-                      )}
-                    </td>
-
-                  </tr>
-                `
-              );
-
-            }
-          );
-
-        }
-      );
-
-
-      body.innerHTML =
-        html.join(
-          ""
-        );
-
-
-      body
-        .querySelectorAll(
-          ".inventory-row"
-        )
-        .forEach(
-          rowElement => {
-
-            rowElement
-              .addEventListener(
-                "click",
-                () => {
-
-                  const siteId =
-                    rowElement.dataset.site;
-
-
-                  const index =
-                    Number(
-                      rowElement.dataset.index
-                    );
-
-
-                  const site =
-                    state.sites.find(
-                      item =>
-                        item.id ===
-                        siteId
-                    );
-
-
-                  const bin =
-                    site?.bins.find(
-                      item =>
-                        Number(
-                          item.binIndex
-                        ) ===
-                        index
-                    );
-
-
-                  if(
-                    !site ||
-                    !bin
-                  ){
-                    return;
-                  }
-
-
-                  openRemoveDialog(
-                    site,
-                    bin
-                  );
-
-                }
-              );
-
-          }
-        );
-
+    function renderInventory(){
+      loadBinView();
+      const total=state.sites.reduce((sum,site)=>sum+site.total,0);
+      inventoryTotal.textContent=`${formatBushels(total)} bu On Hand`;
+      if(!state.sites.length){
+        body.innerHTML='<tr class="message-row"><td colspan="3">No grain is currently stored in bins.</td></tr>';
+        return;
+      }
+      const html=[], cropTotals=new Map();
+      const totalRow=(label,crop,total)=>`<tr class="bin-total-row"><td>${escapeHtml(label)}</td><td class="crop-cell">${escapeHtml(crop)}</td><td class="bushel-cell">${formatBushels(total)}</td></tr>`;
+      const groupRow=(key,label,total,crop=false)=>{
+        const open=binView.open[key]===true;
+        return `<tr class="${crop?'crop':'site'}-group-row"><td colspan="3"><div class="site-group-inner"><button type="button" class="bin-group-toggle" data-bin-group="${escapeHtml(key)}" aria-expanded="${open}"><span class="chevron" aria-hidden="true">${open?'▾':'▸'}</span>${escapeHtml(label)}</button> <span class="site-summary">${formatBushels(total)} bu</span></div></td></tr>`;
+      };
+      state.sites.forEach(site=>{
+        const siteKey=JSON.stringify(['site',site.id]), crops=new Map();
+        site.bins.forEach(bin=>{
+          if(!crops.has(bin.crop))crops.set(bin.crop,[]);
+          crops.get(bin.crop).push(bin);
+          cropTotals.set(bin.crop,(cropTotals.get(bin.crop)||0)+bin.onHand);
+        });
+        html.push(groupRow(siteKey,site.name,site.total));
+        if(binView.open[siteKey]!==true)return;
+        [...crops].sort(([a],[b])=>COLLATOR.compare(a,b)).forEach(([crop,bins])=>{
+          const key=JSON.stringify(['crop',site.id,crop]), subtotal=bins.reduce((sum,bin)=>sum+bin.onHand,0);
+          html.push(groupRow(key,crop,subtotal,true));
+          if(binView.open[key]!==true)return;
+          bins.forEach(bin=>html.push(`<tr class="inventory-row" data-site="${escapeHtml(bin.siteId)}" data-index="${bin.binIndex}" title="Tap to remove inventory"><td><span class="bin-name">Bin ${escapeHtml(bin.binNumber)}</span></td><td class="crop-cell">${escapeHtml(bin.crop)}</td><td class="bushel-cell">${formatBushels(bin.onHand)}</td></tr>`));
+          html.push(totalRow(crop+' subtotal',crop,subtotal));
+        });
+      });
+      html.push('<tr class="site-group-row"><td colspan="3">Totals by crop — All bin sites</td></tr>');
+      [...cropTotals].sort(([a],[b])=>COLLATOR.compare(a,b)).forEach(([crop,total])=>html.push(totalRow('All bin sites total',crop,total)));
+      html.push(totalRow('Grand total','All crops',total));
+      body.innerHTML=html.join('');
+      body.querySelectorAll('.inventory-row').forEach(row=>{
+        row.addEventListener('click',()=>{
+          const site=state.sites.find(site=>site.id===row.dataset.site);
+          const bin=site?.bins.find(bin=>Number(bin.binIndex)===Number(row.dataset.index));
+          if(site && bin)openRemoveDialog(site,bin);
+        });
+      });
     }
 
 

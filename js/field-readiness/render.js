@@ -30,6 +30,8 @@ import { initSwipeOnTiles } from './swipe.js';
 import { parseRangeFromInput, mrmsRainInRange } from './rain.js';
 import { fetchAndHydrateFieldParams, loadFieldMrmsDoc } from './data.js';
 import { getAPI } from './firebase.js';
+import { chooseLoadPlan, forFields } from './load-work.js';
+import { beginFieldLoading } from './loading-progress.js';
 
 const FIELD_CONDITIONS_COLLECTION = 'field_conditions_current';
 const DAILY_SUBCOLLECTION = 'daily';
@@ -52,11 +54,13 @@ function safeStr(x){
 }
 
 function safeNum(v, fallback = null){
+  if(v == null || v === '')return fallback;
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
 }
 
 function safeInt(v, fallback = null){
+  if(v == null || v === '')return fallback;
   const n = Number(v);
   return Number.isFinite(n) ? Math.round(n) : fallback;
 }
@@ -253,61 +257,33 @@ function normalizeCurrentDoc(raw, fallbackId){
   };
 }
 
+async function loadCurrentField(state, fieldId, force=false){
+  const id=String(fieldId);
+  state.fieldConditionsById ||= {};
+  state._currentLoadedAt ||= {};
+  state._currentPending ||= new Map();
+  if (!force && Date.now() - (state._currentLoadedAt[id] || 0) < READINESS_TTL_MS) return state.fieldConditionsById[id] || null;
+  if (state._currentPending.has(id)) return state._currentPending.get(id);
+  const task=(async()=>{
+    const api=getAPI(state);
+    if (!api) throw new Error('Field connection unavailable');
+    const snap=api.kind==='compat'
+      ? await window.firebase.firestore().collection(FIELD_CONDITIONS_COLLECTION).doc(id).get()
+      : await api.getDoc(api.doc(api.getFirestore(),FIELD_CONDITIONS_COLLECTION,id));
+    const exists=typeof snap?.exists==='function' ? snap.exists() : snap?.exists;
+    const rec=exists ? normalizeCurrentDoc(snap.data() || {},id) : null;
+    state.fieldConditionsById[id]=rec;
+    state._currentLoadedAt[id]=Date.now();
+    return rec;
+  })().finally(()=>state._currentPending.delete(id));
+  state._currentPending.set(id,task);
+  return task;
+}
+
 async function loadFieldConditionsCurrent(state, { force=false } = {}){
-  if (!state) return;
-
-  const now = Date.now();
-  const last = Number(state._fieldConditionsLoadedAt || 0);
-
-  if (
-    !force &&
-    state.fieldConditionsById &&
-    now - last < READINESS_TTL_MS
-  ){
-    return;
-  }
-
-  const out = {};
-  const api = getAPI(state);
-
-  if (!api){
-    state.fieldConditionsById = out;
-    state._fieldConditionsLoadedAt = now;
-    return;
-  }
-
-  try{
-    if (api.kind === 'compat' && window.firebase?.firestore){
-      const db = window.firebase.firestore();
-      const snap = await db.collection(FIELD_CONDITIONS_COLLECTION).get();
-
-      snap.forEach(doc=>{
-        const rec = normalizeCurrentDoc(doc.data() || {}, doc.id);
-        if (rec && rec.fieldId) out[rec.fieldId] = rec;
-      });
-
-      state.fieldConditionsById = out;
-      state._fieldConditionsLoadedAt = now;
-      return;
-    }
-
-    const db = api.getFirestore();
-    const col = api.collection(db, FIELD_CONDITIONS_COLLECTION);
-    const snap = await api.getDocs(col);
-
-    snap.forEach(doc=>{
-      const rec = normalizeCurrentDoc(doc.data() || {}, doc.id);
-      if (rec && rec.fieldId) out[rec.fieldId] = rec;
-    });
-
-    state.fieldConditionsById = out;
-    state._fieldConditionsLoadedAt = now;
-
-  }catch(e){
-    console.warn('[FieldReadiness] failed loading field_conditions_current:', e);
-    state.fieldConditionsById = state.fieldConditionsById || {};
-    state._fieldConditionsLoadedAt = now;
-  }
+  if (!state?.selectedFieldId) return;
+  try{ await loadCurrentField(state,state.selectedFieldId,force); }
+  catch(e){console.warn('[FieldReadiness] readiness read failed:',e);}
 }
 
 function getCurrentRecord(state, fieldId){
@@ -546,7 +522,7 @@ function normalizeDailyDoc(raw, fallbackDate){
   };
 }
 
-async function loadDailyRowsForField(state, fieldId, { force=false } = {}){
+async function loadDailyRowsForField(state, fieldId, { force=false, throwOnError=false } = {}){
   if (!state || !fieldId) return [];
 
   state.dailyRowsByFieldId = state.dailyRowsByFieldId || {};
@@ -599,6 +575,7 @@ async function loadDailyRowsForField(state, fieldId, { force=false } = {}){
     }
   }catch(e){
     console.warn('[FieldReadiness] failed loading daily rows:', fid, e);
+    if (throwOnError) throw e;
   }
 
   rows.sort((a, b)=> String(a.dateISO).localeCompare(String(b.dateISO)));
@@ -821,19 +798,6 @@ function setEmptyMessage(showing){
   el.style.display = showing ? 'none' : 'block';
 }
 
-function showLoadingTiles(){
-  const wrap = $('fieldsGrid');
-  if (!wrap) return;
-
-  wrap.innerHTML = `
-    <div class="fr-fields-loading" style="padding:16px;border:1px solid var(--border);border-radius:14px;">
-      <div style="font-weight:900;">Loading field readiness...</div>
-      <div class="muted" style="font-size:12px;margin-top:4px;">
-        Reading field_conditions_current.
-      </div>
-    </div>
-  `;
-}
 
 function setSelectedTileClass(state, fieldId){
   try{
@@ -866,12 +830,12 @@ function setSelectedField(state, fieldId){
 /* =====================================================================
    MRMS RAIN
 ===================================================================== */
-async function getMrmsRainResultForField(state, fieldId, range){
+async function getMrmsRainResultForField(state, fieldId, range, force=false){
   try{
-    const doc = await loadFieldMrmsDoc(state, String(fieldId), { force:true });
+    const doc = await loadFieldMrmsDoc(state, String(fieldId), { force, throwOnError:true });
     return mrmsRainInRange(doc, range);
-  }catch(_){
-    return { ready:false, inches:null };
+  }catch(error){
+    throw error;
   }
 }
 
@@ -1554,88 +1518,126 @@ async function renderDetailsForSelected(state){
 /* =====================================================================
    RENDER CORE
 ===================================================================== */
-async function renderTilesInternal(state){
-  await loadFieldConditionsCurrent(state, { force:false });
-
-  const wrap = $('fieldsGrid');
-  if (!wrap) return;
-
-
-  const opKey = getCurrentOp();
-  const thr = getThresholdForOp(state, opKey);
-  const filtered = getFilteredFields(state);
-  const pageSize = getEffectivePageSize(state);
-
-  const range = parseRangeFromInput();
-  const rainById = new Map();
-
-  await Promise.all(
-    filtered.map(async f=>{
-      const res = await getMrmsRainResultForField(state, f.id, range);
-      rainById.set(String(f.id), res);
-    })
-  );
-
-  const sorted = sortFields(state, filtered, rainById);
-  const show = pageSize === -1
-    ? sorted
-    : sorted.slice(0, pageSize);
-
-  const dailyRowsById = new Map();
-
-  await Promise.all(
-    show.map(async f=>{
-      const rows = await loadDailyRowsForField(state, f.id, { force:false });
-      dailyRowsById.set(String(f.id), rows);
-    })
-  );
-
-  const frag = document.createDocumentFragment();
-
-  for (const f of show){
-    const rec = getCurrentRecord(state, f.id);
-    const rainText = rainTileText(rainById.get(String(f.id)));
-
-    let etaInfo = null;
-
-    if (rec && Number.isFinite(Number(rec.readiness))){
-      const dailyRows = dailyRowsById.get(String(f.id)) || [];
-      etaInfo = getTileEtaInfo(dailyRows, rec.readiness, thr);
-    }
-
-    const tile = rec && Number.isFinite(Number(rec.readiness))
-      ? buildReadyTile(f, state, rec, rainText, thr, etaInfo, opKey)
-      : buildWaitingTile(f, state, thr);
-
-    wireTileInteractions(state, tile, f.id);
-    frag.appendChild(tile);
-  }
-
-  wrap.replaceChildren(frag);
-
-  updateFieldsCount(show.length, filtered.length);
-  setEmptyMessage(show.length);
-
-  try{
-    await initSwipeOnTiles(state, {
-      onDetails: async fieldId=>{
-        if (!canEdit(state)) return;
-        await openQuickView(state, fieldId);
-      }
-    });
-  }catch(_){}
-
-  initFallbackSwipeOnTiles(state, wrap, {
-    onDetails: async fieldId=>{
-      if (!canEdit(state)) return;
-      await openQuickView(state, fieldId);
-    }
-  });
+function selectionKey(state){
+  return JSON.stringify([state.farmFilter,getFieldSearchQuery(state),getSortMode(),getEffectivePageSize(state),getCurrentOp(),getThresholdForOp(state,getCurrentOp()),parseRangeFromInput()]);
 }
 
-async function renderAll(state){
-  await renderTilesInternal(state);
-  await renderDetailsForSelected(state);
+async function renderTilesInternal(state, { force=false } = {}){
+  const run=++state._tileRun;
+  const key=selectionKey(state);
+  const current=()=>state._tileRun===run && selectionKey(state)===key && canViewTiles(state);
+  const progress=beginFieldLoading();
+  const wrap=$('fieldsGrid');
+  if(!wrap){progress.stop();return;}
+  const opKey=getCurrentOp(), thr=getThresholdForOp(state,opKey);
+  const filtered=getFilteredFields(state), pageSize=getEffectivePageSize(state), sort=getSortMode();
+  const range=parseRangeFromInput(), rainById=new Map();
+  const plan=chooseLoadPlan(filtered,sort,pageSize);
+  let complete=0, failed=0;
+  try{
+    let show=plan.candidates;
+    // Value-based sorts must rank every matching field, but only fetch the
+    // one value needed for that ranking. No hidden-field daily history.
+    if(plan.rank){
+      progress.update(0,show.length,`Comparing ${plan.rank} for`);
+      await forFields(show,async f=>{
+        try{
+          if(plan.rank==='rainfall') rainById.set(String(f.id),await getMrmsRainResultForField(state,f.id,range,force));
+          else await loadCurrentField(state,f.id,force);
+        }catch(_){failed++;}
+        if(current()) progress.update(++complete,show.length,`Comparing ${plan.rank} for`);
+      },current);
+      if(!current())return;
+      const sorted=sortFields(state,filtered,rainById);
+      show=pageSize===-1 ? sorted : sorted.slice(0,pageSize);
+    }
+    if(!current())return;
+    // Move existing tiles into the chosen order; retain them during refresh.
+    const existing=new Map(Array.from(wrap.querySelectorAll('.tile[data-field-id]')).map(tile=>[tile.dataset.fieldId,tile]));
+    const nodes=new Map(), newIds=new Set();
+    const frag=document.createDocumentFragment();
+    const paint=(f,rainText,etaInfo)=>{
+      const rec=getCurrentRecord(state,f.id);
+      const tile=rec && rec.readiness != null && Number.isFinite(Number(rec.readiness))
+        ? buildReadyTile(f,state,rec,rainText,thr,etaInfo,opKey)
+        : buildWaitingTile(f,state,thr);
+      wireTileInteractions(state,tile,f.id);
+      const old=nodes.get(String(f.id));
+      if(old?.parentNode)old.replaceWith(tile);
+      nodes.set(String(f.id),tile);
+      return tile;
+    };
+    for(const f of show){
+      const id=String(f.id);
+      let tile=existing.get(id);
+      if(!tile){tile=paint(f,'Loading…',{text:'updating…'});newIds.add(id);}
+      nodes.set(id,tile);frag.appendChild(tile);
+    }
+    wrap.replaceChildren(frag);
+    updateFieldsCount(show.length,filtered.length);setEmptyMessage(show.length);
+    complete=0;progress.update(0,show.length,existing.size ? 'Updating' : 'Loading');
+    await forFields(show,async f=>{
+      const id=String(f.id);
+      try{
+        await loadCurrentField(state,id,force && plan.rank!=='readiness');
+        if(!current())return;
+        if(newIds.has(id))paint(f,'Loading…',{text:'updating…'});
+        const rec=getCurrentRecord(state,id);
+        const needsEta=rec && rec.readiness != null && Number.isFinite(Number(rec.readiness)) && Number(rec.readiness)<thr;
+        const [rain,rows]=await Promise.all([
+          rainById.has(id) ? rainById.get(id) : getMrmsRainResultForField(state,id,range,force),
+          needsEta ? loadDailyRowsForField(state,id,{force,throwOnError:true}) : []
+        ]);
+        if(!current())return;
+        const eta=needsEta ? getTileEtaInfo(rows,rec.readiness,thr) : null;
+        const tile=paint(f,rainTileText(rain),eta);
+        if(!rec || rec.readiness == null){
+          const badge=tile.querySelector('.badge');if(badge)badge.textContent='Not available yet';
+          const rainEl=tile.querySelector('.mono');if(rainEl)rainEl.textContent=rainTileText(rain);
+        }
+      }catch(error){
+        failed++;
+        if(current() && newIds.has(id)){
+          const tile=nodes.get(id);const badge=tile?.querySelector('.badge');if(badge)badge.textContent='Unable to update';
+        }
+        console.warn('[FieldReadiness] tile update failed:',id,error);
+      }finally{
+        if(current())progress.update(++complete,show.length,existing.size ? 'Updating' : 'Loading');
+      }
+    },current);
+    if(!current())return;
+    try{
+      await initSwipeOnTiles(state,{onDetails:async fieldId=>{if(canEdit(state))await openQuickView(state,fieldId);}});
+    }catch(_){}
+    initFallbackSwipeOnTiles(state,wrap,{onDetails:async fieldId=>{if(canEdit(state))await openQuickView(state,fieldId);}});
+    progress.stop(failed ? 'Some fields could not update. Pull to refresh to try again.' : '');
+  }catch(error){
+    console.warn('[FieldReadiness] tile loading failed:',error);
+    if(current())progress.stop('Unable to finish loading. Pull to refresh to try again.');
+  }finally{
+    progress.stop();
+  }
+}
+
+function canViewTiles(state){
+  return !(state.perm?.loaded && !state.perm.view);
+}
+
+function requestTiles(state,options={}){
+  if(state._fvHoldRefresh){state._fvRefreshPending=true;return Promise.resolve();}
+  const key=selectionKey(state);
+  if(state._tilePromise && state._tileKey===key)return state._tilePromise;
+  state._tileRun=Number(state._tileRun)||0;
+  state._tileKey=key;
+  const task=renderTilesInternal(state,options).finally(()=>{
+    if(state._tilePromise===task)state._tilePromise=null;
+  });
+  state._tilePromise=task;return task;
+}
+
+async function renderAll(state,options={}){
+  await requestTiles(state,options);
+  if($('detailsPanel')?.open)await renderDetailsForSelected(state);
 }
 
 /* =====================================================================
@@ -1653,9 +1655,8 @@ export async function renderDetails(state){
   await renderDetailsForSelected(state);
 }
 
-export async function refreshAll(state){
-  state._fieldConditionsLoadedAt = 0;
-  await renderAll(state);
+export async function refreshAll(state, options={}){
+  await renderAll(state,options);
 }
 
 export async function refreshDetailsOnly(state){
@@ -1781,77 +1782,24 @@ tile.style.boxShadow =
     if (window.__FV_FR_CLEAN_RENDER_WIRED__) return;
     window.__FV_FR_CLEAN_RENDER_WIRED__ = true;
 
-    document.addEventListener('fr:tile-refresh', async e=>{
-      try{
-        const state = window.__FV_FR;
-        if (!state) return;
-        await refreshAll(state);
-      }catch(_){}
+    let tileRefreshTimer=null;
+    document.addEventListener('fr:tile-refresh',()=>{
+      clearTimeout(tileRefreshTimer);
+      tileRefreshTimer=setTimeout(()=>{
+        const state=window.__FV_FR;
+        if(state)refreshAll(state,{force:true}).catch(()=>{});
+      },100);
     });
-
-    document.addEventListener('fr:details-refresh', async e=>{
-      try{
-        const state = window.__FV_FR;
-        if (!state) return;
-
-        const fid = e?.detail?.fieldId;
-        if (fid) setSelectedField(state, fid);
-
-        await refreshDetailsOnly(state);
-      }catch(_){}
+    document.addEventListener('fr:details-refresh',async e=>{
+      const state=window.__FV_FR;
+      if(!state || !$('detailsPanel')?.open)return;
+      const fid=e?.detail?.fieldId;if(fid)setSelectedField(state,fid);
+      await refreshDetailsOnly(state);
     });
-
-document.addEventListener('fr:soft-reload', async ()=>{
-
-  try{
-
-    const state = window.__FV_FR;
-
-    if (!state) return;
-
-    // =========================================
-    // Prevent rapid duplicate reload storms
-    // =========================================
-    const now = Date.now();
-
-    if (
-      state.__softReloadRunning &&
-      now - Number(state.__softReloadStartedAt || 0) < 4000
-    ){
-      return;
-    }
-
-    state.__softReloadRunning = true;
-    state.__softReloadStartedAt = now;
-
-    // =========================================
-    // ONLY refresh tiles
-    // DO NOT nuke all caches repeatedly
-    // =========================================
-    state._fieldConditionsLoadedAt = 0;
-
-    await renderTilesInternal(state);
-
-  }catch(err){
-
-    console.warn(
-      '[FieldReadiness] soft reload failed:',
-      err
-    );
-
-  }finally{
-
-    try{
-      const state = window.__FV_FR;
-
-      if (state){
-        state.__softReloadRunning = false;
-      }
-    }catch(_){}
-
-  }
-
-});
+    document.addEventListener('fr:soft-reload',()=>{
+      const state=window.__FV_FR;
+      if(state)refreshAll(state,{force:true}).catch(()=>{});
+    });
 
 // =========================================================
 // GLOBAL CALIBRATION OPEN

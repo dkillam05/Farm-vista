@@ -66,6 +66,14 @@ PRETRIP: "logistics-pre-trip",
       desktopQuickLinks: byId("desktop-quick-links"),
       mobileQuickLinks: byId("quick-links"),
 
+      qlRainfallMap: byId('ql-rainfall-map-desktop'),
+      qlRainfallMapMobile: byId('ql-rainfall-map-mobile'),
+      qlBagAdd: byId('grain-add-bags-desktop'),
+      qlBinAdd: byId('grain-add-bins-desktop'),
+      qlBagAddMobile: byId('grain-add-bags-mobile'),
+      qlBinAddMobile: byId('grain-add-bins-mobile'),
+      grainBagAdd: byId('grain-add-bags-overview'),
+      grainBinAdd: byId('grain-add-bins-overview'),
       qlPreTripAdd: byId("ql-pretrip-add"),
       qlPreTripAddMobile: byId("ql-pretrip-add-mobile"),
       qlGrainScanMobile: byId("ql-grain-ticket-scan-mobile"),
@@ -87,6 +95,9 @@ PRETRIP: "logistics-pre-trip",
       qlEquipmentServiceMobile: byId(
         "ql-equipment-service-mobile"
       ),
+
+      qlMoveStarFire: byId("ql-move-starfire-desktop"),
+      qlMoveStarFireMobile: byId("ql-move-starfire-mobile"),
 
       qlEquipOverview: byId("ql-equip-overview"),
       qlEquipOverviewMobile: byId("ql-equip-overview-mobile"),
@@ -280,18 +291,24 @@ PRETRIP: "logistics-pre-trip",
     els
   ) {
     const desktopHasLinks =
+      isVisible(els.qlRainfallMap) ||
+      isVisible(els.qlBagAdd) || isVisible(els.qlBinAdd) ||
       isVisible(els.qlPreTripAdd) ||
       isVisible(els.qlBoundaries) ||
       isVisible(els.qlMaintAdd) ||
+      isVisible(els.qlMoveStarFire) ||
       isVisible(els.qlEquipOverview) ||
       isVisible(els.qlFieldWeather);
 
     const mobileHasLinks =
+      isVisible(els.qlRainfallMapMobile) ||
+      isVisible(els.qlBagAddMobile) || isVisible(els.qlBinAddMobile) ||
       isVisible(els.qlGrainScanMobile) ||
       isVisible(els.qlPreTripAddMobile) ||
       isVisible(els.qlBoundariesMobile) ||
       isVisible(els.qlMaintAddMobile) ||
       isVisible(els.qlEquipmentServiceMobile) ||
+      isVisible(els.qlMoveStarFireMobile) ||
       isVisible(els.qlEquipOverviewMobile) ||
       isVisible(els.qlFieldWeatherMobile) ||
       isVisible(els.qlSteering);
@@ -387,6 +404,8 @@ PRETRIP: "logistics-pre-trip",
       els.desktopQuickLinks,
       els.mobileQuickLinks,
 
+      els.qlRainfallMap,els.qlRainfallMapMobile,
+      els.qlBagAdd,els.qlBinAdd,els.qlBagAddMobile,els.qlBinAddMobile,els.grainBagAdd,els.grainBinAdd,
       els.qlPreTripAdd,
       els.qlPreTripAddMobile,
       els.qlGrainScanMobile,
@@ -399,6 +418,8 @@ PRETRIP: "logistics-pre-trip",
 
       els.qlEquipmentServiceMobile,
 
+      els.qlMoveStarFire,
+      els.qlMoveStarFireMobile,
       els.qlEquipOverview,
       els.qlEquipOverviewMobile,
 
@@ -519,6 +540,8 @@ PRETRIP: "logistics-pre-trip",
         "add"
       );
 
+    [els.qlBagAdd,els.qlBagAddMobile,els.grainBagAdd].forEach(el=>setVisible(el,can('grain-bags','add')));
+    [els.qlBinAdd,els.qlBinAddMobile,els.grainBinAdd].forEach(el=>setVisible(el,can('grain-bins','add')));
     setVisible(els.qlGrainScanMobile, can("grain-tix", "add"));
 
     const boundariesAllowed =
@@ -582,6 +605,9 @@ const equipmentServiceRequestAllowed =
         ],
         "view"
       );
+
+    setVisible(els.qlRainfallMap,fieldWeatherAllowed);
+    setVisible(els.qlRainfallMapMobile,fieldWeatherAllowed);
 
     /*
      * =========================================================
@@ -650,6 +676,10 @@ setVisible(
      * EQUIPMENT LINKS
      * =========================================================
      */
+
+    const moveStarFireAllowed = can("eq-starfire", "view");
+    setVisible(els.qlMoveStarFire, moveStarFireAllowed);
+    setVisible(els.qlMoveStarFireMobile, moveStarFireAllowed);
 
     setVisible(
       els.qlEquipOverview,

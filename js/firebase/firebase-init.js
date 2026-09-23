@@ -3056,7 +3056,8 @@ async function _softRefreshNow(){
       mode ===
         "firebase" &&
       storeModule &&
-      firestore
+      firestore &&
+      !window.FVRefresh?.handlesFirestore
     ) {
 
       try {

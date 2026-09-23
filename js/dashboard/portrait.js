@@ -24,18 +24,35 @@
   const quick = byId('quick-links');
   const quickGrid = quick.querySelector('.ql-grid');
   const quickToggle = toggle(quick, quickGrid);
-  const hint = document.createElement('p');
-  hint.className = 'portrait-note portrait-swipe'; hint.textContent = 'Swipe for more shortcuts';
-  quick.querySelector('.section-body').append(hint);
   const shortNames = {'ql-equipment-service-mobile':'Equipment Repair','ql-boundaries-mobile':'Boundary Correction','ql-maint-add-mobile':'Field Repair'};
   Object.entries(shortNames).forEach(([id,label]) => {byId(id).querySelector('.ql-title').textContent = label;});
-  function syncQuick() {
-    const count = [...quickGrid.children].filter(el => !el.hidden && !el.classList.contains('perm-hidden') && el.style.display !== 'none').length;
-    quickToggle.hidden = count <= 3;
-    hint.hidden = count <= 3;
+  const quickCards = () => [...quickGrid.querySelectorAll(':scope > .ql-btn')];
+  const quickOrderKey = () => {
+    const ctx = window.FVUserContext?.get?.() || {};
+    return `fv:dashboard:quick-order:${ctx.uid || 'device'}:${window.FV_FARM_KEY || 'farm'}`;
+  };
+  function saveQuickOrder(){
+    try { localStorage.setItem(quickOrderKey(),JSON.stringify(quickCards().map(card=>card.id).filter(Boolean))); } catch {}
   }
-  new MutationObserver(syncQuick).observe(quickGrid,{subtree:true,attributes:true,attributeFilter:['class','hidden','style']});
-  syncQuick();
+  function restoreQuickOrder(){
+    try {
+      const order = JSON.parse(localStorage.getItem(quickOrderKey()) || '[]');
+      if(Array.isArray(order)){
+        const cards = new Map(quickCards().map(card=>[card.id,card]));
+        order.forEach(id=>{const card=cards.get(id);if(card){quickGrid.append(card);cards.delete(id);}});
+        cards.forEach(card=>quickGrid.append(card));
+      }
+    } catch {}
+    syncQuick();
+  }
+  function syncQuick(){
+    const visible = quickCards().filter(cardCanShow);
+    quickCards().forEach(card=>{
+      const overflow = visible.indexOf(card) >= 5;
+      if(card.classList.contains('portrait-overflow') !== overflow) card.classList.toggle('portrait-overflow',overflow);
+    });
+    quickToggle.hidden = visible.length <= 5;
+  }
   const markets = byId('markets-section');
   toggle(markets, byId('fv-markets'));
   const ai = byId('ai-section');
@@ -77,12 +94,13 @@
     visible.forEach((card,index) => card.classList.toggle('portrait-overflow',index >= 4));
     attentionToggle.hidden = false;
   }
-  function enableLongPressSorting(){
-    attentionCards().forEach(card => {
+  function enableLongPressSorting(section = attention, grid = attentionGrid, cards = attentionCards, save = saveAttentionOrder, sync = syncAttentionCards, expandedOnly = false){
+    cards().forEach(card => {
       if (card.dataset.longPressSort === '1') return;
       card.dataset.longPressSort = '1';
       card.draggable = false;
       card.addEventListener('dragstart',event=>event.preventDefault());
+      card.addEventListener('contextmenu',event=>{if(mobile())event.preventDefault();});
 
       let timer = 0, active = false, moved = false;
       let startX = 0, startY = 0;
@@ -91,7 +109,7 @@
         timer = 0;
         active = true;
         moved = false;
-        attention.classList.add('is-sorting');
+        section.classList.add('is-sorting');
         card.classList.add('kpi-dragging');
         try { navigator.vibrate?.(18); } catch {}
       };
@@ -100,16 +118,17 @@
       };
       const begin = (x,y) => {
         cancelTimer();
+        if(expandedOnly && (!mobile() || !section.classList.contains('is-expanded'))) return;
         startX = x; startY = y; active = false; moved = false;
         timer = setTimeout(activate,420);
       };
       const reorderAt = (x,y) => {
-        const target = document.elementFromPoint(x,y)?.closest?.('#attention-section .dash-kpi');
-        if (!target || target === card || target.parentElement !== attentionGrid || !cardCanShow(target)) return;
+        const target = document.elementFromPoint(x,y)?.closest?.('.dash-kpi, .ql-btn, .grain-overview-block');
+        if (!target || target === card || target.parentElement !== grid || !cardCanShow(target)) return;
         const rect = target.getBoundingClientRect();
         const before = y < rect.top + rect.height/2 ||
           (Math.abs(y-(rect.top+rect.height/2)) < rect.height*.3 && x < rect.left+rect.width/2);
-        attentionGrid.insertBefore(card,before ? target : target.nextSibling);
+        grid.insertBefore(card,before ? target : target.nextSibling);
         moved = true;
       };
       const move = (x,y,event) => {
@@ -117,6 +136,12 @@
           if (Math.hypot(x-startX,y-startY) > 9) cancelTimer();
           return;
         }
+        let scroller = grid.parentElement;
+        while(scroller && !(scroller.scrollHeight > scroller.clientHeight && /auto|scroll/.test(getComputedStyle(scroller).overflowY))) scroller = scroller.parentElement;
+        scroller = scroller || document.scrollingElement;
+        const bounds = scroller === document.scrollingElement ? {top:0,bottom:innerHeight} : scroller.getBoundingClientRect();
+        if(y < bounds.top+65) scroller.scrollTop -= 18;
+        else if(y > bounds.bottom-65) scroller.scrollTop += 18;
         reorderAt(x,y);
         event.preventDefault();
       };
@@ -124,16 +149,17 @@
         cancelTimer();
         if (!active) return;
         active = false;
-        attention.classList.remove('is-sorting');
+        section.classList.remove('is-sorting');
         card.classList.remove('kpi-dragging');
         card.dataset.suppressClick = '1';
         setTimeout(() => delete card.dataset.suppressClick,400);
-        if (moved) { saveAttentionOrder(); syncAttentionCards(); }
+        if (moved) { save(); sync(); }
         event?.preventDefault?.();
       };
 
       card.addEventListener('touchstart',event=>{
         if(event.touches?.length===1)begin(event.touches[0].clientX,event.touches[0].clientY);
+        else finish(event);
       },{passive:true});
       card.addEventListener('touchmove',event=>{
         if(event.touches?.length===1)move(event.touches[0].clientX,event.touches[0].clientY,event);
@@ -157,6 +183,37 @@
       },true);
     });
   }
+  const grainSection = byId('portrait-grain'), grainSections = byId('grain-overview-sections');
+  const grainBlocks = () => [...grainSections.querySelectorAll(':scope > .grain-overview-block')];
+  const defaultGrainOrder = grainBlocks().map(block=>block.id);
+  const grainOrderKey = () => orderKey().replace('kpi-order','grain-section-order');
+  function syncGrainBlocks(){
+    const actions=byId('grain-overview-actions');
+    actions.hidden=![...actions.querySelectorAll('a')].some(cardCanShow);
+    const visible=grainBlocks().filter(cardCanShow);
+    grainBlocks().forEach(block=>block.classList.toggle('grain-section-overflow',visible.indexOf(block)>=2));
+  }
+  function saveGrainOrder(){
+    try{localStorage.setItem(grainOrderKey(),JSON.stringify(grainBlocks().map(block=>block.id)));}catch{}
+  }
+  function restoreGrainOrder(){
+    let order=defaultGrainOrder;
+    try{const saved=JSON.parse(localStorage.getItem(grainOrderKey()));if(Array.isArray(saved))order=saved;}catch{}
+    const blocks=new Map(grainBlocks().map(block=>[block.id,block]));
+    order.forEach(id=>{const block=blocks.get(id);if(block){grainSections.append(block);blocks.delete(id);}});
+    blocks.forEach(block=>grainSections.append(block));
+    syncGrainBlocks();
+  }
+  enableLongPressSorting(grainSection,grainSections,grainBlocks,saveGrainOrder,syncGrainBlocks,true);
+  restoreGrainOrder();
+  document.addEventListener('fv:user-ready',restoreGrainOrder);
+  document.addEventListener('fv:dash-perms-ready',restoreGrainOrder);
+  const enableQuickSorting = () => enableLongPressSorting(quick,quickGrid,quickCards,saveQuickOrder,syncQuick,true);
+  enableQuickSorting();
+  restoreQuickOrder();
+  new MutationObserver(()=>{syncQuick();enableQuickSorting();}).observe(quickGrid,{subtree:true,childList:true,attributes:true,attributeFilter:['class','hidden','style','aria-hidden']});
+  document.addEventListener('fv:user-ready',restoreQuickOrder);
+  document.addEventListener('fv:dash-perms-ready',()=>{enableQuickSorting();restoreQuickOrder();});
   enableLongPressSorting();
   restoreAttentionOrder();
   new MutationObserver(() => requestAnimationFrame(syncAttentionCards)).observe(attentionGrid,{subtree:true,childList:true,attributes:true,attributeFilter:['hidden','style','aria-hidden']});
