@@ -1,6 +1,6 @@
 // Read-only dashboard status projection, using the grain ticket table's office-review rules.
 import {farmToday} from '../grain-summary.js';
-export function ticketStatus(ticket, jobs = []) {
+function ticketAssessment(ticket, jobs = []) {
   const haulingJobs = jobs;
   const clean=value=>String(value??'').trim();
   const norm=value=>clean(value)
@@ -387,16 +387,55 @@ function ticketHasHaulingJob(
       return haulingJobMismatch;
     });
   }
-  if(ticket.voided === true || /void|cancel/.test(norm(ticket.status))) return 'voided';
-  const sanity = ticketSanityReviewReasons(ticket).length > 0;
+  const reasons = ticketSanityReviewReasons(ticket);
   const date = clean(ticket.ticketDate || ticket.date || ticket.deliveryDate).slice(0,10);
-  if(/^\d{4}-\d{2}-\d{2}$/.test(date) && date > farmToday()) return 'review';
-  if(ticketHasResolvedAssignment(ticket)) return sanity ? 'review' : 'good';
-  if(isTicketWarning(ticket) || (isNeedsReview(ticket) && !hasOpenHaulingJobForTicket(ticket))) return 'warning';
-  if(norm(ticket.validationStatus || ticket.status)==='warning') return 'warning';
-  if(sanity || isNeedsReview(ticket) || /^(needs[ _]review|review|warning)$/.test(clean(ticket.validationStatus || ticket.status).toLowerCase())) return 'review';
-  return isNeedsHaulingJob(ticket) ? 'needs_job' : 'good';
+  const futureDate=/^\d{4}-\d{2}-\d{2}$/.test(date) && date > farmToday();
+  if(futureDate) reasons.unshift('Ticket date is in the future — verify the scanned date');
+  const resolved = ticketHasResolvedAssignment(ticket);
+  let status;
+  if(ticket.voided === true || /void|cancel/.test(norm(ticket.status))) status='voided';
+  else if(futureDate) status='review';
+  else if(resolved) status=reasons.length ? 'review' : 'good';
+  else if(isTicketWarning(ticket) || (isNeedsReview(ticket) && !hasOpenHaulingJobForTicket(ticket)) || norm(ticket.validationStatus || ticket.status)==='warning') status='warning';
+  else if(reasons.length || isNeedsReview(ticket) || /^(needs[ _]review|review|warning)$/.test(clean(ticket.validationStatus || ticket.status).toLowerCase())) status='review';
+  else status=isNeedsHaulingJob(ticket) ? 'needs_job' : 'good';
+  if(status!=='good' && status!=='voided' && !resolved){
+    if(Array.isArray(ticket.reviewReasons)) reasons.push(...ticket.reviewReasons.filter(r=>typeof r==='string' && r.trim()));
+    if(!ticketHasHaulingJob(ticket) && !isSpotLoad(ticket)) reasons.push('No hauling job assigned — check delivery date, destination, crop and Sold Under');
+    if(typeof ticket.allocationBlockReason==='string' && ticket.allocationBlockReason.trim()) reasons.push(ticket.allocationBlockReason);
+  }
+  if(['review','warning','needs_job'].includes(status) && !reasons.length) reasons.push('Ticket flagged for review — open the ticket to verify its details');
+  return {status,reasons:[...new Set(reasons.map(reasonText))]};
 }
+const reasonLabels = {
+  gross_weight_over_95000:'Gross weight is over 95,000 lb',
+  tare_weight_outside_20000_35000:'Tare weight is outside 20,000–35,000 lb',
+  gross_bushels_1200_or_more:'Gross bushels are 1,200 or more',
+  net_bushels_over_15_percent_from_gross:'Net bushels differ from gross by more than 15%',
+  test_weight_outside_45_70:'Test weight is outside 45–70',
+  moisture_outside_7_35:'Moisture is outside 7–35%',
+  damage_missing_or_unreadable:'Damage is missing or unreadable',
+  damage_outside_0_20:'Damage is outside 0–20%',
+  foreign_material_missing_or_unreadable:'FM is missing or unreadable',
+  foreign_material_outside_0_20:'FM is outside 0–20%',
+  buyer_not_matched:'Buyer could not be matched',
+  customer_not_matched:'Sold Under could not be matched',
+  customer_not_selected:'Sold Under has not been selected',
+  sold_under_unknown:'Sold Under is unknown',
+  sold_under_requires_review:'Sold Under needs verification',
+  hauling_job_not_auto_assigned:'A hauling job could not be assigned automatically',
+  delivery_location_not_matched:'Delivery location could not be matched',
+  delivery_location_conflict:'Delivery location conflicts with the scanned ticket',
+  destination_not_matched:'Destination could not be matched',
+  destination_conflict:'Destination conflicts with the scanned ticket'
+};
+function reasonText(reason){
+  const text=reasonLabels[reason] || String(reason).replace(/_/g,' ');
+  return text.charAt(0).toUpperCase()+text.slice(1);
+}
+export function ticketStatus(ticket,jobs=[]){return ticketAssessment(ticket,jobs).status;}
+export function ticketAttentionReasons(ticket,jobs=[]){return ticketAssessment(ticket,jobs).reasons;}
+
 export function scanMillis(ticket) {
   const value = ticket.scannedAt || ticket.createdAt;
   if(value?.toMillis) return value.toMillis();
@@ -406,7 +445,7 @@ export function scanMillis(ticket) {
   return Number.isFinite(ms) ? ms : 0;
 }
 export function ticketSummary(tickets, jobs, today = farmToday()) {
-  const rows = tickets.map(ticket=>({...ticket, dashboardStatus:ticketStatus(ticket,jobs)})).filter(t=>t.dashboardStatus !== 'voided').sort((a,b)=>scanMillis(b)-scanMillis(a));
+  const rows = tickets.map(ticket=>{const assessment=ticketAssessment(ticket,jobs);return {...ticket,dashboardStatus:assessment.status,dashboardReasons:assessment.reasons};}).filter(t=>t.dashboardStatus !== 'voided').sort((a,b)=>scanMillis(b)-scanMillis(a));
   return {
     today:rows.filter(t=>scanMillis(t)>0 && farmToday(new Date(scanMillis(t)))===today),
     attention:rows.filter(t=>['review','warning','needs_job'].includes(t.dashboardStatus))

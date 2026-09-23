@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {ticketSummary,ticketStatus,scanMillis} from '../js/dashboard/kpi/grain-ticket-summary.js';
+import {ticketSummary,ticketStatus,scanMillis,ticketAttentionReasons} from '../js/dashboard/kpi/grain-ticket-summary.js';
 const job={id:'job',status:'active'};
 const good={id:'good',createdAt:{seconds:Date.parse('2026-09-23T02:00:00Z')/1000},ticketDate:'2026-09-20',haulingJobId:'job',customerId:'customer',deliveryLocationId:'elevator',crop:'Corn',grainSourceType:'field',damage:0,foreignMaterial:0};
 assert.equal(ticketStatus(good,[job]),'good');
@@ -17,3 +17,9 @@ assert.deepEqual(summary.attention.map(t=>t.id),['old'],'Includes old unresolved
 assert.equal(scanMillis({ticketDate:'2026-09-22'}),0,'No invented scan time from printed date');
 assert.deepEqual(ticketSummary([],[], '2026-09-22'),{today:[],attention:[]});
 console.log('PASS: grain KPI counts, Central scan date, review rules, assignment, spot loads, voids, and empty data');
+
+assert.deepEqual(ticketAttentionReasons({...good,validationStatus:'needs_review',reviewReasons:['buyer_not_matched']},[job]),[],'Resolved assignments suppress stale reasons');
+assert.deepEqual(ticketAttentionReasons({...good,damage:''},[job]),['Damage is missing or unreadable']);
+assert.ok(ticketAttentionReasons({...good,haulingJobId:null,validationStatus:'needs_review',reviewReasons:['sold_under_unknown']},[job]).includes('Sold Under is unknown'));
+assert.ok(ticketAttentionReasons({...good,ticketDate:'2999-01-01'},[job])[0].includes('future'));
+console.log('PASS: attention reasons, missing grades, stale reasons, future dates');
