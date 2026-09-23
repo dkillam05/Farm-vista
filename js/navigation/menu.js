@@ -204,7 +204,7 @@ export const NAV_MENU = {
           id: 'grain-tix',
           perm: 'grain-tix',
           icon: '<img src="/assets/icons/grain-tracking.svg" width="28" height="28" alt="" aria-hidden="true" style="display:block;max-width:none;">',
-          label: 'Grain Tickets',
+          label: 'Grain Tracking',
           href: '/pages/grain/grain-ticket.html'
         },
         {
