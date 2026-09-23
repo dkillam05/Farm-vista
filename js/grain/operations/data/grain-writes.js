@@ -1,3 +1,4 @@
+import {grainRecordSignature} from '../core/grain-integrity.js';
 // FarmVista Grain Operations — single Firestore write gateway. UI modules never write directly.
 import { ready,getFirestore,getAuth,collection,addDoc,doc,updateDoc,serverTimestamp } from '/js/firebase/firebase-init.js';import { COLLECTIONS,refreshGrainOperations,grainState } from './grain-store.js';import { clean,round2,ticketBushels,normalizeSplitAllocations,isVoided,key,sameBuyer,sameDeliveryLocation,sameCrop,effectiveJobTotals,jobTarget,isSpotHaulingJob } from '../core/grain-rules.js';import { buildAutomaticHaulingAssignment } from '../hauling/hauling-allocation.js';import { planTicketAllocation,planDetailedContractAllocation } from '../tickets/ticket-allocation.js';import { contractCreatePayload,contractEditPayload } from '../contracts/contract-form.js';
 async function db(){await ready;return getFirestore()}const who=()=>{const u=getAuth()?.currentUser;return{uid:u?.uid||null,name:u?.displayName||u?.email||'FarmVista User',email:u?.email||null}};async function patch(c,id,data){const store=await db();await updateDoc(doc(store,c,clean(id)),{...data,updatedAt:serverTimestamp()});await refreshGrainOperations()}async function create(c,data){const store=await db(),user=who();const saved=await addDoc(collection(store,c),{...data,createdAt:serverTimestamp(),updatedAt:serverTimestamp(),createdByUid:user.uid,createdByName:user.name,createdByEmail:user.email,updatedByUid:user.uid,updatedByName:user.name,updatedByEmail:user.email});await refreshGrainOperations();return saved.id}
@@ -26,3 +27,34 @@ export async function assignWholeTicketToContract(ticket,contract){const bushels
 export async function moveTicketPortionToContract(ticket,contract,bushels){const amount=Math.max(0,round2(bushels));if(!contract?.id||amount<=0)throw new Error('Contract and bushels are required');const id=clean(contract.id),current=normalizedContractAllocations(ticket).find(a=>a.contractId===id),next=round2((current?.bushels||0)+amount),allocations=safeContractAllocations(ticket,[{contractId:id,contractNumber:contract.contractNumber??contract.number,bushels:next}]),first=allocations[0]||null;return patchTicket(ticket.id,{contractId:first?.contractId||null,contractNumber:first?.contractNumber||null,contractAllocations:allocations,manualContractOverride:true,manualContractOverrideAt:serverTimestamp()})}
 export async function unassignTicketFromContract(ticket){return patchTicket(ticket.id,{contractId:null,contractNumber:null,contractAllocations:[],manualContractOverride:true,manualContractOverrideAt:serverTimestamp()})}
 export async function unassignTicketPortionFromContract(ticket,contractId,bushels){const id=clean(contractId),amount=Math.max(0,round2(bushels));if(!id||amount<=0)throw new Error('Contract and bushels are required');const current=normalizedContractAllocations(ticket).find(a=>a.contractId===id);if(!current)throw new Error('Ticket is not allocated to that contract');const next=Math.max(0,round2(current.bushels-amount)),allocations=safeContractAllocations(ticket,[{contractId:id,contractNumber:current.contractNumber,bushels:next}]),first=allocations[0]||null;return patchTicket(ticket.id,{contractId:first?.contractId||null,contractNumber:first?.contractNumber||null,contractAllocations:allocations,manualContractOverride:true,manualContractOverrideAt:serverTimestamp()})}
+
+// Persist a reviewed reconciliation atomically. Any changed input requires a new preview.
+export async function applyHaulingReconciliation(preview,reviewedState){
+  const {runTransaction}=await import('/js/firebase/firebase-init.js');
+  if(!preview?.changes?.length)return;
+  if(preview.changes.length>400)throw new Error('Too many changed tickets for one repair. Narrow the matching group.');
+  const store=await db();
+  const signature=grainRecordSignature;
+  const rows=[...(reviewedState.tickets||[]).map(t=>({collection:COLLECTIONS.tickets,record:t})),...(reviewedState.haulingJobs||[]).map(j=>({collection:COLLECTIONS.haulingJobs,record:j}))];
+  // Clone before refresh: grainState is a mutable shared object.
+  const expected=rows.map(({collection,record})=>({ref:doc(store,collection,clean(record.id)),id:clean(record.id),value:signature(record)}));
+  const expectedIds=(reviewedState.tickets||[]).map(t=>clean(t.id)).sort().join('|');
+  await refreshGrainOperations();if(grainState().error)throw grainState().error;
+  if((grainState().tickets||[]).map(t=>clean(t.id)).sort().join('|')!==expectedIds)throw new Error('Tickets changed. Close this preview and review allocations again.');
+  await runTransaction(store,async transaction=>{
+    const snapshots=await Promise.all(expected.map(x=>transaction.get(x.ref)));
+    snapshots.forEach((snap,i)=>{if(!snap.exists()||signature({id:expected[i].id,...snap.data()})!==expected[i].value)throw new Error(`Grain record ${expected[i].id} changed. Close this preview and review allocations again.`);});
+    for(const {ticket,result} of preview.changes){
+      const source=(reviewedState.haulingJobs||[]).find(j=>clean(j.id)===clean(result.haulingJobId));
+      transaction.update(doc(store,COLLECTIONS.tickets,clean(ticket.id)),{
+        haulingJobId:result.haulingJobId||null,haulingJobName:clean(source?.jobName)||null,
+        haulingJobSplitAllocations:result.haulingJobSplitAllocations||[],assignedBushels:result.totalBushels,
+        spotBushels:result.spotBushels||0,spotLoad:result.spotBushels>0,
+        allocationModelVersion:5,allocationSource:'central_reconciliation',
+        haulingAllocationBeforeRepair:{haulingJobId:ticket.haulingJobId||null,haulingJobSplitAllocations:ticket.haulingJobSplitAllocations||[]},
+        haulingReconciledAt:serverTimestamp(),updatedAt:serverTimestamp()
+      });
+    }
+  });
+  await refreshGrainOperations();
+}

@@ -13,7 +13,7 @@ export const contractTarget = contract => Math.max(0, round2(contract?.bushels ?
 export const isSpotHaulingJob = job => job?.spotLoadOnly === true || (jobTarget(job) <= EPS && key(job?.jobName ?? job?.displayName).includes('spot loads'));
 
 export function isVoided(record){
-  return record?.voided === true || ['void','voided','cancelled','canceled'].includes(key(record?.status));
+  return record?.isVoided === true || record?.voided === true || ['void','voided','cancelled','canceled'].includes(key(record?.status));
 }
 
 export function sameCrop(a,b){ return !!key(a) && key(a) === key(b); }
@@ -62,6 +62,18 @@ export function effectiveJobTotals(tickets){
   return totals;
 }
 
+// Normal capacity excludes Spot; delivered totals include its attached Spot portions.
+export function ticketJobBushels(ticket,jobId){
+  if(isVoided(ticket))return 0;
+  return effectiveJobTotals([ticket]).get(clean(jobId))||0;
+}
+export function ticketSpotBushels(ticket,jobId){
+  if(isVoided(ticket)||clean(ticket?.haulingJobId)!==clean(jobId))return 0;
+  return round2(normalizeSplitAllocations(ticket).filter(a=>a.sourceJobId===clean(jobId)&&a.allocationType==='spot').reduce((n,a)=>n+a.bushels,0));
+}
+export const ticketDeliveredBushels=(ticket,jobId)=>round2(ticketJobBushels(ticket,jobId)+ticketSpotBushels(ticket,jobId));
+export const timestampValue=value=>typeof value?.toMillis==='function'?value.toMillis():Number(value?.seconds??value?._seconds)*1000||Date.parse(clean(value))||0;
+
 export function haulingStatus(job,tickets,now=new Date()){
   if(isVoided(job)) return 'closed';
   const target = jobTarget(job);
@@ -80,7 +92,7 @@ export function haulingStatus(job,tickets,now=new Date()){
 }
 
 export function compatibleHaulingJob(job,ticket){
-  if(!job || !ticket || isVoided(job) || job?.active===false || (jobTarget(job) <= EPS && !isSpotHaulingJob(job))) return false;
+  if(!job || !ticket || isVoided(job) || (job?.active===false && job?.completed!==true && key(job?.status)!=='completed') || (jobTarget(job) <= EPS && !isSpotHaulingJob(job))) return false;
   if(!sameCrop(job?.crop ?? job?.commodity,ticket?.crop ?? ticket?.commodity)) return false;
   if(!sameBuyer(job,ticket) || !sameDeliveryLocation(job,ticket) || !sameCustomer(job,ticket)) return false;
   const date = clean(ticket?.date ?? ticket?.ticketDate);
@@ -96,7 +108,7 @@ export function planHaulingAllocation(ticket,jobs,tickets){
   // oldest job and rolls its remaining bushels into the next compatible job. Capacity, not the
   // display status, decides whether a job can accept another portion.
   const compatible=(jobs||[]).filter(job => compatibleHaulingJob(job,ticket));
-  const datedSort=(a,b)=>clean(a.deliveryStartDate).localeCompare(clean(b.deliveryStartDate))||clean(a.createdAt).localeCompare(clean(b.createdAt))||clean(a.id).localeCompare(clean(b.id));
+  const datedSort=(a,b)=>clean(a.deliveryStartDate).localeCompare(clean(b.deliveryStartDate))||(timestampValue(a.createdAt)-timestampValue(b.createdAt))||clean(a.id).localeCompare(clean(b.id));
   const capacityJobs=compatible.filter(job=>!isSpotHaulingJob(job)).sort(datedSort),spotJobs=compatible.filter(isSpotHaulingJob).sort(datedSort);
   const allocations=[];
   for(const job of capacityJobs){
@@ -110,5 +122,11 @@ export function planHaulingAllocation(ticket,jobs,tickets){
   // Explicit Spot-only hauling jobs are real operational jobs, but normal-capacity jobs always
   // take priority. Only use the oldest compatible Spot job after all normal capacity is exhausted.
   if(remaining>EPS&&spotJobs.length){allocations.push({haulingJobId:clean(spotJobs[0].id),bushels:round2(remaining),allocationType:'job',spotLoadOnly:true});remaining=0}
-  return {allocations,spotBushels:Math.max(0,round2(remaining))};
+  // Once all eligible capacity is exhausted, keep a whole overflow load attached
+  // to an eligible source (or the last job in the normal fill order). Completion
+  // by bushels does not close that job's delivery window.
+  const spotSource=remaining>EPS&&!allocations.length
+    ?capacityJobs.at(-1)
+    :null;
+  return {allocations,spotBushels:Math.max(0,round2(remaining)),spotHaulingJobId:clean(spotSource?.id)};
 }

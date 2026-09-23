@@ -20,7 +20,7 @@ Contracts are optional detail. A hauling job may have no contracts, one contract
 Example: a 100,000 bu hauling job can operate by itself, or it can later contain two 50,000 bu contracts with different contract numbers, prices, or Sold Under entities. The hauling job still answers the operational question: how many bushels have been hauled and how many remain. Contracts answer the accounting/detail question: which agreement receives those bushels.
 
 ## Allocation invariants
-A physical ticket remains one ticket. Bushels may be allocated in portions; never duplicate the ticket to represent a split. Compatible active hauling jobs are filled oldest-first. Overflow rolls into the next compatible active job. Spot fallback is used only when no compatible active capacity remains. Genuine Spot remains visible against its source job as operational overhaul.
+A physical ticket remains one ticket. Bushels may be allocated in portions; never duplicate the ticket to represent a split. Compatible active hauling jobs are filled oldest-first. Overflow rolls into the next compatible active job. Spot fallback is used only when no compatible active capacity remains. Genuine Spot remains visible against its source job as operational overhaul. A whole new load arriving after all matching job capacity is filled also remains attached as Spot to an eligible job; completion by bushels does not close its delivery date window. The scanner and historical reconciliation use the same planner for this rule.
 
 Manual hauling and manual contract overrides are independent dimensions. Changing a contract assignment must not silently move the hauling assignment, and moving a hauling assignment must not silently erase a contract assignment.
 

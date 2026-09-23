@@ -2,9 +2,10 @@
 // Contracts are intentionally not referenced here: hauling remains independently operable.
 import {getWorkspaceModel} from './workspace-controller.js';
 import {refreshGrainOperations,grainState} from '../data/grain-store.js';
-import {assignWholeTicketToJob,moveTicketPortion,moveUnassignedPortionToJob,moveWholeTicketToHaulingJob,moveSpotPortionToJob,unassignSpotPortion,unassignTicketFromJob,persistAutomaticTicketAllocation} from '../data/grain-writes.js';
+import {assignWholeTicketToJob,moveTicketPortion,moveUnassignedPortionToJob,moveWholeTicketToHaulingJob,moveSpotPortionToJob,unassignSpotPortion,unassignTicketFromJob,applyHaulingReconciliation} from '../data/grain-writes.js';
 import {planManualHaulingMove} from '../drag-drop/allocation-controller.js?v=20260918-1';
-import {clean,ticketBushels,normalizeSplitAllocations,round2} from '../core/grain-rules.js';
+import {buildHaulingReconciliation,describeAutomaticAssignment} from '../hauling/hauling-allocation.js';
+import {clean,ticketBushels,normalizeSplitAllocations,round2,ticketJobBushels,ticketSpotBushels} from '../core/grain-rules.js';
 
 const esc=v=>clean(v).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
 const bu=v=>Number(v||0).toLocaleString('en-US',{maximumFractionDigits:2});
@@ -13,7 +14,7 @@ const splitRows=t=>normalizeSplitAllocations(t);
 const movedFromSource=t=>round2(splitRows(t).filter(x=>['job','unassigned','spot'].includes(x.allocationType)).reduce((s,x)=>s+Math.max(0,Number(x.bushels)||0),0));
 const sourceBushels=t=>Math.max(0,round2(ticketBushels(t)-movedFromSource(t)));
 const jobSplitBushels=(t,id)=>round2(splitRows(t).filter(x=>x.allocationType==='job'&&clean(x.haulingJobId)===clean(id)).reduce((s,x)=>s+Math.max(0,Number(x.bushels)||0),0));
-const allocatedToJob=(t,id)=>round2((clean(t?.haulingJobId)===clean(id)?sourceBushels(t):0)+jobSplitBushels(t,id));
+const allocatedToJob=ticketJobBushels;
 const unassignedBushels=t=>round2(splitRows(t).filter(x=>x.allocationType==='unassigned').reduce((s,x)=>s+Math.max(0,Number(x.bushels)||0),0));
 const spotBushels=t=>round2(splitRows(t).filter(x=>x.allocationType==='spot').reduce((s,x)=>s+Math.max(0,Number(x.bushels)||0),0));
 const fullyUnassigned=t=>!clean(t?.haulingJobId)&&splitRows(t).filter(x=>x.allocationType==='job').length===0;
@@ -36,8 +37,8 @@ function render(host){
   const jobCards=jobs.map(j=>{
     const rawStatus=clean(j.effectiveStatus||j.status).toLowerCase(),displayStatus=rawStatus==='closed'?'completed':(rawStatus||'—');
     const assigned=tickets.map(t=>({t,amount:allocatedToJob(t,j.id)})).filter(x=>x.amount>.005);
-    const cards=assigned.map(({t,amount})=>ticketCard(t,amount,spotBushels(t)>0?'SPLIT — JOB PORTION':'',true)).join('');const spotCards=assigned.filter(({t})=>spotBushels(t)>.005).map(({t})=>ticketCard(t,spotBushels(t),'SPOT PORTION',false).replace(`data-hauling-ticket-id="${esc(t.id)}"`,`data-hauling-ticket-id="${esc(t.id)}" data-hauling-spot-ticket-id="${esc(t.id)}"`)).join('');
-    return `<div class="fv-go-hauling-job-drop" data-hauling-job-drop="${esc(j.id)}"><div class="fv-go-hauling-job-head"><div><strong>${esc(j.jobName||j.displayName||j.deliveryLocationName||'Hauling Job')}</strong><span class="fv-go-hauling-job-status ${esc(displayStatus)}">${esc(displayStatus)}</span><small>${esc(j.buyerName||'—')} · ${esc(j.crop||j.commodity||'—')} · ${esc(j.customerName||j.soldUnder||'—')}</small></div><span>${bu(j.remainingBushels)} bu remaining</span></div><details class="fv-go-assigned-details"><summary>Assigned Tickets <strong>${assigned.length}</strong></summary><div class="fv-go-hauling-assigned-body">${cards||'<div class="fv-go-empty">No tickets assigned.</div>'}</div>${spotCards?`<div class="fv-go-spot-label">Spot Loads / Overhaul Allowed</div><div class="fv-go-hauling-spot-body">${spotCards}</div>`:(j.remainingBushels<=.005?'<div class="fv-go-spot-label">Spot Loads / Overhaul Allowed</div>':'')}</details></div>`;
+    const cards=assigned.map(({t,amount})=>ticketCard(t,amount,splitRows(t).length?'SPLIT — JOB PORTION':'',true)).join('');const spotCards=tickets.filter(t=>ticketSpotBushels(t,j.id)>.005).map(t=>ticketCard(t,ticketSpotBushels(t,j.id),'SPOT PORTION',false).replace(`data-hauling-ticket-id="${esc(t.id)}"`,`data-hauling-ticket-id="${esc(t.id)}" data-hauling-spot-ticket-id="${esc(t.id)}"`)).join('');
+    return `<div class="fv-go-hauling-job-drop" data-hauling-job-drop="${esc(j.id)}"><div class="fv-go-hauling-job-head"><div><strong>${esc(j.jobName||j.displayName||j.deliveryLocationName||'Hauling Job')}</strong><span class="fv-go-hauling-job-status ${esc(displayStatus)}">${esc(displayStatus)}</span><small>${esc(j.buyerName||'—')} · ${esc(j.crop||j.commodity||'—')} · ${esc(j.customerName||j.soldUnder||'—')}</small></div><span>${bu(j.remainingBushels)} bu remaining<button type="button" class="fv-go-btn secondary" data-review-hauling="${esc(j.id)}">Review Allocations</button></span></div><details class="fv-go-assigned-details"><summary>Assigned Tickets <strong>${assigned.length}</strong></summary><div class="fv-go-hauling-assigned-body">${cards||'<div class="fv-go-empty">No tickets assigned.</div>'}</div>${spotCards?`<div class="fv-go-spot-label">Spot Loads / Overhaul Allowed</div><div class="fv-go-hauling-spot-body">${spotCards}</div>`:(j.remainingBushels<=.005?'<div class="fv-go-spot-label">Spot Loads / Overhaul Allowed</div>':'')}</details></div>`;
   }).join('');
   host.innerHTML=`<div class="fv-go-block"><div class="fv-go-block-head"><div><h3>Assign / Move Grain Tickets to Hauling Jobs</h3><p>Operational ticket assignment. Drag an unassigned ticket onto a hauling job, move a ticket to another compatible hauling job, or drop it back into Unassigned. Contract assignments are not changed here.</p></div></div><div class="fv-go-hauling-filters"><input data-hauling-filter="search" placeholder="Job, buyer, location, customer…"><select data-hauling-filter="status"><option value="">Select Job Status</option>${statuses.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('')}</select><select data-hauling-filter="crop"><option value="">Select Crop</option><option>Corn</option><option>Soybeans</option></select><select data-hauling-filter="buyer"><option value="">Select Buyer</option>${buyers.map(v=>`<option>${esc(v)}</option>`).join('')}</select><select data-hauling-filter="customer"><option value="">Select Sold Under</option>${customers.map(v=>`<option>${esc(v)}</option>`).join('')}</select></div><div class="fv-go-two-col fv-go-hauling-ticket-grid"><div class="fv-go-dnd-col fv-go-hauling-unassigned" data-hauling-unassigned data-hauling-unassign-zone><div class="fv-go-dnd-head"><label class="fv-go-select-all"><input type="checkbox" data-hauling-select-all> Select All</label><span>Unassigned Tickets · ${unassigned.length}</span></div><div class="fv-go-selection-helper" data-hauling-selection-helper>Select tickets to move several at once.</div><div class="fv-go-dnd-body">${unassignedCards||'<div class="fv-go-empty">No unassigned tickets.</div>'}</div></div><div class="fv-go-dnd-col"><div class="fv-go-dnd-head">Hauling Jobs <span>${jobs.length}</span></div><div class="fv-go-dnd-body">${jobCards||'<div class="fv-go-empty">No hauling jobs available.</div>'}</div></div></div></div>`;
 }
@@ -56,40 +57,23 @@ export function installHaulingTicketWorkspace(root){
   }
   const host=details.querySelector('[data-panel="hauling-ticket-workspace"]');
   render(host);
-  // One-time migration/repair for scanner-era tickets that were saved wholly
-  // against a hauling job before persisted rollover splits existed.
-  let autoRepairRunning=false;
-  const repairAutomaticRollover=async()=>{
-    if(autoRepairRunning)return;
-    autoRepairRunning=true;
-    try{
-      await refreshGrainOperations();
-      const state=grainState();
-      const candidates=(state.tickets||[])
-        .filter(t=>live(t)&&clean(t?.haulingJobId)&&t?.manualHaulingOverride!==true&&Number(t?.allocationModelVersion||0)<4)
-        .sort((a,b)=>clean(a?.date||a?.ticketDate).localeCompare(clean(b?.date||b?.ticketDate))||clean(a?.createdAt).localeCompare(clean(b?.createdAt))||clean(a?.id).localeCompare(clean(b?.id)));
-      let changed=false;
-      for(const oldTicket of candidates){
-        const fresh=grainState();
-        const ticket=(fresh.tickets||[]).find(t=>clean(t.id)===clean(oldTicket.id))||oldTicket;
-        const before=JSON.stringify({job:clean(ticket.haulingJobId),splits:normalizeSplitAllocations(ticket).map(x=>[x.haulingJobId,round2(x.bushels),x.allocationType])});
-        const plan=await persistAutomaticTicketAllocation(ticket,fresh);
-        const hauling=plan?.hauling;
-        if(!hauling)continue;
-        const after=JSON.stringify({job:clean(hauling.haulingJobId),splits:(hauling.haulingJobSplitAllocations||[]).map(x=>[clean(x.haulingJobId),round2(x.bushels),clean(x.allocationType)])});
-        if(before!==after)changed=true;
-      }
-      if(changed){await refreshGrainOperations();render(host);applyFilters();}
-    }catch(error){console.error('[FarmVista] hauling rollover migration failed',error)}
-    finally{autoRepairRunning=false}
-  };
   let dragged='';let draggedIds=[];let draggedSpot=false;let draggedUnassigned=false;
   const applyFilters=()=>{const search=clean(details.querySelector('[data-hauling-filter="search"]')?.value).toLowerCase(),status=clean(details.querySelector('[data-hauling-filter="status"]')?.value).toLowerCase(),buyer=clean(details.querySelector('[data-hauling-filter="buyer"]')?.value).toLowerCase(),crop=clean(details.querySelector('[data-hauling-filter="crop"]')?.value).toLowerCase(),customer=clean(details.querySelector('[data-hauling-filter="customer"]')?.value).toLowerCase(),hasExplicit=!!(search||status||buyer||crop||customer),model=getWorkspaceModel(),unassignedTickets=(model?.tickets||[]).filter(t=>live(t)&&(fullyUnassigned(t)||unassignedBushels(t)>.005)),defaultPairs=new Set(unassignedTickets.map(t=>`${clean(t.buyerName).toLowerCase()}|${clean(t.crop||t.commodity).toLowerCase()}`));details.querySelectorAll('[data-hauling-job-drop]').forEach(card=>{const job=model?.haulingJobs?.find(j=>clean(j.id)===clean(card.dataset.haulingJobDrop));const text=[job?.jobName,job?.displayName,job?.deliveryLocationName,job?.buyerName,job?.customerName,job?.soldUnder].map(clean).join(' ').toLowerCase(),rawStatus=clean(job?.effectiveStatus||job?.status).toLowerCase(),displayStatus=rawStatus==='closed'?'completed':rawStatus;card.hidden=!hasExplicit||!!((search&&!text.includes(search))||(status&&displayStatus!==status)||(buyer&&clean(job?.buyerName).toLowerCase()!==buyer)||(crop&&clean(job?.crop||job?.commodity).toLowerCase()!==crop)||(customer&&clean(job?.customerName||job?.soldUnder).toLowerCase()!==customer))});details.querySelectorAll('[data-hauling-unassigned-ticket-id]').forEach(card=>{const ticket=unassignedTickets.find(t=>clean(t.id)===clean(card.dataset.haulingUnassignedTicketId));if(!hasExplicit||!ticket){card.hidden=true;return}const text=[ticket.ticketNumber,ticket.ticketNo,ticket.buyerName,ticket.deliveryLocationName,ticket.customerName,ticket.soldUnder,ticket.crop,ticket.commodity,ticket.driverName].map(clean).join(' ').toLowerCase();card.hidden=!!((search&&!text.includes(search))||(buyer&&clean(ticket.buyerName).toLowerCase()!==buyer)||(crop&&clean(ticket.crop||ticket.commodity).toLowerCase()!==crop)||(customer&&clean(ticket.customerName||ticket.soldUnder).toLowerCase()!==customer))});const visibleUnassigned=[...details.querySelectorAll('[data-hauling-unassigned-ticket-id]')].filter(card=>!card.hidden).length,unassignedCount=details.querySelector('.fv-go-hauling-unassigned .fv-go-dnd-head span');if(unassignedCount)unassignedCount.textContent=`Unassigned Tickets · ${visibleUnassigned}`;const visible=[...details.querySelectorAll('[data-hauling-job-drop]')].filter(card=>!card.hidden).length,count=details.querySelector('.fv-go-dnd-col:nth-child(2) .fv-go-dnd-head span');if(count)count.textContent=String(visible)};
   applyFilters();
-  // Start repair only after applyFilters exists. The previous timer could fire while
-  // this module was still initializing, leaving Grain Operations stuck on Loading.
-  setTimeout(repairAutomaticRollover,250);
   const rerenderPreservingView=async()=>{const filters=Object.fromEntries([...details.querySelectorAll('[data-hauling-filter]')].map(x=>[x.dataset.haulingFilter,x.value])),openJobs=new Set([...details.querySelectorAll('[data-hauling-job-drop]')].filter(x=>x.querySelector('.fv-go-assigned-details')?.open).map(x=>x.dataset.haulingJobDrop));await refreshGrainOperations();render(host);for(const [key,value] of Object.entries(filters)){const el=details.querySelector(`[data-hauling-filter="${key}"]`);if(el)el.value=value}details.querySelectorAll('[data-hauling-job-drop]').forEach(x=>{const d=x.querySelector('.fv-go-assigned-details');if(d)d.open=openJobs.has(x.dataset.haulingJobDrop)});applyFilters()};
+  details.addEventListener('click',async e=>{
+    const button=e.target.closest('[data-review-hauling]');if(!button)return;
+    e.preventDefault();e.stopPropagation();button.disabled=true;
+    try{
+      await refreshGrainOperations();const state={...grainState()};if(state.error)throw state.error;
+      const anchor=state.haulingJobs.find(j=>clean(j.id)===clean(button.dataset.reviewHauling));
+      const preview=buildHaulingReconciliation(state,anchor),modal=root.querySelector('#fv-go-detail-modal');
+      modal.querySelector('.fv-go-modal-title').textContent='Review Hauling Allocations';
+      modal.querySelector('.fv-go-modal-body').innerHTML=`<p>Matching buyer, delivery location, crop and Sold Under. Automatic tickets are recalculated oldest first. ${preview.manualCount} manual ticket(s) will stay unchanged.</p><p>${preview.changes.length} ticket(s) would change. Saving updates the grain records used by this farm.</p>${preview.changes.map(({ticket,result})=>`<div class="fv-go-ticket-card"><strong>Ticket ${esc(ticket.ticketNumber||ticket.id)}</strong><p>Current: ${esc(describeAutomaticAssignment({sourceJobId:ticket.haulingJobId,sourceBushels:sourceBushels(ticket),haulingJobSplitAllocations:splitRows(ticket)},state).join(' · ')||'Unassigned')}</p><p>Proposed: ${esc(describeAutomaticAssignment(result,state).join(' · '))}</p></div>`).join('')}<div class="fv-go-form-errors" hidden></div><div class="fv-go-form-actions"><button class="fv-go-btn secondary" data-dialog-close>Close</button>${preview.changes.length?'<button class="fv-go-btn" data-apply-hauling>Apply Allocations</button>':''}</div>`;
+      modal.classList.add('open');const apply=modal.querySelector('[data-apply-hauling]');
+      if(apply)apply.onclick=async()=>{apply.disabled=true;try{await applyHaulingReconciliation(preview,state);modal.classList.remove('open');await rerenderPreservingView()}catch(err){const box=modal.querySelector('.fv-go-form-errors');box.hidden=false;box.textContent=err.message;}};
+    }catch(err){alert(err.message||'Could not review allocations.')}finally{button.disabled=false}
+  });
   const updateSelectionHelper=()=>{const selected=[...details.querySelectorAll('[data-hauling-select]:checked')],helper=details.querySelector('[data-hauling-selection-helper]');if(!helper)return;helper.textContent=selected.length?`${selected.length} ticket${selected.length===1?'':'s'} selected — drag any selected ticket to move the whole group.`:'Select tickets to move several at once.';helper.classList.toggle('active',selected.length>0)};
   details.addEventListener('input',e=>{if(e.target.matches('[data-hauling-filter]'))applyFilters()});details.addEventListener('click',e=>{if(e.target.closest('[data-hauling-select],.fv-go-ticket-select'))e.stopPropagation()});details.addEventListener('change',e=>{if(e.target.matches('[data-hauling-filter]'))applyFilters();if(e.target.matches('[data-hauling-select]')){e.stopPropagation();updateSelectionHelper();return}if(e.target.matches('[data-hauling-select-all]')){e.stopPropagation();const checked=e.target.checked;details.querySelectorAll('[data-hauling-select]').forEach(x=>x.checked=checked);updateSelectionHelper()}});
   // iOS/mobile does not provide reliable HTML5 drag/drop. Use touch tracking against the same drop zones.
