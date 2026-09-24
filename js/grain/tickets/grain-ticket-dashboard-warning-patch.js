@@ -33,6 +33,11 @@
 
   if(!String(location.pathname||'').toLowerCase().endsWith('/pages/grain/grain-ticket.html')) return;
 
+  // Newer tracking pages own status, KPI counts, and filters together.
+  // Keep this legacy helper only for older pages restored from cache.
+  const sharedStatus = () => document.getElementById('grain-ticket-table-body')?.dataset.fvSharedStatus === '1';
+  if (sharedStatus()) return;
+
   const {ready,getFirestore,collection,getDocs}=await import('/js/firebase/firebase-init.js');
   await ready;
 
@@ -372,7 +377,7 @@
   }
 
   function apply(){
-    if(applying) return;
+    if(applying || sharedStatus()) return;
     applying=true;
 
     try{
