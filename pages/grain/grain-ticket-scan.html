@@ -16,7 +16,7 @@
   (() => {
     'use strict';
 
-    const CORE_URL = '/pages/grain/grain-ticket-scan-core.html?v=20260915-1915';
+    const CORE_URL = '/pages/grain/grain-ticket-scan-core.html?v=20260924-allocation-ledger';
 
     function replaceRequired(text, oldValue, newValue, label) {
       if (!text.includes(oldValue)) throw new Error(`Scanner patch marker missing: ${label}`);
@@ -204,20 +204,10 @@ html = replaceRequired(html,
 
       const timeoutHelper = `function withScannerTimeout(promise,timeoutMs,label) {\n  let timer = null;\n  const timeout = new Promise((_,reject) => {\n    timer = setTimeout(() => reject(new Error(label + " took too long. Check your connection and try again.")),timeoutMs);\n  });\n  return Promise.race([promise,timeout]).finally(() => { if (timer) clearTimeout(timer); });\n}\n\n`;
       html = replaceRequired(html, 'async function loadFarmVistaData() {', timeoutHelper + 'async function loadFarmVistaData() {', 'scanner timeout helper');
-      html = replaceRequired(html,
-        `  haulingJobSnapshot,\n  ticketSnapshot,\n  employeeSnapshot,`,
-        `  haulingJobSnapshot,\n  employeeSnapshot,`,
-        'remove full ticket snapshot variable');
-
-      html = replaceRequired(html,
-        `\ngetDocs(\n  collection(\n    db,\n    TICKET_COLLECTION\n  )\n),\n\ngetDocs(\n  collection(\n    db,\n    EMPLOYEE_COLLECTION\n  )\n),`,
-        `\ngetDocs(\n  collection(\n    db,\n    EMPLOYEE_COLLECTION\n  )\n),`,
-        'remove full ticket collection read');
-
-      html = replaceRequired(html,
-        `\n\ngrainTickets =\n  snapshotToArray(\n    ticketSnapshot\n  );\n`,
-        `\n\ngrainTickets = [];\n`,
-        'remove full ticket history assignment');
+      // Allocation must read the existing ticket ledger on every scan.
+      // Removing ticketSnapshot here makes every hauling job appear empty,
+      // so the oldest job is repeatedly overfilled instead of rolling over.
+      // Keep the core's ticket query, snapshot, and grainTickets assignment.
 
       html = replaceRequired(html,
         `  const employee =\n    await loadFarmVistaData();`,
