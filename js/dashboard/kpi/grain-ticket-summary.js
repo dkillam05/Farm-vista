@@ -1,4 +1,4 @@
-// Read-only dashboard status projection, using the grain ticket table's office-review rules.
+// Shared read-only office status for dashboard KPIs and the grain tracking table.
 import {farmToday} from '../grain-summary.js';
 function ticketAssessment(ticket, jobs = []) {
   const haulingJobs = jobs;
@@ -169,7 +169,7 @@ function ticketAssessment(ticket, jobs = []) {
   }
 
   function linkedJobForTicket(ticket){
-    const jobId=clean(ticket?.haulingJobId||ticket?.jobId);
+    const jobId=clean(ticket?.haulingJobId||ticket?.grainHaulingJobId||ticket?._linkedHaulingJobId||ticket?.jobId);
     if(!jobId) return null;
     return haulingJobs.find(job=>clean(job?.id)===jobId)||null;
   }

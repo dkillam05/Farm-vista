@@ -489,7 +489,7 @@ export const NAV_MENU = {
       initialOpen: false,
       children: [
         { type: 'link', id: 'calc-area', perm: 'calc-area', icon: '📐', label: 'Area', href: '/pages/calculators/calc-area.html' },
-        { type: 'link', id: 'calc-bin', perm: 'calc-bin', icon: '🛢️', label: 'Grain Bin', href: '/pages/calculators/calc-grain-bin.html' },
+        { type: 'link', id: 'calc-bin', perm: 'calc-bin', icon: '<img src="/assets/icons/grain-bin.svg" width="28" height="28" alt="" aria-hidden="true" style="display:block;max-width:none;">', label: 'Grain Bin', href: '/pages/calculators/calc-grain-bin.html' },
         { type: 'link', id: 'calc-shrink', perm: 'calc-shrink', icon: '📉', label: 'Grain Shrink', href: '/pages/calculators/calc-grain-shrink.html' },
         { type: 'link', id: 'calc-combine-loss', perm: 'calc-combine-loss', icon: '🌾', label: 'Combine Grain Loss', href: '/pages/calculators/calc-combine-grain-loss.html' },
         { type: 'link', id: 'calc-combine-yld', perm: 'calc-combine-yld', icon: '✅', label: 'Combine Yield Check', href: '/pages/calculators/calc-combine-yield.html' },

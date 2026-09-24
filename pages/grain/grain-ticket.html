@@ -1862,7 +1862,7 @@ section[data-hide-for-now]{ display:none !important; }
       </thead>
 
 
-      <tbody id="grain-ticket-table-body">
+      <tbody id="grain-ticket-table-body" data-fv-shared-status="1">
 
         <tr>
 
@@ -2486,6 +2486,8 @@ section[data-hide-for-now]{ display:none !important; }
   } from "/js/firebase/firebase-init.js";
 
 
+  import { ticketStatus } from "/js/dashboard/kpi/grain-ticket-summary.js";
+
   await ready;
 
 
@@ -2559,6 +2561,9 @@ const filterButtons =
 
   let allTickets =
     [];
+
+  let ticketHaulingJobs = [];
+  let ticketLoadPromise = null;
 
 
   let activeFilter =
@@ -3058,21 +3063,17 @@ const filterButtons =
   }
 
 
-  function isNeedsReview(
-    ticket
-  ) {
-
-    return String(
-      ticket.validationStatus ||
-      ""
-    )
-      .toLowerCase() ===
-      "needs_review";
-
+  // Use one office status for the counters, filters, retention, and row badges.
+  // This is a display projection; stored verification still gates inventory posting.
+  function dashboardTicketStatus(ticket) {
+    return ticketStatus(ticket, ticketHaulingJobs);
   }
 
+  function isNeedsReview(ticket) {
+    return ["review", "warning"].includes(dashboardTicketStatus(ticket));
+  }
 
-function ticketHasHaulingJob(
+  function ticketHasHaulingJob(
     ticket
   ) {
 
@@ -3085,146 +3086,13 @@ function ticketHasHaulingJob(
 
   }
 
-  function isSpotLoad(
-    ticket
-  ) {
-
-    return (
-      ticket?.spotLoad === true ||
-      String(ticket?.allocationType || "").trim().toLowerCase() === "spot_load" ||
-      String(ticket?.haulingJobType || "").trim().toLowerCase() === "spot_load"
-    );
-
+  function isNeedsHaulingJob(ticket) {
+    return dashboardTicketStatus(ticket) === "needs_job";
   }
 
-
-  function isNeedsHaulingJob(
-    ticket
-  ) {
-
-    // A manually confirmed Spot Load is intentionally not tied to a hauling job.
-    if (isSpotLoad(ticket)) {
-      return false;
-    }
-
-    if (
-      isNeedsReview(
-        ticket
-      )
-    ) {
-
-      return false;
-
-    }
-
-
-    return !ticketHasHaulingJob(
-      ticket
-    );
-
+  function isTicketWarning(ticket) {
+    return dashboardTicketStatus(ticket) === "warning";
   }
-
-
-  function isTicketWarning(
-    ticket
-  ) {
-
-    if (!isNeedsReview(ticket)) return false;
-
-    const reasons = Array.isArray(ticket?.reviewReasons)
-      ? ticket.reviewReasons.map(value => String(value || "").trim().toLowerCase())
-      : [];
-
-    const warningReasons = new Set([
-      "buyer_not_matched",
-      "delivery_location_not_matched",
-      "delivery_location_conflict",
-      "destination_not_matched",
-      "destination_conflict",
-      "customer_not_matched",
-      "customer_not_selected",
-      "sold_under_unknown",
-      "sold_under_requires_review",
-      "elevator_mismatch",
-      "buyer_mismatch",
-      "customer_mismatch"
-    ]);
-
-    /*
-      RED WARNING RULE — NO OPEN MATCHING HAULING JOB
-
-      Do not make a ticket red merely because it is unassigned.
-      Make it red when the assignment engine definitively found ZERO
-      hauling jobs matching this ticket's operational combination.
-
-      For scanned elevator tickets customerName/customerId is the Sold Under
-      party. buyer/delivery location is the destination. matchingHaulingJobIds
-      is populated by the hauling-job matcher after checking destination,
-      crop, Sold Under and active/open job eligibility.
-    */
-    const soldUnderKnown = !!String(
-      ticket?.customerId || ticket?.customerName || ""
-    ).trim();
-
-    const destinationKnown = !!String(
-      ticket?.deliveryLocationId || ticket?.buyerId ||
-      ticket?.deliveryLocationName || ticket?.buyerName || ""
-    ).trim();
-
-    const cropKnown = !!String(ticket?.crop || "").trim();
-
-    const matchingJobIds = Array.isArray(ticket?.matchingHaulingJobIds)
-      ? ticket.matchingHaulingJobIds.filter(value => String(value || "").trim())
-      : null;
-
-    const scannerCouldNotAutoAssign =
-      reasons.includes("hauling_job_not_auto_assigned") &&
-      !ticketHasHaulingJob(ticket);
-
-    const noOpenMatchingHaulingJob =
-      soldUnderKnown &&
-      destinationKnown &&
-      cropKnown &&
-      (
-        (
-          ticket?.haulingJobMatched === false &&
-          matchingJobIds !== null &&
-          matchingJobIds.length === 0
-        ) ||
-        scannerCouldNotAutoAssign
-      );
-
-    if (noOpenMatchingHaulingJob) return true;
-
-    return reasons.some(reason => {
-
-      if (warningReasons.has(reason)) return true;
-
-      /*
-        A clean/readable ticket that cannot be matched to an ACTIVE hauling
-        job is an operational mismatch, not an OCR/data-entry review item.
-        Keep these red so dispatch immediately sees that the destination /
-        crop / Sold Under combination has no current hauling job available.
-      */
-      const haulingJobMismatch =
-        (reason.includes("hauling") || reason.includes("job")) &&
-        (
-          reason.includes("not_matched") ||
-          reason.includes("not_found") ||
-          reason.includes("no_match") ||
-          reason.includes("no_matching") ||
-          reason.includes("missing") ||
-          reason.includes("inactive") ||
-          reason.includes("no_active") ||
-          reason.includes("requires_review")
-        );
-
-      return haulingJobMismatch;
-
-    });
-
-  }
-
 
 
   /* ============================================================
@@ -7234,17 +7102,27 @@ else {
   }
 
 
-  async function loadTickets() {
+  function loadTickets() {
+    // Background refresh and returning from details can happen together.
+    if (ticketLoadPromise) return ticketLoadPromise;
+    ticketLoadPromise = refreshTickets().finally(() => {
+      ticketLoadPromise = null;
+    });
+    return ticketLoadPromise;
+  }
+
+  async function refreshTickets() {
 
     try {
 
-      const snapshot =
-        await getDocs(
-          collection(
-            db,
-            "grain_tickets"
-          )
-        );
+      const [snapshot, jobSnapshot] = await Promise.all([
+        getDocs(collection(db, "grain_tickets")),
+        getDocs(collection(db, "grain_hauling_jobs"))
+      ]);
+      ticketHaulingJobs = jobSnapshot.docs.map(snapshot => ({
+        id: snapshot.id,
+        ...snapshot.data()
+      }));
 
 
       const loadedTickets =
@@ -7286,7 +7164,7 @@ else {
       const activeTickets =
         loadedTickets.filter(
           ticket =>
-            ticket?.voided !== true
+            dashboardTicketStatus(ticket) !== "voided"
         );
 
 
@@ -7401,6 +7279,15 @@ else {
   */
   await loadGrainAlertSettings();
   loadTickets();
+
+
+  // Safari can restore the list from its back/forward cache after an edit.
+  window.addEventListener("pageshow", event => {
+    if (event.persisted) loadTickets();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") loadTickets();
+  });
 
 
   /*
