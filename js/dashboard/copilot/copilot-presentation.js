@@ -65,16 +65,18 @@ export async function transferChat(text, action, nav) {
   return 'manual';
 }
 
-export function mountChatActions({host, getHistory, isCurrent, doc=document, nav=navigator}) {
+export function mountChatActions({host, getHistory, isCurrent, onClear, onReport, canClear=()=>true, doc=document, nav=navigator}) {
   const root=doc.createElement('div');
   root.className='fv-chat-transfer';
   root.innerHTML=`<div class="fv-chat-transfer-buttons">
     <button type="button" class="fv-chat-icon" data-action="copy" title="Copy chat" aria-label="Copy chat"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg></button>
     <button type="button" class="fv-chat-icon" data-action="share" title="Share chat" aria-label="Share chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3m-4 4 4-4 4 4M7 10H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-2"/></svg></button>
+    ${onClear?'<button type="button" class="fv-chat-icon" data-action="clear" title="Clear history" aria-label="Clear history"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/></svg></button>':''}
+    ${onReport?'<button type="button" class="fv-chat-icon" data-action="issue" title="Report an issue" aria-label="Report an issue"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V3m0 1c5-4 9 4 14 0v10c-5 4-9-4-14 0"/></svg></button>':''}
   </div><span class="fv-chat-transfer-status" role="status" aria-live="polite"></span>`;
   const style=doc.createElement('style');
   style.textContent=`
-    .fv-chat-transfer{margin-left:auto;flex:0 0 auto;max-width:120px;align-self:center}
+    .fv-chat-transfer{margin-left:auto;flex:0 0 auto;max-width:186px;align-self:center}
     #ai-section .ai-actions{flex-wrap:wrap}
     #ai-section .ai-status{flex:1 1 60px;min-width:0;overflow-wrap:anywhere}
     .fv-chat-transfer-buttons{display:flex;gap:2px;justify-content:flex-end}
@@ -93,6 +95,11 @@ export function mountChatActions({host, getHistory, isCurrent, doc=document, nav
     .fv-chat-copy-dialog::backdrop{background:rgba(0,0,0,.55)}
     .fv-chat-copy-dialog textarea{box-sizing:border-box;width:100%;height:40vh;font:16px/1.5 sans-serif;background:var(--surface,#fff);color:inherit;border:1px solid var(--border,#ccc)}
     .fv-chat-copy-dialog button{min-height:44px;margin-top:10px;padding:8px 14px;border:0;border-radius:8px;background:#2f6c3c;color:#fff;font:inherit}
+    .fv-chat-clear-dialog{width:min(360px,calc(100vw - 32px))}
+    .fv-chat-clear-dialog h2{font-size:18px;margin:0 0 12px}
+    .fv-chat-clear-dialog p{font-size:14px;line-height:1.5}
+    .fv-chat-clear-dialog .fv-chat-confirm-actions{display:flex;justify-content:flex-end;gap:10px}
+    .fv-chat-clear-dialog button[data-cancel]{background:transparent;color:inherit;border:1px solid var(--border,#ccc)}
   `;
   doc.head.appendChild(style);
   host.appendChild(root);
@@ -101,7 +108,7 @@ export function mountChatActions({host, getHistory, isCurrent, doc=document, nav
   let busy=false, dialog=null;
   function refresh() {
     const current=isCurrent();
-    buttons.forEach(button => { button.disabled=busy || !current || !chatTranscript(getHistory()); });
+    buttons.forEach(button => { button.disabled=busy || !current || (button.dataset.action!=='issue'&&!chatTranscript(getHistory())) || (button.dataset.action==='clear'&&!canClear()); });
     if (!current) { feedback.textContent=''; dialog?.close(); dialog?.remove(); dialog=null; }
   }
   function manualCopy(text) {
@@ -118,8 +125,26 @@ export function mountChatActions({host, getHistory, isCurrent, doc=document, nav
     doc.body.appendChild(modal);
     modal.showModal(); area.focus(); area.select();
   }
+  function confirmClear(){
+    if(!canClear()||!chatTranscript(getHistory()))return;
+    dialog?.remove();
+    const modal=doc.createElement('dialog');dialog=modal;
+    modal.className='fv-chat-copy-dialog fv-chat-clear-dialog';
+    modal.setAttribute('aria-label','Clear chat history');
+    modal.innerHTML='<h2>Clear history?</h2><p>Are you sure you want to clear this chat and start a new conversation? Farm records will stay saved.</p><div class="fv-chat-confirm-actions"><button type="button" data-cancel autofocus>Cancel</button><button type="button" data-confirm>Yes, clear</button></div>';
+    modal.querySelector('[data-cancel]').addEventListener('click',()=>modal.close());
+    modal.querySelector('[data-confirm]').addEventListener('click',()=>{
+      if(!isCurrent()||!canClear()){modal.close();return;}
+      onClear();modal.close();feedback.textContent='History cleared';refresh();
+    });
+    modal.addEventListener('close',()=>{modal.remove();if(dialog===modal)dialog=null;});
+    doc.body.appendChild(modal);modal.showModal();
+    modal.querySelector('[data-cancel]').focus();
+  }
   buttons.forEach(button => button.addEventListener('click',async()=>{
     if (busy || !isCurrent()) return;
+    if(button.dataset.action==='clear'){confirmClear();return;}
+    if(button.dataset.action==='issue'){onReport?.();return;}
     const text=chatTranscript(getHistory());
     busy=true; feedback.textContent=''; refresh();
     try {

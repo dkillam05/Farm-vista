@@ -1,3 +1,4 @@
+import {createIssueManager} from './copilot-issues.js';
 'use strict';
 
 import { ready, getAuth, onAuthStateChanged } from '/js/firebase/firebase-init.js';
@@ -6,11 +7,10 @@ import { messageHtml, mountChatActions } from './copilot-presentation.js';
 import { wireChatViewport } from './copilot-viewport.js';
 import { wireChatDictation } from './copilot-dictation.js';
 import { createReportManager } from './copilot-reports.js';
-import { recoverableChat } from './copilot-transport.js';
 
 export const FVCopilotUI = (() => {
   const DEFAULTS = {
-    copilotEndpoint: (window.FV_COPILOT_ENDPOINT || 'https://farmvista-copilot-300398089669.us-central1.run.app/chat/beta').toString(),
+    copilotEndpoint: (window.FV_COPILOT_ENDPOINT || 'https://farmvista-copilot-300398089669.us-central1.run.app/chat/agronomy-preview').toString(),
     reportEndpoint:  (window.FV_COPILOT_REPORT_ENDPOINT || 'https://farmvista-copilot-300398089669.us-central1.run.app/report/beta').toString(),
 
     sectionSel: '#ai-section',
@@ -276,12 +276,30 @@ export const FVCopilotUI = (() => {
       setStatus(`tid:${tid.slice(0,8)} • cont:${cont ? "yes" : "no"}`);
     }
 
+    let activeTurn=null;
+    const stopButton=document.createElement('button');stopButton.type='button';stopButton.className='ai-send';stopButton.textContent='■ Stop';stopButton.setAttribute('aria-label','Stop response');stopButton.hidden=true;
+    stopButton.style.cssText='display:none;min-height:44px;padding:8px 12px;border:1px solid var(--border,#ccc);border-radius:9px;background:transparent;color:inherit;font:inherit;';
+    sendEl.insertAdjacentElement('afterend',stopButton);
+    stopButton.addEventListener('click',async()=>{
+      const turn=activeTurn;if(!turn||turn.stopped||!sameSession())return;
+      turn.stopped=true;clearTimeout(thinkingTimer);stopButton.disabled=true;stopButton.textContent='Stopping…';setStatus('Stopping this question…');
+      try{
+        const token=await getAuthToken();if(!sameSession())return;
+        const response=await fetch('https://farmvista-copilot-300398089669.us-central1.run.app/chat/beta/cancel',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify({projectId,requestId:turn.id}),signal:AbortSignal.timeout(12000)});
+        if(!response.ok)throw new Error('Stop could not be confirmed.');
+        const result=await response.json();
+        if(result.stopped)turn.controller.abort();
+        else if(activeTurn===turn)setStatus('Stop requested. Waiting for the current search to finish stopping…');
+      }catch{if(sameSession()&&activeTurn===turn)setStatus('Stop could not be confirmed. Waiting for the current request to finish.');}
+    });
     let thinkingTimer = null;
     function setThinking(on){
       const t = !!on;
       if (thinkingTimer) clearTimeout(thinkingTimer);
       thinkingTimer = null;
-      sendEl.disabled = t;
+      sendEl.disabled = t;sendEl.style.display=t?'none':'';
+      stopButton.hidden=!t;stopButton.style.display=t?'inline-flex':'none';stopButton.disabled=false;stopButton.textContent='■ Stop';
+      chatActions.refresh();
       inputEl.disabled = t;
       reportCreate.disabled = t;
       if (!desktop) micEl.disabled = t || dictation?.supported === false;
@@ -305,10 +323,25 @@ export const FVCopilotUI = (() => {
     function sameSession(){
       return !sessionChanged && getAuth()?.currentUser?.uid === signedInUser.uid && window.FV_FIREBASE_CONFIG?.projectId === projectId;
     }
+    const issues = createIssueManager({getHistory:()=>history,getToken:getAuthToken,isCurrent:sameSession,projectId});
     const chatActions = mountChatActions({
+      onReport:()=>{stopDictation?.();issues.open();},
       host: formEl.querySelector('.ai-actions') || formEl,
       getHistory: () => history,
-      isCurrent: sameSession
+      isCurrent: sameSession,
+      canClear: () => !sendEl.disabled,
+      onClear: () => {
+        if(!sameSession()||sendEl.disabled)return;
+        stopDictation?.();
+        history=[];
+        for(const key of [opts.storageKey,opts.threadKey,opts.contKey,opts.lastKey])lsRemove(key);
+        MEM_TID='';MEM_CONT=null;
+        logEl.replaceChildren();
+        const empty=document.createElement('div');
+        empty.className='ai-empty';empty.textContent='Start a new conversation.';logEl.appendChild(empty);
+        inputEl.value='';inputEl.dispatchEvent(new Event('input'));
+        setStatus('');
+      }
     });
     const chatViewport = wireChatViewport({section:sectionEl, input:inputEl, form:formEl, log:logEl});
     const reports = createReportManager({endpoint:opts.reportEndpoint,getToken:getAuthToken,projectId,isCurrent:sameSession});
@@ -422,13 +455,12 @@ export const FVCopilotUI = (() => {
       return txt || ans || '(No response)';
     }
 
-    async function callAssistant(prompt){
+    async function callAssistant(prompt,turn){
       if (!sameSession()) {
         throw new Error('Your farm or sign-in changed. Reload FarmVista before continuing.');
       }
       const payload = {
-        requestId: crypto.randomUUID(),
-        text: String(prompt || ''),
+        text: String(prompt || ''),requestId:turn.id,cancellable:true,
         threadId: getThreadId(),
         projectId,
         history: requestHistory(history, prompt),
@@ -444,9 +476,35 @@ export const FVCopilotUI = (() => {
       const cont = getContinuation();
       if (cont) payload.continuation = cont;
 
-      const data = await recoverableChat({endpoint:opts.copilotEndpoint,payload,getToken:getAuthToken,sameSession,onRecover:setStatus});
+      const idToken = await getAuthToken();
+      if (!idToken) throw new Error('Please sign in again to read your farm records.');
+      const headers = { 'Content-Type': 'application/json' };
+      if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
+
+      const res = await fetch(opts.copilotEndpoint, {
+        method: 'POST',
+        headers,
+        signal: AbortSignal.any([AbortSignal.timeout(240000),turn.controller.signal]),
+        body: JSON.stringify(payload)
+      });
+
+      // Try to parse JSON even on error so we can show the real backend message
+      let data = null;
+      try { data = await res.json(); } catch { data = null; }
+
+      if (!res.ok) {
+        const msg = (data && (data.error || data.message)) ? String(data.error || data.message) : '';
+        const detail = msg ? ` — ${msg}` : '';
+        throw new Error(`API error ${res.status}${detail}`);
+      }
+
+      if (data && data.ok === false) {
+        const msg = (data.error || data.message) ? String(data.error || data.message) : 'Unknown error';
+        throw new Error(msg);
+      }
       if (!sameSession()) throw new Error('Your sign-in changed. Reload FarmVista.');
 
+      if(turn.stopped)throw new Error('Question stopped.');
       // optional continuation support if backend returns it
       if (Object.prototype.hasOwnProperty.call(data?.meta || {}, 'continuation')) {
         setContinuation(data.meta.continuation || null);
@@ -474,21 +532,30 @@ export const FVCopilotUI = (() => {
       if (!text) return;
 
       append('user', text);
+      const turn={id:crypto.randomUUID(),controller:new AbortController(),text,entry:history.at(-1),node:logEl.lastElementChild,stopped:false};activeTurn=turn;
 
       inputEl.value = '';
       inputEl.style.height = 'auto';
 
       setThinking(true);
       try{
-        const out = await callAssistant(text);
-        if (!sameSession()) return;
+        const out = await callAssistant(text,turn);
+        if (!sameSession()||turn.stopped) return;
         append('assistant', (out && out.text) ? out.text : '(No response)', out ? out.proof : null, out?.sources || [], false, out || {});
       }catch(e){
         if (!sameSession()) return;
+        if(turn.stopped)return;
         const msg = (e && e.message) ? String(e.message) : "Sorry, I couldn't process that request right now.";
         append('assistant', msg, null, [], true);
       }finally{
-        if (sameSession()) setThinking(false);
+        if(activeTurn===turn)activeTurn=null;
+        if (sameSession()) {
+          setThinking(false);
+          if(turn.stopped){
+            history=history.filter(entry=>entry!==turn.entry);turn.node?.remove();saveHistory();setContinuation(null);
+            inputEl.value=turn.text;inputEl.dispatchEvent(new Event('input'));inputEl.focus();setStatus('Question stopped. Edit it and send again.');
+          }
+        }
       }
     }, true);
 
@@ -518,9 +585,11 @@ export const FVCopilotUI = (() => {
     onAuthStateChanged(auth, user => {
       if (user?.uid === signedInUser.uid) return;
       sessionChanged = true;
+      activeTurn?.controller.abort();stopButton.hidden=true;
       dictation?.destroy();
       chatViewport.destroy();
       reports.destroy();
+      issues.destroy();
       reportCreate.disabled = true;
       history = [];
       chatActions.refresh();
