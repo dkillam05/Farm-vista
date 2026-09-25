@@ -6,6 +6,7 @@ import { messageHtml, mountChatActions } from './copilot-presentation.js';
 import { wireChatViewport } from './copilot-viewport.js';
 import { wireChatDictation } from './copilot-dictation.js';
 import { createReportManager } from './copilot-reports.js';
+import { recoverableChat } from './copilot-transport.js';
 
 export const FVCopilotUI = (() => {
   const DEFAULTS = {
@@ -426,6 +427,7 @@ export const FVCopilotUI = (() => {
         throw new Error('Your farm or sign-in changed. Reload FarmVista before continuing.');
       }
       const payload = {
+        requestId: crypto.randomUUID(),
         text: String(prompt || ''),
         threadId: getThreadId(),
         projectId,
@@ -442,32 +444,7 @@ export const FVCopilotUI = (() => {
       const cont = getContinuation();
       if (cont) payload.continuation = cont;
 
-      const idToken = await getAuthToken();
-      if (!idToken) throw new Error('Please sign in again to read your farm records.');
-      const headers = { 'Content-Type': 'application/json' };
-      if (idToken) headers['Authorization'] = `Bearer ${idToken}`;
-
-      const res = await fetch(opts.copilotEndpoint, {
-        method: 'POST',
-        headers,
-        signal: AbortSignal.timeout(240000),
-        body: JSON.stringify(payload)
-      });
-
-      // Try to parse JSON even on error so we can show the real backend message
-      let data = null;
-      try { data = await res.json(); } catch { data = null; }
-
-      if (!res.ok) {
-        const msg = (data && (data.error || data.message)) ? String(data.error || data.message) : '';
-        const detail = msg ? ` — ${msg}` : '';
-        throw new Error(`API error ${res.status}${detail}`);
-      }
-
-      if (data && data.ok === false) {
-        const msg = (data.error || data.message) ? String(data.error || data.message) : 'Unknown error';
-        throw new Error(msg);
-      }
+      const data = await recoverableChat({endpoint:opts.copilotEndpoint,payload,getToken:getAuthToken,sameSession,onRecover:setStatus});
       if (!sameSession()) throw new Error('Your sign-in changed. Reload FarmVista.');
 
       // optional continuation support if backend returns it
