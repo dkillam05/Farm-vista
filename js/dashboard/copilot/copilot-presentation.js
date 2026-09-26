@@ -94,12 +94,12 @@ export function mountChatActions({host, getHistory, isCurrent, onClear, onReport
     .fv-chat-copy-dialog{box-sizing:border-box;width:min(520px,calc(100vw - 32px));max-height:85vh;border:1px solid var(--border,#ccc);border-radius:14px;padding:18px;background:var(--surface,#fff);color:var(--text,#18251c)}
     .fv-chat-copy-dialog::backdrop{background:rgba(0,0,0,.55)}
     .fv-chat-copy-dialog textarea{box-sizing:border-box;width:100%;height:40vh;font:16px/1.5 sans-serif;background:var(--surface,#fff);color:inherit;border:1px solid var(--border,#ccc)}
-    .fv-chat-copy-dialog button{min-height:44px;margin-top:10px;padding:8px 14px;border:0;border-radius:8px;background:#2f6c3c;color:#fff;font:inherit}
+    .fv-chat-copy-dialog button{min-height:44px;margin-top:10px;padding:8px 14px;border:0;border-radius:8px;background:#2f6c3c;color:#fff!important;font:inherit}
     .fv-chat-clear-dialog{width:min(360px,calc(100vw - 32px))}
     .fv-chat-clear-dialog h2{font-size:18px;margin:0 0 12px}
     .fv-chat-clear-dialog p{font-size:14px;line-height:1.5}
     .fv-chat-clear-dialog .fv-chat-confirm-actions{display:flex;justify-content:flex-end;gap:10px}
-    .fv-chat-clear-dialog button[data-cancel]{background:transparent;color:inherit;border:1px solid var(--border,#ccc)}
+    .fv-chat-clear-dialog button[data-cancel]{background:transparent;color:inherit!important;border:1px solid var(--border,#ccc)}
   `;
   doc.head.appendChild(style);
   host.appendChild(root);

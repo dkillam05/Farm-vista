@@ -138,6 +138,7 @@ for the rainfall map so blobs and popups refresh to that date window.
     const clearBtn      = document.getElementById('clearRangeBtn');
     const applyBtn      = document.getElementById('applyRangeBtn');
     const closeBtn      = document.getElementById('closeCalBtn');
+    const menuPanel     = jobInput && jobInput.closest('.panel-menu');
 
     if (!jobInput || !popover || !monthSelect || !yearSelect ||
         !daysContainer || !rangeSummary || !clearBtn ||
@@ -426,10 +427,23 @@ for the rainfall map so blobs and popups refresh to that date window.
 
     function openCalendar() {
       popover.style.display = 'block';
+      if (menuPanel) {
+        menuPanel.classList.add('date-range-open');
+        menuPanel.scrollTop = 0;
+      }
     }
 
     function closeCalendar() {
       popover.style.display = 'none';
+      if (menuPanel) {
+        menuPanel.classList.remove('date-range-open');
+        // Return to the time frame control when dismissing the calendar.
+        requestAnimationFrame(function () {
+          if (menuPanel.classList.contains('open') && !menuPanel.classList.contains('date-range-open')) {
+            menuPanel.scrollTop = Math.max(0, jobInput.offsetTop - 16);
+          }
+        });
+      }
     }
 
     function getRange() {
@@ -546,6 +560,9 @@ for the rainfall map so blobs and popups refresh to that date window.
       updateSummary();
       renderCalendar();
       closeCalendar();
+
+      // Applying the range immediately exposes the updated map on this page.
+      if (menuPanel) menuPanel.classList.remove('open');
 
       if (rangeStart || rangeEnd) emitApplied();
       else emitCleared();

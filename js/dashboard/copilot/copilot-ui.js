@@ -3,7 +3,7 @@ import {createIssueManager} from './copilot-issues.js';
 
 import { ready, getAuth, onAuthStateChanged } from '/js/firebase/firebase-init.js';
 import { scopeKeys, requestHistory, safeSources, readProof } from './copilot-context.js';
-import { messageHtml, mountChatActions } from './copilot-presentation.js';
+import { messageHtml, mountChatActions } from './copilot-presentation.js?v=buttons-20260926-1';
 import { wireChatViewport } from './copilot-viewport.js';
 import { wireChatDictation } from './copilot-dictation.js';
 import { createReportManager } from './copilot-reports.js';
@@ -277,7 +277,7 @@ export const FVCopilotUI = (() => {
     }
 
     let activeTurn=null;
-    const stopButton=document.createElement('button');stopButton.type='button';stopButton.className='ai-send';stopButton.textContent='■ Stop';stopButton.setAttribute('aria-label','Stop response');stopButton.hidden=true;
+    const stopButton=document.createElement('button');stopButton.type='button';stopButton.className='ai-stop';stopButton.textContent='■ Stop';stopButton.setAttribute('aria-label','Stop response');stopButton.hidden=true;
     stopButton.style.cssText='display:none;min-height:44px;padding:8px 12px;border:1px solid var(--border,#ccc);border-radius:9px;background:transparent;color:inherit;font:inherit;';
     sendEl.insertAdjacentElement('afterend',stopButton);
     stopButton.addEventListener('click',async()=>{
