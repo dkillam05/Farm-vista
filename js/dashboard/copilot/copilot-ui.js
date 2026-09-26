@@ -7,7 +7,7 @@ import { messageHtml, mountChatActions } from './copilot-presentation.js';
 import { wireChatViewport } from './copilot-viewport.js';
 import { wireChatDictation } from './copilot-dictation.js';
 import { createReportManager } from './copilot-reports.js';
-import { recoverableChat } from './copilot-transport.js';
+import { recoverableChat } from './copilot-transport.js?v=long-request-20260926-1';
 
 export const FVCopilotUI = (() => {
   const DEFAULTS = {
