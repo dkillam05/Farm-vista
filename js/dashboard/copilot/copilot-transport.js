@@ -4,7 +4,7 @@ export async function recoverableChat({endpoint,payload,getToken,sameSession,onR
   const abort=()=>{clearTimeout(timer);reject(signal.reason);};
   signal?.addEventListener('abort',abort,{once:true});
   if(signal?.aborted)abort();
-}),signal,now=Date.now,maxMs=270000}){
+}),signal,now=Date.now,maxMs=270000,requestTimeoutMs=240000}){
   const started=now(),body=JSON.stringify(payload);
   while(now()-started<maxMs){
     signal?.throwIfAborted();
@@ -15,7 +15,9 @@ export async function recoverableChat({endpoint,payload,getToken,sameSession,onR
     if(!sameSession())throw new Error('Your farm or sign-in changed. Reload FarmVista before continuing.');
     let res,data;
     try{
-      res=await fetchImpl(endpoint,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body,signal:AbortSignal.any([AbortSignal.timeout(Math.max(1,Math.min(30000,maxMs-(now()-started)))),...(signal?[signal]:[])])});
+      // Deere scans can take minutes. Preserve the live response like Beta does;
+      // use the saved request receipt only if the connection actually breaks.
+      res=await fetchImpl(endpoint,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body,signal:AbortSignal.any([AbortSignal.timeout(Math.max(1,Math.min(requestTimeoutMs,maxMs-(now()-started)))),...(signal?[signal]:[])])});
       data=await res.json();
     }catch{
       signal?.throwIfAborted();
