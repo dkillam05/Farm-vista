@@ -22,3 +22,9 @@ test('broken JSON after completed response is recovered using the same identifie
  let calls=0;const r=await recoverableChat({...base,fetchImpl:async()=>({status:200,ok:true,json:async()=>{if(++calls===1)throw new TypeError('stream interrupted');return {ok:true,text:'Saved answer'};}})});
  assert.equal(r.text,'Saved answer');assert.equal(calls,2);
 });
+test('stopping a question interrupts recovery before any further request',async()=>{
+ const controller=new AbortController();let calls=0;
+ await assert.rejects(recoverableChat({...base,signal:controller.signal,onRecover:()=>controller.abort(new Error('Stopped')),
+   fetchImpl:async()=>{calls++;throw new TypeError('Failed to fetch');}}),/Stopped/);
+ assert.equal(calls,1);
+});
