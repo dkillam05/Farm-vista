@@ -10,7 +10,7 @@ import { createReportManager } from './copilot-reports.js';
 
 export const FVCopilotUI = (() => {
   const DEFAULTS = {
-    copilotEndpoint: (window.FV_COPILOT_ENDPOINT || 'https://farmvista-copilot-300398089669.us-central1.run.app/chat/agronomy-preview').toString(),
+    copilotEndpoint: (window.FV_COPILOT_ENDPOINT || 'https://farmvista-copilot-300398089669.us-central1.run.app/chat').toString(),
     reportEndpoint:  (window.FV_COPILOT_REPORT_ENDPOINT || 'https://farmvista-copilot-300398089669.us-central1.run.app/report/beta').toString(),
 
     sectionSel: '#ai-section',
