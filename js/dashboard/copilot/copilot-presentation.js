@@ -44,10 +44,10 @@ export function chatTranscript(history) {
   const messages = (Array.isArray(history) ? history : []).filter(message =>
     message && ['user','assistant'].includes(message.role) && typeof message.text==='string' && message.text.trim());
   if (!messages.length) return '';
-  return 'FarmVista Copilot — conversation\n\n' + messages.map(message => {
+  return 'Scout AI — conversation\n\n' + messages.map(message => {
     // Never export a legacy PDF URL, which may contain private access parameters.
     const text = message.text.startsWith('[[FV_PDF]]:') ? '[Report attachment not included]' : messageText(message.text);
-    return (message.role==='user' ? 'You' : 'Copilot') + ':\n' + text + (message.proof ? '\n' + String(message.proof) : '');
+    return (message.role==='user' ? 'You' : 'Scout') + ':\n' + text + (message.proof ? '\n' + String(message.proof) : '');
   }).join('\n\n');
 }
 
@@ -55,7 +55,7 @@ export function chatTranscript(history) {
 export async function transferChat(text, action, nav) {
   if (!text) return 'empty';
   if (action==='share' && typeof nav.share==='function') {
-    try { await nav.share({title:'FarmVista Copilot conversation', text}); return 'shared'; }
+    try { await nav.share({title:'Scout AI conversation', text}); return 'shared'; }
     catch (error) { return error?.name==='AbortError' ? 'cancelled' : 'manual'; }
   }
   if (typeof nav.clipboard?.writeText==='function') {

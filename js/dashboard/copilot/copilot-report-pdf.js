@@ -20,7 +20,7 @@ export function buildReportPdf({report,branding,jsPDF,preparedAt=new Date()}) {
   const pdf=new jsPDF({orientation:landscape?'landscape':'portrait',unit:'pt',format:'letter',compress:true});
   if(typeof pdf.autoTable!=='function')throw new Error('The PDF table tools did not load. Please try again.');
   const width=pdf.internal.pageSize.getWidth(),height=pdf.internal.pageSize.getHeight(),margin=34;
-  pdf.setProperties({title:text(report.title),subject:'FarmVista report from current records',author:text(branding.name || 'FarmVista'),creator:'FarmVista Copilot'});
+  pdf.setProperties({title:text(report.title),subject:'FarmVista report from current records',author:text(branding.name || 'FarmVista'),creator:'Scout AI'});
   pdf.setFont('helvetica','bold');pdf.setFontSize(15);
   const companyLines=pdf.splitTextToSize(text(branding.name || 'FarmVista'),width-170);
   const headerBottom=Math.max(100,38+companyLines.length*17+34);

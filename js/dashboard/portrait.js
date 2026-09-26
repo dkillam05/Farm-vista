@@ -224,7 +224,7 @@
   document.addEventListener('fv:dash-perms-ready',()=>{enableLongPressSorting();restoreAttentionOrder();});
   function layoutLabels(){
     attentionTitle.textContent = mobile() ? 'At a glance' : originalAttentionTitle;
-    aiTitle.textContent = mobile() ? 'FarmVista AI' : originalAITitle;
+    aiTitle.textContent = mobile() ? 'Scout AI' : originalAITitle;
     aiSub.textContent = mobile() ? 'Ask about your farm' : originalAISub;
   }
   layoutLabels(); addEventListener('resize', layoutLabels);

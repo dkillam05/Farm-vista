@@ -373,7 +373,7 @@ export const FVCopilotUI = (() => {
     function renderMessage(role, text, proof, sources = [], details = {}){
       clearEmptyState();
 
-      const who = role === 'user' ? 'You' : 'FarmVista AI';
+      const who = role === 'user' ? 'You' : 'Scout';
 
       const wrap = document.createElement('div');
       wrap.className = 'ai-msg-wrap ' + (role === 'user' ? 'ai-row-user' : 'ai-row-assistant');
@@ -605,7 +605,7 @@ export const FVCopilotUI = (() => {
     if (!initializing) initializing = initialize(userOpts).catch(error => {
       initializing = null;
       const status = getEl(userOpts.statusSel || DEFAULTS.statusSel);
-      if (status) status.textContent = 'Copilot could not connect. Reload FarmVista to try again.';
+      if (status) status.textContent = 'Scout could not connect. Reload FarmVista to try again.';
       console.warn('[copilot] initialization failed', error?.name || 'Error');
       return { ok:false, reason:'initialization_failed' };
     });

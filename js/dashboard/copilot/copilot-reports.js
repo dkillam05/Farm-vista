@@ -56,7 +56,7 @@ async function companyBranding(isCurrent){
 export function createReportManager({endpoint,getToken,projectId,isCurrent}){
   const cache=new Map();let activeUrl=null,activeFile=null,activePdf=null,sequence=0;
   const modal=document.createElement('dialog');modal.className='fv-report-dialog';
-  modal.setAttribute('aria-label','Copilot report');
+  modal.setAttribute('aria-label','Scout AI report');
   modal.innerHTML='<div class="fv-report-head"><strong>Report PDF</strong><button type="button" data-close>Close</button></div><div class="fv-report-actions"><button type="button" data-share disabled>Share PDF</button><button type="button" data-save disabled>Save PDF</button><button type="button" data-print disabled>Print</button><a data-open hidden target="_blank" rel="noopener">Open PDF</a></div><p class="fv-report-status" role="status" aria-live="polite"></p><iframe title="Report PDF preview"></iframe>';
   const style=document.createElement('style');style.textContent=`
     .fv-report-dialog{box-sizing:border-box;width:min(1000px,calc(100vw - 24px));height:min(88dvh,940px);max-height:calc(100dvh - 24px);max-width:calc(100vw - 24px);padding:0;border:1px solid var(--border,#ccd3cd);border-radius:14px;background:var(--surface,#fff);color:var(--text,#18251c)}
