@@ -1144,6 +1144,16 @@
     const DEFAULT_SPEED_MS = 500;
     const FRAME_FADE_MS = 180;
     const LAST_FRAME_DELAY_MS = 140;
+    // Soften IEM N0Q's baked-in reflectivity palette to match the visual
+    // intensity users expect from mainstream consumer radar apps.
+    // This changes presentation only; radar geometry/timing/data are untouched.
+    // Consumer-style presentation of the high-resolution N0Q mosaic.
+    // Keep N0Q's finer spatial detail, then visually interpolate/soften the
+    // raster and bias marginal yellow echoes toward green. Strong cores remain
+    // distinguishable while ordinary rain reads more like a consumer radar.
+    const RADAR_VISUAL_FILTER = 'blur(0.65px) hue-rotate(28deg) saturate(0.56) contrast(0.82) brightness(1.04)';
+    const RADAR_DISPLAY_WMS_URL = 'https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0q-t.cgi';
+    const RADAR_DISPLAY_WMS_LAYER = 'nexrad-n0q-wmst';
     const RADAR_SPEED_STORAGE_KEY = 'fv-radar-speed-ms';
 
     const radarState = {
@@ -1307,7 +1317,7 @@
         SERVICE: 'WMS',
         REQUEST: 'GetMap',
         VERSION: cfg.version || '1.1.1',
-        LAYERS: cfg.layers,
+        LAYERS: RADAR_DISPLAY_WMS_LAYER,
         STYLES: '',
         FORMAT: cfg.format || 'image/png',
         TRANSPARENT: String(cfg.transparent !== false).toUpperCase(),
@@ -1318,7 +1328,7 @@
         TIME: cfg.time
       });
 
-      return `${cfg.baseUrl}?${params.toString()}`;
+      return `${RADAR_DISPLAY_WMS_URL}?${params.toString()}`;
     }
 
     function warmRadarUrl(url){
@@ -1458,6 +1468,9 @@
           img.style.height = '100%';
           img.style.userSelect = 'none';
           img.style.pointerEvents = 'none';
+          img.style.filter = RADAR_VISUAL_FILTER;
+          img.style.transform = 'scale(1.003)';
+          img.style.transformOrigin = 'center center';
           img.style.opacity = '0';
           img.style.transition = `opacity ${FRAME_FADE_MS}ms linear`;
           img.src = url;
